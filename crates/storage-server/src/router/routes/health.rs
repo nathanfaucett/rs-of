@@ -1,6 +1,6 @@
 use axum::{Json, extract::State};
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(
     get,

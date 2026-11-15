@@ -1,9 +1,10 @@
-use of_model::idp::{
-    contract::{ErrorCode, IntrospectionResponse},
-    model::Id,
-};
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::introspection_response::IntrospectionResponse;
 
-use crate::{RouterState, authorize_bearer_any_principal};
+use crate::router::{
+    middleware::authorization::authorize_bearer_any_principal, state::RouterState,
+};
 
 pub async fn authorize_management_bearer(
     state: &RouterState,
@@ -36,12 +37,12 @@ pub async fn active_management_user(state: &RouterState, user_id: Id) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use device_service::HostedControlPlane;
-    use idp_service::repo::ClientRepo;
+    use device_service::hosted_control_plane::HostedControlPlane;
+    use idp_service::repo::client_repo::ClientRepo;
 
     use crate::node_join_tests::{approval_fixture, user_token};
 
-    use super::authorize_management_bearer;
+    use crate::management_owner::authorize_management_bearer;
 
     #[tokio::test]
     async fn local_management_bearer_rechecks_current_client_registration() {

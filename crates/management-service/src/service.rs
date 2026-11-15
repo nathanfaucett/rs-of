@@ -1,13 +1,26 @@
 use alloc::vec::Vec;
 
-use of_model::idp::{
-    contract::{
-        INSTALLATION_POLICY_ID, IdentityAction, PermissionEvaluationRequest, PermissionSubject,
-    },
-    model::{Id, Permission, Role},
-};
+use of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID;
 
-use crate::{ManagementError, PermissionRepo, RoleRepo, SyncSelection};
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+
+use of_model::id::Id;
+
+use of_model::idp::model::permission::Permission;
+
+use of_model::idp::model::role::Role;
+
+use of_model::management_error::ManagementError;
+
+use crate::PermissionRepo;
+
+use crate::RoleRepo;
+
+use of_model::management::SyncSelection;
 
 pub const MANAGEMENT_APPLICATION_URI: &str = "idp-management";
 
@@ -59,8 +72,8 @@ where
 
     pub async fn has_user_application_permission(
         &self,
-        user_id: of_model::idp::model::Id,
-        application_id: of_model::idp::model::Id,
+        user_id: of_model::id::Id,
+        application_id: of_model::id::Id,
         permission_name: &str,
     ) -> Result<bool, ManagementError> {
         if application_id.is_nil() || user_id.is_nil() {
@@ -89,7 +102,7 @@ where
 
     pub async fn list_roles(
         &self,
-        application_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
         offset: u32,
         limit: u32,
     ) -> Result<Vec<Role>, ManagementError> {
@@ -100,7 +113,7 @@ where
 
     pub async fn create_role(
         &self,
-        application_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
         name: &str,
         description: Option<&str>,
     ) -> Result<Role, ManagementError> {
@@ -181,8 +194,8 @@ where
 
     pub async fn ensure_role(
         &self,
-        id: of_model::idp::model::Id,
-        application_id: of_model::idp::model::Id,
+        id: of_model::id::Id,
+        application_id: of_model::id::Id,
         name: &str,
         description: Option<&str>,
     ) -> Result<Role, ManagementError> {
@@ -217,8 +230,8 @@ where
 
     pub async fn find_role_by_id(
         &self,
-        application_id: of_model::idp::model::Id,
-        role_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
+        role_id: of_model::id::Id,
     ) -> Result<Option<Role>, ManagementError> {
         self.role_repo
             .find_role_by_id(application_id, role_id)
@@ -227,8 +240,8 @@ where
 
     pub async fn delete_role_by_id(
         &self,
-        application_id: of_model::idp::model::Id,
-        role_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
+        role_id: of_model::id::Id,
     ) -> Result<(), ManagementError> {
         self.role_repo
             .delete_role_by_id(application_id, role_id)
@@ -237,9 +250,9 @@ where
 
     pub async fn add_role_to_user(
         &self,
-        application_id: of_model::idp::model::Id,
-        user_id: of_model::idp::model::Id,
-        role_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
+        user_id: of_model::id::Id,
+        role_id: of_model::id::Id,
     ) -> Result<(), ManagementError> {
         self.role_repo
             .add_role_to_user(application_id, user_id, role_id)
@@ -248,9 +261,9 @@ where
 
     pub async fn remove_role_from_user(
         &self,
-        application_id: of_model::idp::model::Id,
-        user_id: of_model::idp::model::Id,
-        role_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
+        user_id: of_model::id::Id,
+        role_id: of_model::id::Id,
     ) -> Result<(), ManagementError> {
         self.role_repo
             .remove_role_from_user(application_id, user_id, role_id)
@@ -259,8 +272,8 @@ where
 
     pub async fn list_user_roles(
         &self,
-        application_id: of_model::idp::model::Id,
-        user_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
+        user_id: of_model::id::Id,
     ) -> Result<Vec<Role>, ManagementError> {
         self.role_repo
             .list_user_roles(application_id, user_id)
@@ -269,7 +282,7 @@ where
 
     pub async fn list_user_roles_across_applications(
         &self,
-        user_id: of_model::idp::model::Id,
+        user_id: of_model::id::Id,
     ) -> Result<Vec<Role>, ManagementError> {
         self.role_repo
             .list_user_roles_across_applications(user_id)
@@ -278,7 +291,7 @@ where
 
     pub async fn list_permissions(
         &self,
-        application_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
         offset: u32,
         limit: u32,
     ) -> Result<Vec<Permission>, ManagementError> {
@@ -289,7 +302,7 @@ where
 
     pub async fn create_permission(
         &self,
-        application_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
         name: &str,
         description: Option<&str>,
     ) -> Result<Permission, ManagementError> {
@@ -300,8 +313,8 @@ where
 
     pub async fn ensure_permission(
         &self,
-        id: of_model::idp::model::Id,
-        application_id: of_model::idp::model::Id,
+        id: of_model::id::Id,
+        application_id: of_model::id::Id,
         name: &str,
         description: Option<&str>,
     ) -> Result<Permission, ManagementError> {
@@ -347,8 +360,8 @@ where
 
     pub async fn find_permission_by_id(
         &self,
-        application_id: of_model::idp::model::Id,
-        permission_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
+        permission_id: of_model::id::Id,
     ) -> Result<Option<Permission>, ManagementError> {
         self.permission_repo
             .find_permission_by_id(application_id, permission_id)
@@ -357,8 +370,8 @@ where
 
     pub async fn delete_permission_by_id(
         &self,
-        application_id: of_model::idp::model::Id,
-        permission_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
+        permission_id: of_model::id::Id,
     ) -> Result<(), ManagementError> {
         self.permission_repo
             .delete_permission_by_id(application_id, permission_id)
@@ -367,8 +380,8 @@ where
 
     pub async fn list_role_permissions(
         &self,
-        application_id: of_model::idp::model::Id,
-        role_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
+        role_id: of_model::id::Id,
     ) -> Result<Vec<Permission>, ManagementError> {
         self.permission_repo
             .list_role_permissions(application_id, role_id)
@@ -377,9 +390,9 @@ where
 
     pub async fn add_permission_to_role(
         &self,
-        application_id: of_model::idp::model::Id,
-        role_id: of_model::idp::model::Id,
-        permission_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
+        role_id: of_model::id::Id,
+        permission_id: of_model::id::Id,
     ) -> Result<(), ManagementError> {
         self.permission_repo
             .add_permission_to_role(application_id, role_id, permission_id)
@@ -388,9 +401,9 @@ where
 
     pub async fn remove_permission_from_role(
         &self,
-        application_id: of_model::idp::model::Id,
-        role_id: of_model::idp::model::Id,
-        permission_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
+        role_id: of_model::id::Id,
+        permission_id: of_model::id::Id,
     ) -> Result<(), ManagementError> {
         self.permission_repo
             .remove_permission_from_role(application_id, role_id, permission_id)
@@ -472,9 +485,7 @@ where
         &self,
         device_id: Id,
     ) -> Result<Vec<SyncSelection>, ManagementError> {
-        self.permission_repo
-            .list_device_selections(device_id)
-            .await
+        self.permission_repo.list_device_selections(device_id).await
     }
 
     pub async fn list_resource_sync_targets(
@@ -496,10 +507,7 @@ where
             .await
     }
 
-    pub async fn clear_device_selections(
-        &self,
-        device_id: Id,
-    ) -> Result<(), ManagementError> {
+    pub async fn clear_device_selections(&self, device_id: Id) -> Result<(), ManagementError> {
         self.permission_repo
             .clear_device_selections(device_id)
             .await
@@ -510,27 +518,30 @@ where
 mod tests {
     use std::sync::Arc;
 
-    use of_model::idp::model::Id;
+    use of_model::id::Id;
 
-    use crate::{
-        ManagementService,
-        replica::{DbPermissionRepo, DbRoleRepo, up},
-    };
+    use crate::service::ManagementService;
+
+    use crate::replica::DbPermissionRepo;
+
+    use crate::replica::DbRoleRepo;
+
+    use of_model::idp::replica::up;
 
     #[tokio::test]
     async fn initial_administrator_has_explicit_client_registration_permission() {
-        use of_model::idp::contract::{
+        use of_model::idp::contract::permission_evaluation::{
             IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
             PermissionTarget,
         };
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         up(&engine).await.expect("initialize policy schema");
         let service = ManagementService::new(
             DbPermissionRepo::new(engine.client()),
             DbRoleRepo::new(engine.client()),
         );
         let administrator = Id::now_v7();
-        let permissions: Vec<_> = super::INITIAL_ADMINISTRATOR_ACTIONS
+        let permissions: Vec<_> = crate::service::INITIAL_ADMINISTRATOR_ACTIONS
             .iter()
             .map(|action| (Id::now_v7(), *action))
             .collect();
@@ -574,7 +585,7 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_rbac_records_retry_by_stable_id_and_reject_conflicts() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         up(&engine).await.expect("initialize management schema");
         let service = ManagementService::new(
             DbPermissionRepo::new(engine.client()),
@@ -600,14 +611,9 @@ mod tests {
         assert_eq!(created, retried);
         let permission_id = Id::now_v7();
         let permission = service
-                .ensure_permission(
-                    permission_id,
-                    application_id,
-                    "test-permission",
-                    None,
-                )
-                .await
-                .expect("create permission with stable ID");
+            .ensure_permission(permission_id, application_id, "test-permission", None)
+            .await
+            .expect("create permission with stable ID");
         let retried = service
             .ensure_permission(permission_id, application_id, "test-permission", None)
             .await

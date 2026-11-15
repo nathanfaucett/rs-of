@@ -3,14 +3,17 @@ use std::{collections::BTreeMap, io, path::PathBuf, sync::Arc, time::Duration};
 use futures::stream::StreamExt;
 use iroh::EndpointId;
 use iroh_chain::Server;
-use of_model::contract::SelectedResource;
-use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
+use of_model::contract::replication::SelectedResource;
+use storage_service::{
+    database_runtime::DatabaseRuntime, scoped_file_system::ScopedFileSystemRuntime,
+};
 use tokio::{sync::watch, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    LocalReplicationAuthorizer, data_protocol::DataProtocolHandler,
-    database_protocol::DatabaseProtocolHandler, storage_protocol::StorageProtocolHandler,
+    data_protocol::DataProtocolHandler, database_protocol::DatabaseProtocolHandler,
+    local_replication_authorizer::LocalReplicationAuthorizer,
+    storage_protocol::StorageProtocolHandler,
 };
 
 pub struct StorageReplicationRuntime {
@@ -471,11 +474,11 @@ impl ReplicationHost {
 
 struct ResourceScope<'a>(&'a SelectedResource);
 
-impl of_model::storage::StorageNamespace for ResourceScope<'_> {
+impl of_model::storage::namespace::StorageNamespace for ResourceScope<'_> {
     fn user_sub(&self) -> &str {
         &self.0.owner_subject
     }
-    fn application_id(&self) -> of_model::idp::model::Id {
+    fn application_id(&self) -> of_model::id::Id {
         self.0
             .application_id
             .parse()

@@ -4,8 +4,8 @@ use alloc::{
 };
 use core::error::Error;
 
-use of_model::idp::contract::{ErrorCode, ErrorResponse};
-use key::DerivationPath;
+use bip32::DerivationPath;
+use of_model::idp::contract::{error_code::ErrorCode, error_response::ErrorResponse};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RepoError {
@@ -13,7 +13,7 @@ pub enum RepoError {
     DeserializeError(#[from] serde::de::value::Error),
 
     #[error("key error: {0}")]
-    Key(#[from] key::KeyError),
+    Key(#[from] key::error::KeyError),
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("no access to key: {0}")]

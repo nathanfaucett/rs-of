@@ -4,23 +4,22 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use device_service::HostedControlPlane;
-use device_service::replica::DbSelectionPolicyRepo;
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
-use of_model::idp::{
-    contract::{ErrorCode, IdentityAction},
-    model::Id,
-};
-async fn up(engine: &db::Database) -> Result<(), db::QueryError> {
+use device_service::hosted_control_plane::HostedControlPlane;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use management_service::replica::permission_repo::DbPermissionRepo;
+use management_service::replica::role_repo::DbRoleRepo;
+use management_service::service::ManagementService;
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+async fn up(engine: &ofdb_sql::Database) -> Result<(), ofdb_sql::QueryError> {
     of_model::idp::replica::up(engine).await?;
-    device_service::replica::up(engine).await
+    device_service::replica::schema::up(engine).await
 }
 
-use crate::router::{RouterState, middleware::DeviceAuthorization};
+use crate::router::{middleware::device_authorization::DeviceAuthorization, state::RouterState};
 
-fn state(engine: Arc<db::Database>) -> RouterState {
+fn state(engine: Arc<ofdb_sql::Database>) -> RouterState {
     RouterState::new(
         "http://127.0.0.1",
         Arc::new(ManagementService::new(
@@ -42,17 +41,17 @@ fn state(engine: Arc<db::Database>) -> RouterState {
 
 #[tokio::test]
 async fn restriction_api_updates_exact_device_with_separate_read_and_update_grants() {
-    use crate::router::routes::device_restriction::{
-        DeviceRestriction, get_device_restriction, put_device_restriction,
-    };
+    use crate::router::routes::device_restriction::get_device_restriction;
+    use crate::router::routes::device_restriction::put_device_restriction;
+    use of_model::server::device::device_restriction::DeviceRestriction;
     let root = std::env::temp_dir().join(format!("restriction-api-{}.redb", Id::now_v7()));
-    let engine = Arc::new(db::Database::open(&root).expect("open policy"));
+    let engine = Arc::new(ofdb_sql::Database::open(&root).expect("open policy"));
     up(&engine).await.expect("initialize policy");
     let mut state = state(Arc::clone(&engine));
     let owner = Id::now_v7();
     let administrator = Id::now_v7();
     let device = Id::now_v7();
-    engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a', '', 1, 1, NULL, 1, 1)"), &db::SqlTranslator).await.expect("Management-owned Device");
+    engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a', '', 1, 1, NULL, 1, 1)"), &ofdb_sql::SqlTranslator).await.expect("Management-owned Device");
     let owner_api = axum::Router::new().route("/oauth2/token", axum::routing::post(|| async { Json(serde_json::json!({
         "access_token":"lookup-token", "token_type":"Bearer", "expires_in":300,
         "scope":"idp.token.validate idp.user.lookup", "iss":"https://installation.example"
@@ -74,9 +73,9 @@ async fn restriction_api_updates_exact_device_with_separate_read_and_update_gran
             .expect("control plane")
             .with_idp_service_client("lookup", "secret", "idp-services")
             .expect("scoped lookup")
-            .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
-                engine.clone().client(),
-            ))),
+            .with_local_devices(Arc::new(
+                device_service::replica::device_repo::DbDeviceRepo::new(engine.clone().client()),
+            )),
     );
     state
         .selection_policies
@@ -175,7 +174,7 @@ async fn restriction_api_updates_exact_device_with_separate_read_and_update_gran
 #[tokio::test]
 async fn restriction_api_denies_without_installation_grant_and_preserves_policy() {
     let root = std::env::temp_dir().join(format!("restriction-policy-{}.redb", Id::now_v7()));
-    let engine = Arc::new(db::Database::open(&root).expect("open policy"));
+    let engine = Arc::new(ofdb_sql::Database::open(&root).expect("open policy"));
     up(&engine).await.expect("initialize policy");
     let state = state(Arc::clone(&engine));
     let owner = Id::now_v7();
@@ -215,7 +214,7 @@ async fn restriction_api_denies_without_installation_grant_and_preserves_policy(
 #[tokio::test]
 async fn deselection_cannot_use_stale_policy_owner_when_idp_binding_is_unavailable() {
     let root = std::env::temp_dir().join(format!("stale-device-owner-{}.redb", Id::now_v7()));
-    let engine = Arc::new(db::Database::open(&root).expect("open policy"));
+    let engine = Arc::new(ofdb_sql::Database::open(&root).expect("open policy"));
     up(&engine).await.expect("initialize policy");
     let state = state(Arc::clone(&engine));
     let owner = Id::now_v7();
@@ -244,7 +243,7 @@ async fn deselection_cannot_use_stale_policy_owner_when_idp_binding_is_unavailab
         .expect("grant actor");
     state
         .selection_policies
-        .set_prevalidated(device_service::replica::SelectionPolicy {
+        .set_prevalidated(of_model::device::selection_policy::SelectionPolicy {
             device_id: device,
             owner_subject: owner.to_string(),
             application_id: Some(app),
@@ -259,7 +258,7 @@ async fn deselection_cannot_use_stale_policy_owner_when_idp_binding_is_unavailab
         Path((
             device,
             app,
-            crate::router::routes::device_selection::SelectionKind::Database,
+            of_model::server::device::device_selection::SelectionKind::Database,
             resource,
         )),
         DeviceAuthorization::new(owner, app),

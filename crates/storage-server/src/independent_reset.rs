@@ -1,11 +1,11 @@
 use std::{io, path::Path};
 
-use server_common::IndependentReset;
-use of_model::idp::model::Id;
 use idp_service::setup_credentials::delete_setup_secrets;
+use of_model::id::Id;
 use serde::Deserialize;
+use setup::independent_reset::IndependentReset;
 
-use crate::AppConfig;
+use crate::config::app_config::AppConfig;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -63,11 +63,11 @@ pub async fn reset_independent(
 mod tests {
     use std::fs;
 
-    use setup::IndependentSetupHost;
-    use of_model::idp::model::Id;
+    use of_model::id::Id;
+    use setup::independent_setup::IndependentSetupHost;
 
-    use super::reset_independent;
-    use crate::AppConfig;
+    use crate::config::app_config::AppConfig;
+    use crate::independent_reset::reset_independent;
 
     #[tokio::test]
     async fn reset_cannot_remove_a_running_setup_only_storage_host() {

@@ -1,8 +1,16 @@
 use alloc::{string::String, vec::Vec};
 
-use of_model::idp::model::{Id, User, UserEmail, UserPassword, UserPhoneNumber};
+use of_model::id::Id;
 
-use crate::repo::RepoResult;
+use of_model::idp::model::user::User;
+
+use of_model::idp::model::user_email::UserEmail;
+
+use of_model::idp::model::user_password::UserPassword;
+
+use of_model::idp::model::user_phone_number::UserPhoneNumber;
+
+use super::error::RepoResult;
 
 pub trait UserRepo {
     fn find_user_by_id(&self, id: Id) -> impl Future<Output = RepoResult<Option<User>>>;

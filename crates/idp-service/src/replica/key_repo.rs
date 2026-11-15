@@ -1,15 +1,25 @@
-use chrono::{DateTime, Timelike, Utc};
-use db::{
-    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
-    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
-};
-use of_model::idp::{
-    contract::{EntityType, JwkPublic},
-    model::{Id, Key},
-    replica::allows_authentication,
-};
+use of_model::id::Id;
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use of_model::idp::model::key::Key;
+use of_model::idp::replica::allows_authentication;
+use ofdb_sql::FromRow;
+use ofdb_sql::FromRowError;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryDelete;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use ofdb_sql::Uuid;
+use ofdb_sql::Value;
 
-use crate::repo::{KeyRepo, RepoError, RepoResult};
 
 const TABLE: &str = "keys";
 const COLUMNS: [&str; 13] = [
@@ -29,12 +39,12 @@ const COLUMNS: [&str; 13] = [
 ];
 
 pub struct DbKeyRepo {
-    engine: db::Client,
+    engine: ofdb_sql::Client,
 }
 
 impl DbKeyRepo {
     #[must_use]
-    pub const fn new(engine: db::Client) -> Self {
+    pub const fn new(engine: ofdb_sql::Client) -> Self {
         Self { engine }
     }
 
@@ -94,11 +104,11 @@ impl KeyRepo for DbKeyRepo {
         now: i64,
     ) -> RepoResult<
         Vec<(
-            of_model::idp::contract::ReplicaMembership,
-            of_model::idp::contract::IdpSignerRecord,
+            of_model::idp::contract::idp_signer::ReplicaMembership,
+            of_model::idp::contract::idp_signer::IdpSignerRecord,
         )>,
     > {
-        super::DbReplicaSignerRepo::new(self.engine.clone())
+        crate::replica::replica_signer_repo::DbReplicaSignerRepo::new(self.engine.clone())
             .trusted_signers(issuer, now)
             .await
     }
@@ -291,25 +301,43 @@ struct KeyRow {
 impl FromRow for KeyRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            parent_id: db::decode(db::value(row, columns, "parent_id")?, "parent_id")?,
-            entity_type: db::decode(db::value(row, columns, "entity_type")?, "entity_type")?,
-            entity_id: db::decode(db::value(row, columns, "entity_id")?, "entity_id")?,
-            derivation_path: db::decode(
-                db::value(row, columns, "derivation_path")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            parent_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "parent_id")?, "parent_id")?,
+            entity_type: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "entity_type")?,
+                "entity_type",
+            )?,
+            entity_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "entity_id")?, "entity_id")?,
+            derivation_path: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "derivation_path")?,
                 "derivation_path",
             )?,
-            derivation_index: db::decode(
-                db::value(row, columns, "derivation_index")?,
+            derivation_index: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "derivation_index")?,
                 "derivation_index",
             )?,
-            hardened: db::decode(db::value(row, columns, "hardened")?, "hardened")?,
-            name: db::decode(db::value(row, columns, "name")?, "name")?,
-            revoked_at: db::decode(db::value(row, columns, "revoked_at")?, "revoked_at")?,
-            expires_at: db::decode(db::value(row, columns, "expires_at")?, "expires_at")?,
-            created_at: db::decode(db::value(row, columns, "created_at")?, "created_at")?,
-            updated_at: db::decode(db::value(row, columns, "updated_at")?, "updated_at")?,
-            public_jwk: db::decode(db::value(row, columns, "public_jwk")?, "public_jwk")?,
+            hardened: ofdb_sql::decode(ofdb_sql::value(row, columns, "hardened")?, "hardened")?,
+            name: ofdb_sql::decode(ofdb_sql::value(row, columns, "name")?, "name")?,
+            revoked_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "revoked_at")?,
+                "revoked_at",
+            )?,
+            expires_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "expires_at")?,
+                "expires_at",
+            )?,
+            created_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "created_at")?,
+                "created_at",
+            )?,
+            updated_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "updated_at")?,
+                "updated_at",
+            )?,
+            public_jwk: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "public_jwk")?,
+                "public_jwk",
+            )?,
         })
     }
 }
@@ -387,7 +415,7 @@ impl From<KeyRow> for Row {
     }
 }
 
-fn decode_keys(mut results: Vec<db::QueryResult>) -> RepoResult<Vec<Key>> {
+fn decode_keys(mut results: Vec<ofdb_sql::QueryResult>) -> RepoResult<Vec<Key>> {
     results
         .pop()
         .ok_or_else(|| RepoError::InvalidInput("missing key query result".into()))?
@@ -408,7 +436,7 @@ fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
         .ok_or_else(|| RepoError::InvalidInput("invalid key timestamp".into()))
 }
 
-fn db_error(error: db::QueryError) -> RepoError {
+fn db_error(error: ofdb_sql::QueryError) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 
@@ -460,7 +488,7 @@ mod tests {
 
     #[tokio::test]
     async fn creates_uuid_keys_with_unique_sibling_paths() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         up(&engine).await.unwrap();
         let repo = DbKeyRepo::new(engine.client());
         let entity_id = Id::now_v7();

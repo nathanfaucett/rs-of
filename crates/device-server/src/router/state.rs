@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use device_service::HostedControlPlane;
-use device_service::replica::DbSelectionPolicyRepo;
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
+use device_service::hosted_control_plane::HostedControlPlane;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use management_service::replica::permission_repo::DbPermissionRepo;
+use management_service::replica::role_repo::DbRoleRepo;
+use management_service::service::ManagementService;
 
 type DbPermission = DbPermissionRepo;
 type DbRole = DbRoleRepo;

@@ -1,6 +1,6 @@
 #[test]
 fn hosted_node_join_contract_is_owned_by_device() {
-    let document = device_server::node_join_openapi();
+    let document = device_server::node_join_source::node_join_openapi();
     for path in [
         "/device/node-joins/acceptance",
         "/device/node-joins/pending",
@@ -20,12 +20,12 @@ async fn service_builder_mounts_hosted_join_routes_at_its_configured_prefix() {
     use std::sync::Arc;
     use tower::ServiceExt;
 
-    let engine = Arc::new(db::Database::in_memory());
-    device_service::replica::up(&engine)
+    let engine = Arc::new(ofdb_sql::Database::in_memory());
+    device_service::replica::schema::up(&engine)
         .await
         .expect("Management schema");
     let control = Arc::new(
-        device_service::HostedControlPlane::new_with_services(
+        device_service::hosted_control_plane::HostedControlPlane::new_with_services(
             "https://idp.example",
             "https://storage.example",
             "https://installation.example",
@@ -33,7 +33,7 @@ async fn service_builder_mounts_hosted_join_routes_at_its_configured_prefix() {
         .expect("owner interfaces"),
     );
     for prefix in ["", "/device", "/custom/device"] {
-        let router = device_server::build_router(
+        let router = device_server::runtime::build_router(
             engine.clone().client(),
             engine.clone().client(),
             "https://device.example",

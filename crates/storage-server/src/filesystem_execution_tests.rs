@@ -10,12 +10,14 @@ use file_system::{
     FileHandle, FileOperation, FileSessionService, FileSystem, OpenRequest, OperationControl,
     RemoteOperation, SyncMessage, Transport,
 };
-use of_model::idp::model::Id;
 use iroh::{EndpointId, protocol::ProtocolHandler};
 use iroh_chain::{EndpointIdStore, Server};
-use of_model::contract::SelectedResource;
-use of_model::storage::StorageNamespace;
-use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
+use of_model::contract::replication::SelectedResource;
+use of_model::id::Id;
+use of_model::storage::namespace::StorageNamespace;
+use storage_service::{
+    database_runtime::DatabaseRuntime, scoped_file_system::ScopedFileSystemRuntime,
+};
 use tokio_util::sync::CancellationToken;
 
 use super::{FILESYSTEM_STREAM_KIND, FrameAuthorizer, IrohFileTransport, IrohResourceDescriptor};
@@ -239,7 +241,7 @@ async fn delayed_http_policy_cannot_release_queued_filesystem_content_after_loca
     use std::{
         collections::BTreeMap,
         sync::{
-            Mutex as StdMutex,
+            Mutex,
             atomic::{AtomicU64, AtomicUsize},
         },
     };
@@ -283,7 +285,7 @@ async fn delayed_http_policy_cannot_release_queued_filesystem_content_after_loca
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind Management policy fixture");
             let base = format!("http://{}", listener.local_addr().expect("Management address"));
             let http = tokio::spawn(async move { axum::serve(listener, app).await.expect("serve current policy") });
-            let policy = crate::LocalReplicationAuthorizer::from_device_client(crate::DeviceClient::new(
+            let policy = crate::local_replication_authorizer::LocalReplicationAuthorizer::from_device_client(crate::device_client::DeviceClient::new(
                 &base, &base, "storage-client", "storage-secret", "https://idp.example", "management-api",
             ).expect("authenticated Management client"));
             let cancellation = CancellationToken::new();
@@ -319,7 +321,7 @@ async fn delayed_http_policy_cannot_release_queued_filesystem_content_after_loca
             });
             gate.reached().await;
             let scope = Scope { owner: fixture.resource.owner_subject.clone(), application: fixture.resource.application_id.parse().expect("Application") };
-            let id = storage_service::FileSystemId::parse(&fixture.resource.resource_id).expect("filesystem ID");
+            let id = file_system::resource::FileSystemId::parse(&fixture.resource.resource_id).expect("filesystem ID");
             match denial {
                 "resource" => fixture.runtimes[0].remove_local_copy(&scope, id).await.expect("retire filesystem copy"),
                 "owner" => fixture.runtimes[0].remove_owner_copies(&scope.owner).await.expect("retire owner copies"),
@@ -383,19 +385,25 @@ async fn real_passthrough_read_uses_authorized_reachable_full_peer_without_local
             fixture.nodes[1].root.join("staging"),
             cancellation.clone(),
         );
-        let data =
-            crate::DataProtocolHandler::new(database, handlers[1].clone(), cancellation.clone());
+        let data = crate::data_protocol::DataProtocolHandler::new(
+            database,
+            handlers[1].clone(),
+            cancellation.clone(),
+        );
         let router = iroh::protocol::Router::builder(fixture.peers.endpoints[1].clone())
             .accept(iroh_chain::DATA_ALPN, data)
             .spawn();
         handlers[0]
             .install_passthrough_reader()
             .expect("production reader wiring");
-        let session =
-            storage_service::ScopedStorageService::open_resource(&fixture.runtimes[0], scope, id)
-                .await
-                .expect("scoped Passthrough");
-        let read = || of_model::storage::StorageRequest::Read {
+        let session = storage_service::service::ScopedStorageService::open_resource(
+            &fixture.runtimes[0],
+            scope,
+            id,
+        )
+        .await
+        .expect("scoped Passthrough");
+        let read = || of_model::storage::contract::request::StorageRequest::Read {
             path: "remote.txt".into(),
         };
         let result = session.execute(read()).await;
@@ -420,7 +428,7 @@ async fn real_passthrough_read_uses_authorized_reachable_full_peer_without_local
         }
         assert_eq!(
             result.expect("real authorized DATA content"),
-            of_model::storage::StorageResponse::Read {
+            of_model::storage::contract::response::StorageResponse::Read {
                 content: b"authorized Full content".to_vec()
             }
         );
@@ -523,7 +531,8 @@ async fn real_selected_filesystem_parent_cancellation_releases_admitted_session(
             runtime,
             cancellation.clone(),
         );
-        let handler = crate::DataProtocolHandler::new(database, filesystem, cancellation);
+        let handler =
+            crate::data_protocol::DataProtocolHandler::new(database, filesystem, cancellation);
         let connection = fixture.peers.connections[1].clone();
         let task = tokio::spawn(async move { handler.accept(connection).await });
         let authorize = fixture.authorize(0);

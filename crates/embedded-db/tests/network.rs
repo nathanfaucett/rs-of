@@ -2,8 +2,12 @@
 
 use std::{net::TcpListener, time::Duration};
 
-use embedded_db::{RemoteDatabase, RemoteDatabaseConfig};
+use db::remote::RemoteDatabaseConfig;
+use embedded_db::database::RemoteDatabase;
 use of_model::db::Database;
+use ofdb_sql::QueryErrorKind;
+use ofdb_sql::Database as SqlDatabase;
+use ofdb_sql::{Row, Value};
 
 #[tokio::test]
 async fn network_database_rejects_unsafe_configuration_before_connecting() {
@@ -25,7 +29,7 @@ async fn network_database_rejects_unsafe_configuration_before_connecting() {
             Ok(_) => panic!("reject unsafe SQL endpoint"),
             Err(error) => error,
         };
-        assert_eq!(error.kind, db::QueryErrorKind::Validation);
+        assert_eq!(error.kind, QueryErrorKind::Validation);
     }
     config.endpoint = "http://127.0.0.1:50051".into();
     config.deadline_ms = 0;
@@ -37,7 +41,7 @@ async fn network_database_migrates_and_shares_real_remote_transactions() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("reserve loopback port");
     let address = listener.local_addr().expect("loopback address");
     drop(listener);
-    let hosted = db::Database::in_memory();
+    let hosted = SqlDatabase::in_memory();
     let server_database = hosted.clone();
     let (shutdown, signal) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
@@ -86,7 +90,7 @@ async fn network_database_migrates_and_shares_real_remote_transactions() {
         .expect("remote owner read");
     assert_eq!(
         result[0].rows,
-        vec![db::Row::new(vec![db::Value::Text("remote".into())])]
+        vec![Row::new(vec![Value::Text("remote".into())])]
     );
     shared
         .storage()
@@ -107,7 +111,7 @@ async fn network_database_migrates_and_shares_real_remote_transactions() {
         .expect("read server state");
     assert_eq!(
         result[0].rows,
-        vec![db::Row::new(vec![db::Value::Text("remote".into())])]
+        vec![Row::new(vec![Value::Text("remote".into())])]
     );
     let mut transaction = shared.txn().await.expect("remote commit transaction");
     transaction
@@ -126,7 +130,7 @@ async fn network_database_migrates_and_shares_real_remote_transactions() {
         .expect("read remote commit after reconnect");
     assert_eq!(
         result[0].rows,
-        vec![db::Row::new(vec![db::Value::Text("committed".into())])]
+        vec![Row::new(vec![Value::Text("committed".into())])]
     );
     drop(reconnected);
     drop(database);

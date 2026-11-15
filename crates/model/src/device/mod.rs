@@ -1,16 +1,10 @@
-mod contract;
-mod device;
-mod device_state_sql;
-pub use contract::{
-    ApprovedDeviceEndpoints, DeviceApprovalRequest, DeviceEndpointIdentity, DeviceEnrollment,
-    DeviceEnrollmentRequest, DeviceInfo, DevicePairingApprovalPayload,
-    DevicePairingApprovalRequest, DevicePairingRequest, DeviceSelfRevocationRequest, DeviceState,
-    DeviceTransferRequest, PairingAcceptance, TrustedDevice, UpdateDeviceRequest,
-    device_pairing_approval_payload, device_self_revocation_payload,
-};
-pub use device::Device;
+#![cfg_attr(not(feature = "std"), no_std)]
+#![forbid(unsafe_code)]
+#![forbid(unsafe_code)]
 
-mod selection_policy;
-pub use selection_policy::{
-    OwnerPolicyObservation, ResourceSelection, SelectedResource, SelectionPolicy,
-};
+extern crate alloc;
+
+pub mod contract;
+pub mod device;
+pub mod device_state_sql;
+pub mod selection_policy;

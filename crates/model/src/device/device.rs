@@ -3,9 +3,10 @@ use alloc::string::String;
 
 use chrono::{DateTime, Utc};
 
-use crate::idp::model::Id;
+use crate::id::Id;
 
-use super::{DeviceInfo, DeviceState};
+use crate::device::contract::device_info::DeviceInfo;
+use crate::device::contract::device_state::DeviceState;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Device {
@@ -26,7 +27,7 @@ pub struct Device {
 
 #[cfg(test)]
 mod tests {
-    use super::Device;
+    use crate::device::device::Device;
 
     #[test]
     fn legacy_device_without_owner_is_rejected() {

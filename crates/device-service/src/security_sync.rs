@@ -49,23 +49,23 @@ pub fn permits_device_table(table: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::permits_device_table;
+    use crate::security_sync::permits_device_table;
 
     #[cfg(feature = "replica")]
     #[tokio::test]
     async fn public_device_columns_match_only_the_owned_schema() {
-        let database = db::Database::in_memory();
-        crate::replica::up(&database)
+        let database = ofdb_sql::Database::in_memory();
+        crate::replica::schema::up(&database)
             .await
             .expect("declare policy schema");
-        for table in super::PUBLIC_DEVICE_TABLES {
-            let expected =
-                super::public_device_columns(table).expect("explicitly reviewed policy table");
+        for table in crate::security_sync::PUBLIC_DEVICE_TABLES {
+            let expected = crate::security_sync::public_device_columns(table)
+                .expect("explicitly reviewed policy table");
             let result = database
                 .client()
                 .translate_and_execute(
                     &alloc::format!("SELECT * FROM {table} LIMIT 0"),
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .expect("public schema columns");
@@ -78,15 +78,15 @@ mod tests {
             );
         }
         assert_eq!(
-            super::public_device_columns("local_client_credentials"),
+            crate::security_sync::public_device_columns("local_client_credentials"),
             None
         );
-        assert!(super::public_device_columns("devices").is_some());
+        assert!(crate::security_sync::public_device_columns("devices").is_some());
         assert_eq!(
-            super::public_device_columns("local_device_enrollments"),
+            crate::security_sync::public_device_columns("local_device_enrollments"),
             None
         );
-        assert_eq!(super::public_device_columns("unknown"), None);
+        assert_eq!(crate::security_sync::public_device_columns("unknown"), None);
     }
 
     #[test]

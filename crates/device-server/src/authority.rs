@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
-use db::Database;
-use device_service::replica::OwnerPolicyObservation;
-use device_service::{
-    DeviceEndpointIdentity, HostedControlPlane,
-    replica::{DbDeviceRepo, DbSelectionPolicyRepo},
+use device_service::hosted_control_plane::HostedControlPlane;
+use device_service::replica::device_repo::DbDeviceRepo;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use of_model::contract::replication::{
+    OwnerCopyCleanup, SelectedResource, SelectedResourcesResponse,
 };
-use of_model::idp::{
-    contract::{ErrorCode, ErrorResponse},
-    model::Id,
-};
-use of_model::contract::{OwnerCopyCleanup, SelectedResource, SelectedResourcesResponse};
+use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
+use of_model::device::selection_policy::OwnerPolicyObservation;
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use ofdb_sql::Database;
 
 #[derive(Clone)]
 pub struct DeviceAuthority {

@@ -1,12 +1,12 @@
-use crate::{RouterState, authorize_bearer_client};
+use crate::router::{middleware::authorization::authorize_bearer_client, state::RouterState};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
 };
-use of_model::idp::{
-    contract::{ErrorCode, ErrorResponse, IDP_USER_LOOKUP_SCOPE},
-    model::Id,
-};
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::idp::contract::service_scopes::IDP_USER_LOOKUP_SCOPE;
 
 #[utoipa::path(get, path = "/users/{user_id}/active", params(("user_id" = String, Path)),
     responses((status = 204, description = "Current conflict-clear active User"), (status = 401, description = "Invalid Client token"), (status = 403, description = "Missing exact service permission"), (status = 404, description = "User is not active")), security(("authorization" = [])))]
@@ -43,11 +43,14 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
+    use idp_service::repo::{client_repo::ClientRepo, user_repo::UserRepo};
     use of_model::idp::contract::{
-        ApplicationRegistration, ClientCredentialsGrantRequest, ClientProfile, ClientRegistration,
-        ClientType, GrantType, OAuth2ClientAuth, TokenEndpointAuthMethod, TokenRequest,
+        application_registration::ApplicationRegistration,
+        client_credentials_grant_request::ClientCredentialsGrantRequest,
+        client_profile::ClientProfile, client_registration::ClientRegistration,
+        client_type::ClientType, grant_type::GrantType, oauth2_client_auth::OAuth2ClientAuth,
+        token_endpoint_auth_method::TokenEndpointAuthMethod, token_request::TokenRequest,
     };
-    use idp_service::repo::{ClientRepo, UserRepo};
     use tower::ServiceExt;
 
     #[tokio::test]
@@ -87,7 +90,8 @@ mod tests {
             })
             .await
             .expect("scoped Management Client");
-        let router: axum::Router = crate::openapi_router(fixture.state.clone(), "/idp").into();
+        let router: axum::Router =
+            crate::router::openapi_router::openapi_router(fixture.state.clone(), "/idp").into();
         let call = |token: String, user| {
             let router = router.clone();
             async move {
@@ -140,7 +144,7 @@ mod tests {
         }
         let token = authorized.expect("authorized service token");
         assert_eq!(
-            call(token.clone(), of_model::idp::model::Id::now_v7()).await,
+            call(token.clone(), of_model::id::Id::now_v7()).await,
             StatusCode::NOT_FOUND
         );
         fixture

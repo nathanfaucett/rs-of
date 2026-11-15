@@ -1,22 +1,27 @@
 use std::io;
 
 use of_management_client::apis::{
-    Error,
     configuration::Configuration,
     default_api::{EvaluatePermissionParams, evaluate_permission},
+    support::Error,
 };
-use of_model::contract::PrincipalType;
-use of_model::idp::{
-    contract::{
-        ClientCredentialsGrantRequest, ErrorCode, ErrorResponse,
-        MANAGEMENT_PERMISSION_EVALUATE_SCOPE, OAuth2ClientAuth, PermissionEvaluationRequest,
-        PermissionEvaluationResponse, PermissionSubject, TokenEndpointAuthMethod, TokenRequest,
-    },
-    model::Id,
-};
+use of_model::contract::principal_type::PrincipalType;
+use of_model::id::Id;
+use of_model::idp::contract::client_credentials_grant_request::ClientCredentialsGrantRequest;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::idp::contract::oauth2_client_auth::OAuth2ClientAuth;
+use of_model::idp::contract::permission_evaluation::MANAGEMENT_PERMISSION_EVALUATE_SCOPE;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationResponse;
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
+use of_model::idp::contract::token_request::TokenRequest;
 use reqwest::{Client, Url};
 
-use crate::{ManagementPermissionConfig, RouterState};
+use crate::{
+    config::management_permission_config::ManagementPermissionConfig, router::state::RouterState,
+};
 
 #[derive(Clone)]
 pub struct ManagementPermissionClient {
@@ -45,7 +50,7 @@ impl ManagementPermissionClient {
             base,
             client_id: config.client_id.clone(),
             client_secret: config.client_secret.clone(),
-            client: server_common::verification_client()?,
+            client: server_common::http_client::verification_client()?,
         })
     }
 
@@ -65,7 +70,7 @@ impl ManagementPermissionClient {
                     client_id: self.client_id.clone(),
                     client_secret: self.client_secret.clone(),
                     scope: Some(MANAGEMENT_PERMISSION_EVALUATE_SCOPE.into()),
-                    audience: Some(management_service::MANAGEMENT_APPLICATION_URI.into()),
+                    audience: Some(management_service::service::MANAGEMENT_APPLICATION_URI.into()),
                     resource: None,
                 }),
                 Some(OAuth2ClientAuth {
@@ -80,7 +85,7 @@ impl ManagementPermissionClient {
             .oauth2_service
             .validate_access_token(
                 &token.access_token.0,
-                management_service::MANAGEMENT_APPLICATION_URI,
+                management_service::service::MANAGEMENT_APPLICATION_URI,
             )
             .await
             .map_err(|_| unavailable())?;

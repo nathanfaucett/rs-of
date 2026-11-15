@@ -7,7 +7,7 @@
 use alloc::{string::String, vec::Vec};
 use core::fmt::Debug;
 
-use crate::idp::model::Id;
+use crate::id::Id;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "utoipa")]
@@ -149,7 +149,7 @@ pub struct SyncSelectionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::idp::model::Id;
+    use crate::id::Id;
     use alloc::string::ToString;
 
     #[test]

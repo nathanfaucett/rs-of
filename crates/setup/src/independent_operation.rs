@@ -1,6 +1,7 @@
 use std::io;
 
-use crate::{exact_https, IndependentPeer};
+use crate::independent_peer::IndependentPeer;
+use crate::independent_peer::exact_https;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]

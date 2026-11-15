@@ -1,12 +1,11 @@
 use alloc::{string::String, vec::Vec};
 
 use chrono::{DateTime, Utc};
-use of_model::idp::{
-    contract::CodeChallengeMethod,
-    model::{Id, OAuth2AuthorizationCode},
-};
+use of_model::id::Id;
+use of_model::idp::contract::code_challenge_method::CodeChallengeMethod;
+use of_model::idp::model::oauth2_authorization_code::OAuth2AuthorizationCode;
 
-use crate::repo::RepoResult;
+use super::error::RepoResult;
 
 pub trait OAuth2AuthorizationCodeRepo {
     fn create_authorization_code(

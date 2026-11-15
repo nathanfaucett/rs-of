@@ -1,12 +1,15 @@
 use std::io;
 
-use server_common::{IndependentCreateIntent, IndependentPeer};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use of_model::idp::{contract::JwkPublic, model::Id};
-use iroh::{EndpointId, Signature};
-use serde::{Deserialize, Serialize};
+use setup::independent_operation::IndependentCreateIntent;
 
-use crate::DeviceIdentity;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use iroh::{EndpointId, Signature};
+use of_model::id::Id;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use serde::{Deserialize, Serialize};
+use setup::independent_peer::IndependentPeer;
+
+use crate::device_identity::DeviceIdentity;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -25,8 +28,10 @@ pub struct IndependentJoinRequest {
 impl IndependentJoinRequest {
     pub fn validate(&self) -> io::Result<()> {
         self.operation.canonical()?;
-        idp_service::replica::DbReplicaSignerRepo::validate_public_key(&self.public_signer)
-            .map_err(io::Error::other)?;
+        idp_service::replica::replica_signer_repo::DbReplicaSignerRepo::validate_public_key(
+            &self.public_signer,
+        )
+        .map_err(io::Error::other)?;
         if self.operation.purpose != "join" {
             return Err(io::Error::other("Join purpose required"));
         }
@@ -100,7 +105,7 @@ impl IndependentJoinApproval {
                 "invalid shared Join context",
             ));
         }
-        server_common::LocalTls::verification_client()?
+        setup::local_tls::LocalTls::verification_client()?
             .post(format!(
                 "{}/independent/node-joins/verify",
                 self.request.source.device

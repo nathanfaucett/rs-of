@@ -6,10 +6,10 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::contract::AuthorizationDetail;
+use crate::contract::authorization_details::AuthorizationDetail;
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
 
-use super::SubjectTokenType;
+use crate::idp::contract::subject_token_type::SubjectTokenType;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -63,10 +63,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::contract::{AuthorizationDetail, StorageAuthorizationAction};
+    use crate::contract::authorization_details::AuthorizationDetail;
+    use crate::contract::authorization_details::StorageAuthorizationAction;
     use alloc::vec;
 
-    use super::TokenExchangeGrantRequest;
+    use crate::idp::contract::token_exchange_grant_request::TokenExchangeGrantRequest;
 
     #[test]
     fn parses_json_encoded_authorization_details() {
@@ -82,7 +83,7 @@ mod tests {
         assert_eq!(
             request.authorization_details,
             Some(vec![AuthorizationDetail::Storage(
-                crate::contract::StorageAuthorizationDetail {
+                crate::contract::authorization_details::StorageAuthorizationDetail {
                     actions: vec![
                         StorageAuthorizationAction::Read,
                         StorageAuthorizationAction::Write

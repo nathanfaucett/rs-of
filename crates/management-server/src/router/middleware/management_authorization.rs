@@ -1,12 +1,11 @@
 use axum::extract::{FromRef, FromRequestParts};
 use http::{HeaderValue, header::AUTHORIZATION, request::Parts};
-use of_model::idp::{
-    contract::{ErrorCode, ErrorResponse},
-    model::Id,
-};
-use of_model::contract::StandardClaims;
+use of_model::contract::standard_claims::StandardClaims;
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
 pub const AUTHORIZATION_BEARER_PREFIX: &str = "Bearer ";
 
@@ -62,8 +61,8 @@ where
 }
 
 fn management_audience(claims: &StandardClaims) -> bool {
-    claims.principal_type == of_model::contract::PrincipalType::User
-        && claims.aud == management_service::MANAGEMENT_APPLICATION_URI
+    claims.principal_type == of_model::contract::principal_type::PrincipalType::User
+        && claims.aud == management_service::service::MANAGEMENT_APPLICATION_URI
 }
 
 fn authorization_from_header(
@@ -104,7 +103,10 @@ fn authorization_from_header(
 
 #[cfg(test)]
 mod tests {
-    use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+    use of_model::contract::{
+        principal_type::PrincipalType, standard_claims::StandardClaims, token_type::TokenType,
+        token_use::TokenUse,
+    };
 
     use super::management_audience;
 
@@ -126,7 +128,7 @@ mod tests {
             scope: vec!["storage".into()],
         };
         assert!(!management_audience(&claims));
-        claims.aud = management_service::MANAGEMENT_APPLICATION_URI.into();
+        claims.aud = management_service::service::MANAGEMENT_APPLICATION_URI.into();
         assert!(management_audience(&claims));
         claims.principal_type = PrincipalType::Client;
         assert!(!management_audience(&claims));

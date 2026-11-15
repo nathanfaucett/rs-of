@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use idp_service::oauth2::{decode_jwt, verify_jwt};
+use idp_service::oauth2::jwt::{decode_jwt, verify_jwt};
 
 use iroh::EndpointId;
 use of_idp_client::apis::{
@@ -15,22 +15,30 @@ use of_idp_client::apis::{
     super_routes_oauth2_introspect_api::{IntrospectParams, introspect},
 };
 use of_model::contract::{
-    AuthorizationDetail, StandardClaims, StorageAuthorizationAction, TokenResponse, TokenType,
-    TokenUse,
+    authorization_details::{AuthorizationDetail, StorageAuthorizationAction},
+    standard_claims::StandardClaims,
+    token_response::TokenResponse,
+    token_type::TokenType,
+    token_use::TokenUse,
 };
-use of_model::idp::{
-    contract::{IntrospectionResponse, Jwks},
-    model::Id,
-};
-use of_model::storage::ResourceKind;
+use of_model::id::Id;
+use of_model::idp::contract::introspection_response::IntrospectionResponse;
+use of_model::idp::contract::jwks::Jwks;
+use of_model::storage::resource_catalog::ResourceKind;
 use of_storage_api_client::apis::resources_api::{
     GetDatabaseParams, GetFileSystemParams, get_database, get_file_system,
 };
 use reqwest::{Client, Url, redirect::Policy};
 
-use crate::{DeviceEndpointIdentity, DeviceIdentity, PairingAcceptanceController};
+use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
+
+use crate::device_identity::DeviceIdentity;
+
 #[cfg(feature = "replica")]
-use crate::{DeviceRepo, DeviceState, replica::DbDeviceRepo};
+use crate::device_repo::DeviceRepo;
+use crate::pairing_acceptance::PairingAcceptanceController;
+use crate::replica::device_repo::DbDeviceRepo;
+use of_model::device::contract::device_state::DeviceState;
 
 #[derive(Clone)]
 pub struct HostedControlPlane {
@@ -334,15 +342,16 @@ impl HostedControlPlane {
         let response = introspect(
             &self.idp_configuration(Some(service_token)),
             IntrospectParams {
-                introspection_request: of_idp_client::models::IntrospectionRequest {
-                    token: actor_token.to_owned(),
-                    token_type_hint: Some(Some("access_token".to_owned())),
-                },
+                introspection_request:
+                    of_model::http::idp::introspection_request::IntrospectionRequest {
+                        token: actor_token.to_owned(),
+                        token_type_hint: Some(Some("access_token".to_owned())),
+                    },
             },
         )
         .await
         .map_err(|error| match error {
-            of_idp_client::apis::Error::ResponseError(response)
+            of_idp_client::apis::support::Error::ResponseError(response)
                 if response.status.as_u16() == 401 =>
             {
                 "actor token was rejected by IdP".to_owned()
@@ -564,7 +573,7 @@ impl HostedControlPlane {
             || claims.nbf > now
             || claims.sub.is_empty()
             || claims.aud.is_empty()
-            || claims.principal_type != of_model::contract::PrincipalType::User
+            || claims.principal_type != of_model::contract::principal_type::PrincipalType::User
         {
             return Err("invalid storage access token".to_owned());
         }
@@ -683,12 +692,21 @@ mod tests {
     };
 
     use of_model::contract::{
-        AuthorizationDetail, PrincipalType, StandardClaims, StorageAuthorizationAction,
-        StorageAuthorizationDetail, TokenType, TokenUse,
+        authorization_details::{
+            AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail,
+        },
+        principal_type::PrincipalType,
+        standard_claims::StandardClaims,
+        token_type::TokenType,
+        token_use::TokenUse,
     };
-    use of_model::storage::ResourceKind;
+    use of_model::storage::resource_catalog::ResourceKind;
 
-    use super::{HostedControlPlane, normalize_service_url, validate_storage_read_claims};
+    use crate::hosted_control_plane::HostedControlPlane;
+
+    use super::normalize_service_url;
+
+    use super::validate_storage_read_claims;
 
     const ID: &str = "00000000-0000-0000-0000-000000000001";
     const APP_ID: &str = "00000000-0000-0000-0000-000000000003";
@@ -721,7 +739,8 @@ mod tests {
 
     #[tokio::test]
     async fn local_idp_rechecks_owner_callbacks_without_service_credentials() {
-        use of_model::idp::{contract::IntrospectionResponse, model::Id};
+        use of_model::id::Id;
+        use of_model::idp::contract::introspection_response::IntrospectionResponse;
         use std::sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -772,7 +791,8 @@ mod tests {
 
     #[tokio::test]
     async fn local_idp_preserves_claim_and_identity_response_checks() {
-        use of_model::idp::{contract::IntrospectionResponse, model::Id};
+        use of_model::id::Id;
+        use of_model::idp::contract::introspection_response::IntrospectionResponse;
 
         let endpoint = iroh::SecretKey::from_bytes(&[8; 32]).public().to_string();
         let control = HostedControlPlane::new_with_services(
@@ -947,7 +967,7 @@ mod tests {
         kind: ResourceKind,
         status: &str,
         body: &str,
-    ) -> (Result<of_model::idp::model::Id, String>, String) {
+    ) -> (Result<of_model::id::Id, String>, String) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test HTTP server");
         let address = listener.local_addr().expect("read test HTTP address");
         let status = status.to_owned();
@@ -1228,7 +1248,7 @@ mod tests {
 
     #[test]
     fn issuer_is_independent_of_api_base() {
-        let issuer = idp_service::oauth2::OAuth2Config::default().issuer;
+        let issuer = idp_service::oauth2::config::OAuth2Config::default().issuer;
         let control_plane = HostedControlPlane::new_with_issuer("https://api.example", &issuer)
             .expect("create control plane with distinct issuer");
         let mut signed_claims = claims();

@@ -1,14 +1,14 @@
-mod approved_device_endpoints;
-mod device_approval_request;
-mod device_endpoint_identity;
-mod device_enrollment;
-mod device_enrollment_request;
-mod device_info;
-mod device_pairing;
-mod device_self_revocation;
-mod device_state;
-mod trusted_device;
-mod update_device_request;
+pub mod approved_device_endpoints;
+pub mod device_approval_request;
+pub mod device_endpoint_identity;
+pub mod device_enrollment;
+pub mod device_enrollment_request;
+pub mod device_info;
+pub mod device_pairing;
+pub mod device_self_revocation;
+pub mod device_state;
+pub mod trusted_device;
+pub mod update_device_request;
 
 pub use approved_device_endpoints::ApprovedDeviceEndpoints;
 pub use device_approval_request::DeviceApprovalRequest;

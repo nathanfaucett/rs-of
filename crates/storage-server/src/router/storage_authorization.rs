@@ -1,18 +1,27 @@
 use std::sync::Arc;
 
 use axum::Router;
-use of_model::idp::{contract::IntrospectionResponse, model::Id};
 use iroh::EndpointId;
 use of_model::contract::{
-    AuthorizationDetail, PrincipalType, StorageAuthorizationAction, TokenType, TokenUse,
+    authorization_details::{AuthorizationDetail, StorageAuthorizationAction},
+    principal_type::PrincipalType,
+    token_type::TokenType,
+    token_use::TokenUse,
 };
+use of_model::id::Id;
+use of_model::idp::contract::introspection_response::IntrospectionResponse;
 
 use crate::{
-    IdpClient, IdpIntrospectionError, StorageSocketAccess, StorageSocketAuthorizationError,
-    StorageSocketAuthorizer, storage_router,
+    idp_client::{IdpClient, IdpIntrospectionError},
+    router::storage_socket::{
+        StorageSocketAccess, StorageSocketAuthorizationError, StorageSocketAuthorizer,
+        storage_router,
+    },
 };
-use of_model::storage::StorageNamespace as StorageNamespaceContract;
-use storage_service::{FileSystemId, ScopedFileSystemRuntime, ScopedStorageService};
+use file_system::resource::FileSystemId;
+use of_model::storage::namespace::StorageNamespace as StorageNamespaceContract;
+use storage_service::scoped_file_system::ScopedFileSystemRuntime;
+use storage_service::service::ScopedStorageService;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StorageAuthorizationError {
@@ -177,13 +186,20 @@ fn storage_authorization(
 
 #[cfg(test)]
 mod tests {
-    use of_model::idp::contract::IntrospectionResponse;
     use of_model::contract::{
-        AuthorizationDetail, PrincipalType, StandardClaims, StorageAuthorizationAction,
-        StorageAuthorizationDetail, TokenType, TokenUse,
+        authorization_details::{
+            AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail,
+        },
+        principal_type::PrincipalType,
+        standard_claims::StandardClaims,
+        token_type::TokenType,
+        token_use::TokenUse,
     };
+    use of_model::idp::contract::introspection_response::IntrospectionResponse;
 
-    use super::{StorageAuthorizationError, storage_authorization};
+    use crate::router::storage_authorization::StorageAuthorizationError;
+
+    use super::storage_authorization;
 
     fn response() -> IntrospectionResponse {
         IntrospectionResponse {

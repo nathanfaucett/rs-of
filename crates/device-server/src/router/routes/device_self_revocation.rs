@@ -1,12 +1,12 @@
 use axum::{Json, extract::State};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use device_service::DeviceEnrollmentService;
-use device_service::DeviceSelfRevocationRequest;
-use device_service::device_self_revocation_payload;
-use of_model::idp::contract::{ErrorCode, ErrorResponse};
+use device_service::device_enrollment::DeviceEnrollmentService;
 use iroh::{EndpointId, Signature};
+use of_model::device::contract::device_self_revocation::DeviceSelfRevocationRequest;
+use of_model::device::contract::device_self_revocation::device_self_revocation_payload;
+use of_model::idp::contract::{error_code::ErrorCode, error_response::ErrorResponse};
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(
     post,

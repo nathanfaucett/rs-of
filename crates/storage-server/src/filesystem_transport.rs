@@ -4,7 +4,7 @@ use std::{
     io::{Error, ErrorKind},
     pin::Pin,
     sync::{
-        Arc, Mutex as StdMutex,
+        Arc, Mutex,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
 };

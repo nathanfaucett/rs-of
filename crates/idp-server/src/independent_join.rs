@@ -5,25 +5,25 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use server_common::SecurityAddon;
 use axum::{
     Json, Router,
     extract::State,
     http::{HeaderMap, StatusCode},
 };
-use db::Database;
 use device_service::independent_join::IndependentJoinApproval;
 use device_service::join_history::CheckJoinHistory;
 use device_service::join_history::JoinHistoryContext;
 use device_service::join_history::JoinHistorySource;
-use of_model::idp::contract::{IdpSignerRecord, ReplicaMembership};
+use of_model::idp::contract::idp_signer::{IdpSignerRecord, ReplicaMembership};
+use ofdb_sql::Database;
+use server_common::openapi::SecurityAddon;
 use tokio_util::sync::CancellationToken;
 
-use crate::{AppConfig, IdpRuntime, RouterState};
+use crate::{config::app_config::AppConfig, router::state::RouterState, runtime::IdpRuntime};
 
 pub async fn build_independent_idp(
     config: &AppConfig,
-    engine: db::Client,
+    engine: ofdb_sql::Client,
     owner: Option<Arc<Database>>,
     cancellation: CancellationToken,
 ) -> io::Result<IdpRuntime> {
@@ -33,7 +33,7 @@ pub async fn build_independent_idp(
             "injected identity owner and remote SQL are mutually exclusive",
         ));
     }
-    let permissions = management_service::LocalPermissions::new(engine.clone());
+    let permissions = management_service::local_permissions::LocalPermissions::new(engine.clone());
     let state = crate::runtime::build_state(config, engine, None, None, Some(permissions)).await?;
     let endpoint = config
         .oauth2
@@ -54,7 +54,7 @@ pub async fn build_independent_idp(
             .setup_http_client
             .clone()
             .map(Ok)
-            .unwrap_or_else(server_common::LocalTls::verification_client)?,
+            .unwrap_or_else(setup::local_tls::LocalTls::verification_client)?,
     });
     let checked = source.clone();
     let check: CheckJoinHistory = Arc::new(move |approval| {
@@ -164,16 +164,19 @@ async fn enroll(
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let actor = crate::authorize_bearer(&source.state, bearer)
+    let actor = crate::router::middleware::authorization::authorize_bearer(&source.state, bearer)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
-    crate::router::require_identity_permission_for_audience(
+    crate::router::middleware::identity_administration::require_identity_permission_for_audience(
         &source.state,
         &actor,
-        management_service::MANAGEMENT_APPLICATION_URI,
-        of_model::idp::contract::IdentityAction::ReplicaSignersEnroll,
-        of_model::idp::contract::PermissionTarget::Installation {
-            resource: of_model::idp::contract::IdentityResource::ReplicaSigner { member_id: None },
+        management_service::service::MANAGEMENT_APPLICATION_URI,
+        of_model::idp::contract::permission_evaluation::IdentityAction::ReplicaSignersEnroll,
+        of_model::idp::contract::permission_evaluation::PermissionTarget::Installation {
+            resource:
+                of_model::idp::contract::permission_evaluation::IdentityResource::ReplicaSigner {
+                    member_id: None,
+                },
         },
     )
     .await

@@ -4,9 +4,9 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-mod derived_key;
-mod error;
-mod master_key;
+pub mod derived_key;
+pub mod error;
+pub mod master_key;
 
 // Re-exporting types from external crates and internal modules for public use
 pub use bip32::{ChildNumber, DerivationPath, Prefix, XPrv};

@@ -1,14 +1,30 @@
-use crate::DeviceState;
-use db::{
-    Client, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom,
-    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
+use of_model::device::contract::device_state::DeviceState;
+use of_model::device::selection_policy::ResourceSelection;
+pub use of_model::device::selection_policy::{
+    OwnerPolicyObservation, SelectedResource, SelectionPolicy,
 };
-use of_model::device::ResourceSelection;
-pub use of_model::device::{OwnerPolicyObservation, SelectedResource, SelectionPolicy};
+use ofdb_sql::Client;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use ofdb_sql::Uuid;
+use ofdb_sql::Value;
 
-use crate::{DeviceError, DeviceRepo, DeviceResult};
+use of_model::device_error::DeviceError;
 
-use super::DbDeviceRepo;
+use crate::device_repo::DeviceRepo;
+
+use of_model::device_error::DeviceResult;
+
+use crate::replica::device_repo::DbDeviceRepo;
 
 const TABLE: &str = "device_selection_policies";
 const RESOURCE_TABLE: &str = "device_resource_selections";
@@ -374,7 +390,7 @@ impl DbSelectionPolicyRepo {
         Ok(!matches!(
             self.observe_owner_prevalidated(device_id, owner_subject)
                 .await?,
-            OwnerPolicyObservation::PendingCleanup { .. }
+            of_model::device::selection_policy::OwnerPolicyObservation::PendingCleanup { .. }
         ))
     }
 
@@ -425,7 +441,7 @@ impl DbSelectionPolicyRepo {
             if pending {
                 return Err(invalid("cleanup policy missing"));
             }
-            return Ok(OwnerPolicyObservation::MissingPolicy);
+            return Ok(of_model::device::selection_policy::OwnerPolicyObservation::MissingPolicy);
         };
         if policy.device_id != device_id
             || policy.owner_subject.trim().is_empty()
@@ -484,14 +500,19 @@ impl DbSelectionPolicyRepo {
                     });
                 }
             }
-            return Ok(OwnerPolicyObservation::Ready { policy, resources });
+            return Ok(
+                of_model::device::selection_policy::OwnerPolicyObservation::Ready {
+                    policy,
+                    resources,
+                },
+            );
         }
         let cleanup_id = if pending {
             let value = retained
                 .and_then(|row| row.values.get(1))
                 .ok_or_else(|| invalid("missing owner cleanup ID"))?;
-            let id: Uuid =
-                db::decode(value, "cleanup_id").map_err(|error| invalid(error.to_string()))?;
+            let id: Uuid = ofdb_sql::decode(value, "cleanup_id")
+                .map_err(|error| invalid(error.to_string()))?;
             if id.is_nil() {
                 return Err(invalid("invalid owner cleanup ID"));
             }
@@ -557,10 +578,12 @@ impl DbSelectionPolicyRepo {
             .await
             .map_err(db_error)?;
         transaction.commit().await.map_err(db_error)?;
-        Ok(OwnerPolicyObservation::PendingCleanup {
-            cleanup_id,
-            old_owner_subject: policy.owner_subject,
-        })
+        Ok(
+            of_model::device::selection_policy::OwnerPolicyObservation::PendingCleanup {
+                cleanup_id,
+                old_owner_subject: policy.owner_subject,
+            },
+        )
     }
 
     pub async fn local_cleanup_pending(&self, device_id: Uuid) -> DeviceResult<bool> {
@@ -597,8 +620,8 @@ impl DbSelectionPolicyRepo {
                     .values
                     .get(1)
                     .ok_or_else(|| invalid("missing owner cleanup ID"))?;
-                let id: Uuid =
-                    db::decode(value, "cleanup_id").map_err(|error| invalid(error.to_string()))?;
+                let id: Uuid = ofdb_sql::decode(value, "cleanup_id")
+                    .map_err(|error| invalid(error.to_string()))?;
                 if id.is_nil() {
                     return Err(invalid("invalid owner cleanup ID"));
                 }
@@ -1075,7 +1098,7 @@ fn invalid(message: impl Into<String>) -> DeviceError {
     DeviceError::InvalidInput(message.into())
 }
 
-fn db_error(error: db::QueryError) -> DeviceError {
+fn db_error(error: ofdb_sql::QueryError) -> DeviceError {
     invalid(error.to_string())
 }
 
@@ -1160,15 +1183,28 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use crate::DeviceState;
-    use db::{Database, Uuid, Value};
+    use of_model::device::contract::device_state::DeviceState;
+    use ofdb_sql::Database;
+    use ofdb_sql::Uuid;
+    use ofdb_sql::Value;
 
-    use crate::{DeviceRepo, replica::DbDeviceRepo};
+    use crate::{device_repo::DeviceRepo, replica::device_repo::DbDeviceRepo};
 
-    use super::{
-        DbSelectionPolicyRepo, OwnerPolicyObservation, SelectedResource, SelectionPolicy, TABLE,
-        assignment, from, key,
-    };
+    use crate::replica::selection_policy::DbSelectionPolicyRepo;
+
+    use of_model::device::selection_policy::OwnerPolicyObservation;
+
+    use of_model::device::selection_policy::SelectedResource;
+
+    use of_model::device::selection_policy::SelectionPolicy;
+
+    use super::TABLE;
+
+    use super::assignment;
+
+    use super::from;
+
+    use super::key;
 
     #[tokio::test]
     async fn owner_observation_keeps_exact_selections_and_cleanup_history_after_reopen() {
@@ -1182,7 +1218,7 @@ mod tests {
         let cleanup_id;
         {
             let engine = Arc::new(Database::open(&path).expect("open Management owner"));
-            crate::replica::up(&engine)
+            crate::replica::schema::up(&engine)
                 .await
                 .expect("Management schema");
             let repo = DbSelectionPolicyRepo::new(engine.client());
@@ -1201,7 +1237,7 @@ mod tests {
             repo.set_admin_allowed_prevalidated(device, &owner, false)
                 .await
                 .expect("restrict without erasing selections");
-            let OwnerPolicyObservation::Ready {
+            let of_model::device::selection_policy::OwnerPolicyObservation::Ready {
                 policy,
                 mut resources,
             } = repo
@@ -1234,7 +1270,7 @@ mod tests {
                     },
                 ]
             );
-            let OwnerPolicyObservation::PendingCleanup {
+            let of_model::device::selection_policy::OwnerPolicyObservation::PendingCleanup {
                 cleanup_id: id,
                 old_owner_subject,
             } = repo
@@ -1261,7 +1297,7 @@ mod tests {
                 repo.observe_owner_prevalidated(device, &owner)
                     .await
                     .expect("A to B to A remains pending"),
-                OwnerPolicyObservation::PendingCleanup {
+                of_model::device::selection_policy::OwnerPolicyObservation::PendingCleanup {
                     cleanup_id,
                     old_owner_subject: owner.clone()
                 }
@@ -1272,9 +1308,9 @@ mod tests {
                     .expect("retire original owner copies")
             );
             assert!(
-                matches!(repo.observe_owner_prevalidated(device, &owner).await.expect("completed history is not pending"), OwnerPolicyObservation::Ready { policy, resources } if !policy.admin_allowed && resources.is_empty())
+                matches!(repo.observe_owner_prevalidated(device, &owner).await.expect("completed history is not pending"), of_model::device::selection_policy::OwnerPolicyObservation::Ready { policy, resources } if !policy.admin_allowed && resources.is_empty())
             );
-            let OwnerPolicyObservation::PendingCleanup {
+            let of_model::device::selection_policy::OwnerPolicyObservation::PendingCleanup {
                 cleanup_id: fresh,
                 old_owner_subject,
             } = repo
@@ -1294,7 +1330,9 @@ mod tests {
     async fn owner_observation_denies_concurrent_deselection_and_ambiguous_resource_bindings() {
         let first = Arc::new(Database::in_memory());
         let second = Database::in_memory();
-        crate::replica::up(&first).await.expect("Management schema");
+        crate::replica::schema::up(&first)
+            .await
+            .expect("Management schema");
         let repo = DbSelectionPolicyRepo::new(first.clone().client());
         let device = Uuid::now_v7();
         repo.set_prevalidated(SelectionPolicy {
@@ -1312,7 +1350,7 @@ mod tests {
             .client()
             .translate_and_execute(
                 "UPDATE device_resource_selections SET selected = false",
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("offline deselection");
@@ -1321,20 +1359,20 @@ mod tests {
                 .client()
                 .translate_and_execute(
                     &format!("UPDATE device_resource_selections SET selected = {value}"),
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .expect("concurrent reselection");
         }
         sync_replica(&first, &second).await;
         assert!(
-            matches!(repo.observe_owner_prevalidated(device, "owner").await.expect("conservative resource observation"), OwnerPolicyObservation::Ready { policy, resources } if policy.admin_allowed && resources.is_empty())
+            matches!(repo.observe_owner_prevalidated(device, "owner").await.expect("conservative resource observation"), of_model::device::selection_policy::OwnerPolicyObservation::Ready { policy, resources } if policy.admin_allowed && resources.is_empty())
         );
         first
             .client()
             .translate_and_execute(
                 "UPDATE device_resource_selections SET owner_subject = 'alice'",
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("diverge first resource binding");
@@ -1342,7 +1380,7 @@ mod tests {
             .client()
             .translate_and_execute(
                 "UPDATE device_resource_selections SET owner_subject = 'bob'",
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("diverge second resource binding");
@@ -1354,7 +1392,7 @@ mod tests {
         );
     }
 
-    async fn sync_replica(source: &db::Database, destination: &db::Database) {
+    async fn sync_replica(source: &ofdb_sql::Database, destination: &ofdb_sql::Database) {
         destination
             .import_history(
                 source
@@ -1384,8 +1422,8 @@ mod tests {
         let namespace = Uuid::now_v7();
         {
             let first = Arc::new(Database::open(&path).expect("open local policy"));
-            let second = db::Database::in_memory();
-            crate::replica::up(&first)
+            let second = ofdb_sql::Database::in_memory();
+            crate::replica::schema::up(&first)
                 .await
                 .expect("initialize management only");
             let repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
@@ -1422,7 +1460,7 @@ mod tests {
                 for (device, column, value) in updates {
                     database.client().translate_and_execute(
                         &format!("UPDATE device_selection_policies SET {column} = {value} WHERE device_id = CAST('{device}' AS UUID)"),
-                        &db::SqlTranslator,
+                        &ofdb_sql::SqlTranslator,
                     ).await.expect("diverge trusted policy fixture");
                 }
             }
@@ -1433,7 +1471,7 @@ mod tests {
                     .is_err()
             );
             assert!(
-                matches!(repo.observe_owner_prevalidated(restricted, "owner").await.expect("restrictive coherent observation"), OwnerPolicyObservation::Ready { policy, resources } if !policy.admin_allowed && resources.is_empty())
+                matches!(repo.observe_owner_prevalidated(restricted, "owner").await.expect("restrictive coherent observation"), of_model::device::selection_policy::OwnerPolicyObservation::Ready { policy, resources } if !policy.admin_allowed && resources.is_empty())
             );
             assert!(repo.get(ambiguous, "alice", namespace).await.is_err());
             let policy = repo
@@ -1462,8 +1500,8 @@ mod tests {
 
     #[tokio::test]
     async fn sync_requires_two_approved_matching_selected_devices() {
-        let engine = Arc::new(db::Database::in_memory());
-        crate::replica::up(&engine)
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
+        crate::replica::schema::up(&engine)
             .await
             .expect("initialize replica");
         let devices = DbDeviceRepo::new(Arc::clone(&engine).client());
@@ -1490,8 +1528,8 @@ mod tests {
             )
             .await
             .expect("create remote device");
-        let application_id = db::Uuid::now_v7();
-        let resource_id = db::Uuid::now_v7();
+        let application_id = ofdb_sql::Uuid::now_v7();
+        let resource_id = ofdb_sql::Uuid::now_v7();
         let selected = |device_id| SelectionPolicy {
             device_id,
             owner_subject: "owner".into(),
@@ -1535,7 +1573,7 @@ mod tests {
                     resource.kind == "database" && resource.resource_id == resource_id
                 })
         );
-        let filesystem_id = db::Uuid::now_v7();
+        let filesystem_id = ofdb_sql::Uuid::now_v7();
         for device in [&local, &remote] {
             policies
                 .set_prevalidated(SelectionPolicy {
@@ -1566,9 +1604,14 @@ mod tests {
         );
         for (owner, application, kind, id) in [
             ("other", application_id, "database", resource_id),
-            ("owner", db::Uuid::now_v7(), "database", resource_id),
+            ("owner", ofdb_sql::Uuid::now_v7(), "database", resource_id),
             ("owner", application_id, "filesystem", resource_id),
-            ("owner", application_id, "database", db::Uuid::now_v7()),
+            (
+                "owner",
+                application_id,
+                "database",
+                ofdb_sql::Uuid::now_v7(),
+            ),
         ] {
             assert!(!matches!(
                 policies
@@ -1643,9 +1686,9 @@ mod tests {
 
     #[tokio::test]
     async fn replicated_revocation_blocks_previously_selected_peer() {
-        let source = Arc::new(db::Database::in_memory());
-        let destination = Arc::new(db::Database::in_memory());
-        crate::replica::up(&source)
+        let source = Arc::new(ofdb_sql::Database::in_memory());
+        let destination = Arc::new(ofdb_sql::Database::in_memory());
+        crate::replica::schema::up(&source)
             .await
             .expect("initialize source replica");
 
@@ -1679,8 +1722,8 @@ mod tests {
             .expect("approve remote device")
             .expect("remote device exists");
 
-        let application_id = db::Uuid::now_v7();
-        let resource_id = db::Uuid::now_v7();
+        let application_id = ofdb_sql::Uuid::now_v7();
+        let resource_id = ofdb_sql::Uuid::now_v7();
         for device in [&local, &remote] {
             policies
                 .set_prevalidated(SelectionPolicy {
@@ -1751,21 +1794,21 @@ mod tests {
 
     #[tokio::test]
     async fn selection_cannot_lift_local_or_replicated_admin_restriction() {
-        let first = Arc::new(db::Database::in_memory());
-        let second = Arc::new(db::Database::in_memory());
-        crate::replica::up(&first)
+        let first = Arc::new(ofdb_sql::Database::in_memory());
+        let second = Arc::new(ofdb_sql::Database::in_memory());
+        crate::replica::schema::up(&first)
             .await
             .expect("initialize replica");
         let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
         let second_repo = DbSelectionPolicyRepo::new(Arc::clone(&second).client());
-        let device_id = db::Uuid::now_v7();
-        let application_id = db::Uuid::now_v7();
+        let device_id = ofdb_sql::Uuid::now_v7();
+        let application_id = ofdb_sql::Uuid::now_v7();
         let mut stale = SelectionPolicy {
             device_id,
             owner_subject: "owner".into(),
             application_id: Some(application_id),
             selected_kind: Some("database".into()),
-            selected_id: Some(db::Uuid::now_v7()),
+            selected_id: Some(ofdb_sql::Uuid::now_v7()),
             admin_allowed: true,
         };
         first_repo
@@ -1775,7 +1818,7 @@ mod tests {
         sync_replica(&first, &second).await;
         assert!(
             !second_repo
-                .set_admin_allowed_prevalidated(db::Uuid::now_v7(), " ", false)
+                .set_admin_allowed_prevalidated(ofdb_sql::Uuid::now_v7(), " ", false)
                 .await
                 .expect("missing owner")
         );
@@ -1798,7 +1841,7 @@ mod tests {
                 .expect("restriction already set")
         );
 
-        stale.selected_id = Some(db::Uuid::now_v7());
+        stale.selected_id = Some(ofdb_sql::Uuid::now_v7());
         first_repo
             .set_prevalidated(stale.clone())
             .await
@@ -1826,7 +1869,7 @@ mod tests {
 
         stale.admin_allowed = false;
         let expected = stale.clone();
-        stale.selected_id = Some(db::Uuid::now_v7());
+        stale.selected_id = Some(ofdb_sql::Uuid::now_v7());
         assert!(first_repo.set_prevalidated(stale).await.is_err());
         assert_eq!(
             first_repo
@@ -1839,13 +1882,17 @@ mod tests {
 
     #[tokio::test]
     async fn unselected_admin_restriction_survives_restart_and_blocks_selection() {
-        let path =
-            std::env::temp_dir().join(format!("selection-policy-{}.redb", db::Uuid::now_v7()));
-        let device_id = db::Uuid::now_v7();
-        let application_id = db::Uuid::now_v7();
+        let path = std::env::temp_dir().join(format!(
+            "selection-policy-{}.redb",
+            ofdb_sql::Uuid::now_v7()
+        ));
+        let device_id = ofdb_sql::Uuid::now_v7();
+        let application_id = ofdb_sql::Uuid::now_v7();
         {
             let engine = Arc::new(Database::open(&path).expect("open database"));
-            crate::replica::up(&engine).await.expect("create schema");
+            crate::replica::schema::up(&engine)
+                .await
+                .expect("create schema");
             let repo = DbSelectionPolicyRepo::new(engine.client());
             assert!(
                 repo.set_admin_allowed_prevalidated(device_id, "owner", false)
@@ -1878,7 +1925,7 @@ mod tests {
                     owner_subject: "owner".into(),
                     application_id: Some(application_id),
                     selected_kind: Some("database".into()),
-                    selected_id: Some(db::Uuid::now_v7()),
+                    selected_id: Some(ofdb_sql::Uuid::now_v7()),
                     admin_allowed: true,
                 })
                 .await
@@ -1903,21 +1950,23 @@ mod tests {
 
     #[tokio::test]
     async fn learned_owner_change_clears_selection_and_keeps_new_owner_gated_after_reopen() {
-        let root = std::env::temp_dir().join(format!("learned-owner-{}.redb", db::Uuid::now_v7()));
-        let device_id = db::Uuid::now_v7();
-        let app = db::Uuid::now_v7();
-        let old = db::Uuid::now_v7().to_string();
-        let new = db::Uuid::now_v7().to_string();
+        let root =
+            std::env::temp_dir().join(format!("learned-owner-{}.redb", ofdb_sql::Uuid::now_v7()));
+        let device_id = ofdb_sql::Uuid::now_v7();
+        let app = ofdb_sql::Uuid::now_v7();
+        let old = ofdb_sql::Uuid::now_v7().to_string();
+        let new = ofdb_sql::Uuid::now_v7().to_string();
         {
-            let engine = std::sync::Arc::new(db::Database::open(&root).expect("open policy"));
+            let engine = std::sync::Arc::new(ofdb_sql::Database::open(&root).expect("open policy"));
             super::super::up(&engine).await.expect("initialize policy");
-            let repo = super::DbSelectionPolicyRepo::new(engine.client());
-            repo.set_prevalidated(super::SelectionPolicy {
+            let repo =
+                crate::replica::selection_policy::DbSelectionPolicyRepo::new(engine.client());
+            repo.set_prevalidated(of_model::device::selection_policy::SelectionPolicy {
                 device_id,
                 owner_subject: old.clone(),
                 application_id: Some(app),
                 selected_kind: Some("database".into()),
-                selected_id: Some(db::Uuid::now_v7()),
+                selected_id: Some(ofdb_sql::Uuid::now_v7()),
                 admin_allowed: true,
             })
             .await
@@ -1949,8 +1998,10 @@ mod tests {
             );
         }
         {
-            let engine = std::sync::Arc::new(db::Database::open(&root).expect("reopen policy"));
-            let repo = super::DbSelectionPolicyRepo::new(engine.client());
+            let engine =
+                std::sync::Arc::new(ofdb_sql::Database::open(&root).expect("reopen policy"));
+            let repo =
+                crate::replica::selection_policy::DbSelectionPolicyRepo::new(engine.client());
             assert!(repo.get(device_id, &new, app).await.is_err());
             assert!(
                 !repo
@@ -1976,18 +2027,18 @@ mod tests {
 
     #[tokio::test]
     async fn completed_local_transfer_rebinds_empty_policy_without_lifting_restriction() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         super::super::up(&engine).await.expect("schema");
-        let repo = super::DbSelectionPolicyRepo::new(engine.client());
-        let device = db::Uuid::now_v7();
-        let old = db::Uuid::now_v7().to_string();
-        let new = db::Uuid::now_v7().to_string();
-        repo.set_prevalidated(super::SelectionPolicy {
+        let repo = crate::replica::selection_policy::DbSelectionPolicyRepo::new(engine.client());
+        let device = ofdb_sql::Uuid::now_v7();
+        let old = ofdb_sql::Uuid::now_v7().to_string();
+        let new = ofdb_sql::Uuid::now_v7().to_string();
+        repo.set_prevalidated(of_model::device::selection_policy::SelectionPolicy {
             device_id: device,
             owner_subject: old.clone(),
-            application_id: Some(db::Uuid::now_v7()),
+            application_id: Some(ofdb_sql::Uuid::now_v7()),
             selected_kind: Some("database".into()),
-            selected_id: Some(db::Uuid::now_v7()),
+            selected_id: Some(ofdb_sql::Uuid::now_v7()),
             admin_allowed: true,
         })
         .await
@@ -2030,7 +2081,7 @@ mod tests {
                 .expect("new binding ready")
         );
         let policy = repo
-            .get(device, &new, db::Uuid::nil())
+            .get(device, &new, ofdb_sql::Uuid::nil())
             .await
             .expect("rebound")
             .expect("policy");
@@ -2051,9 +2102,9 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_reselection_and_deselection_resolves_to_deselected() {
-        let first = Arc::new(db::Database::in_memory());
-        let second = Arc::new(db::Database::in_memory());
-        crate::replica::up(&first)
+        let first = Arc::new(ofdb_sql::Database::in_memory());
+        let second = Arc::new(ofdb_sql::Database::in_memory());
+        crate::replica::schema::up(&first)
             .await
             .expect("initialize first replica");
         let first_devices = DbDeviceRepo::new(Arc::clone(&first).client());
@@ -2086,13 +2137,13 @@ mod tests {
         let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
         let second_repo = DbSelectionPolicyRepo::new(Arc::clone(&second).client());
         let device_id = remote.id;
-        let application_id = db::Uuid::now_v7();
+        let application_id = ofdb_sql::Uuid::now_v7();
         let mut selected = SelectionPolicy {
             device_id,
             owner_subject: "owner".into(),
             application_id: Some(application_id),
             selected_kind: Some("database".into()),
-            selected_id: Some(db::Uuid::now_v7()),
+            selected_id: Some(ofdb_sql::Uuid::now_v7()),
             admin_allowed: true,
         };
         first_repo
@@ -2134,7 +2185,7 @@ mod tests {
             );
         }
 
-        selected.selected_id = Some(db::Uuid::now_v7());
+        selected.selected_id = Some(ofdb_sql::Uuid::now_v7());
         first_repo
             .set_prevalidated(selected.clone())
             .await
@@ -2212,21 +2263,21 @@ mod tests {
 
     #[tokio::test]
     async fn owner_and_admin_conflicts_cannot_be_deselected() {
-        let first = Arc::new(db::Database::in_memory());
-        let second = Arc::new(db::Database::in_memory());
-        crate::replica::up(&first)
+        let first = Arc::new(ofdb_sql::Database::in_memory());
+        let second = Arc::new(ofdb_sql::Database::in_memory());
+        crate::replica::schema::up(&first)
             .await
             .expect("initialize replica");
         let first_repo = DbSelectionPolicyRepo::new(Arc::clone(&first).client());
         let second_repo = DbSelectionPolicyRepo::new(Arc::clone(&second).client());
-        let device_id = db::Uuid::now_v7();
-        let application_id = db::Uuid::now_v7();
+        let device_id = ofdb_sql::Uuid::now_v7();
+        let application_id = ofdb_sql::Uuid::now_v7();
         let selected = SelectionPolicy {
             device_id,
             owner_subject: "owner".into(),
             application_id: Some(application_id),
             selected_kind: Some("database".into()),
-            selected_id: Some(db::Uuid::now_v7()),
+            selected_id: Some(ofdb_sql::Uuid::now_v7()),
             admin_allowed: true,
         };
         first_repo
@@ -2238,8 +2289,8 @@ mod tests {
         for (engine, owner) in [(&first, "other"), (&second, "third")] {
             engine
                 .client()
-                .execute(vec![db::Statement::Query(db::Query::Update(
-                    db::QueryUpdate {
+                .execute(vec![ofdb_sql::Statement::Query(ofdb_sql::Query::Update(
+                    ofdb_sql::QueryUpdate {
                         from: from(),
                         assignments: vec![assignment("owner_subject", Value::Text(owner.into()))],
                         predicate: Some(super::equals("device_id", Value::Uuid(device_id))),
@@ -2265,7 +2316,7 @@ mod tests {
             }
         }
 
-        let other_device = db::Uuid::now_v7();
+        let other_device = ofdb_sql::Uuid::now_v7();
         let mut other_policy = selected.clone();
         other_policy.device_id = other_device;
         first_repo
@@ -2276,8 +2327,8 @@ mod tests {
         for (engine, allowed) in [(&first, false), (&second, false), (&second, true)] {
             engine
                 .client()
-                .execute(vec![db::Statement::Query(db::Query::Update(
-                    db::QueryUpdate {
+                .execute(vec![ofdb_sql::Statement::Query(ofdb_sql::Query::Update(
+                    ofdb_sql::QueryUpdate {
                         from: from(),
                         assignments: vec![assignment("admin_allowed", Value::Bool(allowed))],
                         predicate: Some(super::equals("device_id", Value::Uuid(other_device))),
@@ -2320,9 +2371,9 @@ mod tests {
                 .expect("clock after epoch")
                 .as_nanos()
         ));
-        let device_id = db::Uuid::now_v7();
-        let application_id = db::Uuid::now_v7();
-        let selected_id = db::Uuid::now_v7();
+        let device_id = ofdb_sql::Uuid::now_v7();
+        let application_id = ofdb_sql::Uuid::now_v7();
+        let selected_id = ofdb_sql::Uuid::now_v7();
         let policy = SelectionPolicy {
             device_id,
             owner_subject: "owner".into(),
@@ -2333,7 +2384,9 @@ mod tests {
         };
         {
             let engine: Arc<Database> = Arc::new(Database::open(&path).expect("open database"));
-            crate::replica::up(&engine).await.expect("migrate database");
+            crate::replica::schema::up(&engine)
+                .await
+                .expect("migrate database");
             DbSelectionPolicyRepo::new(engine.client())
                 .set_prevalidated(policy.clone())
                 .await
@@ -2355,19 +2408,19 @@ mod tests {
 
     #[tokio::test]
     async fn offline_deselection_keeps_admin_restriction_and_checks_owner() {
-        let engine = Arc::new(db::Database::in_memory());
-        crate::replica::up(&engine)
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
+        crate::replica::schema::up(&engine)
             .await
             .expect("initialize replica schema");
         let repo = DbSelectionPolicyRepo::new(engine.client());
-        let device_id = db::Uuid::now_v7();
-        let application_id = db::Uuid::now_v7();
+        let device_id = ofdb_sql::Uuid::now_v7();
+        let application_id = ofdb_sql::Uuid::now_v7();
         let mut policy = SelectionPolicy {
             device_id,
             owner_subject: "owner".into(),
             application_id: Some(application_id),
             selected_kind: Some("database".into()),
-            selected_id: Some(db::Uuid::now_v7()),
+            selected_id: Some(ofdb_sql::Uuid::now_v7()),
             admin_allowed: false,
         };
         repo.set_prevalidated(policy.clone())
@@ -2375,7 +2428,7 @@ mod tests {
             .expect("set selection");
         assert!(
             !repo
-                .deselect_owned(db::Uuid::now_v7(), "owner")
+                .deselect_owned(ofdb_sql::Uuid::now_v7(), "owner")
                 .await
                 .expect("missing policy")
         );
@@ -2414,14 +2467,14 @@ mod tests {
 
     #[tokio::test]
     async fn admin_restriction_without_selection_and_switch_after_deselect() {
-        let engine = Arc::new(db::Database::in_memory());
-        crate::replica::up(&engine)
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
+        crate::replica::schema::up(&engine)
             .await
             .expect("initialize replica schema");
         let repo = DbSelectionPolicyRepo::new(engine.client());
-        let device_id = db::Uuid::now_v7();
-        let app_a = db::Uuid::now_v7();
-        let app_b = db::Uuid::now_v7();
+        let device_id = ofdb_sql::Uuid::now_v7();
+        let app_a = ofdb_sql::Uuid::now_v7();
+        let app_b = ofdb_sql::Uuid::now_v7();
         let mut policy = SelectionPolicy {
             device_id,
             owner_subject: "owner".into(),
@@ -2445,7 +2498,7 @@ mod tests {
             repo.set_prevalidated(SelectionPolicy {
                 application_id: Some(app_a),
                 selected_kind: Some("database".into()),
-                selected_id: Some(db::Uuid::now_v7()),
+                selected_id: Some(ofdb_sql::Uuid::now_v7()),
                 ..policy.clone()
             })
             .await
@@ -2457,19 +2510,19 @@ mod tests {
         policy.admin_allowed = true;
         policy.application_id = Some(app_a);
         policy.selected_kind = Some("database".into());
-        policy.selected_id = Some(db::Uuid::now_v7());
+        policy.selected_id = Some(ofdb_sql::Uuid::now_v7());
         repo.set_prevalidated(policy.clone())
             .await
             .expect("select app A");
         let mut app_a_filesystem = policy.clone();
         app_a_filesystem.selected_kind = Some("filesystem".into());
-        app_a_filesystem.selected_id = Some(db::Uuid::now_v7());
+        app_a_filesystem.selected_id = Some(ofdb_sql::Uuid::now_v7());
         repo.set_prevalidated(app_a_filesystem.clone())
             .await
             .expect("select filesystem alongside database");
         let mut app_b_policy = policy.clone();
         app_b_policy.application_id = Some(app_b);
-        app_b_policy.selected_id = Some(db::Uuid::now_v7());
+        app_b_policy.selected_id = Some(ofdb_sql::Uuid::now_v7());
         repo.set_prevalidated(app_b_policy.clone())
             .await
             .expect("select app B without replacing app A");

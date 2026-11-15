@@ -13,8 +13,10 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
-use super::{Challenge, OutstandingChallenge};
-use crate::{IndependentCreateIntent, IndependentSetupHost};
+use super::Challenge;
+use super::OutstandingChallenge;
+use crate::independent_operation::IndependentCreateIntent;
+use crate::independent_setup::IndependentSetupHost;
 
 #[tokio::test]
 async fn gated_registrar_allows_status_and_cancel_and_rejects_late_completion() {

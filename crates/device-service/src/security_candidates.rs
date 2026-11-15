@@ -1,7 +1,8 @@
-use db::Value;
 use idp_service::security_sync::public_security_tables;
-use of_model::idp::{contract::JwkPublic, model::Id};
-pub use ofdb_sql::history::{
+use of_model::id::Id;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use ofdb_sql::Value;
+use ofdb_sql::{
     SyncCandidateView, SyncRowView as CandidateRow, SyncTableView as CandidateTable,
 };
 
@@ -235,7 +236,8 @@ pub fn validate_device_history(
     approval: Option<&JoinCandidate<'_>>,
 ) -> Result<(), String> {
     for table in &view.tables {
-        let columns = crate::public_device_columns(&table.name).ok_or_else(invalid)?;
+        let columns =
+            crate::security_sync::public_device_columns(&table.name).ok_or_else(invalid)?;
         if columns.len() != table.columns.len()
             || table
                 .columns

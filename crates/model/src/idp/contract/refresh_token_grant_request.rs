@@ -6,7 +6,7 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::contract::RefreshToken;
+use crate::contract::refresh_token::RefreshToken;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

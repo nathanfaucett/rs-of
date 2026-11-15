@@ -6,10 +6,11 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::contract::StandardClaims;
+use crate::contract::standard_claims::StandardClaims;
 use serde::{Deserialize, Serialize};
 
-use crate::idp::{contract::UserInfo, model::Id};
+use crate::id::Id;
+use crate::idp::contract::user_info::UserInfo;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(try_from = "serde_json::Value")]

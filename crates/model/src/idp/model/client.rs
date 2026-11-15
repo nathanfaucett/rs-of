@@ -3,11 +3,14 @@ use alloc::{string::String, vec::Vec};
 
 use chrono::{DateTime, Utc};
 
-use super::Id;
-use crate::idp::contract::{
-    ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
-    ResponseType, TokenEndpointAuthMethod,
-};
+use crate::id::Id;
+use crate::idp::contract::application_registration::ApplicationRegistration;
+use crate::idp::contract::client_profile::ClientProfile;
+use crate::idp::contract::client_registration::ClientRegistration;
+use crate::idp::contract::client_type::ClientType;
+use crate::idp::contract::grant_type::GrantType;
+use crate::idp::contract::response_type::ResponseType;
+use crate::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Client {

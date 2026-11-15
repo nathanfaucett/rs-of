@@ -1,8 +1,12 @@
 use alloc::string::ToString;
 
-use key::{DerivationPath, DerivedKey, MasterKey};
+use bip32::DerivationPath;
 
-use crate::repo::{RepoError, RepoResult};
+use key::derived_key::DerivedKey;
+
+use key::master_key::MasterKey;
+
+use super::error::{RepoError, RepoResult};
 
 pub trait PrivateKeyRepo {
     fn load(

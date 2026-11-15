@@ -25,6 +25,7 @@ ofdb-kv = { version = "0.1", path = "../../../ofdb/crates/kv", default-features 
 ofdb-platform = { version = "0.1", path = "../../../ofdb/crates/platform", default-features = false }
 ofdb-sql = { version = "0.1", path = "../../../ofdb/crates/sql", default-features = false, features = [
     "validated-history",
+    "validated-history",
     "sql",
 ] }
 

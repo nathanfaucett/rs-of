@@ -15,10 +15,11 @@ pub use authorization::{
 pub use config::OAuth2Config;
 pub(crate) use jwt::verifing_key_from_jwt;
 pub use jwt::{JwtHeader, decode_jwt, encode_jwt, verify_jwt};
+pub use of_model::oauth_user::{CreateUserRequest, UpdateUserInfoRequest};
 pub use pkce::verify_code_challenge;
 pub use principal::{ClientPrincipal, Principal, UserPrincipal};
 pub use scope::{intersect_scopes, parse_scopes, scopes_to_string, validate_scopes};
-pub use service::{CreateUserRequest, OAuth2Service, UpdateUserInfoRequest};
+pub use service::OAuth2Service;
 pub use token::validate_authorization_code_grant;
 
 pub use node_signer::NodeSignerBinding;

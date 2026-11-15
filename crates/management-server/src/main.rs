@@ -1,4 +1,4 @@
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    management_server::run().await
+    management_server::cli::run().await
 }

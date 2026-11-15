@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use db::Database;
 use iroh::{SecretKey, endpoint::presets::Minimal};
 use iroh_chain::{EndpointIdStore, Server};
+use ofdb_sql::Database;
 use tokio_util::sync::CancellationToken;
 
 use crate::{security_policy::SecurityContext, security_protocol::SecurityProtocol};
@@ -10,9 +10,13 @@ use crate::{security_policy::SecurityContext, security_protocol::SecurityProtoco
 #[tokio::test]
 async fn owner_rejects_unreviewed_public_schema() {
     let idp = Arc::new(Database::in_memory());
-    of_model::idp::replica::up(&idp).await.expect("identity schema");
+    of_model::idp::replica::up(&idp)
+        .await
+        .expect("identity schema");
     let devices = Arc::new(Database::in_memory());
-    crate::replica::up(&devices).await.expect("Device schema");
+    crate::replica::schema::up(&devices)
+        .await
+        .expect("Device schema");
     let server =
         Server::bind_with_secret_key(Minimal, SecretKey::generate(), EndpointIdStore::default())
             .await
@@ -35,7 +39,7 @@ async fn owner_rejects_unreviewed_public_schema() {
         .client()
         .translate_and_execute(
             "ALTER TABLE devices ADD COLUMN unreviewed TEXT",
-            &db::SqlTranslator,
+            &ofdb_sql::SqlTranslator,
         )
         .await
         .expect("unreviewed column");
@@ -50,9 +54,9 @@ async fn owner_rejects_unreviewed_public_schema() {
 #[test]
 fn bootstrap_requires_the_exact_shared_endpoint_before_opening_owners() {
     let endpoint = SecretKey::generate().public();
-    let mut binding = idp_service::oauth2::NodeSignerBinding {
-        member_id: of_model::idp::model::Id::now_v7(),
-        key_id: of_model::idp::model::Id::now_v7(),
+    let mut binding = idp_service::oauth2::node_signer::NodeSignerBinding {
+        member_id: of_model::id::Id::now_v7(),
+        key_id: of_model::id::Id::now_v7(),
         endpoint_id: endpoint.to_string(),
     };
     crate::node_join_owner::check_bootstrap_endpoint(endpoint, &binding)
@@ -135,7 +139,7 @@ async fn retained_join_admission_is_purpose_bound_and_rechecks_learned_state() {
     let peer = Server::bind_with_secret_key(Minimal, peer_secret, peers)
         .await
         .expect("trusted peer endpoint");
-    let bootstrap = crate::security_protocol::BOOTSTRAP_ALPN;
+    let bootstrap = crate::security_protocol::bootstrap::BOOTSTRAP_ALPN;
     for endpoint in [joining.endpoint(), peer.endpoint()] {
         endpoint.set_alpns(vec![
             iroh_chain::PAIRING_ALPN.to_vec(),

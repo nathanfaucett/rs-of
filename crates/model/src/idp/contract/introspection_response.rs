@@ -6,7 +6,7 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::contract::StandardClaims;
+use crate::contract::standard_claims::StandardClaims;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

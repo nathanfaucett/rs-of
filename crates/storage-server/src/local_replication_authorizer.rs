@@ -1,9 +1,11 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use device_service::DeviceState;
-use of_model::idp::model::Id;
 use iroh::EndpointId;
-use of_model::contract::{OwnerCopyCleanup, SelectedResource, SelectedResourcesResponse};
+use of_model::contract::replication::{
+    OwnerCopyCleanup, SelectedResource, SelectedResourcesResponse,
+};
+use of_model::device::contract::device_state::DeviceState;
+use of_model::id::Id;
 
 /// Current evidence supplied by trusted IdP and Management services, not by a peer.
 #[derive(Clone, Debug)]
@@ -31,24 +33,24 @@ pub struct LocalReplicationAuthorizer {
 }
 
 impl LocalReplicationAuthorizer {
-    pub fn from_device_client(client: crate::DeviceClient) -> Self {
+    pub fn from_device_client(client: crate::device_client::DeviceClient) -> Self {
         Self::device_policy(client, None)
     }
 
     pub fn with_device_cleanup(
-        client: crate::DeviceClient,
+        client: crate::device_client::DeviceClient,
         local_endpoint: EndpointId,
-        copies: crate::StorageCopyRetirement,
+        copies: crate::copy_retirement::StorageCopyRetirement,
         cancellation: tokio_util::sync::CancellationToken,
     ) -> Self {
         Self::device_policy(client, Some((local_endpoint, copies, cancellation)))
     }
 
     fn device_policy(
-        client: crate::DeviceClient,
+        client: crate::device_client::DeviceClient,
         local: Option<(
             EndpointId,
-            crate::StorageCopyRetirement,
+            crate::copy_retirement::StorageCopyRetirement,
             tokio_util::sync::CancellationToken,
         )>,
     ) -> Self {
@@ -87,7 +89,10 @@ impl LocalReplicationAuthorizer {
         SF: Future<Output = Result<SelectedResourcesResponse, String>> + Send + 'static,
         A: Fn(OwnerCopyCleanup) -> AF + Send + Sync + 'static,
         AF: Future<Output = Result<(), String>> + Send + 'static,
-        C: Fn() -> Result<crate::StorageCopyRetirement, String> + Send + Sync + 'static,
+        C: Fn() -> Result<crate::copy_retirement::StorageCopyRetirement, String>
+            + Send
+            + Sync
+            + 'static,
     {
         let selected = Arc::new(selected);
         let acknowledge = Arc::new(acknowledge);
@@ -288,10 +293,11 @@ mod native_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
-    use device_service::DeviceState;
-    use of_model::idp::model::Id;
-    use of_model::contract::SelectedResource;
+    use crate::local_replication_authorizer::DeviceReplicationPolicy;
+    use crate::local_replication_authorizer::LocalReplicationAuthorizer;
+    use of_model::contract::replication::SelectedResource;
+    use of_model::device::contract::device_state::DeviceState;
+    use of_model::id::Id;
 
     #[tokio::test]
     async fn learned_denial_and_failed_local_evaluation_are_checked_on_either_peer() {

@@ -4,17 +4,24 @@ use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use idp_service::{
-    oauth2::NodeSignerBinding,
-    repo::{PrivateKeyKeyringRepo, PrivateKeyRepo, RawKeyringRepo},
+    oauth2::node_signer::NodeSignerBinding,
+    repo::{
+        private_key_keyring_repo::PrivateKeyKeyringRepo, private_key_repo::PrivateKeyRepo,
+        raw_keyring_repo::RawKeyringRepo,
+    },
 };
 use iroh::{Endpoint, SecretKey, endpoint::presets::Minimal};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, MESH_ALPN, PAIRING_ALPN, Server};
-use of_model::idp::model::Id;
+use of_model::id::Id;
 
-use device_service::hosted_join::NodeJoinApproval;
-use device_service::hosted_join::NodeJoinRequest;
+use of_model::node_join::NodeJoinApproval;
+use of_model::node_join::NodeJoinRequest;
 
-use crate::{AppConfig, BOOTSTRAP_ALPN, OwnerProvisioner};
+use crate::config::app_config::AppConfig;
+
+use device_service::security_protocol::bootstrap::BOOTSTRAP_ALPN;
+
+use crate::provisioning::OwnerProvisioner;
 
 use super::bind_node_join_endpoint;
 
@@ -106,7 +113,7 @@ impl Drop for Fixture {
                     "{}:node:{}:{}",
                     self.config.key_namespace, self.binding.member_id, self.binding.key_id
                 ),
-                &key::DerivationPath::default(),
+                &bip32::DerivationPath::default(),
             )
             .expect("remove fixture private signer");
         fs::remove_dir_all(&self.root).expect("remove isolated public owner state");
@@ -157,7 +164,9 @@ async fn prepared_join_can_send_pairing_without_global_pairing_or_peer_trust() {
     );
     fixture.peer.set_pairing_enabled(true);
     let mut offers = fixture.peer.subscribe_pairing_offers();
-    let router = fixture.peer.router(crate::BootstrapProtocolHandler);
+    let router = fixture
+        .peer
+        .router(crate::bootstrap::handler::BootstrapProtocolHandler);
     let approval = fixture.approval();
     let expected = fixture.request.clone();
     let response = tokio::spawn(async move {
@@ -449,7 +458,7 @@ async fn join_admission_fails_closed_without_exact_valid_local_request_and_priva
         "{}:node:{}:{}",
         fixture.config.key_namespace, fixture.binding.member_id, fixture.binding.key_id
     );
-    let derivation = key::DerivationPath::default();
+    let derivation = bip32::DerivationPath::default();
     let retained = keys
         .load(&namespace, &derivation)
         .expect("load retained key")
@@ -457,10 +466,11 @@ async fn join_admission_fails_closed_without_exact_valid_local_request_and_priva
     keys.delete(&namespace, &derivation)
         .expect("inject missing private signer");
     assert_join_denied(&fixture, "missing private signer").await;
-    let replacement: key::DerivedKey =
-        key::MasterKey::from_entropy(key::MasterKey::entropy().expect("entropy"))
-            .expect("different private signer")
-            .into();
+    let replacement: key::derived_key::DerivedKey = key::master_key::MasterKey::from_entropy(
+        key::master_key::MasterKey::entropy().expect("entropy"),
+    )
+    .expect("different private signer")
+    .into();
     keys.store(&namespace, &replacement)
         .expect("inject conflicting key in OS keyring only");
     assert_join_denied(&fixture, "conflicting private signer").await;

@@ -11,6 +11,7 @@ description = "Shared owner domain models and contracts"
 [features]
 default = []
 std = [
+    "bip32/std",
     "key/std",
     "serde/std",
     "serde_json/std",
@@ -18,20 +19,32 @@ std = [
     "base64/std",
     "uuid/std",
 ]
-replica = ["std", "dep:db", "db/replica", "dep:include_dir"]
+replica = [
+    "std",
+    "dep:btree-redb",
+    "dep:include_dir",
+    "dep:ofdb-sql",
+    "ofdb-sql/in-memory",
+    "ofdb-sql/macros",
+    "ofdb-sql/redb",
+    "ofdb-sql/sql",
+]
 utoipa = ["dep:utoipa", "std"]
 axum = ["dep:axum"]
 wasm = ["dep:tsify", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
 
 [dependencies]
 # Internal
-db = { package = "idp-db", path = "../db", default-features = false, features = [
-], optional = true }
 key = { path = "../key", default-features = false, features = [] }
 
 # Database
+btree-redb = { package = "ofdb-btree-redb", path = "../../../ofdb/crates/btree-redb", default-features = false, optional = true }
+ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, optional = true }
 include_dir = { version = "0.7", default-features = false, features = [
 ], optional = true }
+
+# Cryptography
+bip32 = { version = "0.5", default-features = false, features = [] }
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = [

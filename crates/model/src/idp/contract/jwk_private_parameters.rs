@@ -8,7 +8,7 @@ use alloc::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::idp::contract::JwkPublicParameters;
+use crate::idp::contract::jwk_public_parameters::JwkPublicParameters;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

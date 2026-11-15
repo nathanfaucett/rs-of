@@ -9,8 +9,8 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::{SinkExt, StreamExt};
-use of_model::idp::model::Id;
-use ofdb_sql::history::{SessionConfig, SyncRole, SyncTransport};
+use of_model::id::Id;
+use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
 use serde_json::{Value, json};
 use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
@@ -21,8 +21,9 @@ use super::{
     WsNamespace, sync_router,
 };
 use crate::{
-    DeviceClient, IdpClient,
+    device_client::DeviceClient,
     execution_test_support::{TestDirectory, sql},
+    idp_client::IdpClient,
 };
 
 #[test]
@@ -112,7 +113,7 @@ struct Fixture {
     identity: StoreIdentity,
     namespace: WsNamespace,
     policy: Arc<Mutex<Value>>,
-    databases: Arc<storage_service::DatabaseRuntime>,
+    databases: Arc<storage_service::database_runtime::DatabaseRuntime>,
     state: RouterState,
     tasks: Vec<JoinHandle<()>>,
     directory: TestDirectory,
@@ -182,16 +183,17 @@ impl Fixture {
         });
         let databases = Arc::new(if shared {
             use of_model::db::Database;
-            let database = embedded_db::EmbeddedDatabase::open(directory.0.join("server"))
-                .await
-                .expect("shared host");
-            storage_service::DatabaseRuntime::with_shared(
+            let database =
+                embedded_db::database::EmbeddedDatabase::open(directory.0.join("server"))
+                    .await
+                    .expect("shared host");
+            storage_service::database_runtime::DatabaseRuntime::with_shared(
                 database.local_storage().expect("shared storage"),
                 database.client(),
             )
             .expect("shared runtime")
         } else {
-            storage_service::DatabaseRuntime::new(directory.0.join("server"))
+            storage_service::database_runtime::DatabaseRuntime::new(directory.0.join("server"))
                 .expect("server databases")
         });
         let state = RouterState::new("http://localhost", "test-endpoint")
@@ -340,7 +342,10 @@ async fn shared_resource_sync_and_retirement(local: bool) {
         )
         .await
         .expect("shared SQL exchange");
-    assert_eq!(values(&target).await, [db::Value::Text("kept".into())]);
+    assert_eq!(
+        values(&target).await,
+        [ofdb_sql::Value::Text("kept".into())]
+    );
     fixture
         .databases
         .remove_local_copy(&fixture.namespace, fixture.identity.store_id)
@@ -398,8 +403,14 @@ async fn ws_real_typed_sql_exchange_is_scoped_and_retries_after_revocation() {
         )
         .await
         .expect("real typed WS SQL exchange");
-    assert_eq!(values(&target).await, [db::Value::Text("kept".into())]);
-    assert_eq!(values(&other).await, [db::Value::Text("private".into())]);
+    assert_eq!(
+        values(&target).await,
+        [ofdb_sql::Value::Text("kept".into())]
+    );
+    assert_eq!(
+        values(&other).await,
+        [ofdb_sql::Value::Text("private".into())]
+    );
 
     let mut socket = fixture.attach().await;
     fixture.policy.lock().expect("policy lock")["adminAllowed"] = json!(false);
@@ -415,7 +426,10 @@ async fn ws_real_typed_sql_exchange_is_scoped_and_retries_after_revocation() {
         receive(&mut socket).await,
         SyncMessage::Abort(AbortReason::Unauthorized)
     );
-    assert_eq!(values(&target).await, [db::Value::Text("kept".into())]);
+    assert_eq!(
+        values(&target).await,
+        [ofdb_sql::Value::Text("kept".into())]
+    );
     fixture.policy.lock().expect("policy lock")["adminAllowed"] = json!(true);
     sql(
         &source,
@@ -439,8 +453,8 @@ async fn ws_real_typed_sql_exchange_is_scoped_and_retries_after_revocation() {
     assert_eq!(
         values(&target).await,
         [
-            db::Value::Text("kept".into()),
-            db::Value::Text("retry".into())
+            ofdb_sql::Value::Text("kept".into()),
+            ofdb_sql::Value::Text("retry".into())
         ]
     );
 }
@@ -562,12 +576,12 @@ async fn ws_authorization_revoked_during_preapply_preserves_committed_history() 
     );
 }
 
-async fn values(database: &ofdb_sql::Database) -> Vec<db::Value> {
+async fn values(database: &ofdb_sql::Database) -> Vec<ofdb_sql::Value> {
     database
         .client()
         .translate_and_execute(
             "SELECT value FROM documents ORDER BY value",
-            &db::SqlTranslator,
+            &ofdb_sql::SqlTranslator,
         )
         .await
         .expect("observe SQL")[0]

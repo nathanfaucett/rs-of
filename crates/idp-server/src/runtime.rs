@@ -1,29 +1,38 @@
 use std::{io, sync::Arc, time::Duration};
 
 use axum::Router;
-use db::Database;
-use device_service::DeviceIdentity;
-use device_service::HostedControlPlane;
-use device_service::PairingAcceptanceController;
-use device_service::TimedPairingAcceptanceController;
-use device_service::replica::DbDeviceRepo;
+use device_service::device_identity::DeviceIdentity;
+use device_service::hosted_control_plane::HostedControlPlane;
+use device_service::pairing_acceptance::PairingAcceptanceController;
+use device_service::pairing_acceptance::TimedPairingAcceptanceController;
+use device_service::replica::device_repo::DbDeviceRepo;
 use idp_service::{
-    oauth2::OAuth2Service,
+    oauth2::service::OAuth2Service,
     replica::{
-        DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
-        DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
+        application_repo::DbApplicationRepo, client_repo::DbClientRepo, key_repo::DbKeyRepo,
+        oauth2_authorization_code_repo::DbOAuth2AuthorizationCodeRepo,
+        oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo,
+        oauth2_user_consent_repo::DbOAuth2UserConsentRepo, user_repo::DbUserRepo,
     },
-    repo::{KeyService, PrivateKeyKeyringRepo},
+    repo::{key_service::KeyService, private_key_keyring_repo::PrivateKeyKeyringRepo},
 };
 use iroh::protocol::{ProtocolHandler, Router as IrohRouter};
 use iroh_chain::Server;
-use management_service::LocalPermissions;
-use of_model::idp::model::Id;
+use management_service::local_permissions::LocalPermissions;
+use of_model::id::Id;
+use ofdb_sql::Database;
 
-use crate::{
-    AppConfig, BootstrapProtocolHandler, ManagementPermissionClient, RouterState,
-    bootstrap::BOOTSTRAP_ALPN, router::openapi_router,
-};
+use crate::config::app_config::AppConfig;
+
+use crate::bootstrap::handler::BootstrapProtocolHandler;
+
+use crate::management_permission_client::ManagementPermissionClient;
+
+use crate::router::state::RouterState;
+
+use device_service::security_protocol::bootstrap::BOOTSTRAP_ALPN;
+
+use crate::router::openapi_router::openapi_router;
 
 pub struct IdpRuntime {
     pub(crate) router: Router,
@@ -35,7 +44,8 @@ impl IdpRuntime {
     pub async fn authorize_management_bearer(
         &self,
         bearer: &str,
-    ) -> Result<of_model::idp::contract::IntrospectionResponse, String> {
+    ) -> Result<of_model::idp::contract::introspection_response::IntrospectionResponse, String>
+    {
         crate::management_owner::authorize_management_bearer(&self.join_state, bearer).await
     }
 
@@ -43,7 +53,9 @@ impl IdpRuntime {
         crate::management_owner::active_management_user(&self.join_state, user_id).await
     }
 
-    pub fn pairing_acceptance(&self) -> Arc<device_service::PairingAcceptanceControllerSlot> {
+    pub fn pairing_acceptance(
+        &self,
+    ) -> Arc<device_service::pairing_acceptance::PairingAcceptanceControllerSlot> {
         Arc::clone(&self.join_state.pairing_acceptance)
     }
 
@@ -51,16 +63,13 @@ impl IdpRuntime {
         &self,
         bearer: &str,
     ) -> Result<
-        of_model::idp::contract::IntrospectionResponse,
-        of_model::idp::contract::ErrorResponse,
+        of_model::idp::contract::introspection_response::IntrospectionResponse,
+        of_model::idp::contract::error_response::ErrorResponse,
     > {
         crate::storage_owner::authorize_storage_bearer(&self.join_state, bearer).await
     }
 
-    pub async fn authorize_node_join_approver(
-        &self,
-        bearer: &str,
-    ) -> io::Result<of_model::idp::model::Id> {
+    pub async fn authorize_node_join_approver(&self, bearer: &str) -> io::Result<of_model::id::Id> {
         self.join_state.authorize_node_join_approver(bearer).await
     }
 
@@ -86,7 +95,7 @@ impl IdpRuntime {
         &self,
         offer: &iroh_chain::PairingOffer,
         bearer: &str,
-    ) -> io::Result<device_service::hosted_join::NodeJoinApproval> {
+    ) -> io::Result<of_model::node_join::NodeJoinApproval> {
         self.join_state.approve_node_join(offer, bearer).await
     }
 
@@ -94,13 +103,13 @@ impl IdpRuntime {
         &self,
         offer: &iroh_chain::PairingOffer,
         bearer: &str,
-    ) -> io::Result<device_service::hosted_join::NodeJoinApproval> {
+    ) -> io::Result<of_model::node_join::NodeJoinApproval> {
         self.join_state.enroll_node_join_offer(offer, bearer).await
     }
 
     pub async fn verify_node_join_enrollment(
         &self,
-        approval: &device_service::hosted_join::NodeJoinApproval,
+        approval: &of_model::node_join::NodeJoinApproval,
     ) -> io::Result<()> {
         self.join_state.verify_node_join_enrollment(approval).await
     }
@@ -109,7 +118,7 @@ impl IdpRuntime {
         &self,
         offer: &iroh_chain::PairingOffer,
         bearer: &str,
-        approval: &device_service::hosted_join::NodeJoinApproval,
+        approval: &of_model::node_join::NodeJoinApproval,
     ) -> io::Result<()> {
         self.join_state
             .reply_node_join(offer, bearer, approval)
@@ -143,7 +152,7 @@ pub async fn build_local_router(
     std::fs::create_dir_all(data_dir)?;
     let directory = std::fs::canonicalize(data_dir)?;
     let data_dir = directory.as_path();
-    let database = embedded_db::local_database(data_dir, "idp", db)?;
+    let database = embedded_db::local::local_database(data_dir, "idp", db)?;
     let engine = database.client();
     let storage = database
         .local_storage()
@@ -154,7 +163,7 @@ pub async fn build_local_router(
         ui_public_uri: origin.trim_end_matches('/').into(),
         api_public_uri: base.into(),
         key_namespace: "of:local".into(),
-        password: idp_service::PasswordConfig {
+        password: idp_service::password_config::PasswordConfig {
             memory_mib: 1,
             iterations: 1,
             parallelism: 1,
@@ -177,8 +186,8 @@ pub async fn build_local_router(
     let state = build_state_with_keys(&config, engine, None, None, Some(permissions), keys).await?;
     crate::local_seed::seed(&state, origin).await?;
     for (username, password) in users {
-        let user = of_model::idp::model::Id::new_v5(
-            &of_model::idp::model::Id::NAMESPACE_URL,
+        let user = of_model::id::Id::new_v5(
+            &of_model::id::Id::NAMESPACE_URL,
             format!("of:local:user:{username}").as_bytes(),
         );
         crate::local_seed::seed_user(&state, user, username, password).await?;
@@ -189,7 +198,7 @@ pub async fn build_local_router(
 /// Composes serving from an already initialized IdP database and optional host-owned Management capability.
 pub async fn build_runtime(
     config: &AppConfig,
-    engine: db::Client,
+    engine: ofdb_sql::Client,
     devices: Option<Arc<DbDeviceRepo>>,
     device_identity: Arc<DeviceIdentity>,
     server: Server,
@@ -225,7 +234,7 @@ pub async fn build_runtime(
     Ok(runtime_from_state(config, state))
 }
 
-pub async fn identity_client(config: &AppConfig) -> io::Result<db::Client> {
+pub async fn identity_client(config: &AppConfig) -> io::Result<ofdb_sql::Client> {
     if let Some(remote) = &config.identity_database {
         if std::path::Path::new(&config.data_dir)
             .join("idp.redb")
@@ -258,7 +267,10 @@ pub async fn identity_client(config: &AppConfig) -> io::Result<db::Client> {
 }
 
 /// Builds an IdP HTTPS owner without acquiring transport identity or Management state.
-pub async fn build_oauth_runtime(config: &AppConfig, engine: db::Client) -> io::Result<IdpRuntime> {
+pub async fn build_oauth_runtime(
+    config: &AppConfig,
+    engine: ofdb_sql::Client,
+) -> io::Result<IdpRuntime> {
     let permissions = config
         .identity_database
         .as_ref()
@@ -269,7 +281,7 @@ pub async fn build_oauth_runtime(config: &AppConfig, engine: db::Client) -> io::
 
 pub(crate) async fn build_state(
     config: &AppConfig,
-    engine: db::Client,
+    engine: ofdb_sql::Client,
     devices: Option<Arc<DbDeviceRepo>>,
     device_identity: Option<Arc<DeviceIdentity>>,
     local_permissions: Option<LocalPermissions>,
@@ -288,7 +300,7 @@ pub(crate) async fn build_state(
 
 async fn build_state_with_keys(
     config: &AppConfig,
-    engine: db::Client,
+    engine: ofdb_sql::Client,
     devices: Option<Arc<DbDeviceRepo>>,
     device_identity: Option<Arc<DeviceIdentity>>,
     local_permissions: Option<LocalPermissions>,
@@ -407,13 +419,12 @@ impl device_service::hosted_join::NodeJoinIdentity for IdpRuntime {
         &'a self,
         offer: &'a iroh_chain::PairingOffer,
         bearer: &'a str,
-    ) -> device_service::hosted_join::JoinFuture<'a, device_service::hosted_join::NodeJoinApproval>
-    {
+    ) -> device_service::hosted_join::JoinFuture<'a, of_model::node_join::NodeJoinApproval> {
         Box::pin(self.enroll_node_join_offer(offer, bearer))
     }
     fn verify<'a>(
         &'a self,
-        approval: &'a device_service::hosted_join::NodeJoinApproval,
+        approval: &'a of_model::node_join::NodeJoinApproval,
     ) -> device_service::hosted_join::JoinFuture<'a, ()> {
         Box::pin(self.verify_node_join_enrollment(approval))
     }
@@ -421,7 +432,7 @@ impl device_service::hosted_join::NodeJoinIdentity for IdpRuntime {
         &'a self,
         offer: &'a iroh_chain::PairingOffer,
         bearer: &'a str,
-        approval: &'a device_service::hosted_join::NodeJoinApproval,
+        approval: &'a of_model::node_join::NodeJoinApproval,
     ) -> device_service::hosted_join::JoinFuture<'a, ()> {
         Box::pin(self.reply_node_join(offer, bearer, approval))
     }
@@ -429,7 +440,7 @@ impl device_service::hosted_join::NodeJoinIdentity for IdpRuntime {
 
 #[cfg(test)]
 mod tests {
-    use device_service::PairingAcceptanceController;
+    use device_service::pairing_acceptance::PairingAcceptanceController;
 
     use crate::node_join_tests::approval_fixture;
 
@@ -437,15 +448,15 @@ mod tests {
     async fn remote_identity_startup_never_falls_back_to_a_private_database() {
         let root = std::env::temp_dir().join(format!(
             "remote-identity-startup-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let listener =
             std::net::TcpListener::bind("127.0.0.1:0").expect("reserve unavailable SQL endpoint");
         let address = listener.local_addr().expect("SQL endpoint");
         drop(listener);
-        let mut config = crate::AppConfig {
+        let mut config = crate::config::app_config::AppConfig {
             data_dir: root.to_string_lossy().into_owned(),
-            identity_database: Some(db::RemoteDatabaseConfig {
+            identity_database: Some(db::remote::RemoteDatabaseConfig {
                 endpoint: format!("http://{address}"),
                 ca_certificate: None,
                 client_certificate: None,
@@ -454,18 +465,18 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert!(super::identity_client(&config).await.is_err());
+        assert!(crate::runtime::identity_client(&config).await.is_err());
         assert!(!root.exists());
         config
             .identity_database
             .as_mut()
             .expect("remote config")
             .endpoint = "http://sql.example:50051".into();
-        assert!(super::identity_client(&config).await.is_err());
+        assert!(crate::runtime::identity_client(&config).await.is_err());
         assert!(!root.exists());
     }
 
-    async fn assert_normal_oauth(runtime: &super::IdpRuntime) {
+    async fn assert_normal_oauth(runtime: &crate::runtime::IdpRuntime) {
         use axum::{
             body::{Body, to_bytes},
             http::{Request, StatusCode},
@@ -517,7 +528,9 @@ mod tests {
     async fn independent_oauth_signer_does_not_claim_the_transport_endpoint() {
         use std::sync::Arc;
 
-        use idp_service::repo::{PrivateKeyKeyringRepo, PrivateKeyRepo};
+        use idp_service::repo::{
+            private_key_keyring_repo::PrivateKeyKeyringRepo, private_key_repo::PrivateKeyRepo,
+        };
 
         let fixture = approval_fixture().await;
         let secret = iroh::SecretKey::generate();
@@ -529,10 +542,13 @@ mod tests {
         .await
         .expect("independent transport");
         let identity = Arc::new(
-            device_service::DeviceIdentity::new(transport.endpoint().clone(), secret)
-                .expect("transport possession"),
+            device_service::device_identity::DeviceIdentity::new(
+                transport.endpoint().clone(),
+                secret,
+            )
+            .expect("transport possession"),
         );
-        let config = crate::AppConfig {
+        let config = crate::config::app_config::AppConfig {
             oauth2: fixture.state.oauth2_service.oauth_config.clone(),
             ..Default::default()
         };
@@ -549,7 +565,7 @@ mod tests {
         );
         let private =
             PrivateKeyKeyringRepo::new_with_store(&config.oauth2.issuer, fixture.store.clone())
-                .load(&namespace, &key::DerivationPath::default())
+                .load(&namespace, &bip32::DerivationPath::default())
                 .expect("load fixture signer")
                 .expect("fixture signer private material");
         PrivateKeyKeyringRepo::new_with_store(&config.oauth2.issuer, store)
@@ -564,7 +580,7 @@ mod tests {
                 .endpoint_id,
             transport.endpoint().id().to_string()
         );
-        let mismatch = super::build_runtime(
+        let mismatch = crate::runtime::build_runtime(
             &config,
             fixture.state.engine.clone(),
             None,
@@ -580,7 +596,7 @@ mod tests {
         .err()
         .expect("transport identity still requires possession of the injected endpoint key");
         assert_eq!(mismatch.kind(), std::io::ErrorKind::InvalidInput);
-        let runtime = super::build_runtime(
+        let runtime = crate::runtime::build_runtime(
             &config,
             fixture.state.engine.clone(),
             None,
@@ -590,7 +606,7 @@ mod tests {
         )
         .await
         .expect("OAuth signer is independent of transport");
-        let oauth_only = super::build_oauth_runtime(&config, fixture.state.engine.clone())
+        let oauth_only = crate::runtime::build_oauth_runtime(&config, fixture.state.engine.clone())
             .await
             .expect("OAuth runtime needs no transport or Management store");
         assert!(oauth_only.join_state.transport_identity().is_err());
@@ -603,9 +619,11 @@ mod tests {
         fixture.server.endpoint().close().await;
         let root = fixture.root.clone();
         drop(fixture);
-        let engine =
-            Arc::new(db::Database::open(root.join("idp.redb")).expect("stopped owner reopen"));
-        let reopened = super::build_oauth_runtime(&config, engine.client())
+        let engine = Arc::new(
+            ofdb_sql::Database::open(root.join("idp.redb"))
+                .expect("stopped owner reopen"),
+        );
+        let reopened = crate::runtime::build_oauth_runtime(&config, engine.client())
             .await
             .expect("offline OAuth-only reopen");
         assert_normal_oauth(&reopened).await;
@@ -614,11 +632,12 @@ mod tests {
         drop(reopened);
         drop(engine);
         let mut invalid = config;
-        invalid.oauth2.local_signer.as_mut().expect("signer").key_id =
-            of_model::idp::model::Id::now_v7();
-        let engine = Arc::new(db::Database::open(root.join("idp.redb")).expect("existing owner"));
+        invalid.oauth2.local_signer.as_mut().expect("signer").key_id = of_model::id::Id::now_v7();
+        let engine = Arc::new(
+            ofdb_sql::Database::open(root.join("idp.redb")).expect("existing owner"),
+        );
         assert!(
-            super::build_oauth_runtime(&invalid, engine.client())
+            crate::runtime::build_oauth_runtime(&invalid, engine.client())
                 .await
                 .is_err(),
             "independence must not bypass approved signer/private-key validation"
@@ -628,18 +647,18 @@ mod tests {
 
     #[tokio::test]
     async fn active_user_rechecks_current_identity_without_management_transport_state() {
-        use idp_service::repo::UserRepo;
+        use idp_service::repo::user_repo::UserRepo;
         let fixture = approval_fixture().await;
         let unopened = fixture.root.join("must-not-open-management");
-        let config = crate::AppConfig {
+        let config = crate::config::app_config::AppConfig {
             management_data_dir: Some(unopened.to_string_lossy().into_owned()),
-            oauth2: idp_service::oauth2::OAuth2Config {
+            oauth2: idp_service::oauth2::config::OAuth2Config {
                 issuer: fixture.issuer.clone(),
                 ..Default::default()
             },
             ..Default::default()
         };
-        let runtime = super::build_runtime(
+        let runtime = crate::runtime::build_runtime(
             &config,
             fixture.state.engine.clone(),
             None,
@@ -661,15 +680,10 @@ mod tests {
             .active_user(fixture.owner)
             .await
             .expect("current local User");
+        assert!(runtime.active_user(of_model::id::Id::nil()).await.is_err());
         assert!(
             runtime
-                .active_user(of_model::idp::model::Id::nil())
-                .await
-                .is_err()
-        );
-        assert!(
-            runtime
-                .active_user(of_model::idp::model::Id::now_v7())
+                .active_user(of_model::id::Id::now_v7())
                 .await
                 .is_err()
         );

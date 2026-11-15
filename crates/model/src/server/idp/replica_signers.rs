@@ -2,8 +2,8 @@ use alloc::string::String;
 
 use serde::Deserialize;
 
-use crate::idp::contract::JwkPublic;
-use crate::idp::model::Id;
+use crate::id::Id;
+use crate::idp::contract::jwk_public::JwkPublic;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

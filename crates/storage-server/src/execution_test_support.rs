@@ -1,31 +1,33 @@
 use std::{path::PathBuf, sync::Arc};
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
-use db::{Database, SqlTranslator};
-use device_service::DeviceRepo;
-use device_service::replica::DbDeviceRepo;
-use device_service::replica::DbSelectionPolicyRepo;
-use device_service::replica::SelectionPolicy;
+use device_service::device_repo::DeviceRepo;
+use device_service::replica::device_repo::DbDeviceRepo;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
 use idp_service::{
-    PasswordConfig,
-    replica::{DbReplicaSignerRepo, DbUserRepo},
-    repo::UserRepo,
+    password_config::PasswordConfig,
+    replica::{replica_signer_repo::DbReplicaSignerRepo, user_repo::DbUserRepo},
+    repo::user_repo::UserRepo,
 };
 use iroh::{
     Endpoint, EndpointId,
     address_lookup::MemoryLookup,
     endpoint::{Connection, presets},
 };
-use of_model::contract::SelectedResource;
-use of_model::idp::{
-    contract::{
-        IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse, ReplicaMembership,
-    },
-    model::Id,
-};
+use of_model::contract::replication::SelectedResource;
+use of_model::device::selection_policy::SelectionPolicy;
+use of_model::id::Id;
+use of_model::idp::contract::idp_signer::IdpSignerRecord;
+use of_model::idp::contract::idp_signer::ReplicaMembership;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use of_model::idp::contract::jwk_public_parameters::JwkPublicParameters;
+use of_model::idp::contract::jws_algorithm::JwsAlgorithm;
+use of_model::idp::contract::key_use::KeyUse;
+use ofdb_sql::SqlTranslator;
+use ofdb_sql::Database;
 use tokio::sync::Notify;
 
-use crate::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
+use crate::local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
 
 pub(crate) struct TestDirectory(pub PathBuf);
 impl TestDirectory {
@@ -82,7 +84,7 @@ impl IrohPair {
     pub fn ids(&self) -> [EndpointId; 2] {
         [self.endpoints[0].id(), self.endpoints[1].id()]
     }
-    pub async fn streams(&self) -> [crate::DatabaseTransport; 2] {
+    pub async fn streams(&self) -> [db::database_transport::DatabaseTransport; 2] {
         let (mut send, recv) = self.connections[0]
             .open_bi()
             .await
@@ -94,8 +96,8 @@ impl IrohPair {
             .expect("accept stream");
         incoming_recv.read_exact(&mut [0]).await.expect("marker");
         [
-            crate::DatabaseTransport::new(send, recv),
-            crate::DatabaseTransport::new(incoming_send, incoming_recv),
+            db::database_transport::DatabaseTransport::new(send, recv),
+            db::database_transport::DatabaseTransport::new(incoming_send, incoming_recv),
         ]
     }
     pub async fn reconnect(&mut self) {
@@ -150,9 +152,9 @@ const INSTALLATION: &str = "https://of03-installation.example";
 
 pub(crate) fn approved_signers(devices: [Id; 2]) -> [IdpSignerRecord; 2] {
     devices.map(|member_id| {
-        let entropy = key::MasterKey::entropy().expect("independent signer entropy");
-        let master =
-            key::MasterKey::from_entropy(entropy.as_ref()).expect("independent private signer");
+        let entropy = key::master_key::MasterKey::entropy().expect("independent signer entropy");
+        let master = key::master_key::MasterKey::from_entropy(entropy.as_ref())
+            .expect("independent private signer");
         let (x, y) = master
             .derive_from_index_and_hardened(0, false)
             .expect("signer derivation")
@@ -200,7 +202,7 @@ impl DomainNode {
         let management =
             Arc::new(Database::open(root.join("management.redb")).expect("Management store"));
         of_model::idp::replica::up(&idp).await.expect("IdP schema");
-        device_service::replica::up(&management)
+        device_service::replica::schema::up(&management)
             .await
             .expect("Management schema");
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)")).await;

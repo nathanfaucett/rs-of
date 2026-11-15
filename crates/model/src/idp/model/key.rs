@@ -8,14 +8,19 @@ use alloc::{
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
+use bip32::DerivationPath;
 use chrono::{DateTime, Utc};
-use key::{DerivationPath, DerivedKey, KeyResult};
+use key::derived_key::DerivedKey;
+use key::error::KeyResult;
 
-use super::Id;
-use crate::idp::contract::{
-    EntityType, JwkPrivate, JwkPrivateParameters, JwkPublic, JwkPublicParameters, JwsAlgorithm,
-    KeyUse,
-};
+use crate::id::Id;
+use crate::idp::contract::entity_type::EntityType;
+use crate::idp::contract::jwk_private::JwkPrivate;
+use crate::idp::contract::jwk_private_parameters::JwkPrivateParameters;
+use crate::idp::contract::jwk_public::JwkPublic;
+use crate::idp::contract::jwk_public_parameters::JwkPublicParameters;
+use crate::idp::contract::jws_algorithm::JwsAlgorithm;
+use crate::idp::contract::key_use::KeyUse;
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Key {
     pub id: Id,
@@ -26,7 +31,7 @@ pub struct Key {
     pub entity_type: EntityType,
     pub entity_id: Id,
 
-    #[serde(deserialize_with = "super::none_to_default")]
+    #[serde(deserialize_with = "crate::idp::model::none_to_default::none_to_default")]
     pub derivation_path: String,
     pub derivation_index: u32,
     pub name: String,
@@ -113,9 +118,9 @@ impl Key {
 mod tests {
     use core::str::FromStr;
 
-    use key::DerivationPath;
+    use bip32::DerivationPath;
 
-    use super::Key;
+    use crate::idp::model::key::Key;
 
     #[test]
     fn builds_valid_bip32_paths_from_sibling_indices() {

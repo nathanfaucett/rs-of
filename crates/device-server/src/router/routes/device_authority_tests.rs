@@ -8,21 +8,23 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
-use db::Database;
-use device_service::DeviceRepo;
-use device_service::HostedControlPlane;
-use device_service::replica::DbDeviceRepo;
-use device_service::replica::DbSelectionPolicyRepo;
-use device_service::replica::SelectionPolicy;
+use device_service::device_repo::DeviceRepo;
+use device_service::hosted_control_plane::HostedControlPlane;
+use device_service::replica::device_repo::DbDeviceRepo;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use of_model::device::selection_policy::SelectionPolicy;
+use ofdb_sql::Database;
 
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
-use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
-use of_model::idp::{
-    contract::{IdentityAction, IntrospectionResponse},
-    model::Id,
+use management_service::replica::permission_repo::DbPermissionRepo;
+use management_service::replica::role_repo::DbRoleRepo;
+use management_service::service::ManagementService;
+use of_model::contract::{
+    principal_type::PrincipalType, standard_claims::StandardClaims, token_type::TokenType,
+    token_use::TokenUse,
 };
+use of_model::id::Id;
+use of_model::idp::contract::introspection_response::IntrospectionResponse;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
 use tower::ServiceExt;
 
 struct Fixture {
@@ -42,7 +44,7 @@ impl Fixture {
             .await
             .expect("identity policy schema");
         let database = Arc::new(Database::in_memory());
-        device_service::replica::up(&database)
+        device_service::replica::schema::up(&database)
             .await
             .expect("Management schema");
         let owner = Id::now_v7();
@@ -109,7 +111,7 @@ impl Fixture {
             },
         );
         let devices = Arc::new(DbDeviceRepo::new(database.clone().client()));
-        let router = crate::build_router(
+        let router = crate::runtime::build_router(
             identity.client(),
             database.client(),
             "https://device.example",
@@ -153,7 +155,7 @@ impl Fixture {
             .expect("Management response")
     }
 
-    async fn approved(&self) -> device_service::Device {
+    async fn approved(&self) -> of_model::device::device::Device {
         let endpoint = iroh::SecretKey::generate().public().to_string();
         let pending = self
             .devices
@@ -167,7 +169,7 @@ impl Fixture {
             )
             .await
             .expect("pending Device");
-        if pending.state == device_service::DeviceState::Approved {
+        if pending.state == of_model::device::contract::device_state::DeviceState::Approved {
             return pending;
         }
         self.devices
@@ -280,7 +282,7 @@ async fn device_endpoint_enumeration_requires_exact_service_authority_and_curren
                 "UPDATE devices SET revoked_at = 9 WHERE id = CAST('{}' AS UUID)",
                 device.id
             ),
-            &db::SqlTranslator,
+            &ofdb_sql::SqlTranslator,
         )
         .await
         .expect("learn timestamp-only revocation");
@@ -464,7 +466,12 @@ async fn device_signed_self_revocation_checks_endpoint_possession_without_idp_de
     );
     let signature = URL_SAFE_NO_PAD.encode(
         secret
-            .sign(device_service::device_self_revocation_payload(&public).as_bytes())
+            .sign(
+                of_model::device::contract::device_self_revocation::device_self_revocation_payload(
+                    &public,
+                )
+                .as_bytes(),
+            )
             .to_bytes(),
     );
     assert_eq!(
@@ -523,7 +530,7 @@ async fn device_discovery_denies_ambiguous_endpoint_bindings() {
     fixture
         .database
         .client()
-        .translate_and_execute("DROP INDEX devices_public_key", &db::SqlTranslator)
+        .translate_and_execute("DROP INDEX devices_public_key", &ofdb_sql::SqlTranslator)
         .await
         .expect("simulate learned duplicate binding");
     let duplicate = fixture

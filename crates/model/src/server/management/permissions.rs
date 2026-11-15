@@ -7,9 +7,9 @@ use serde::Serialize;
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct PermissionResponse {
     #[cfg_attr(feature = "utoipa", schema(value_type = String))]
-    pub id: crate::idp::model::Id,
+    pub id: crate::id::Id,
     #[cfg_attr(feature = "utoipa", schema(value_type = String))]
-    pub application_id: crate::idp::model::Id,
+    pub application_id: crate::id::Id,
     pub name: String,
     pub description: Option<String>,
     pub created_at: i64,
@@ -33,8 +33,8 @@ pub struct CreatePermissionRequest {
     pub description: Option<String>,
 }
 
-impl From<crate::idp::model::Permission> for PermissionResponse {
-    fn from(value: crate::idp::model::Permission) -> Self {
+impl From<crate::idp::model::permission::Permission> for PermissionResponse {
+    fn from(value: crate::idp::model::permission::Permission) -> Self {
         Self {
             id: value.id,
             application_id: value.application_id,

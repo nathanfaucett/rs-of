@@ -2,12 +2,14 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use of_model::idp::contract::{ErrorCode, ErrorResponse};
-pub use of_model::server::management::permissions::{
+use of_model::idp::contract::{error_code::ErrorCode, error_response::ErrorResponse};
+use of_model::server::management::permissions::{
     CreatePermissionRequest, ListPermissionsQuery, PermissionResponse,
 };
 
-use crate::router::{RouterState, middleware::ManagementAuthorization};
+use crate::router::{
+    middleware::management_authorization::ManagementAuthorization, state::RouterState,
+};
 
 use super::roles::require_application_permission;
 
@@ -28,7 +30,7 @@ const PERMISSIONS_WRITE_PERMISSION: &str = "permissions.write";
 )]
 pub(crate) async fn list_permissions(
     State(state): State<RouterState>,
-    Path(application_id): Path<of_model::idp::model::Id>,
+    Path(application_id): Path<of_model::id::Id>,
     Query(query): Query<ListPermissionsQuery>,
     authorization: ManagementAuthorization,
 ) -> Result<Json<Vec<PermissionResponse>>, ErrorResponse> {
@@ -63,7 +65,7 @@ pub(crate) async fn list_permissions(
 )]
 pub(crate) async fn create_permission(
     State(state): State<RouterState>,
-    Path(application_id): Path<of_model::idp::model::Id>,
+    Path(application_id): Path<of_model::id::Id>,
     authorization: ManagementAuthorization,
     Json(body): Json<CreatePermissionRequest>,
 ) -> Result<Json<PermissionResponse>, ErrorResponse> {
@@ -98,10 +100,7 @@ pub(crate) async fn create_permission(
 )]
 pub(crate) async fn delete_permission(
     State(state): State<RouterState>,
-    Path((application_id, permission_id)): Path<(
-        of_model::idp::model::Id,
-        of_model::idp::model::Id,
-    )>,
+    Path((application_id, permission_id)): Path<(of_model::id::Id, of_model::id::Id)>,
     authorization: ManagementAuthorization,
 ) -> Result<(), ErrorResponse> {
     require_application_permission(
@@ -145,7 +144,7 @@ pub(crate) async fn delete_permission(
 )]
 pub(crate) async fn list_role_permissions(
     State(state): State<RouterState>,
-    Path((application_id, role_id)): Path<(of_model::idp::model::Id, of_model::idp::model::Id)>,
+    Path((application_id, role_id)): Path<(of_model::id::Id, of_model::id::Id)>,
     authorization: ManagementAuthorization,
 ) -> Result<Json<Vec<PermissionResponse>>, ErrorResponse> {
     require_application_permission(
@@ -181,9 +180,9 @@ pub(crate) async fn list_role_permissions(
 pub(crate) async fn assign_permission_to_role(
     State(state): State<RouterState>,
     Path((application_id, role_id, permission_id)): Path<(
-        of_model::idp::model::Id,
-        of_model::idp::model::Id,
-        of_model::idp::model::Id,
+        of_model::id::Id,
+        of_model::id::Id,
+        of_model::id::Id,
     )>,
     authorization: ManagementAuthorization,
 ) -> Result<(), ErrorResponse> {
@@ -240,9 +239,9 @@ pub(crate) async fn assign_permission_to_role(
 pub(crate) async fn revoke_permission_from_role(
     State(state): State<RouterState>,
     Path((application_id, role_id, permission_id)): Path<(
-        of_model::idp::model::Id,
-        of_model::idp::model::Id,
-        of_model::idp::model::Id,
+        of_model::id::Id,
+        of_model::id::Id,
+        of_model::id::Id,
     )>,
     authorization: ManagementAuthorization,
 ) -> Result<(), ErrorResponse> {

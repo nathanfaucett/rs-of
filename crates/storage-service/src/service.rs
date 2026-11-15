@@ -1,13 +1,17 @@
 use std::{fmt, sync::Arc};
 
 use file_system::{Entry, FileKind, FileSystem};
-use serde::{Serialize, de::DeserializeOwned};
 use of_model::storage::{
-    StorageEntry, StorageErrorCode, StorageNamespace, StorageRequest, StorageResponse,
-    StorageSession,
+    contract::{
+        request::StorageRequest,
+        response::{StorageEntry, StorageErrorCode, StorageResponse},
+    },
+    namespace::StorageNamespace,
+    session::StorageSession,
 };
+use serde::{Serialize, de::DeserializeOwned};
 
-use crate::{ScopedFileSystem, ScopedFileSystemRuntime};
+use crate::scoped_file_system::{ScopedFileSystem, ScopedFileSystemRuntime};
 
 pub struct StorageService<PeerId>
 where
@@ -187,15 +191,15 @@ where
 
 #[cfg(test)]
 mod policy_tests {
-    use super::StorageService;
+    use crate::service::StorageService;
+    use of_model::storage::contract::request::StorageRequest;
     use std::sync::Arc;
-    use of_model::storage::StorageRequest;
 
     #[tokio::test]
     async fn passthrough_service_cannot_delete_or_rename_metadata() {
         let root = std::env::temp_dir().join(format!(
             "passthrough-service-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let filesystem = Arc::new(
             file_system::FileSystem::open(&root, 1_u8)
@@ -412,9 +416,9 @@ mod tests {
     use std::{env, fs, sync::Arc};
 
     use file_system::{FileSystem, Residency};
-    use of_model::storage::{StorageRequest, StorageResponse};
+    use of_model::storage::contract::{request::StorageRequest, response::StorageResponse};
 
-    use super::StorageService;
+    use crate::service::StorageService;
 
     #[tokio::test]
     async fn dispatches_scoped_file_system_operations() {

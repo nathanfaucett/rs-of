@@ -22,6 +22,12 @@ default = ["cli"]
 cli = ["dep:clap", "dep:cli", "dep:dotenvy", "dep:tokio-util"]
 
 [dependencies]
+# Internal
+ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "redb",
+    "sql",
+] }
+
 # Async
 tokio = { version = "1.52", default-features = false, features = [
     "macros",

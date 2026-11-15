@@ -8,8 +8,13 @@ use std::{
     time::Duration,
 };
 
-use db::{Database, DatabaseTransport, Row, Value};
-use idp_service::oauth2::NodeSignerBinding;
+use ofdb_sql::Database;
+
+use db::database_transport::DatabaseTransport;
+
+use ofdb_sql::Row;
+
+use idp_service::oauth2::node_signer::NodeSignerBinding;
 use iroh::{
     Endpoint,
     address_lookup::MemoryLookup,
@@ -17,11 +22,13 @@ use iroh::{
     protocol::Router,
 };
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
-use of_model::idp::{contract::IdentityAction, model::Id};
-use ofdb_sql::history::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
+use management_service::replica::permission_repo::DbPermissionRepo;
+use management_service::replica::role_repo::DbRoleRepo;
+use management_service::service::ManagementService;
+use of_model::id::Id;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use ofdb_sql::Value;
+use ofdb_sql::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -33,7 +40,7 @@ use crate::{
 };
 
 #[path = "security_candidate_tests.rs"]
-mod candidate_tests;
+pub mod candidate_tests;
 
 const INSTALLATION: &str = "https://installation.example";
 
@@ -193,11 +200,10 @@ impl Pair {
                 Database::open(root.join("baseline-idp.redb")).expect("open public baseline"),
             );
             if let Some(default) = default {
-                let migration = include_str!("../../of-model/identity_migrations/0001_init.up.sql")
-                    .replace(
-                        "public_jwk TEXT\n",
-                        &format!("public_jwk TEXT DEFAULT '{default}'\n"),
-                    );
+                let migration = include_str!("../../model/migrations/0001_init.up.sql").replace(
+                    "public_jwk TEXT\n",
+                    &format!("public_jwk TEXT DEFAULT '{default}'\n"),
+                );
                 sql(&idp, &migration).await;
             }
             of_model::idp::replica::up(&idp)
@@ -207,7 +213,7 @@ impl Pair {
             let management = Arc::new(
                 Database::open(root.join("baseline-management.redb")).expect("open local policy"),
             );
-            crate::replica::up(&management)
+            crate::replica::schema::up(&management)
                 .await
                 .expect("declare Management schema");
             for (member, key, endpoint) in [
@@ -512,7 +518,7 @@ async fn sync_fixture_context(a: &Database, b: &Database, context: SecurityConte
     };
     let tables = match context {
         SecurityContext::Idp => SecurityHistory::Idp.tables(),
-        SecurityContext::Device => crate::PUBLIC_DEVICE_TABLES.to_vec(),
+        SecurityContext::Device => crate::security_sync::PUBLIC_DEVICE_TABLES.to_vec(),
     };
     let config = SessionConfig::default();
     let (a, b) = tokio::join!(

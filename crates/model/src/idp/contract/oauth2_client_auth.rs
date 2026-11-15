@@ -10,5 +10,5 @@ use alloc::{
 pub struct OAuth2ClientAuth {
     pub client_id: String,
     pub client_secret: Option<String>,
-    pub method: super::TokenEndpointAuthMethod,
+    pub method: crate::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod,
 }

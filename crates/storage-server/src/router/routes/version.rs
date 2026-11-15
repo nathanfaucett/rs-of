@@ -1,5 +1,5 @@
 use axum::Json;
-use of_model::contract::VersionResponse;
+use of_model::contract::version_response::VersionResponse;
 
 #[utoipa::path(get, path = "/version", responses((status = 200, description = "Version", body = VersionResponse)))]
 pub(crate) async fn version() -> Json<VersionResponse> {

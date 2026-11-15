@@ -1,6 +1,6 @@
 use alloc::string::String;
 
-use crate::storage::StorageNamespace;
+use crate::storage::namespace::StorageNamespace;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResourceKind {

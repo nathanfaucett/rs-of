@@ -16,7 +16,7 @@ use of_storage_client::{
     },
     transport::{OwnerTransport, TransportConfig},
 };
-use ofdb_sql::history::{SessionConfig, SyncRole, SyncTransport};
+use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
 use uuid::Uuid;

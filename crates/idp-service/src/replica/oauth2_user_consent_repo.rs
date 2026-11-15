@@ -1,14 +1,24 @@
-use chrono::{DateTime, Timelike, Utc};
-use db::{
-    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
-    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
-};
-use of_model::idp::{
-    model::{Id, OAuth2UserConsent},
-    replica::{SecurityRow, SecurityTable, allows_authorization},
-};
-
-use crate::repo::{OAuth2UserConsentRepo, RepoError, RepoResult};
+use of_model::id::Id;
+use of_model::idp::model::oauth2_user_consent::OAuth2UserConsent;
+use of_model::idp::replica::SecurityRow;
+use of_model::idp::replica::SecurityTable;
+use of_model::idp::replica::allows_authorization;
+use ofdb_sql::FromRow;
+use ofdb_sql::FromRowError;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryDelete;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use ofdb_sql::Uuid;
+use ofdb_sql::Value;
 
 const TABLE: &str = "oauth2_user_consents";
 const COLUMNS: [&str; 7] = [
@@ -22,12 +32,12 @@ const COLUMNS: [&str; 7] = [
 ];
 
 pub struct DbOAuth2UserConsentRepo {
-    engine: db::Client,
+    engine: ofdb_sql::Client,
 }
 
 impl DbOAuth2UserConsentRepo {
     #[must_use]
-    pub const fn new(engine: db::Client) -> Self {
+    pub const fn new(engine: ofdb_sql::Client) -> Self {
         Self { engine }
     }
 
@@ -98,7 +108,7 @@ impl OAuth2UserConsentRepo for DbOAuth2UserConsentRepo {
                     updated_at: now,
                 },
                 false,
-            ),
+            )
         };
         let updated_at = if existing && now.timestamp() <= consent.updated_at.timestamp() {
             consent.updated_at + chrono::Duration::seconds(1)
@@ -132,7 +142,11 @@ impl OAuth2UserConsentRepo for DbOAuth2UserConsentRepo {
             ..consent
         })
     }
-
+        &self,
+        user_id: Id,
+        client_id: &str,
+        redirect_uri: &str,
+        scope: &str,
     async fn find_user_consent(
         &self,
         user_id: Id,
@@ -198,13 +212,22 @@ struct ConsentRow {
 impl FromRow for ConsentRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            user_id: db::decode(db::value(row, columns, "user_id")?, "user_id")?,
-            client_id: db::decode(db::value(row, columns, "client_id")?, "client_id")?,
-            redirect_uri: db::decode(db::value(row, columns, "redirect_uri")?, "redirect_uri")?,
-            scope: db::decode(db::value(row, columns, "scope")?, "scope")?,
-            created_at: db::decode(db::value(row, columns, "created_at")?, "created_at")?,
-            updated_at: db::decode(db::value(row, columns, "updated_at")?, "updated_at")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            user_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "user_id")?, "user_id")?,
+            client_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "client_id")?, "client_id")?,
+            redirect_uri: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "redirect_uri")?,
+                "redirect_uri",
+            )?,
+            scope: ofdb_sql::decode(ofdb_sql::value(row, columns, "scope")?, "scope")?,
+            created_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "created_at")?,
+                "created_at",
+            )?,
+            updated_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "updated_at")?,
+                "updated_at",
+            )?,
         })
     }
 }
@@ -259,7 +282,7 @@ fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
     DateTime::from_timestamp(value, 0)
         .ok_or_else(|| RepoError::InvalidInput("invalid user consent timestamp".into()))
 }
-fn db_error(error: db::QueryError) -> RepoError {
+fn db_error(error: ofdb_sql::QueryError) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 fn row_error(error: FromRowError) -> RepoError {
@@ -321,7 +344,7 @@ mod tests {
     use std::sync::Arc;
     #[tokio::test]
     async fn upserts_and_deletes_uuid_consents() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         up(&engine).await.unwrap();
         let repo = DbOAuth2UserConsentRepo::new(engine.client());
         let user_id = Id::now_v7();

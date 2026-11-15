@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use device_service::replica::DbSelectionPolicyRepo;
+use idp_service::repo::ClientRepo;
+use of_model::contract::StorageAuthorizationAction;
 use of_model::idp::{
     contract::{GrantType, TokenEndpointAuthMethod},
     model::Id,
 };
-use idp_service::repo::ClientRepo;
-use of_model::contract::StorageAuthorizationAction;
 use of_model::storage::{StorageRequest, StorageResponse};
 
 use super::{Fixture, Gate, registration};

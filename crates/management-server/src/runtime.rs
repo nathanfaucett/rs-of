@@ -1,11 +1,11 @@
-use crate::{RouterState, router::openapi_router};
+use crate::router::{openapi_router::openapi_router, state::RouterState};
 use axum::Router;
-use db::Client;
-use device_service::HostedControlPlane;
+use device_service::hosted_control_plane::HostedControlPlane;
 use management_service::{
-    ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
+    replica::{permission_repo::DbPermissionRepo, role_repo::DbRoleRepo},
+    service::ManagementService,
 };
+use ofdb_sql::Client;
 use std::sync::Arc;
 /// Builds the local Management owner without setup or admission.
 pub async fn build_local_router(
@@ -16,7 +16,7 @@ pub async fn build_local_router(
     db: Option<Arc<dyn of_model::db::Database>>,
     http_client: Option<reqwest::Client>,
 ) -> std::io::Result<Router> {
-    let client = embedded_db::local_client(data_dir, "management", db)?;
+    let client = embedded_db::local::local_client(data_dir, "management", db)?;
     let control = HostedControlPlane::new_with_services(idp_base, storage_base, idp_base)
         .and_then(|control| {
             control.with_idp_service_client("local-management", "local-password", idp_base)
@@ -41,7 +41,7 @@ pub async fn build_router(
     api_base_uri: &str,
     prefix: &str,
     control_plane: Arc<HostedControlPlane>,
-) -> Result<Router, db::QueryError> {
+) -> Result<Router, ofdb_sql::QueryError> {
     let service = Arc::new(ManagementService::new(
         DbPermissionRepo::new(identity.clone()),
         DbRoleRepo::new(identity),

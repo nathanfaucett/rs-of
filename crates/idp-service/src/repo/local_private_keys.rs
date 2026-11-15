@@ -1,10 +1,12 @@
 use std::future::Future;
 
-use key::{DerivationPath, DerivedKey};
-use of_model::idp::model::Id;
+use bip32::DerivationPath;
+
+use key::derived_key::DerivedKey;
+use of_model::id::Id;
 use ofdb_kv::{Client, Database, SharedDatabase, Value};
 
-use crate::repo::{RepoError, RepoResult};
+use super::error::{RepoError, RepoResult};
 
 pub struct LocalPrivateKeys(Client);
 

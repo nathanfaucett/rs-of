@@ -1,15 +1,24 @@
-use db::{QueryError, SqlTranslator, Transaction, Value};
-use of_model::idp::contract::{IdpSignerRecord, JwsAlgorithm, KeyUse, ReplicaMembership};
+use of_model::idp::contract::{
+    idp_signer::{IdpSignerRecord, ReplicaMembership},
+    jws_algorithm::JwsAlgorithm,
+    key_use::KeyUse,
+};
+use ofdb_sql::QueryError;
+use ofdb_sql::SqlTranslator;
+use ofdb_sql::Value;
+use ofdb_sql::Transaction;
 
 use crate::repo::{RepoError, RepoResult};
 
 pub struct DbReplicaSignerRepo {
-    engine: db::Client,
+    engine: ofdb_sql::Client,
 }
 
 impl DbReplicaSignerRepo {
-    pub fn validate_public_key(public: &of_model::idp::contract::JwkPublic) -> RepoResult<()> {
-        if matches!(&public.params, of_model::idp::contract::JwkPublicParameters::Ec { crv, .. } if crv == "secp256k1")
+    pub fn validate_public_key(
+        public: &of_model::idp::contract::jwk_public::JwkPublic,
+    ) -> RepoResult<()> {
+        if matches!(&public.params, of_model::idp::contract::jwk_public_parameters::JwkPublicParameters::Ec { crv, .. } if crv == "secp256k1")
             && public.r#use == KeyUse::Signature
             && public.alg == JwsAlgorithm::ES256K
             && crate::oauth2::verifing_key_from_jwt(public).is_ok()
@@ -22,7 +31,7 @@ impl DbReplicaSignerRepo {
         }
     }
     #[must_use]
-    pub const fn new(engine: db::Client) -> Self {
+    pub const fn new(engine: ofdb_sql::Client) -> Self {
         Self { engine }
     }
 
@@ -128,7 +137,7 @@ impl DbReplicaSignerRepo {
             let clear = transaction
                 .row_conflicts(
                     "idp_replica_signers",
-                    &db::Row::new(vec![Value::Uuid(*signer)]),
+                    &ofdb_sql::Row::new(vec![Value::Uuid(*signer)]),
                 )
                 .await
                 .map_err(db_error)?
@@ -139,7 +148,7 @@ impl DbReplicaSignerRepo {
             let member_clear = transaction
                 .row_conflicts(
                     "idp_replica_members",
-                    &db::Row::new(vec![Value::Uuid(*member)]),
+                    &ofdb_sql::Row::new(vec![Value::Uuid(*member)]),
                 )
                 .await
                 .map_err(db_error)?
@@ -253,7 +262,7 @@ impl DbReplicaSignerRepo {
         let jwk = serde_json::to_string(&signer.public_jwk).map_err(RepoError::other)?;
         let insert_member = format!(
             "INSERT INTO idp_replica_members (id, installation_id, member_id, endpoint_id, issuer, approved_at, revoked_at) VALUES (CAST('{}' AS UUID), {}, CAST('{}' AS UUID), {}, {}, {}, NULL)",
-            db::Uuid::now_v7(),
+            ofdb_sql::Uuid::now_v7(),
             text(&membership.installation_id),
             membership.member_id,
             text(&membership.endpoint_id),
@@ -262,7 +271,7 @@ impl DbReplicaSignerRepo {
         );
         let insert_signer = format!(
             "INSERT INTO idp_replica_signers (id, member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at) VALUES (CAST('{}' AS UUID), CAST('{}' AS UUID), CAST('{}' AS UUID), CAST('{}' AS UUID), {}, {}, {}, NULL, {})",
-            db::Uuid::now_v7(),
+            ofdb_sql::Uuid::now_v7(),
             signer.member_id,
             signer.member_id,
             signer.key_id,
@@ -282,7 +291,7 @@ impl DbReplicaSignerRepo {
 
     pub async fn rotate(
         &self,
-        member_id: of_model::idp::model::Id,
+        member_id: of_model::id::Id,
         issuer: &str,
         signer: &IdpSignerRecord,
     ) -> RepoResult<bool> {
@@ -333,7 +342,7 @@ impl DbReplicaSignerRepo {
                 .translate_and_execute(
                     &format!(
                         "INSERT INTO idp_replica_signers (id, member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at) VALUES (CAST('{}' AS UUID), CAST('{}' AS UUID), CAST('{}' AS UUID), CAST('{}' AS UUID), {}, {}, {}, NULL, {})",
-                        db::Uuid::now_v7(), signer.member_id, signer.member_id, signer.key_id, text(&signer.issuer), text(&jwk), approved_at,
+                        ofdb_sql::Uuid::now_v7(), signer.member_id, signer.member_id, signer.key_id, text(&signer.issuer), text(&jwk), approved_at,
                         signer.expires_at.map_or_else(|| "NULL".to_owned(), |expires| expires.to_string()),
                     ),
                     &SqlTranslator,
@@ -357,7 +366,7 @@ impl DbReplicaSignerRepo {
 
     pub async fn revoke(
         &self,
-        member_id: of_model::idp::model::Id,
+        member_id: of_model::id::Id,
         issuer: &str,
         revoked_at: i64,
     ) -> RepoResult<bool> {
@@ -426,7 +435,7 @@ fn validate(membership: &ReplicaMembership, signer: &IdpSignerRecord) -> RepoRes
 
 fn validate_signer(
     signer: &IdpSignerRecord,
-    member_id: of_model::idp::model::Id,
+    member_id: of_model::id::Id,
     issuer: &str,
 ) -> RepoResult<i64> {
     let approved_at = signer
@@ -450,12 +459,12 @@ fn validate_signer(
     Ok(approved_at)
 }
 
-fn member_matches(row: &db::Row, membership: &ReplicaMembership) -> bool {
+fn member_matches(row: &ofdb_sql::Row, membership: &ReplicaMembership) -> bool {
     matches!(row.values.as_slice(), [Value::Text(endpoint), Value::Text(issuer), Value::Integer(_), Value::Null]
         if endpoint == &membership.endpoint_id && issuer == &membership.issuer)
 }
 
-fn signer_matches(row: &db::Row, signer: &IdpSignerRecord) -> RepoResult<bool> {
+fn signer_matches(row: &ofdb_sql::Row, signer: &IdpSignerRecord) -> RepoResult<bool> {
     let jwk = serde_json::to_string(&signer.public_jwk).map_err(RepoError::other)?;
     Ok(
         matches!(row.values.as_slice(), [Value::Uuid(member), Value::Text(issuer), Value::Text(saved_jwk), Value::Integer(_), Value::Null, expires]
@@ -483,19 +492,27 @@ mod tests {
     use std::sync::Arc;
 
     use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
-    use db::{SqlTranslator, Value};
     use k256::ecdsa::SigningKey;
+    use ofdb_sql::SqlTranslator;
+    use ofdb_sql::Value;
 
-    use of_model::idp::{
-        contract::{
-            IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse,
-            ReplicaMembership,
-        },
-        model::Id,
-        replica,
-    };
+    use of_model::idp::contract::idp_signer::IdpSignerRecord;
 
-    use super::DbReplicaSignerRepo;
+    use of_model::idp::contract::jwk_public::JwkPublic;
+
+    use of_model::idp::contract::jwk_public_parameters::JwkPublicParameters;
+
+    use of_model::idp::contract::jws_algorithm::JwsAlgorithm;
+
+    use of_model::idp::contract::key_use::KeyUse;
+
+    use of_model::idp::contract::idp_signer::ReplicaMembership;
+
+    use of_model::id::Id;
+
+    use of_model::idp::replica;
+
+    use crate::replica::replica_signer_repo::DbReplicaSignerRepo;
 
     fn records() -> (ReplicaMembership, IdpSignerRecord) {
         let member_id = Id::from_u128(1);
@@ -533,8 +550,12 @@ mod tests {
         (membership, signer)
     }
 
-    async fn public_trust_fixture() -> (Arc<db::Database>, ReplicaMembership, IdpSignerRecord) {
-        let engine = Arc::new(db::Database::in_memory());
+    async fn public_trust_fixture() -> (
+        Arc<ofdb_sql::Database>,
+        ReplicaMembership,
+        IdpSignerRecord,
+    ) {
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         replica::up(&engine)
             .await
             .expect("initialize public IdP schema");
@@ -552,7 +573,7 @@ mod tests {
 
     #[tokio::test]
     async fn local_identity_requires_exact_enrollment_active_user_and_current_trust() {
-        use crate::replica::LocalIdentity;
+        use crate::replica::local_identity::LocalIdentity;
         let (engine, member, signer) = public_trust_fixture().await;
         let identity = LocalIdentity::new(engine.client());
         let owner = Id::now_v7();
@@ -589,7 +610,7 @@ mod tests {
                 .expect("nil is not a User")
         );
         check().await.expect("exact current enrollment");
-        let binding = crate::oauth2::NodeSignerBinding {
+        let binding = crate::oauth2::node_signer::NodeSignerBinding {
             member_id: member.member_id,
             key_id: signer.key_id,
             endpoint_id: member.endpoint_id.clone(),
@@ -617,15 +638,15 @@ mod tests {
             "local independent signing capability is not ready"
         );
         for changed in [
-            crate::oauth2::NodeSignerBinding {
+            crate::oauth2::node_signer::NodeSignerBinding {
                 member_id: Id::now_v7(),
                 ..binding.clone()
             },
-            crate::oauth2::NodeSignerBinding {
+            crate::oauth2::node_signer::NodeSignerBinding {
                 key_id: Id::now_v7(),
                 ..binding.clone()
             },
-            crate::oauth2::NodeSignerBinding {
+            crate::oauth2::node_signer::NodeSignerBinding {
                 endpoint_id: "other-endpoint".into(),
                 ..binding.clone()
             },
@@ -709,7 +730,7 @@ mod tests {
 
     #[tokio::test]
     async fn trusted_signers_without_devices_and_key_repo_preserve_pairs() {
-        use crate::{replica::DbKeyRepo, repo::KeyRepo};
+        use crate::{replica::key_repo::DbKeyRepo, repo::key_repo::KeyRepo};
 
         let (engine, member, signer) = public_trust_fixture().await;
         assert!(
@@ -734,7 +755,7 @@ mod tests {
         );
     }
 
-    async fn execute(engine: &db::Database, sql: &str) {
+    async fn execute(engine: &ofdb_sql::Database, sql: &str) {
         engine
             .client()
             .translate_and_execute(sql, &SqlTranslator)
@@ -742,7 +763,7 @@ mod tests {
             .expect("change public trust fixture");
     }
 
-    async fn legacy_devices(engine: &db::Database) {
+    async fn legacy_devices(engine: &ofdb_sql::Database) {
         execute(engine, "CREATE TABLE devices (id UUID PRIMARY KEY, owner_subject TEXT, name TEXT, public_key TEXT, address TEXT, state INTEGER, approved_at INTEGER, revoked_at INTEGER, created_at INTEGER, updated_at INTEGER); CREATE UNIQUE INDEX devices_public_key ON devices (public_key)").await;
     }
 
@@ -938,15 +959,15 @@ mod tests {
             let (engine, member, _) = public_trust_fixture().await;
             engine
                 .client()
-                .execute(vec![db::Statement::Query(db::Query::Update(
-                    db::QueryUpdate {
-                        from: db::QueryFrom {
+                .execute(vec![ofdb_sql::Statement::Query(ofdb_sql::Query::Update(
+                    ofdb_sql::QueryUpdate {
+                        from: ofdb_sql::QueryFrom {
                             table: table.into(),
                             joins: vec![],
                         },
-                        assignments: vec![db::QueryUpdateAssignment {
-                            column: db::QueryColumn::new(table.into(), column.into()),
-                            value: db::QueryExprValue::Value(Value::Integer(-1)),
+                        assignments: vec![ofdb_sql::QueryUpdateAssignment {
+                            column: ofdb_sql::QueryColumn::new(table.into(), column.into()),
+                            value: ofdb_sql::QueryExprValue::Value(Value::Integer(-1)),
                         }],
                         predicate: None,
                         returning: None,
@@ -1074,8 +1095,8 @@ mod tests {
             row.values[0] = Value::Uuid(Id::now_v7());
             engine
                 .client()
-                .execute(vec![db::Statement::Query(db::Query::Insert(
-                    db::QueryInsert {
+                .execute(vec![ofdb_sql::Statement::Query(ofdb_sql::Query::Insert(
+                    ofdb_sql::QueryInsert {
                         table: table.into(),
                         row,
                         returning: None,
@@ -1090,7 +1111,7 @@ mod tests {
                     .is_err(),
                 "{table} ambiguity must deny"
             );
-            let error = crate::replica::LocalIdentity::new(engine.client())
+            let error = crate::replica::local_identity::LocalIdentity::new(engine.client())
                 .check_join_identity(
                     &member.issuer,
                     member.member_id,
@@ -1112,7 +1133,7 @@ mod tests {
 
     #[tokio::test]
     async fn caller_transaction_controls_enrollment_commit_and_rollback() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         replica::up(&engine).await.expect("initialize IdP schema");
         let repo = DbReplicaSignerRepo::new(engine.client());
         let (membership, signer) = records();
@@ -1158,7 +1179,7 @@ mod tests {
 
     #[tokio::test]
     async fn enrollment_is_persistent_idempotent_and_rejects_conflicts() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         replica::up(&engine).await.expect("initialize IdP schema");
         let repo = DbReplicaSignerRepo::new(engine.client());
         let (membership, signer) = records();

@@ -5,22 +5,34 @@ use super::{
     setup, up,
 };
 use crate::{
-    oauth2::{NodeSignerBinding, decode_jwt, encode_jwt, verify_jwt},
-    repo::{ClientRepo, KeyRepo, OAuth2AuthorizationCodeRepo, UserRepo},
+    oauth2::{
+        jwt::{decode_jwt, encode_jwt, verify_jwt},
+        node_signer::NodeSignerBinding,
+    },
+    repo::{
+        client_repo::ClientRepo, key_repo::KeyRepo,
+        oauth2_authorization_code_repo::OAuth2AuthorizationCodeRepo, user_repo::UserRepo,
+    },
 };
-use db::{
-    Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom, QueryUpdate, QueryUpdateAssignment,
-    SqlTranslator, Statement, Value,
-};
-use of_model::idp::{
-    contract::{EntityType, IdpSignerRecord, ReplicaMembership},
-    model::Id,
-};
-use of_model::contract::StandardClaims;
+use of_model::contract::standard_claims::StandardClaims;
+use of_model::id::Id;
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::contract::idp_signer::IdpSignerRecord;
+use of_model::idp::contract::idp_signer::ReplicaMembership;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::SqlTranslator;
+use ofdb_sql::Statement;
+use ofdb_sql::Value;
 use std::sync::Arc;
 
 async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) {
-    let engine = Arc::new(db::Database::in_memory());
+    let engine = Arc::new(ofdb_sql::Database::in_memory());
     up(&engine).await.expect("initialize independent schema");
     for table in [
         "applications",
@@ -42,11 +54,13 @@ async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) 
         for row in rows {
             engine
                 .client()
-                .execute(vec![Statement::Query(Query::Insert(db::QueryInsert {
-                    table: table.into(),
-                    row,
-                    returning: None,
-                }))])
+                .execute(vec![Statement::Query(Query::Insert(
+                    ofdb_sql::QueryInsert {
+                        table: table.into(),
+                        row,
+                        returning: None,
+                    },
+                ))])
                 .await
                 .expect("copy records without private signer");
         }
@@ -70,7 +84,7 @@ async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) 
 }
 
 async fn provision_fixture_client_secret(engine: &TestEngine, client_id: Id, secret: &str) {
-    let hash = crate::encrypt_password(&PasswordConfig::default(), secret)
+    let hash = crate::util::encrypt_password(&PasswordConfig::default(), secret)
         .expect("hash independently provisioned local secret");
     let metadata = engine
         .client()
@@ -83,11 +97,13 @@ async fn provision_fixture_client_secret(engine: &TestEngine, client_id: Id, sec
     let revision = metadata[0].rows[0].values[0].clone();
     engine
         .client()
-        .execute(vec![Statement::Query(Query::Insert(db::QueryInsert {
-            table: "local_client_credentials".into(),
-            row: db::Row::new(vec![Value::Uuid(client_id), revision, Value::Text(hash)]),
-            returning: None,
-        }))])
+        .execute(vec![Statement::Query(Query::Insert(
+            ofdb_sql::QueryInsert {
+                table: "local_client_credentials".into(),
+                row: ofdb_sql::Row::new(vec![Value::Uuid(client_id), revision, Value::Text(hash)]),
+                returning: None,
+            },
+        ))])
         .await
         .expect("explicit local fixture credential provisioning, not sync");
 }
@@ -142,7 +158,7 @@ async fn approve_independent_signer(engine: &Arc<TestEngine>, service: &mut Test
         revoked_at: None,
         expires_at: None,
     };
-    crate::replica::DbReplicaSignerRepo::new(engine.client())
+    crate::replica::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
         .enroll(&member, &signer)
         .await
         .expect("approve public signer fixture");
@@ -272,9 +288,11 @@ async fn public_node_signers_verify_without_private_material_or_principal_impers
         let mut claims = original.clone();
         match field {
             "subject" => claims.sub = Id::now_v7().to_string(),
-            "type" => claims.principal_type = of_model::contract::PrincipalType::Client,
+            "type" => {
+                claims.principal_type = of_model::contract::principal_type::PrincipalType::Client
+            }
             "issuer" => claims.iss = "https://other-installation.example".into(),
-            "use" => claims.r#use = of_model::contract::TokenUse::Id,
+            "use" => claims.r#use = of_model::contract::token_use::TokenUse::Id,
             "scope" => claims.scope.push("ungranted".into()),
             "lifetime" => claims.exp = 0,
             _ => claims.client_id = "other-client".into(),
@@ -428,7 +446,8 @@ async fn public_keys_survive_native_reopen_without_secret_store() {
     let path = std::env::temp_dir().join(format!("of-public-key-{}.redb", Id::now_v7()));
     let entity_id = Id::now_v7();
     let (id, public, token) = {
-        let engine = Arc::new(db::Database::open(&path).expect("open temporary database"));
+        let engine =
+            Arc::new(ofdb_sql::Database::open(&path).expect("open temporary database"));
         up(&engine).await.expect("initialize current schema");
         let keys = KeyService::new(
             DbKeyRepo::new(engine.client()),
@@ -456,8 +475,10 @@ async fn public_keys_survive_native_reopen_without_secret_store() {
         (key.id, key.public_jwk.expect("public material"), token)
     };
     {
-        let engine =
-            Arc::new(db::Database::open(&path).expect("reopen database without private store"));
+        let engine = Arc::new(
+            ofdb_sql::Database::open(&path)
+                .expect("reopen database without private store"),
+        );
         let repo = DbKeyRepo::new(engine.client());
         let key = repo
             .find_by_id(id)
@@ -486,8 +507,8 @@ async fn id_tokens_bind_the_principal_root_for_owner_local_verification() {
     let (header, claims) = decode_jwt::<serde_json::Value>(&token).expect("ID claims");
     assert_eq!(claims["principal_key_id"], principal.key.id.to_string());
     assert_ne!(header.kid, principal.key.id.to_string());
-    let (_, typed) =
-        decode_jwt::<of_model::idp::contract::IdTokenClaims>(&token).expect("typed bound ID claims");
+    let (_, typed) = decode_jwt::<of_model::idp::contract::id_token_claims::IdTokenClaims>(&token)
+        .expect("typed bound ID claims");
     assert_eq!(typed.principal_key_id, principal.key.id);
     assert_eq!(
         typed.user_info.as_ref().expect("OIDC profile").sub,
@@ -502,7 +523,7 @@ async fn id_tokens_bind_the_principal_root_for_owner_local_verification() {
         .verify_token_principal(&token)
         .await
         .expect("owner verifies ID Principal");
-    assert_eq!(verified.r#use, of_model::contract::TokenUse::Id);
+    assert_eq!(verified.r#use, of_model::contract::token_use::TokenUse::Id);
     assert_eq!(verified.sub, principal.user.id.to_string());
     assert!(
         verifier
@@ -565,7 +586,10 @@ async fn id_tokens_bind_the_principal_root_for_owner_local_verification() {
 
 #[tokio::test]
 async fn partitioned_nodes_consume_same_code_once_per_local_store() {
-    use of_model::idp::contract::{AuthorizationCodeGrantRequest, TokenRequest};
+    use of_model::idp::contract::{
+        authorization_code_grant_request::AuthorizationCodeGrantRequest,
+        token_request::TokenRequest,
+    };
     let (source, first, client, principal) = setup().await;
     let code = first
         .authorization_code_repo
@@ -614,7 +638,10 @@ async fn partitioned_nodes_consume_same_code_once_per_local_store() {
 
 #[tokio::test]
 async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
-    use of_model::idp::contract::{ClientCredentialsGrantRequest, TokenRequest};
+    use of_model::idp::contract::{
+        client_credentials_grant_request::ClientCredentialsGrantRequest,
+        token_request::TokenRequest,
+    };
     let (source, first, _, _) = setup().await;
     let mut registration = super::infrastructure_client_registration();
     registration.allowed_audiences = vec!["https://service.example".into()];
@@ -646,7 +673,7 @@ async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
             .await
             .expect_err("public metadata alone cannot authenticate a confidential client")
             .error,
-        of_model::idp::contract::ErrorCode::InvalidClient
+        of_model::idp::contract::error_code::ErrorCode::InvalidClient
     );
     provision_fixture_client_secret(&engine, client.id, "stable-secret").await;
     let left = first
@@ -663,7 +690,10 @@ async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
     assert_ne!(a.kid, b.kid);
     assert_eq!(ac.sub, client.id.to_string());
     assert_eq!(bc.sub, ac.sub);
-    assert_eq!(ac.principal_type, of_model::contract::PrincipalType::Client);
+    assert_eq!(
+        ac.principal_type,
+        of_model::contract::principal_type::PrincipalType::Client
+    );
     assert!(
         first
             .validate_access_token(&left.access_token.0, "https://service.example")
@@ -699,11 +729,13 @@ async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
                 audience: Some("https://service.example".into()),
                 resource: None,
             }),
-            Some(of_model::idp::contract::OAuth2ClientAuth {
-                client_id: client.client_id.clone(),
-                client_secret: Some("stable-secret".into()),
-                method: client.token_endpoint_auth_method,
-            }),
+            Some(
+                of_model::idp::contract::oauth2_client_auth::OAuth2ClientAuth {
+                    client_id: client.client_id.clone(),
+                    client_secret: Some("stable-secret".into()),
+                    method: client.token_endpoint_auth_method,
+                },
+            ),
         )
         .await
         .expect("issue against rotated metadata root");

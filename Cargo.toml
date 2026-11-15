@@ -59,7 +59,7 @@ members = [
     "crates/tauri-plugin-fetch-api",
     "apps/app/src-tauri",
 ]
-exclude = ["crates/storage-sync-client", "crates/storage-sync-test-harness"]
+
 
 [workspace.dependencies]
 setup = { path = "crates/setup", default-features = false }

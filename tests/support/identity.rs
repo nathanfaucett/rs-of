@@ -1,12 +1,6 @@
 use db::Database;
 use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
-use of_model::idp::contract::{
-    ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType, GrantType,
-    INSTALLATION_POLICY_ID, IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
-    PermissionEvaluationRequest, PermissionEvaluationResponse, PermissionSubject, PermissionTarget,
-    TokenEndpointAuthMethod,
-};
 use idp_service::{
     PasswordConfig,
     replica::{DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2UserConsentRepo, DbUserRepo},
@@ -14,6 +8,12 @@ use idp_service::{
         ApplicationRepo, ClientRepo, KeyService, OAuth2UserConsentRepo, PrivateKeyKeyringRepo,
         UserRepo,
     },
+};
+use of_model::idp::contract::{
+    ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType, GrantType,
+    INSTALLATION_POLICY_ID, IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
+    PermissionEvaluationRequest, PermissionEvaluationResponse, PermissionSubject, PermissionTarget,
+    TokenEndpointAuthMethod,
 };
 use std::{
     any::Any,

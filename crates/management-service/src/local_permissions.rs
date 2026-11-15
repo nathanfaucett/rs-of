@@ -1,10 +1,13 @@
-use db::Client;
-use of_model::idp::contract::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use ofdb_sql::Client;
 
-use crate::{
-    ManagementResult, ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
-};
+use of_model::management_error::ManagementResult;
+
+use crate::service::ManagementService;
+
+use crate::replica::DbPermissionRepo;
+
+use crate::replica::DbRoleRepo;
 
 #[derive(Clone)]
 pub struct LocalPermissions {
@@ -29,19 +32,18 @@ impl LocalPermissions {
 
 #[cfg(test)]
 mod tests {
-    use super::LocalPermissions;
-    use crate::{
-        ManagementService,
-        replica::{DbPermissionRepo, DbRoleRepo, up},
-    };
-    use db::Database;
-    use of_model::idp::{
-        contract::{
-            IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
-            PermissionTarget,
-        },
-        model::Id,
-    };
+    use crate::local_permissions::LocalPermissions;
+    use crate::replica::DbPermissionRepo;
+    use crate::replica::DbRoleRepo;
+    use crate::service::ManagementService;
+    use of_model::id::Id;
+    use of_model::idp::contract::permission_evaluation::IdentityAction;
+    use of_model::idp::contract::permission_evaluation::IdentityResource;
+    use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+    use of_model::idp::contract::permission_evaluation::PermissionSubject;
+    use of_model::idp::contract::permission_evaluation::PermissionTarget;
+    use of_model::idp::replica::up;
+    use ofdb_sql::Database;
     use std::sync::Arc;
 
     #[tokio::test]

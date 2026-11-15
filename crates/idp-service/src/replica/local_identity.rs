@@ -1,10 +1,16 @@
 use std::io;
 
-use db::Client;
-use of_model::idp::{contract::JwkPublic, model::Id};
+use of_model::id::Id;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use ofdb_sql::Client;
 
-use super::{DbReplicaSignerRepo, DbUserRepo};
-use crate::{PasswordConfig, oauth2::NodeSignerBinding, repo::UserRepo};
+use crate::replica::replica_signer_repo::DbReplicaSignerRepo;
+
+use crate::replica::user_repo::DbUserRepo;
+use crate::{
+    oauth2::node_signer::NodeSignerBinding, password_config::PasswordConfig,
+    repo::user_repo::UserRepo,
+};
 
 pub struct LocalIdentity {
     engine: Client,

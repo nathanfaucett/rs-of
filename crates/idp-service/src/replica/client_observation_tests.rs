@@ -1,10 +1,12 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use chrono::Utc;
-use of_model::idp::{
-    contract::{ClientProfile, ClientType, GrantType, TokenEndpointAuthMethod},
-    model::{Client, Id},
-};
+use of_model::id::Id;
+use of_model::idp::contract::client_profile::ClientProfile;
+use of_model::idp::contract::client_type::ClientType;
+use of_model::idp::contract::grant_type::GrantType;
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
+use of_model::idp::model::client::Client;
 use ofdb_sql::{
     AutomergeRowCodec, Engine, EngineExecutor, Kernel, KernelTransaction, RedbKernel, RowCodec,
     Server, redb,
@@ -12,8 +14,8 @@ use ofdb_sql::{
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{
-    replica::DbKeyRepo,
-    repo::{ClientRepo, KeyService},
+    replica::key_repo::DbKeyRepo,
+    repo::{client_repo::ClientRepo, key_service::KeyService},
 };
 
 use super::super::observation_test_kernel::{CatalogReads, CountingKernel};
@@ -47,13 +49,13 @@ impl Fixture {
             reads: Arc::clone(&reads),
         };
         let engine = Engine::new(kernel.clone(), AutomergeRowCodec::new());
-        let migration = include_str!("../../../model/identity_migrations/0001_init.up.sql");
+        let migration = include_str!("../../../model/migrations/0001_init.up.sql");
         for statement in migration.split(';').map(str::trim).filter(|statement| {
             statement.starts_with("CREATE TABLE IF NOT EXISTS clients (")
                 || statement.starts_with("CREATE TABLE IF NOT EXISTS local_client_credentials (")
         }) {
             engine
-                .translate_and_execute(statement, &db::SqlTranslator)
+                .translate_and_execute(statement, &ofdb_sql::SqlTranslator)
                 .await
                 .expect("actual owner client schemas");
         }
@@ -142,7 +144,8 @@ impl Fixture {
     async fn sql(&self, sql: &str) {
         tokio::time::timeout(
             Duration::from_secs(5),
-            self.engine.translate_and_execute(sql, &db::SqlTranslator),
+            self.engine
+                .translate_and_execute(sql, &ofdb_sql::SqlTranslator),
         )
         .await
         .expect("native admission released after lookup")

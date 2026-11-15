@@ -1,4 +1,4 @@
-use crate::idp::model::Id as Uuid;
+use crate::id::Id as Uuid;
 use alloc::{string::String, vec::Vec};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,21 +34,33 @@ pub enum OwnerPolicyObservation {
 }
 
 #[cfg(feature = "replica")]
-use db::{FromRow, FromRowError, Row};
+use ofdb_sql::{FromRow, FromRowError, Row};
 
 #[cfg(feature = "replica")]
 impl FromRow for SelectionPolicy {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            device_id: db::decode(db::value(row, columns, "device_id")?, "device_id")?,
-            owner_subject: db::decode(db::value(row, columns, "owner_subject")?, "owner_subject")?,
-            application_id: db::decode(
-                db::value(row, columns, "application_id")?,
+            device_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "device_id")?, "device_id")?,
+            owner_subject: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "owner_subject")?,
+                "owner_subject",
+            )?,
+            application_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "application_id")?,
                 "application_id",
             )?,
-            selected_kind: db::decode(db::value(row, columns, "selected_kind")?, "selected_kind")?,
-            selected_id: db::decode(db::value(row, columns, "selected_id")?, "selected_id")?,
-            admin_allowed: db::decode(db::value(row, columns, "admin_allowed")?, "admin_allowed")?,
+            selected_kind: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "selected_kind")?,
+                "selected_kind",
+            )?,
+            selected_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "selected_id")?,
+                "selected_id",
+            )?,
+            admin_allowed: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "admin_allowed")?,
+                "admin_allowed",
+            )?,
         })
     }
 }
@@ -68,16 +80,25 @@ pub struct ResourceSelection {
 impl FromRow for ResourceSelection {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            device_id: db::decode(db::value(row, columns, "device_id")?, "device_id")?,
-            owner_subject: db::decode(db::value(row, columns, "owner_subject")?, "owner_subject")?,
-            application_id: db::decode(
-                db::value(row, columns, "application_id")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            device_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "device_id")?, "device_id")?,
+            owner_subject: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "owner_subject")?,
+                "owner_subject",
+            )?,
+            application_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "application_id")?,
                 "application_id",
             )?,
-            selected_kind: db::decode(db::value(row, columns, "selected_kind")?, "selected_kind")?,
-            selected_id: db::decode(db::value(row, columns, "selected_id")?, "selected_id")?,
-            selected: db::decode(db::value(row, columns, "selected")?, "selected")?,
+            selected_kind: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "selected_kind")?,
+                "selected_kind",
+            )?,
+            selected_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "selected_id")?,
+                "selected_id",
+            )?,
+            selected: ofdb_sql::decode(ofdb_sql::value(row, columns, "selected")?, "selected")?,
         })
     }
 }

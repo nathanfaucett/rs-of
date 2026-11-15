@@ -17,7 +17,7 @@ use std::io;
 use iroh::{EndpointId, Signature};
 use serde::{Deserialize, Serialize};
 
-use crate::LocalTls;
+use crate::local_tls::LocalTls;
 
 #[derive(Clone, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -83,7 +83,7 @@ impl IndependentPeer {
 
     pub async fn discover_with_client(choice: &str, client: reqwest::Client) -> io::Result<Self> {
         let (base, _) = Self::choice(choice)?;
-        let nonce = crate::random_capability()?;
+        let nonce = crate::independent_exchange::random_capability()?;
         let configuration = of_device_client::apis::configuration::Configuration {
             base_path: base.to_owned(),
             client,

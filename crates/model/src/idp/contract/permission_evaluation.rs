@@ -3,7 +3,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-use crate::idp::model::Id;
+use crate::id::Id;
 
 pub const MANAGEMENT_PERMISSION_EVALUATE_SCOPE: &str = "management.permission.evaluate";
 // Reserved policy namespace, never an IdP Application. Application APIs must reject it.
@@ -300,11 +300,13 @@ pub struct PermissionEvaluationResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        INSTALLATION_POLICY_ID, IdentityAction, IdentityResource, PermissionEvaluationRequest,
-        PermissionSubject, PermissionTarget,
-    };
-    use crate::idp::model::Id;
+    use crate::id::Id;
+    use crate::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID;
+    use crate::idp::contract::permission_evaluation::IdentityAction;
+    use crate::idp::contract::permission_evaluation::IdentityResource;
+    use crate::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+    use crate::idp::contract::permission_evaluation::PermissionSubject;
+    use crate::idp::contract::permission_evaluation::PermissionTarget;
 
     #[test]
     fn enrollment_approval_permission_requires_valid_device_and_installation_scope() {

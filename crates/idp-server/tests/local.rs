@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
-use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
+use idp_service::{
+    password_config::PasswordConfig, replica::user_repo::DbUserRepo, repo::user_repo::UserRepo,
+};
 use of_model::db::Database;
 
 #[tokio::test]
 async fn local_constructor_opens_its_owner_file_without_setup() {
-    let root = std::env::temp_dir().join(format!(
-        "idp-owner-local-{}",
-        of_model::idp::model::Id::now_v7()
-    ));
-    let router = idp_server::build_local_router(
+    let root = std::env::temp_dir().join(format!("idp-owner-local-{}", of_model::id::Id::now_v7()));
+    let router = idp_server::runtime::build_local_router(
         &root,
         "http://127.0.0.1:1355/idp",
         "http://localhost:5173",
@@ -22,7 +21,7 @@ async fn local_constructor_opens_its_owner_file_without_setup() {
     assert!(!root.join("unified.redb").exists());
     assert!(!root.join("idp.setup-host").exists());
     drop(router);
-    let router = idp_server::build_local_router(
+    let router = idp_server::runtime::build_local_router(
         &root,
         "http://127.0.0.1:1355/idp",
         "http://localhost:5173",
@@ -37,15 +36,14 @@ async fn local_constructor_opens_its_owner_file_without_setup() {
 
 #[tokio::test]
 async fn local_constructor_seeds_frontends_and_admin_without_setup_and_is_repeatable() {
-    let root =
-        std::env::temp_dir().join(format!("idp-local-{}", of_model::idp::model::Id::now_v7()));
+    let root = std::env::temp_dir().join(format!("idp-local-{}", of_model::id::Id::now_v7()));
     let database: Arc<dyn Database> = Arc::new(
-        embedded_db::MemoryDatabase::new()
+        embedded_db::database::MemoryDatabase::new()
             .await
             .expect("shared schema"),
     );
     for _ in 0..2 {
-        let router = idp_server::build_local_router(
+        let router = idp_server::runtime::build_local_router(
             &root,
             "http://127.0.0.1:1355/idp",
             "http://localhost:5173",

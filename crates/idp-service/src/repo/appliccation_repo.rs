@@ -1,8 +1,10 @@
 use alloc::{string::String, vec::Vec};
 
-use of_model::idp::model::{Application, Id};
+use of_model::idp::model::application::Application;
 
-use crate::repo::RepoResult;
+use of_model::id::Id;
+
+use super::error::RepoResult;
 
 pub trait ApplicationRepo {
     fn find_by_id(

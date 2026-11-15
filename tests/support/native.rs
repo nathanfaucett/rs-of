@@ -6,13 +6,6 @@ use std::sync::{
 use axum::Router;
 use db::Database;
 use futures_util::{SinkExt, StreamExt};
-use of_model::idp::{
-    contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
-        TokenEndpointAuthMethod,
-    },
-    model::Id,
-};
 use idp_service::{
     oauth2::NodeSignerBinding,
     replica::{DbClientRepo, DbKeyRepo, DbUserRepo},
@@ -23,6 +16,13 @@ use iroh_chain::{EndpointIdStore, Server};
 use management_service::LocalPermissions;
 use of_model::contract::{
     AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail, TokenResponse,
+};
+use of_model::idp::{
+    contract::{
+        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
+        TokenEndpointAuthMethod,
+    },
+    model::Id,
 };
 use of_model::storage::{StorageRequest, StorageResponse, StorageSession};
 use storage_service::{DatabaseRuntime, FileSystemId, ScopedFileSystemRuntime};

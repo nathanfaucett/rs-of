@@ -1,12 +1,14 @@
 #![cfg(feature = "replica")]
 
 use futures::executor::block_on;
-use of_model::{db::Database, idp, replica};
+use of_model::db::Database;
+use of_model::idp;
+use of_model::replica;
 
 #[test]
 fn query_client_initializes_memory_database_through_the_shared_interface() {
     block_on(async {
-        let database = db::Database::in_memory();
+        let database = ofdb_sql::Database::in_memory();
         let client = database.client();
         let shared: &dyn Database = &client;
         replica::up(shared)
@@ -27,37 +29,24 @@ fn query_client_initializes_memory_database_through_the_shared_interface() {
 }
 
 #[test]
-fn independent_migrations_keep_owner_schemas_separate() {
+fn single_migration_initializes_all_owner_tables_through_each_entry_point() {
     block_on(async {
-        let identity = db::Database::in_memory();
+        let identity = ofdb_sql::Database::in_memory();
         idp::replica::up(&identity)
             .await
-            .expect("independent identity schema");
-        let device = db::Database::in_memory();
+            .expect("identity entry point applies the shared schema");
+        let device = ofdb_sql::Database::in_memory();
         replica::up_device(&device.client())
             .await
-            .expect("independent Device schema");
-        for (database, present, absent) in [
-            (&identity, "users", "devices"),
-            (&device, "devices", "users"),
-        ] {
+            .expect("Device entry point applies the shared schema");
+        for database in [&identity, &device] {
             let client = database.client();
-            client
-                .execute_sql(&format!("SELECT * FROM {present} LIMIT 0"), None)
-                .await
-                .expect("owner table exists");
-            assert!(
+            for table in ["users", "devices", "namespaces"] {
                 client
-                    .execute_sql(&format!("SELECT * FROM {absent} LIMIT 0"), None)
+                    .execute_sql(&format!("SELECT * FROM {table} LIMIT 0"), None)
                     .await
-                    .is_err()
-            );
-            assert!(
-                client
-                    .execute_sql("SELECT * FROM namespaces LIMIT 0", None)
-                    .await
-                    .is_err()
-            );
+                    .expect("owner table exists");
+            }
         }
     });
 }
@@ -67,7 +56,7 @@ fn unified_schema_initializes_redb_and_keeps_committed_data_on_reopen() {
     let directory = tempfile::tempdir().expect("temporary database directory");
     let path = directory.path().join("unified.redb");
     block_on(async {
-        let database = db::Database::open(&path).expect("open redb");
+        let database = ofdb_sql::Database::open(&path).expect("open redb");
         replica::up(&database).await.expect("initialize all owners");
         replica::up(&database)
             .await
@@ -100,7 +89,7 @@ fn unified_schema_initializes_redb_and_keeps_committed_data_on_reopen() {
             .expect("commit shared transaction");
     });
     block_on(async {
-        let database = db::Database::open(&path).expect("reopen redb");
+        let database = ofdb_sql::Database::open(&path).expect("reopen redb");
         replica::up(&database).await.expect("reopen schema");
         let result = database
             .management()

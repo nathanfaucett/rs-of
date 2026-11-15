@@ -7,17 +7,17 @@ use serde::Serialize;
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct UserApplicationRoleResponse {
     #[cfg_attr(feature = "utoipa", schema(value_type = String))]
-    pub role_id: crate::idp::model::Id,
+    pub role_id: crate::id::Id,
     #[cfg_attr(feature = "utoipa", schema(value_type = String))]
-    pub application_id: crate::idp::model::Id,
+    pub application_id: crate::id::Id,
     pub role_name: String,
     pub role_description: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-impl From<crate::idp::model::Role> for UserApplicationRoleResponse {
-    fn from(value: crate::idp::model::Role) -> Self {
+impl From<crate::idp::model::role::Role> for UserApplicationRoleResponse {
+    fn from(value: crate::idp::model::role::Role) -> Self {
         Self {
             role_id: value.id,
             application_id: value.application_id,

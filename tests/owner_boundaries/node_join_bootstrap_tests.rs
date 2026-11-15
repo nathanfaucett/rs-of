@@ -4,7 +4,6 @@ use db::{Database, SqlTranslator};
 use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
 use device_service::security_protocol::{SecurityContext, SecurityProtocol};
-use of_model::idp::{contract::IdentityAction, model::Id};
 use idp_server::{AppConfig, OwnerProvisioner};
 use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo};
 use iroh::{SecretKey, endpoint::presets::Minimal};
@@ -12,6 +11,7 @@ use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
+use of_model::idp::{contract::IdentityAction, model::Id};
 use tokio_util::sync::CancellationToken;
 
 use crate::support::identity::{seed_idp, seed_permissions, user_token};

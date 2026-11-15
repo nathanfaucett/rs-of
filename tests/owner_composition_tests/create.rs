@@ -8,9 +8,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use server_common::{IndependentCreateIntent, IndependentSetupHost, LocalTls};
 use of_model::idp::model::Id;
 use reqwest::{Client, StatusCode};
+use server_common::{IndependentCreateIntent, IndependentSetupHost, LocalTls};
 use tokio_util::sync::CancellationToken;
 
 #[path = "review_transfer_restart_tests.rs"]
@@ -1067,10 +1067,10 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
     use device_service::replica::DbDeviceRepo;
     use device_service::replica::DbSelectionPolicyRepo;
     use device_service::replica::SelectionPolicy;
-    use of_model::idp::contract::IdentityAction;
     use management_service::ManagementService;
     use management_service::replica::DbPermissionRepo;
     use management_service::replica::DbRoleRepo;
+    use of_model::idp::contract::IdentityAction;
     let record: serde_json::Value = serde_json::from_slice(
         &fs::read(root.join("device.setup-host/worker.json")).expect("stopped Management evidence"),
     )

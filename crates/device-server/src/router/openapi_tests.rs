@@ -1,16 +1,18 @@
 use std::sync::Arc;
 
 use axum::{body::Body, http::Request};
-use device_service::HostedControlPlane;
-use device_service::replica::DbSelectionPolicyRepo;
-use of_model::idp::model::Id;
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
+use device_service::hosted_control_plane::HostedControlPlane;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use management_service::replica::permission_repo::DbPermissionRepo;
+use management_service::replica::role_repo::DbRoleRepo;
+use management_service::service::ManagementService;
+use of_model::id::Id;
 use serde_json::Value;
 use tower::ServiceExt;
 
-use super::{RouterState, openapi_router};
+use crate::router::state::RouterState;
+
+use crate::router::openapi_router::openapi_router;
 
 #[tokio::test]
 async fn composed_openapi_requires_current_selected_resources_policy() {
@@ -20,8 +22,10 @@ async fn composed_openapi_requires_current_selected_resources_policy() {
 async fn document() -> Value {
     let root = std::env::temp_dir().join(format!("device-openapi-{}", Id::now_v7()));
     std::fs::create_dir_all(&root).expect("create isolated schema export directory");
-    let engine =
-        Arc::new(db::Database::open(root.join("devices.redb")).expect("open isolated engine"));
+    let engine = Arc::new(
+        ofdb_sql::Database::open(root.join("devices.redb"))
+            .expect("open isolated engine"),
+    );
     let state = RouterState::new(
         "https://device.example/device",
         Arc::new(ManagementService::new(

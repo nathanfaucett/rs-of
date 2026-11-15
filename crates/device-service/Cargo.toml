@@ -14,7 +14,7 @@ name = "device_service"
 
 [features]
 default = []
-independent = ["replica", "server-common/independent"]
+independent = ["replica", "server-common/independent", "setup"]
 utoipa = ["std", "dep:utoipa", "of-model/utoipa"]
 
 replica = [
@@ -64,6 +64,7 @@ of-idp-client = { path = "../idp-client", default-features = false, optional = t
 of-device-client = { path = "../device-client", default-features = false, optional = true }
 of-storage-api-client = { path = "../storage-api-client", default-features = false, optional = true }
 server-common = { path = "../server-common", default-features = false, optional = true }
+setup = { path = "../setup", default-features = false, optional = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "network",
 ], optional = true }

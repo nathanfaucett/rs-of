@@ -2,21 +2,28 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use idp_service::oauth2::{CreateUserRequest, UpdateUserInfoRequest};
-use of_model::idp::{
-    contract::{
-        ApplicationRegistration, ErrorCode, ErrorResponse, IdentityAction, IdentityResource,
-        PermissionTarget, UserInfo,
-    },
-    model::{Application, Id, Key, OAuth2UserConsent},
-};
-pub use of_model::server::idp::administration::{
+use of_model::id::Id;
+use of_model::idp::contract::application_registration::ApplicationRegistration;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::IdentityResource;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use of_model::idp::contract::user_info::UserInfo;
+use of_model::idp::model::application::Application;
+use of_model::idp::model::key::Key;
+use of_model::idp::model::oauth2_user_consent::OAuth2UserConsent;
+use of_model::oauth_user::CreateUserRequest;
+use of_model::oauth_user::UpdateUserInfoRequest;
+use of_model::server::idp::administration::{
     Page, ResetPassword, SetUserBlockedRequest, SetUserMfaRequest,
 };
 
 use crate::router::{
-    RouterState,
-    middleware::{StandardAuthorization, require_identity_permission},
+    middleware::{
+        authorization::StandardAuthorization, identity_administration::require_identity_permission,
+    },
+    state::RouterState,
 };
 
 async fn require(

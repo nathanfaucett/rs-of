@@ -1,8 +1,20 @@
-use std::{collections::HashMap, sync::Arc, sync::mpsc, thread};
+use std::{
+    collections::HashMap,
+    sync::{Arc, mpsc},
+    thread,
+};
 
-use key::{DerivationPath, DerivedKey, XPrv};
+use bip32::DerivationPath;
 
-use super::{PrivateKeyKeyringRepo, PrivateKeyRepo, RawKeyringRepo};
+use key::derived_key::DerivedKey;
+
+use bip32::XPrv;
+
+use crate::repo::PrivateKeyKeyringRepo;
+
+use crate::repo::PrivateKeyRepo;
+
+use crate::repo::RawKeyringRepo;
 
 struct Store(Arc<keyring_core::mock::Store>);
 

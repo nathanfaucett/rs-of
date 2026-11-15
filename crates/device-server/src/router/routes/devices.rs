@@ -3,38 +3,41 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, header::AUTHORIZATION},
 };
-use device_service::ApprovedDeviceEndpoints;
-use device_service::DeviceEndpointIdentity;
-use device_service::DeviceEnrollment;
-use device_service::DeviceEnrollmentRequest;
-use device_service::DeviceEnrollmentService;
-use device_service::DeviceInfo;
-use device_service::DeviceRepo;
-use device_service::PairingAcceptance;
-use device_service::TrustedDevice;
-use device_service::UpdateDeviceRequest;
-use of_model::idp::{
-    contract::{
-        ErrorCode, ErrorResponse, IdentityAction, IdentityResource, MANAGEMENT_DEVICE_LIST_SCOPE,
-        MANAGEMENT_DEVICE_LOOKUP_SCOPE, PermissionTarget,
-    },
-    model::Id,
-};
+use device_service::device_enrollment::DeviceEnrollmentService;
+use device_service::device_repo::DeviceRepo;
 use iroh::EndpointId;
-use of_model::contract::PrincipalType;
+use of_model::contract::principal_type::PrincipalType;
+use of_model::device::contract::approved_device_endpoints::ApprovedDeviceEndpoints;
+use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
+use of_model::device::contract::device_enrollment::DeviceEnrollment;
+use of_model::device::contract::device_enrollment_request::DeviceEnrollmentRequest;
+use of_model::device::contract::device_info::DeviceInfo;
+use of_model::device::contract::device_pairing::PairingAcceptance;
+use of_model::device::contract::trusted_device::TrustedDevice;
+use of_model::device::contract::update_device_request::UpdateDeviceRequest;
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::IdentityResource;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use of_model::idp::contract::service_scopes::MANAGEMENT_DEVICE_LIST_SCOPE;
+use of_model::idp::contract::service_scopes::MANAGEMENT_DEVICE_LOOKUP_SCOPE;
 
 use crate::router::{
-    RouterState,
-    middleware::{DeviceAuthorization, require_identity_permission},
+    middleware::{
+        device_authorization::DeviceAuthorization, device_permission::require_identity_permission,
+    },
+    state::RouterState,
 };
 
-#[utoipa::path(put, path = "/devices/{device_id}/owner", params(("device_id" = String, Path)), request_body = device_service::DeviceTransferRequest,
+#[utoipa::path(put, path = "/devices/{device_id}/owner", params(("device_id" = String, Path)), request_body = of_model::device::contract::update_device_request::DeviceTransferRequest,
     responses((status = 204, description = "Ownership updated; each Node must finish learned local cleanup before new-owner use")), security(("authorization" = [])))]
 pub(crate) async fn transfer_device(
     State(state): State<RouterState>,
     Path(device_id): Path<Id>,
     actor: DeviceAuthorization,
-    Json(request): Json<device_service::DeviceTransferRequest>,
+    Json(request): Json<of_model::device::contract::update_device_request::DeviceTransferRequest>,
 ) -> Result<axum::http::StatusCode, ErrorResponse> {
     require_identity_permission(
         &state,
@@ -187,7 +190,7 @@ async fn trusted_device_identity(
 
 fn devices(
     state: &RouterState,
-) -> Result<std::sync::Arc<device_service::replica::DbDeviceRepo>, ErrorResponse> {
+) -> Result<std::sync::Arc<device_service::replica::device_repo::DbDeviceRepo>, ErrorResponse> {
     state
         .control_plane
         .device_repo()
@@ -299,7 +302,7 @@ pub(crate) async fn trusted_devices(
         .map_err(ErrorResponse::from)?
     {
         if device.owner_subject == actor.subject.to_string()
-            && device.state == device_service::DeviceState::Approved
+            && device.state == of_model::device::contract::device_state::DeviceState::Approved
             && device.revoked_at.is_none()
         {
             trusted_device_identity(&state, device.id).await?;

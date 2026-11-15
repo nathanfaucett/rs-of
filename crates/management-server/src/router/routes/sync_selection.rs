@@ -1,18 +1,18 @@
 //! WebSocket sync selection routes.
 
+use crate::router::routes::roles::require_application_permission;
+use crate::router::{
+    middleware::management_authorization::ManagementAuthorization, state::RouterState,
+};
 use axum::{
     Json,
     extract::{Path, State},
 };
-use of_model::idp::{
-    contract::{ErrorCode, ErrorResponse},
-    model::Id,
-};
-use management_service::{
-    SyncSelectionRequest, SyncSelectionResponse,
-};
-use crate::router::{RouterState, middleware::ManagementAuthorization};
-use crate::router::routes::roles::require_application_permission;
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::management::SyncSelectionRequest;
+use of_model::management::SyncSelectionResponse;
 use uuid::Uuid;
 
 const SYNC_SELECTION_READ_PERMISSION: &str = "sync.selection.read";

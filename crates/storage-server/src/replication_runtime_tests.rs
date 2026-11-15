@@ -7,19 +7,21 @@ use std::{
     time::Duration,
 };
 
-use device_service::DeviceState;
-use of_model::idp::model::Id;
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use of_model::contract::SelectedResource;
+use of_model::contract::replication::SelectedResource;
+use of_model::device::contract::device_state::DeviceState;
+use of_model::id::Id;
 
-use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
+use storage_service::{
+    database_runtime::DatabaseRuntime, scoped_file_system::ScopedFileSystemRuntime,
+};
 use tokio_util::sync::CancellationToken;
 
 use super::{ResourceScope, StorageReplicationRuntime};
 use crate::{
-    DeviceReplicationPolicy, LocalReplicationAuthorizer,
     execution_test_support::{TestDirectory, sql},
+    local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer},
 };
 
 struct Fixture {
@@ -302,13 +304,13 @@ where
 async fn has_row(database: &ofdb_sql::Database, value: &str) -> bool {
     database
         .client()
-        .translate_and_execute("SELECT value FROM documents", &db::SqlTranslator)
+        .translate_and_execute("SELECT value FROM documents", &ofdb_sql::SqlTranslator)
         .await
         .is_ok_and(|results| {
             results[0]
                 .rows
                 .iter()
-                .any(|row| row.values[0] == db::Value::Text(value.into()))
+                .any(|row| row.values[0] == ofdb_sql::Value::Text(value.into()))
         })
 }
 
@@ -699,7 +701,7 @@ async fn configuration_self_write_finishes_then_coalesces_without_read_commit_lo
             }
             policy
                 .client()
-                .translate_and_execute("SELECT id FROM events", &db::SqlTranslator)
+                .translate_and_execute("SELECT id FROM events", &ofdb_sql::SqlTranslator)
                 .await
                 .map_err(|error| error.to_string())?;
             Ok(DeviceReplicationPolicy {
@@ -1083,7 +1085,7 @@ fn cancellation_and_drop_stop_owned_tasks_with_authorities_alive() {
             fixture
                 .policy
                 .client()
-                .translate_and_execute("SELECT id FROM events", &db::SqlTranslator)
+                .translate_and_execute("SELECT id FROM events", &ofdb_sql::SqlTranslator)
                 .await
                 .expect("authority still alive after runtime stops");
             fixture.close().await;
@@ -1111,7 +1113,7 @@ async fn policy_feed_is_required_before_background_start() {
 }
 
 struct AcceptSwitch {
-    handler: crate::DataProtocolHandler,
+    handler: crate::data_protocol::DataProtocolHandler,
     enabled: Arc<AtomicBool>,
     rejected: Arc<AtomicUsize>,
 }

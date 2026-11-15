@@ -1,20 +1,23 @@
 use std::sync::Arc;
 
-use device_service::DeviceIdentity;
-use device_service::HostedControlPlane;
-use device_service::PairingAcceptanceControllerSlot;
-use device_service::replica::DbDeviceRepo;
+use device_service::device_identity::DeviceIdentity;
+use device_service::hosted_control_plane::HostedControlPlane;
+use device_service::pairing_acceptance::PairingAcceptanceControllerSlot;
+use device_service::replica::device_repo::DbDeviceRepo;
 use idp_service::{
-    oauth2::OAuth2Service,
+    oauth2::service::OAuth2Service,
     replica::{
-        DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
-        DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbReplicaSignerRepo, DbUserRepo,
+        application_repo::DbApplicationRepo, client_repo::DbClientRepo, key_repo::DbKeyRepo,
+        oauth2_authorization_code_repo::DbOAuth2AuthorizationCodeRepo,
+        oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo,
+        oauth2_user_consent_repo::DbOAuth2UserConsentRepo,
+        replica_signer_repo::DbReplicaSignerRepo, user_repo::DbUserRepo,
     },
-    repo::PrivateKeyKeyringRepo,
+    repo::private_key_keyring_repo::PrivateKeyKeyringRepo,
 };
-use management_service::LocalPermissions;
+use management_service::local_permissions::LocalPermissions;
 
-use crate::ManagementPermissionClient;
+use crate::management_permission_client::ManagementPermissionClient;
 
 pub(super) type NativeOAuth2Service = OAuth2Service<
     DbApplicationRepo,
@@ -35,7 +38,7 @@ pub struct RouterState {
     pub ui_base_uri: String,
     pub api_base_uri: String,
     pub service_audience: String,
-    pub engine: db::Client,
+    pub engine: ofdb_sql::Client,
     pub oauth2_service: Arc<NativeOAuth2Service>,
     pub devices: Option<Arc<NativeDeviceRepo>>,
     pub replica_signers: Arc<NativeReplicaSignerRepo>,
@@ -53,7 +56,7 @@ impl RouterState {
     pub fn new(
         ui_base_uri: impl Into<String>,
         api_base_uri: impl Into<String>,
-        engine: db::Client,
+        engine: ofdb_sql::Client,
         oauth2_service: Arc<NativeOAuth2Service>,
         devices: Option<Arc<NativeDeviceRepo>>,
         device_identity: Arc<DeviceIdentity>,
@@ -67,7 +70,7 @@ impl RouterState {
     pub fn new_oauth(
         ui_base_uri: impl Into<String>,
         api_base_uri: impl Into<String>,
-        engine: db::Client,
+        engine: ofdb_sql::Client,
         oauth2_service: Arc<NativeOAuth2Service>,
     ) -> Self {
         let api_base_uri = api_base_uri.into();

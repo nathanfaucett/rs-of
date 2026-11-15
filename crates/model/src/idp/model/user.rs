@@ -8,8 +8,9 @@ use alloc::{
 
 use chrono::{DateTime, Utc};
 
-use super::Id;
-use crate::idp::contract::{Sex, UserInfo};
+use crate::id::Id;
+use crate::idp::contract::sex::Sex;
+use crate::idp::contract::user_info::UserInfo;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct User {

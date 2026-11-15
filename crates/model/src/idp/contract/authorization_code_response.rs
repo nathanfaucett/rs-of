@@ -8,7 +8,7 @@ use alloc::{
 
 use serde::{Deserialize, Serialize};
 
-use super::ErrorResponse;
+use crate::idp::contract::error_response::ErrorResponse;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

@@ -4,11 +4,14 @@ use alloc::{
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
-use of_model::idp::{
-    contract::{JwkPrivate, JwkPrivateParameters, JwkPublic, JwsAlgorithm, KeyUse},
-    model::Id,
-};
-use key::{DerivationPath, DerivedKey};
+use bip32::DerivationPath;
+use key::derived_key::DerivedKey;
+use of_model::id::Id;
+use of_model::idp::contract::jwk_private::JwkPrivate;
+use of_model::idp::contract::jwk_private_parameters::JwkPrivateParameters;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use of_model::idp::contract::jws_algorithm::JwsAlgorithm;
+use of_model::idp::contract::key_use::KeyUse;
 
 use crate::repo::{KeyRepo, KeyService, PrivateKeyRepo, RepoError, RepoResult};
 

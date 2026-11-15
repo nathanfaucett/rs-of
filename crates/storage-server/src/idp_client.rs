@@ -7,17 +7,15 @@ use std::{
 
 #[cfg(feature = "network")]
 use iroh::EndpointId;
-use of_idp_client::{
-    apis::{
-        Error,
-        configuration::Configuration,
-        default_api::{TokenParams, token},
-        super_routes_oauth2_introspect_api::{IntrospectParams, introspect},
-    },
-    models::IntrospectionRequest,
-};
-use of_model::contract::{TokenResponse, TokenType};
-use of_model::idp::contract::IntrospectionResponse;
+use of_idp_client::apis::configuration::Configuration;
+use of_idp_client::apis::default_api::TokenParams;
+use of_idp_client::apis::default_api::token;
+use of_idp_client::apis::super_routes_oauth2_introspect_api::IntrospectParams;
+use of_idp_client::apis::super_routes_oauth2_introspect_api::introspect;
+use of_idp_client::apis::support::Error;
+use of_model::contract::{token_response::TokenResponse, token_type::TokenType};
+use of_model::http::idp::introspection_request::IntrospectionRequest;
+use of_model::idp::contract::introspection_response::IntrospectionResponse;
 use reqwest::{Client, Url, redirect::Policy};
 
 const MAX_RESPONSE_SIZE: usize = 64 * 1024;
@@ -34,7 +32,10 @@ pub enum IdpIntrospectionError {
 pub struct IdpClient {
     backend: IdpBackend,
     #[cfg(feature = "network")]
-    local_device_policy: Option<(EndpointId, crate::LocalReplicationAuthorizer)>,
+    local_device_policy: Option<(
+        EndpointId,
+        crate::local_replication_authorizer::LocalReplicationAuthorizer,
+    )>,
 }
 
 type InspectToken = Arc<
@@ -131,7 +132,7 @@ impl IdpClient {
     pub fn with_local_device_policy(
         mut self,
         endpoint: EndpointId,
-        policy: crate::LocalReplicationAuthorizer,
+        policy: crate::local_replication_authorizer::LocalReplicationAuthorizer,
     ) -> Self {
         self.local_device_policy = Some((endpoint, policy));
         self
@@ -320,7 +321,11 @@ mod tests {
         thread,
     };
 
-    use super::{HttpIdpClient, IdpBackend, IdpClient};
+    use super::HttpIdpClient;
+
+    use super::IdpBackend;
+
+    use crate::idp_client::IdpClient;
 
     fn http(client: &IdpClient) -> &HttpIdpClient {
         let IdpBackend::Http(http) = &client.backend else {
@@ -360,7 +365,7 @@ mod tests {
             IdpClient::new(&base, CLIENT_ID, CLIENT_SECRET, ISSUER, AUDIENCE).expect("IdP client");
         assert_eq!(
             client.introspect(&"x".repeat(1024 * 1024)).await.err(),
-            Some(super::IdpIntrospectionError::ServiceUnavailable)
+            Some(crate::idp_client::IdpIntrospectionError::ServiceUnavailable)
         );
         server.abort();
     }
@@ -379,19 +384,30 @@ mod tests {
         };
 
         let app = axum::Router::new()
-            .route("/idp/oauth2/token", post(|body: String| async move {
-                assert!(body.contains("scope=idp.token.validate"));
-                assert!(!body.contains("idp.device"));
-                Json(serde_json::json!({
-                    "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
-                    "scope": "idp.token.validate", "iss": ISSUER
-                }))
-            }))
-            .route("/idp/oauth2/introspect", post(|headers: HeaderMap, Json(request): Json<of_model::idp::contract::IntrospectionRequest>| async move {
-                assert_eq!(headers["authorization"], "Bearer service-token");
-                assert_eq!(request.token, "invalid-user-token");
-                StatusCode::UNAUTHORIZED
-            }));
+            .route(
+                "/idp/oauth2/token",
+                post(|body: String| async move {
+                    assert!(body.contains("scope=idp.token.validate"));
+                    assert!(!body.contains("idp.device"));
+                    Json(serde_json::json!({
+                        "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
+                        "scope": "idp.token.validate", "iss": ISSUER
+                    }))
+                }),
+            )
+            .route(
+                "/idp/oauth2/introspect",
+                post(
+                    |headers: HeaderMap,
+                     Json(request): Json<
+                        of_model::idp::contract::introspection_request::IntrospectionRequest,
+                    >| async move {
+                        assert_eq!(headers["authorization"], "Bearer service-token");
+                        assert_eq!(request.token, "invalid-user-token");
+                        StatusCode::UNAUTHORIZED
+                    },
+                ),
+            );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind IdP API");
@@ -408,7 +424,7 @@ mod tests {
         .expect("inspect-only IdP client");
         assert!(matches!(
             client.introspect("invalid-user-token").await,
-            Err(super::IdpIntrospectionError::InvalidToken)
+            Err(crate::idp_client::IdpIntrospectionError::InvalidToken)
         ));
         server.abort();
         let _ = server.await;
@@ -419,9 +435,13 @@ mod tests {
     async fn local_introspection_checks_current_device_owner_without_endpoint_enumeration() {
         use std::sync::{Arc, Mutex};
 
-        use device_service::DeviceState;
-        use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
-        use of_model::idp::{contract::IntrospectionResponse, model::Id};
+        use of_model::contract::{
+            principal_type::PrincipalType, standard_claims::StandardClaims, token_type::TokenType,
+            token_use::TokenUse,
+        };
+        use of_model::device::contract::device_state::DeviceState;
+        use of_model::id::Id;
+        use of_model::idp::contract::introspection_response::IntrospectionResponse;
 
         let endpoint = iroh::SecretKey::generate().public();
         let owner = Id::now_v7().to_string();
@@ -457,20 +477,23 @@ mod tests {
                 .sub,
             owner
         );
-        let evidence = Arc::new(Mutex::new(crate::DeviceReplicationPolicy {
-            device_id: Id::now_v7(),
-            endpoint_id: endpoint,
-            owner_subject: owner.clone(),
-            state: DeviceState::Approved,
-            owner_active: true,
-            admin_allowed: true,
-            resources: vec![],
-        }));
+        let evidence = Arc::new(Mutex::new(
+            crate::local_replication_authorizer::DeviceReplicationPolicy {
+                device_id: Id::now_v7(),
+                endpoint_id: endpoint,
+                owner_subject: owner.clone(),
+                state: DeviceState::Approved,
+                owner_active: true,
+                admin_allowed: true,
+                resources: vec![],
+            },
+        ));
         let current = evidence.clone();
-        let policy = crate::LocalReplicationAuthorizer::new(move |_| {
-            let policy = current.lock().expect("current owner evidence").clone();
-            async move { Ok(policy) }
-        });
+        let policy =
+            crate::local_replication_authorizer::LocalReplicationAuthorizer::new(move |_| {
+                let policy = current.lock().expect("current owner evidence").clone();
+                async move { Ok(policy) }
+            });
         let client = client.with_local_device_policy(endpoint, policy);
         assert_eq!(
             client
@@ -494,7 +517,7 @@ mod tests {
             *evidence.lock().expect("learn current owner denial") = policy;
             assert!(matches!(
                 client.introspect("user-token").await,
-                Err(super::IdpIntrospectionError::InvalidToken)
+                Err(crate::idp_client::IdpIntrospectionError::InvalidToken)
             ));
         }
         *evidence.lock().expect("restore current owner") = baseline;

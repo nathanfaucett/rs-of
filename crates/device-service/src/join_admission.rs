@@ -1,4 +1,4 @@
-use crate::security_protocol::BOOTSTRAP_ALPN;
+use crate::security_protocol::bootstrap::BOOTSTRAP_ALPN;
 use iroh::{
     Endpoint, EndpointAddr, EndpointId, SecretKey,
     endpoint::{

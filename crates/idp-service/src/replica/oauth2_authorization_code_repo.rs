@@ -1,18 +1,33 @@
 use chrono::{DateTime, Timelike, Utc};
-use db::{
-    FromRow, FromRowError, Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom, QueryInsert,
-    QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
-};
-use of_model::idp::{
-    contract::CodeChallengeMethod,
-    model::{Id, OAuth2AuthorizationCode},
-    replica::{SecurityRow, SecurityTable, allows_token_issuance},
-};
+use of_model::id::Id;
+use of_model::idp::contract::code_challenge_method::CodeChallengeMethod;
+use of_model::idp::model::oauth2_authorization_code::OAuth2AuthorizationCode;
+use of_model::idp::replica::SecurityRow;
+use of_model::idp::replica::SecurityTable;
+use of_model::idp::replica::allows_token_issuance;
+use ofdb_sql::FromRow;
+use ofdb_sql::FromRowError;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use ofdb_sql::Uuid;
+use ofdb_sql::Value;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    generate_random_string,
-    repo::{OAuth2AuthorizationCodeRepo, RepoError, RepoResult},
+    repo::{
+        error::{RepoError, RepoResult},
+        oauth2_authorization_code_repo::OAuth2AuthorizationCodeRepo,
+    },
+    util::generate_random_string,
 };
 
 const TABLE: &str = "oauth2_authorization_codes";
@@ -34,12 +49,12 @@ const COLUMNS: [&str; 14] = [
 ];
 
 pub struct DbOAuth2AuthorizationCodeRepo {
-    engine: db::Client,
+    engine: ofdb_sql::Client,
 }
 
 impl DbOAuth2AuthorizationCodeRepo {
     #[must_use]
-    pub const fn new(engine: db::Client) -> Self {
+    pub const fn new(engine: ofdb_sql::Client) -> Self {
         Self { engine }
     }
 
@@ -215,26 +230,41 @@ struct AuthorizationCodeRow {
 impl FromRow for AuthorizationCodeRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            code: db::decode(db::value(row, columns, "code_hash")?, "code_hash")?,
-            client_id: db::decode(db::value(row, columns, "client_id")?, "client_id")?,
-            key_id: db::decode(db::value(row, columns, "key_id")?, "key_id")?,
-            redirect_uri: db::decode(db::value(row, columns, "redirect_uri")?, "redirect_uri")?,
-            scopes: db::decode(db::value(row, columns, "scopes")?, "scopes")?,
-            resource: db::decode(db::value(row, columns, "resource")?, "resource")?,
-            code_challenge: db::decode(
-                db::value(row, columns, "code_challenge")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            code: ofdb_sql::decode(ofdb_sql::value(row, columns, "code_hash")?, "code_hash")?,
+            client_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "client_id")?, "client_id")?,
+            key_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "key_id")?, "key_id")?,
+            redirect_uri: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "redirect_uri")?,
+                "redirect_uri",
+            )?,
+            scopes: ofdb_sql::decode(ofdb_sql::value(row, columns, "scopes")?, "scopes")?,
+            resource: ofdb_sql::decode(ofdb_sql::value(row, columns, "resource")?, "resource")?,
+            code_challenge: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "code_challenge")?,
                 "code_challenge",
             )?,
-            code_challenge_method: db::decode(
-                db::value(row, columns, "code_challenge_method")?,
+            code_challenge_method: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "code_challenge_method")?,
                 "code_challenge_method",
             )?,
-            nonce: db::decode(db::value(row, columns, "nonce")?, "nonce")?,
-            expires_at: db::decode(db::value(row, columns, "expires_at")?, "expires_at")?,
-            consumed_at: db::decode(db::value(row, columns, "consumed_at")?, "consumed_at")?,
-            created_at: db::decode(db::value(row, columns, "created_at")?, "created_at")?,
-            updated_at: db::decode(db::value(row, columns, "updated_at")?, "updated_at")?,
+            nonce: ofdb_sql::decode(ofdb_sql::value(row, columns, "nonce")?, "nonce")?,
+            expires_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "expires_at")?,
+                "expires_at",
+            )?,
+            consumed_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "consumed_at")?,
+                "consumed_at",
+            )?,
+            created_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "created_at")?,
+                "created_at",
+            )?,
+            updated_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "updated_at")?,
+                "updated_at",
+            )?,
         })
     }
 }
@@ -333,7 +363,7 @@ fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
     DateTime::from_timestamp(value, 0)
         .ok_or_else(|| RepoError::InvalidInput("invalid authorization code timestamp".into()))
 }
-fn db_error(error: db::QueryError) -> RepoError {
+fn db_error(error: ofdb_sql::QueryError) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 fn row_error(error: FromRowError) -> RepoError {
@@ -385,7 +415,7 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_consumers_have_one_winner() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         up(&engine).await.unwrap();
         let repo = DbOAuth2AuthorizationCodeRepo::new(engine.client());
         let code = repo
@@ -426,7 +456,8 @@ mod tests {
     async fn code_consumption_survives_database_reopen_and_denies_replay() {
         let path = std::env::temp_dir().join(format!("local-code-{}.redb", Id::now_v7()));
         let code = {
-            let engine = Arc::new(db::Database::open(&path).expect("open code store"));
+            let engine =
+                Arc::new(ofdb_sql::Database::open(&path).expect("open code store"));
             up(&engine).await.expect("initialize local code store");
             let repo = DbOAuth2AuthorizationCodeRepo::new(engine.client());
             let code = repo
@@ -449,7 +480,9 @@ mod tests {
             code
         };
         {
-            let engine = Arc::new(db::Database::open(&path).expect("reopen local code store"));
+            let engine = Arc::new(
+                ofdb_sql::Database::open(&path).expect("reopen local code store"),
+            );
             let repo = DbOAuth2AuthorizationCodeRepo::new(engine.client());
             assert!(
                 repo.find_authorization_code_by_code(&code.code)

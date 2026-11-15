@@ -3,11 +3,11 @@ use std::{future::Future, io, pin::Pin};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use iroh::{EndpointAddr, EndpointId, Signature};
 use iroh_chain::{PairingOffer, Server};
-use of_model::idp::model::Id;
+use of_model::id::Id;
 
 const PURPOSE: &str = "of.equal-node-join.v1";
 
-pub use of_model::node_join::{NodeJoinApproval, NodeJoinRequest};
+use of_model::node_join::{NodeJoinApproval, NodeJoinRequest};
 
 pub trait NodeJoinRequestExt: Sized {
     fn validate_trusted_peer(peer: &str) -> io::Result<()>;
@@ -74,7 +74,7 @@ impl NodeJoinRequestExt for NodeJoinRequest {
 
 pub trait NodeJoinApprovalExt: Sized {
     fn signed_by(
-        identity: &crate::DeviceIdentity,
+        identity: &crate::device_identity::DeviceIdentity,
         request: NodeJoinRequest,
         owner_subject: Id,
     ) -> io::Result<Self>;
@@ -84,7 +84,7 @@ pub trait NodeJoinApprovalExt: Sized {
 
 impl NodeJoinApprovalExt for NodeJoinApproval {
     fn signed_by(
-        identity: &crate::DeviceIdentity,
+        identity: &crate::device_identity::DeviceIdentity,
         request: NodeJoinRequest,
         owner_subject: Id,
     ) -> io::Result<Self> {
@@ -146,19 +146,21 @@ fn invalid(message: &str) -> io::Error {
 
 #[cfg(test)]
 mod setup_peer_tests {
-    use super::{NodeJoinRequest, NodeJoinRequestExt};
+    use super::NodeJoinRequestExt;
+    use of_model::node_join::NodeJoinRequest;
 
     #[test]
     fn trusted_peer_input_requires_a_canonical_endpoint_identity() {
         let peer = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
-        NodeJoinRequest::validate_trusted_peer(peer).expect("known Ed25519 endpoint identity");
+        of_model::node_join::NodeJoinRequest::validate_trusted_peer(peer)
+            .expect("known Ed25519 endpoint identity");
         for invalid in [
             "",
             "discovered-peer",
             "https://peer.test",
             &peer.to_uppercase(),
         ] {
-            assert!(NodeJoinRequest::validate_trusted_peer(invalid).is_err());
+            assert!(of_model::node_join::NodeJoinRequest::validate_trusted_peer(invalid).is_err());
         }
     }
 }

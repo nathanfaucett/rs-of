@@ -1,14 +1,31 @@
 use chrono::{DateTime, Timelike, Utc};
-use db::{
-    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
-    QueryInsert, QuerySelect, Row, Statement, Uuid, Value,
-};
-use of_model::idp::{
-    model::{Id, Permission},
-    replica::{SecurityRow, SecurityTable, allows_authorization},
-};
+use of_model::id::Id;
+use of_model::idp::model::permission::Permission;
+use of_model::idp::replica::SecurityRow;
+use of_model::idp::replica::SecurityTable;
+use of_model::idp::replica::allows_authorization;
+use ofdb_sql::FromRow;
+use ofdb_sql::FromRowError;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryDelete;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use ofdb_sql::Uuid;
+use ofdb_sql::Value;
 
-use crate::{ManagementError, ManagementResult, PermissionRepo, SyncSelection};
+use of_model::management_error::ManagementError;
+
+use of_model::management_error::ManagementResult;
+
+use crate::PermissionRepo;
+
+use of_model::management::SyncSelection;
 
 const PERMISSIONS: &str = "permissions";
 const ROLES: &str = "roles";
@@ -36,12 +53,12 @@ const SYNC_SELECTION_COLUMNS: [&str; 7] = [
 ];
 
 pub struct DbPermissionRepo {
-    engine: db::Client,
+    engine: ofdb_sql::Client,
 }
 
 impl DbPermissionRepo {
     #[must_use]
-    pub const fn new(engine: db::Client) -> Self {
+    pub const fn new(engine: ofdb_sql::Client) -> Self {
         Self { engine }
     }
 
@@ -338,7 +355,10 @@ impl PermissionRepo for DbPermissionRepo {
             "INSERT INTO {SYNC_SELECTIONS} (id, device_id, resource_id, application_id, owner_subject, selected_at, revoked_at) VALUES ('{id}', '{device_id}', '{resource_id}', '{application_id}', '{owner_subject}', {now}, NULL) ON CONFLICT (device_id, resource_id) DO UPDATE SET revoked_at = NULL, selected_at = {now}, application_id = '{application_id}', owner_subject = '{owner_subject}'"
         );
         async move {
-            self.engine.execute_sql(&query, None).await.map_err(db_error)?;
+            self.engine
+                .execute_sql(&query, None)
+                .await
+                .map_err(db_error)?;
             Ok(())
         }
     }
@@ -353,7 +373,10 @@ impl PermissionRepo for DbPermissionRepo {
             "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = '{device_id}' AND resource_id = '{resource_id}' AND revoked_at IS NULL"
         );
         async move {
-            self.engine.execute_sql(&query, None).await.map_err(db_error)?;
+            self.engine
+                .execute_sql(&query, None)
+                .await
+                .map_err(db_error)?;
             Ok(())
         }
     }
@@ -367,8 +390,15 @@ impl PermissionRepo for DbPermissionRepo {
             SYNC_SELECTION_COLUMNS.join(", ")
         );
         async move {
-            let results = self.engine.execute_sql(&query, None).await.map_err(db_error)?;
-            let result = results.into_iter().next().ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
+            let results = self
+                .engine
+                .execute_sql(&query, None)
+                .await
+                .map_err(db_error)?;
+            let result = results
+                .into_iter()
+                .next()
+                .ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
             let rows = result.rows_as::<SyncSelectionRow>().map_err(row_error)?;
             Ok(rows.into_iter().map(|r| r.into()).collect())
         }
@@ -383,8 +413,15 @@ impl PermissionRepo for DbPermissionRepo {
             SYNC_SELECTION_COLUMNS.join(", ")
         );
         async move {
-            let results = self.engine.execute_sql(&query, None).await.map_err(db_error)?;
-            let result = results.into_iter().next().ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
+            let results = self
+                .engine
+                .execute_sql(&query, None)
+                .await
+                .map_err(db_error)?;
+            let result = results
+                .into_iter()
+                .next()
+                .ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
             let rows = result.rows_as::<SyncSelectionRow>().map_err(row_error)?;
             Ok(rows.into_iter().map(|r| r.into()).collect())
         }
@@ -399,22 +436,29 @@ impl PermissionRepo for DbPermissionRepo {
             "SELECT 1 FROM {SYNC_SELECTIONS} WHERE device_id = '{device_id}' AND resource_id = '{resource_id}' AND revoked_at IS NULL LIMIT 1"
         );
         async move {
-            let results = self.engine.execute_sql(&query, None).await.map_err(db_error)?;
-            let result = results.into_iter().next().ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
+            let results = self
+                .engine
+                .execute_sql(&query, None)
+                .await
+                .map_err(db_error)?;
+            let result = results
+                .into_iter()
+                .next()
+                .ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
             Ok(!result.rows.is_empty())
         }
     }
 
-    fn clear_device_selections(
-        &self,
-        device_id: Id,
-    ) -> impl Future<Output = ManagementResult<()>> {
+    fn clear_device_selections(&self, device_id: Id) -> impl Future<Output = ManagementResult<()>> {
         let now = now().timestamp();
         let query = format!(
             "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = '{device_id}' AND revoked_at IS NULL"
         );
         async move {
-            self.engine.execute_sql(&query, None).await.map_err(db_error)?;
+            self.engine
+                .execute_sql(&query, None)
+                .await
+                .map_err(db_error)?;
             Ok(())
         }
     }
@@ -433,16 +477,28 @@ struct PermissionRow {
 impl FromRow for PermissionRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            application_id: db::decode(
-                db::value(row, columns, "application_id")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            application_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "application_id")?,
                 "application_id",
             )?,
-            name: db::decode(db::value(row, columns, "name")?, "name")?,
-            description: db::decode(db::value(row, columns, "description")?, "description")?,
-            revoked_at: db::decode(db::value(row, columns, "revoked_at")?, "revoked_at")?,
-            created_at: db::decode(db::value(row, columns, "created_at")?, "created_at")?,
-            updated_at: db::decode(db::value(row, columns, "updated_at")?, "updated_at")?,
+            name: ofdb_sql::decode(ofdb_sql::value(row, columns, "name")?, "name")?,
+            description: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "description")?,
+                "description",
+            )?,
+            revoked_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "revoked_at")?,
+                "revoked_at",
+            )?,
+            created_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "created_at")?,
+                "created_at",
+            )?,
+            updated_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "updated_at")?,
+                "updated_at",
+            )?,
         })
     }
 }
@@ -495,12 +551,15 @@ struct RoleRow {
 impl FromRow for RoleRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            application_id: db::decode(
-                db::value(row, columns, "application_id")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            application_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "application_id")?,
                 "application_id",
             )?,
-            revoked_at: db::decode(db::value(row, columns, "revoked_at")?, "revoked_at")?,
+            revoked_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "revoked_at")?,
+                "revoked_at",
+            )?,
         })
     }
 }
@@ -517,10 +576,16 @@ struct RolePermissionRow {
 impl FromRow for RolePermissionRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            role_id: db::decode(db::value(row, columns, "role_id")?, "role_id")?,
-            permission_id: db::decode(db::value(row, columns, "permission_id")?, "permission_id")?,
-            revoked_at: db::decode(db::value(row, columns, "revoked_at")?, "revoked_at")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            role_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "role_id")?, "role_id")?,
+            permission_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "permission_id")?,
+                "permission_id",
+            )?,
+            revoked_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "revoked_at")?,
+                "revoked_at",
+            )?,
             created_at: 0,
             updated_at: 0,
         })
@@ -554,13 +619,28 @@ struct SyncSelectionRow {
 impl FromRow for SyncSelectionRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            device_id: db::decode(db::value(row, columns, "device_id")?, "device_id")?,
-            resource_id: db::decode(db::value(row, columns, "resource_id")?, "resource_id")?,
-            application_id: db::decode(db::value(row, columns, "application_id")?, "application_id")?,
-            owner_subject: db::decode(db::value(row, columns, "owner_subject")?, "owner_subject")?,
-            selected_at: db::decode(db::value(row, columns, "selected_at")?, "selected_at")?,
-            revoked_at: db::decode(db::value(row, columns, "revoked_at")?, "revoked_at")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            device_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "device_id")?, "device_id")?,
+            resource_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "resource_id")?,
+                "resource_id",
+            )?,
+            application_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "application_id")?,
+                "application_id",
+            )?,
+            owner_subject: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "owner_subject")?,
+                "owner_subject",
+            )?,
+            selected_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "selected_at")?,
+                "selected_at",
+            )?,
+            revoked_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "revoked_at")?,
+                "revoked_at",
+            )?,
         })
     }
 }
@@ -586,7 +666,7 @@ fn timestamp(value: i64) -> ManagementResult<DateTime<Utc>> {
     DateTime::from_timestamp(value, 0)
         .ok_or_else(|| ManagementError::InvalidInput("invalid permission timestamp".into()))
 }
-fn db_error(error: db::QueryError) -> ManagementError {
+fn db_error(error: ofdb_sql::QueryError) -> ManagementError {
     ManagementError::InvalidInput(error.to_string())
 }
 fn row_error(error: FromRowError) -> ManagementError {

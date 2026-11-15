@@ -4,26 +4,40 @@ use std::{
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
-use db::{SqlTranslator, Value};
-use of_model::idp::{
-    contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType,
-        GrantType, IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse,
-        ReplicaMembership, TokenEndpointAuthMethod,
-    },
-    model::{Client, Id, Key},
-};
+use bip32::DerivationPath;
 use idp_service::{
-    oauth2::NodeSignerBinding,
-    replica::DbReplicaSignerRepo,
-    repo::{ApplicationRepo, ClientRepo, KeyRepo, KeyService, PrivateKeyRepo, RepoError},
+    oauth2::node_signer::NodeSignerBinding,
+    replica::replica_signer_repo::DbReplicaSignerRepo,
+    repo::{
+        appliccation_repo::ApplicationRepo, client_repo::ClientRepo, error::RepoError,
+        key_repo::KeyRepo, key_service::KeyService, private_key_repo::PrivateKeyRepo,
+    },
 };
 use iroh::EndpointId;
-use key::{DerivationPath, DerivedKey, MasterKey};
+use key::derived_key::DerivedKey;
+use key::master_key::MasterKey;
+use of_model::id::Id;
+use of_model::idp::contract::application_registration::ApplicationRegistration;
+use of_model::idp::contract::client_profile::ClientProfile;
+use of_model::idp::contract::client_registration::ClientRegistration;
+use of_model::idp::contract::client_type::ClientType;
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::contract::grant_type::GrantType;
+use of_model::idp::contract::idp_signer::IdpSignerRecord;
+use of_model::idp::contract::idp_signer::ReplicaMembership;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use of_model::idp::contract::jwk_public_parameters::JwkPublicParameters;
+use of_model::idp::contract::jws_algorithm::JwsAlgorithm;
+use of_model::idp::contract::key_use::KeyUse;
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
+use of_model::idp::model::client::Client;
+use of_model::idp::model::key::Key;
+use ofdb_sql::SqlTranslator;
+use ofdb_sql::Value;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
-use crate::OwnerProvisioner;
+use crate::provisioning::OwnerProvisioner;
 
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "state", rename_all = "kebab-case", deny_unknown_fields)]
@@ -291,8 +305,9 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 invalid("captured root metadata is missing or inactive; explicit recovery required")
             })?;
         validate_metadata_root(&initial, entity, id)?;
-        let paths = KeyService::<idp_service::replica::DbKeyRepo, P>::private_paths(&initial)
-            .map_err(io::Error::other)?;
+        let paths =
+            KeyService::<idp_service::replica::key_repo::DbKeyRepo, P>::private_paths(&initial)
+                .map_err(io::Error::other)?;
         if reference["paths"] != json!(paths.iter().map(ToString::to_string).collect::<Vec<_>>()) {
             return Err(invalid(
                 "captured root metadata conflicts with retained identity",
@@ -367,7 +382,9 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 verify_public_login_registration(&existing, &request)?;
                 Ok(existing)
             }
-            Err(error) if error.error == of_model::idp::contract::ErrorCode::InvalidClient => {
+            Err(error)
+                if error.error == of_model::idp::contract::error_code::ErrorCode::InvalidClient =>
+            {
                 self.create_setup_client(request).await?;
                 self.oauth2
                     .get_client(&client_id)
@@ -588,7 +605,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             };
             if !self
                 .engine
-                .row_conflicts("clients", &db::Row::new(vec![Value::Uuid(*id)]))
+                .row_conflicts("clients", &ofdb_sql::Row::new(vec![Value::Uuid(*id)]))
                 .await
                 .map_err(io::Error::other)?
                 .is_empty()
@@ -800,13 +817,13 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             ));
         }
         let paths: Vec<String> = serde_json::from_value(record["paths"].clone())?;
-        let parsed: Vec<key::DerivationPath> = paths
+        let parsed: Vec<bip32::DerivationPath> = paths
             .iter()
             .map(|path| path.parse().map_err(io::Error::other))
             .collect::<io::Result<_>>()?;
         if record["state"] == "resolved" {
             if parsed.len() < 2
-                || parsed.last() != Some(&key::DerivationPath::default())
+                || parsed.last() != Some(&bip32::DerivationPath::default())
                 || parsed
                     .windows(2)
                     .any(|pair| pair[0].parent().as_ref() != Some(&pair[1]))
@@ -1375,7 +1392,7 @@ fn write_durable_json(path: &std::path::Path, record: &JsonValue) -> io::Result<
 fn delete_verified<P: PrivateKeyRepo>(
     repo: &P,
     namespace: &str,
-    path: &key::DerivationPath,
+    path: &bip32::DerivationPath,
 ) -> io::Result<()> {
     if repo
         .load(namespace, path)
@@ -1476,7 +1493,7 @@ fn now() -> io::Result<i64> {
         .map_err(io::Error::other)
 }
 
-impl crate::AppConfig {
+impl crate::config::app_config::AppConfig {
     pub fn retained_node_signer_binding(
         &self,
         member: Id,

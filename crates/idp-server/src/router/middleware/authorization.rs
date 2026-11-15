@@ -2,13 +2,16 @@ use std::marker::PhantomData;
 
 use axum::extract::{FromRef, FromRequestParts};
 use http::{HeaderValue, header::AUTHORIZATION, request::Parts};
-use of_model::idp::contract::EntityType;
-use of_model::idp::contract::{ErrorCode, ErrorResponse};
-use idp_service::oauth2::Principal;
-use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+use idp_service::oauth2::principal::Principal;
+use of_model::contract::{
+    principal_type::PrincipalType, standard_claims::StandardClaims, token_type::TokenType,
+    token_use::TokenUse,
+};
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::contract::{error_code::ErrorCode, error_response::ErrorResponse};
 use serde::de::DeserializeOwned;
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
 pub const AUTHORIZATION_BEARER_PREFIX: &str = "Bearer ";
 
@@ -20,7 +23,7 @@ where
 {
     pub principal: Box<dyn Principal>,
     pub claims: T,
-    pub application_id: of_model::idp::model::Id,
+    pub application_id: of_model::id::Id,
     pub token: String,
     _phantom_data: PhantomData<T>,
 }

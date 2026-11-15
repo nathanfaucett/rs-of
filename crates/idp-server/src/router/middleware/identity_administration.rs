@@ -1,13 +1,15 @@
-use of_model::idp::{
-    contract::{
-        ClientRegistration, ErrorCode, ErrorResponse, GrantType, IdentityAction,
-        PermissionEvaluationRequest, PermissionSubject, PermissionTarget,
-    },
-    model::Id,
-};
-use of_model::contract::PrincipalType;
+use of_model::contract::principal_type::PrincipalType;
+use of_model::id::Id;
+use of_model::idp::contract::client_registration::ClientRegistration;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::idp::contract::grant_type::GrantType;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
 
-use crate::{RouterState, router::middleware::StandardAuthorization};
+use crate::router::{middleware::authorization::StandardAuthorization, state::RouterState};
 
 pub(crate) async fn require_identity_permission(
     state: &RouterState,

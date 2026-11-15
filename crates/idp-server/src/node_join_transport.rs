@@ -3,13 +3,18 @@ use std::{io, path::PathBuf};
 use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
-use idp_service::repo::{PrivateKeyKeyringRepo, PrivateKeyRepo};
+use idp_service::repo::{
+    private_key_keyring_repo::PrivateKeyKeyringRepo, private_key_repo::PrivateKeyRepo,
+};
 use iroh::{EndpointId, SecretKey, endpoint::presets::Preset};
 use iroh_chain::{EndpointIdStore, Server};
-use of_model::idp::contract::{JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse};
+use of_model::idp::contract::{
+    jwk_public::JwkPublic, jwk_public_parameters::JwkPublicParameters, jws_algorithm::JwsAlgorithm,
+    key_use::KeyUse,
+};
 
 use super::{NodeJoinApproval, NodeJoinRequest, read_optional};
-use crate::AppConfig;
+use crate::config::app_config::AppConfig;
 
 #[cfg(test)]
 #[path = "node_join_transport_tests.rs"]
@@ -43,7 +48,7 @@ impl device_service::join_admission::RetainedJoinAdmission for RetainedJoinAdmis
         );
         let Some(private) = PrivateKeyKeyringRepo::new(&self.issuer)
             .map_err(io::Error::other)?
-            .load(&namespace, &key::DerivationPath::default())
+            .load(&namespace, &bip32::DerivationPath::default())
             .map_err(io::Error::other)?
         else {
             return Ok(None);

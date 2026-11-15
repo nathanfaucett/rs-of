@@ -6,13 +6,17 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use of_model::storage::StorageNamespace;
+use of_model::storage::namespace::StorageNamespace;
 use ofdb_kv::Database as KvDatabase;
 use ofdb_sql::Database;
 
-use crate::{DatabaseCatalog, DatabaseId, DatabaseResource};
+use crate::database_catalog::DatabaseCatalog;
 
-type DatabaseKey = (String, of_model::idp::model::Id, DatabaseId);
+use of_model::storage::database_resource::DatabaseId;
+
+use of_model::storage::database_resource::DatabaseResource;
+
+type DatabaseKey = (String, of_model::id::Id, DatabaseId);
 type KvStores = BTreeMap<DatabaseKey, Arc<KvDatabase>>;
 
 pub struct DatabaseRuntime {
@@ -20,7 +24,7 @@ pub struct DatabaseRuntime {
     shared: Option<ofdb_sql::SharedDatabase>,
     catalog: DatabaseCatalog,
     local_copies: crate::local_copy::LocalCopyPolicy,
-    open: Mutex<BTreeMap<(String, of_model::idp::model::Id, DatabaseId), Arc<Database>>>,
+    open: Mutex<BTreeMap<(String, of_model::id::Id, DatabaseId), Arc<Database>>>,
     kv_open: Mutex<KvStores>,
     cleanup: tokio::sync::Mutex<()>,
     changes: tokio::sync::watch::Sender<()>,
@@ -68,7 +72,7 @@ impl DatabaseRuntime {
     ) -> io::Result<String> {
         database_path(&self.root, scope, id)?;
         let namespace =
-            of_model::idp::model::Id::new_v5(&scope.application_id(), scope.user_sub().as_bytes());
+            of_model::id::Id::new_v5(&scope.application_id(), scope.user_sub().as_bytes());
         Ok(format!(
             "storage-database:{namespace}:{id}:{}",
             self.local_copies.generation(scope, id)?
@@ -248,7 +252,7 @@ impl DatabaseRuntime {
     /// Requires the current trusted local Device selection, not handshake claims.
     pub async fn reconcile_selected_copies(
         &self,
-        selected: &[(String, of_model::idp::model::Id, DatabaseId)],
+        selected: &[(String, of_model::id::Id, DatabaseId)],
     ) -> io::Result<()> {
         match self.local_copies.reconcile_selected(selected) {
             Ok(()) => {}
@@ -564,7 +568,7 @@ fn retirement_marker(path: &std::path::Path) -> PathBuf {
 fn database_key(
     scope: &impl StorageNamespace,
     id: DatabaseId,
-) -> (String, of_model::idp::model::Id, DatabaseId) {
+) -> (String, of_model::id::Id, DatabaseId) {
     (scope.user_sub().to_owned(), scope.application_id(), id)
 }
 
@@ -597,14 +601,14 @@ fn database_path(
 mod tests {
     use std::fs;
 
-    use of_model::storage::StorageNamespace;
+    use of_model::storage::namespace::StorageNamespace;
     use ofdb_sql::SqlTranslator;
 
-    use super::DatabaseRuntime;
+    use crate::database_runtime::DatabaseRuntime;
 
     struct Scope {
         subject: &'static str,
-        application: of_model::idp::model::Id,
+        application: of_model::id::Id,
     }
 
     impl StorageNamespace for Scope {
@@ -612,7 +616,7 @@ mod tests {
             self.subject
         }
 
-        fn application_id(&self) -> of_model::idp::model::Id {
+        fn application_id(&self) -> of_model::id::Id {
             self.application
         }
     }
@@ -620,15 +624,13 @@ mod tests {
     #[tokio::test]
     async fn shared_resources_restart_and_retire_without_sidecars_or_host_loss() {
         use of_model::db::Database as ModelDatabase;
-        let root = std::env::temp_dir().join(format!(
-            "shared-resource-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("shared-resource-{}", of_model::id::Id::now_v7()));
         let scope = Scope {
             subject: "owner",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
-        let database = embedded_db::EmbeddedDatabase::open(&root)
+        let database = embedded_db::database::EmbeddedDatabase::open(&root)
             .await
             .expect("host database");
         let runtime = DatabaseRuntime::with_shared(
@@ -664,7 +666,7 @@ mod tests {
             .expect("restore only the database file");
         std::fs::remove_dir(root).expect("remove original directory");
         let root = restored;
-        let database = embedded_db::EmbeddedDatabase::open(&root)
+        let database = embedded_db::database::EmbeddedDatabase::open(&root)
             .await
             .expect("restart host");
         let runtime = DatabaseRuntime::with_shared(
@@ -720,7 +722,7 @@ mod tests {
         drop(sql);
         drop(runtime);
         drop(database);
-        let database = embedded_db::EmbeddedDatabase::open(&root)
+        let database = embedded_db::database::EmbeddedDatabase::open(&root)
             .await
             .expect("restart retired host");
         let runtime = DatabaseRuntime::with_shared(
@@ -775,13 +777,13 @@ mod tests {
     async fn selected_sql_initialization_survives_kv_first_admission_and_restart() {
         let root = std::env::temp_dir().join(format!(
             "selected-initialization-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let scope = Scope {
             subject: "owner",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
-        let id = of_model::idp::model::Id::now_v7();
+        let id = of_model::id::Id::now_v7();
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
         drop(
             runtime
@@ -825,11 +827,11 @@ mod tests {
         for ensure in [false, true] {
             let root = std::env::temp_dir().join(format!(
                 "selected-acknowledgement-{}",
-                of_model::idp::model::Id::now_v7()
+                of_model::id::Id::now_v7()
             ));
             let scope = Scope {
                 subject: "owner",
-                application: of_model::idp::model::Id::now_v7(),
+                application: of_model::id::Id::now_v7(),
             };
             let source = DatabaseRuntime::new(root.join("source")).expect("source Node");
             let resource = source
@@ -886,11 +888,11 @@ mod tests {
         for content in ["staging", "published", "corrupt-published"] {
             let root = std::env::temp_dir().join(format!(
                 "initializing-cleanup-{}",
-                of_model::idp::model::Id::now_v7()
+                of_model::id::Id::now_v7()
             ));
             let scope = Scope {
                 subject: "owner",
-                application: of_model::idp::model::Id::now_v7(),
+                application: of_model::id::Id::now_v7(),
             };
             let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
             let (resource, initializing) = runtime
@@ -958,11 +960,11 @@ mod tests {
     async fn local_copy_retirement_removes_both_phases_and_reselection_uses_fresh_generation() {
         let root = std::env::temp_dir().join(format!(
             "database-retirement-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let scope = Scope {
             subject: "owner",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
         let (retired, handle) = runtime.create(&scope, None).expect("managed local copy");
@@ -1051,13 +1053,11 @@ mod tests {
 
     #[tokio::test]
     async fn transfer_cleanup_covers_created_copies_but_preserves_other_owner() {
-        let root = std::env::temp_dir().join(format!(
-            "owner-cleanup-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("owner-cleanup-{}", of_model::id::Id::now_v7()));
         let scope = Scope {
             subject: "old",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
         let other = Scope {
             subject: "other",
@@ -1105,13 +1105,10 @@ mod tests {
 
     #[tokio::test]
     async fn sql_phase_survives_kv_owner_failure_and_restart_retry() {
-        let root = std::env::temp_dir().join(format!(
-            "phase-retry-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
+        let root = std::env::temp_dir().join(format!("phase-retry-{}", of_model::id::Id::now_v7()));
         let scope = Scope {
             subject: "owner",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
         let (resource, sql) = runtime.create(&scope, None).expect("SQL copy");
@@ -1185,13 +1182,13 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "database-runtime-selected-{}-{}",
             std::process::id(),
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let scope = Scope {
             subject: "owner",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
-        let id = of_model::idp::model::Id::now_v7();
+        let id = of_model::id::Id::now_v7();
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime opens");
         assert!(
             runtime
@@ -1227,11 +1224,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "database-runtime-kv-{}-{}",
             std::process::id(),
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let scope = Scope {
             subject: "owner",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime opens");
         let (resource, _database) = runtime
@@ -1296,11 +1293,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "database-runtime-{}-{}",
             std::process::id(),
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let scope = Scope {
             subject: "owner",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime opens");
         let (first, first_db) = runtime
@@ -1342,7 +1339,7 @@ mod tests {
                 .is_none()
         );
         let other_application = Scope {
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
             ..scope
         };
         assert!(

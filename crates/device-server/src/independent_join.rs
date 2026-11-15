@@ -8,35 +8,35 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use server_common::SecurityAddon;
-use server_common::{IndependentPeer, LocalTls};
 use axum::{
     Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
-use db::Database;
-use device_service::DeviceIdentity;
-use device_service::DeviceRepo;
-use device_service::HostedControlPlane;
+use device_service::device_identity::DeviceIdentity;
+use device_service::device_repo::DeviceRepo;
+use device_service::hosted_control_plane::HostedControlPlane;
 use device_service::independent_join::IndependentJoinApproval;
 use device_service::independent_join::IndependentJoinRequest;
 use device_service::join_history::CheckJoinHistory;
 use device_service::join_history::JoinHistoryContext;
 use device_service::join_history::JoinHistorySource;
-use device_service::replica::DbDeviceRepo;
-use device_service::replica::DbSelectionPolicyRepo;
-use device_service::replica::SelectionPolicy;
-use of_model::idp::{
-    contract::{
-        IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
-        PermissionTarget,
-    },
-    model::Id,
-};
+use device_service::replica::device_repo::DbDeviceRepo;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
 use iroh_chain::{EndpointIdStore, PairingOffer, Server};
-use management_service::LocalPermissions;
-use of_model::contract::PrincipalType;
+use management_service::local_permissions::LocalPermissions;
+use of_model::contract::principal_type::PrincipalType;
+use of_model::device::selection_policy::SelectionPolicy;
+use of_model::id::Id;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::IdentityResource;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use ofdb_sql::Database;
+use server_common::openapi::SecurityAddon;
+use setup::independent_peer::IndependentPeer;
+use setup::local_tls::LocalTls;
 use tokio::{sync::Mutex, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
@@ -47,7 +47,7 @@ pub struct IndependentDeviceRuntime {
     task: JoinHandle<io::Result<()>>,
 }
 impl IndependentDeviceRuntime {
-    pub fn identity_client(&self) -> db::Client {
+    pub fn identity_client(&self) -> ofdb_sql::Client {
         self.source.identity_engine.clone()
     }
     pub fn control_plane(&self) -> Arc<HostedControlPlane> {
@@ -64,9 +64,9 @@ impl IndependentDeviceRuntime {
 }
 
 pub async fn build_independent_device(
-    config: &crate::AppConfig,
-    engine: db::Client,
-    identity_engine: db::Client,
+    config: &crate::config::app_config::AppConfig,
+    engine: ofdb_sql::Client,
+    identity_engine: ofdb_sql::Client,
     owner: Option<Arc<Database>>,
     plane: Arc<HostedControlPlane>,
     identity: Arc<DeviceIdentity>,
@@ -154,7 +154,7 @@ pub async fn build_independent_device(
     } else {
         Router::new().nest(config.server.prefix(), routes)
     };
-    let router = crate::build_router(
+    let router = crate::runtime::build_router(
         identity_engine,
         engine,
         device,
@@ -194,8 +194,8 @@ struct ApprovalWork {
     headers: HeaderMap,
 }
 struct IndependentJoinSource {
-    identity_engine: db::Client,
-    engine: db::Client,
+    identity_engine: ofdb_sql::Client,
+    engine: ofdb_sql::Client,
     plane: Arc<HostedControlPlane>,
     identity: Arc<DeviceIdentity>,
     issuer: String,
@@ -266,7 +266,7 @@ impl IndependentJoinSource {
             .await
             .map_err(|_| denied())?;
         if claims.principal_type != PrincipalType::User
-            || claims.aud != management_service::MANAGEMENT_APPLICATION_URI
+            || claims.aud != management_service::service::MANAGEMENT_APPLICATION_URI
         {
             return Err(denied());
         }
@@ -319,7 +319,11 @@ impl IndependentJoinSource {
         permission(&self.identity_engine, approval.owner_subject, action).await
     }
 }
-async fn permission(engine: &db::Client, owner: Id, action: IdentityAction) -> io::Result<()> {
+async fn permission(
+    engine: &ofdb_sql::Client,
+    owner: Id,
+    action: IdentityAction,
+) -> io::Result<()> {
     let resource = match action {
         IdentityAction::ReplicaSignersEnroll => IdentityResource::ReplicaSigner { member_id: None },
         IdentityAction::IdpSecuritySync => IdentityResource::IdpSecurity,

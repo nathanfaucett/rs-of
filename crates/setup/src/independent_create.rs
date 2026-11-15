@@ -6,7 +6,8 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::{canonical_openapi_router, IndependentPeer};
+use crate::canonical_openapi_router;
+use crate::independent_peer::IndependentPeer;
 use axum::{
     Json, Router,
     extract::{Request, State},
@@ -206,7 +207,8 @@ impl IndependentCreateHost {
         let path = format!("{}/setup/owner/status", self.host.settings.prefix);
         let admission = self.host.admission_path();
         let shutdown = self.control.0.shutdown.clone();
-        crate::serve_setup(self, tls, address, router, path, admission, shutdown).await
+        crate::setup_server::serve_setup(self, tls, address, router, path, admission, shutdown)
+            .await
     }
 }
 
@@ -250,7 +252,7 @@ impl IndependentCreateControl {
     pub(crate) fn write_document<T: Serialize>(&self, name: &str, value: &T) -> io::Result<()> {
         let path = self.directory().join(format!(
             ".worker-{}",
-            crate::random_capability()?
+            crate::independent_exchange::random_capability()?
         ));
         let mut file = private_options(true).open(&path)?;
         file.write_all(&serde_json::to_vec(value)?)?;

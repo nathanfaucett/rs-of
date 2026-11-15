@@ -10,44 +10,84 @@ use alloc::{
 };
 
 use of_model::contract::{
-    AccessToken, AuthorizationDetail, IdToken, PrincipalType, RefreshToken, StandardClaims,
-    TokenResponse, TokenType, TokenUse,
+    access_token::AccessToken, authorization_details::AuthorizationDetail, id_token::IdToken,
+    principal_type::PrincipalType, refresh_token::RefreshToken, standard_claims::StandardClaims,
+    token_response::TokenResponse, token_type::TokenType, token_use::TokenUse,
 };
 #[cfg(feature = "std")]
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use of_model::idp::model::{Application, Client, Id, Key};
+use of_model::id::Id;
+use of_model::idp::model::application::Application;
+use of_model::idp::model::client::Client;
+use of_model::idp::model::key::Key;
 use of_model::idp::{
     contract::{
-        ApproveForUserRequest, AuthorizationCodeGrantRequest, AuthorizationCodeResponse,
-        AuthorizationRequest, AuthorizationServerMetadata, ClientConsentMetadata,
-        ClientCredentialsGrantRequest, ClientRegistration, ClientType, DeviceAuthorization,
-        DeviceAuthorizationRequest, EntityType, ErrorCode, ErrorResponse, ErrorResponseResult,
-        GrantType, IdTokenClaims, IsAllowedForUserRequest, IsAllowedForUserResponse, JwkPrivate,
-        JwkPublic, Jwks, OAuth2ClientAuth, PasswordGrantRequest, RefreshTokenGrantRequest,
-        RevocationRequest, SubjectTokenType, TokenEndpointAuthMethod, TokenExchangeGrantRequest,
-        TokenPrincipalBinding, TokenRequest, UserInfo,
+        approve_for_user_request::ApproveForUserRequest,
+        authorization_code_grant_request::AuthorizationCodeGrantRequest,
+        authorization_code_response::AuthorizationCodeResponse,
+        authorization_request::AuthorizationRequest,
+        authorization_server_metadata::AuthorizationServerMetadata,
+        client_consent_metadata::ClientConsentMetadata,
+        client_credentials_grant_request::ClientCredentialsGrantRequest,
+        client_registration::ClientRegistration,
+        client_type::ClientType,
+        device_authorization::DeviceAuthorization,
+        device_authorization_request::DeviceAuthorizationRequest,
+        entity_type::EntityType,
+        error_code::ErrorCode,
+        error_response::{ErrorResponse, ErrorResponseResult},
+        grant_type::GrantType,
+        id_token_claims::IdTokenClaims,
+        idp_signer::TokenPrincipalBinding,
+        is_allowed_for_user_request::IsAllowedForUserRequest,
+        is_allowed_for_user_response::IsAllowedForUserResponse,
+        jwk_private::JwkPrivate,
+        jwk_public::JwkPublic,
+        jwks::Jwks,
+        oauth2_client_auth::OAuth2ClientAuth,
+        password_grant_request::PasswordGrantRequest,
+        refresh_token_grant_request::RefreshTokenGrantRequest,
+        revocation_request::RevocationRequest,
+        subject_token_type::SubjectTokenType,
+        token_endpoint_auth_method::TokenEndpointAuthMethod,
+        token_exchange_grant_request::TokenExchangeGrantRequest,
+        token_request::TokenRequest,
+        user_info::UserInfo,
     },
-    model::User,
+    model::user::User,
 };
 
 use crate::{
-    PasswordConfig,
-    oauth2::{ClientPrincipal, Principal, UserPrincipal, decode_jwt, encode_jwt, verify_jwt},
-    repo::{
-        ApplicationRepo, ClientRepo, KeyRepo, KeyService, OAuth2AuthorizationCodeRepo,
-        OAuth2RefreshToken, OAuth2RefreshTokenRepo, OAuth2UserConsentRepo, UserRepo,
+    oauth2::{
+        jwt::{decode_jwt, encode_jwt, verify_jwt},
+        principal::{ClientPrincipal, Principal, UserPrincipal},
     },
+    password_config::PasswordConfig,
+    repo::{ApplicationRepo, ClientRepo, KeyRepo, KeyService, OAuth2AuthorizationCodeRepo, OAuth2RefreshToken, OAuth2RefreshTokenRepo, OAuth2UserConsentRepo, UserRepo},
     util::{encrypt_password, generate_random_string, verify_password},
 };
 
-use super::{
-    OAuth2Config, intersect_scopes, parse_scopes, resolve_redirect_uri,
-    validate_authorization_code_grant, validate_authorization_details,
-    validate_authorization_request, validate_dynamic_client_grants, validate_scopes,
-    verify_code_challenge,
-};
+use crate::oauth2::config::OAuth2Config;
+
+use crate::oauth2::scope::intersect_scopes;
+
+use crate::oauth2::scope::parse_scopes;
+
+use crate::oauth2::authorization::resolve_redirect_uri;
+
+use crate::oauth2::token::validate_authorization_code_grant;
+
+use crate::oauth2::authorization::validate_authorization_details;
+
+use crate::oauth2::authorization::validate_authorization_request;
+
+use crate::oauth2::authorization::validate_dynamic_client_grants;
+
+use crate::oauth2::scope::validate_scopes;
+
+use crate::oauth2::pkce::verify_code_challenge;
 
 #[cfg(all(test, feature = "replica"))]
 #[path = "refresh_tests.rs"]
@@ -64,7 +104,9 @@ pub struct OAuth2Service<A, C, AC, RT, U, G, K, P> {
     pub oauth_config: OAuth2Config,
 }
 
-pub use of_model::http::idp::{CreateUserRequest, UpdateUserInfoRequest};
+use of_model::oauth_user::CreateUserRequest;
+
+use of_model::oauth_user::UpdateUserInfoRequest;
 
 impl<A, C, AC, RT, U, G, K, P> OAuth2Service<A, C, AC, RT, U, G, K, P>
 where
@@ -331,11 +373,12 @@ where
     ) -> ErrorResponseResult<ClientRegistration> {
         let application = self.get_application(client.application_id).await?;
         let mut registration: ClientRegistration = client.into();
-        registration.application = of_model::idp::contract::ApplicationRegistration {
-            name: Some(application.name),
-            uri: application.uri,
-            description: application.description,
-        };
+        registration.application =
+            of_model::idp::contract::application_registration::ApplicationRegistration {
+                name: Some(application.name),
+                uri: application.uri,
+                description: application.description,
+            };
         Ok(registration)
     }
 
@@ -377,11 +420,12 @@ where
         }
         let application = self.get_application(client.application_id).await?;
         Ok(ClientConsentMetadata {
-            application: of_model::idp::contract::ApplicationRegistration {
-                name: Some(application.name),
-                uri: application.uri,
-                description: application.description,
-            },
+            application:
+                of_model::idp::contract::application_registration::ApplicationRegistration {
+                    name: Some(application.name),
+                    uri: application.uri,
+                    description: application.description,
+                },
             client_id: client.client_id,
             client_name: client.client_name,
             client_uri: Some(client.client_uri),
@@ -1704,7 +1748,7 @@ where
             scope: scopes.to_vec(),
             resource: resource.map(str::to_string),
             authorization_details: authorization_details
-                .map(<[of_model::contract::AuthorizationDetail]>::to_vec),
+                .map(<[of_model::contract::authorization_details::AuthorizationDetail]>::to_vec),
         };
 
         let access_token_value = encode_jwt(
@@ -1910,8 +1954,8 @@ where
             })?;
 
         let sex = match request.sex.as_deref() {
-            Some("male") => Some(of_model::idp::contract::Sex::Male),
-            Some("female") => Some(of_model::idp::contract::Sex::Female),
+            Some("male") => Some(of_model::idp::contract::sex::Sex::Male),
+            Some("female") => Some(of_model::idp::contract::sex::Sex::Female),
             Some(value) => {
                 return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
                     .with_description(format!("unsupported sex value: {value}")));
@@ -2095,7 +2139,8 @@ where
         user_id: Id,
         offset: u32,
         limit: u32,
-    ) -> ErrorResponseResult<Vec<of_model::idp::model::OAuth2UserConsent>> {
+    ) -> ErrorResponseResult<Vec<of_model::idp::model::oauth2_user_consent::OAuth2UserConsent>>
+    {
         if self
             .user_repo
             .find_user_by_id(user_id)

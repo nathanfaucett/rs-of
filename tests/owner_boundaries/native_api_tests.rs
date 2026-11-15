@@ -86,56 +86,200 @@ async fn native_local_token_read_response_denies_learned_revocation_before_trans
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_local_tokens_bound_api_actions_resource_kind_and_existing_socket_operations() {
     let fixture = Fixture::new(Gate::default()).await;
-    let read = fixture.token("storage:filesystems", vec![StorageAuthorizationAction::Read]).await;
-    let write = fixture.token("storage:filesystems", vec![StorageAuthorizationAction::Write]).await;
-    let database_read = fixture.token("storage:databases", vec![StorageAuthorizationAction::Read]).await;
-    let database_write = fixture.token("storage:databases", vec![StorageAuthorizationAction::Write]).await;
+    let read = fixture
+        .token(
+            "storage:filesystems",
+            vec![StorageAuthorizationAction::Read],
+        )
+        .await;
+    let write = fixture
+        .token(
+            "storage:filesystems",
+            vec![StorageAuthorizationAction::Write],
+        )
+        .await;
+    let database_read = fixture
+        .token("storage:databases", vec![StorageAuthorizationAction::Read])
+        .await;
+    let database_write = fixture
+        .token("storage:databases", vec![StorageAuthorizationAction::Write])
+        .await;
     for (kind, read, write, wrong_kind) in [
         ("filesystems", &read, &write, &database_read),
         ("databases", &database_read, &database_write, &read),
     ] {
         let path = format!("/storage/{kind}");
-        assert_eq!(fixture.request(reqwest::Method::GET, &path, wrong_kind).await.status(), reqwest::StatusCode::UNAUTHORIZED, "token must bind the actual resource kind");
-        assert_eq!(fixture.request(reqwest::Method::POST, &path, read).await.status(), reqwest::StatusCode::FORBIDDEN);
-        assert_eq!(fixture.request(reqwest::Method::GET, &path, write).await.status(), reqwest::StatusCode::FORBIDDEN);
+        assert_eq!(
+            fixture
+                .request(reqwest::Method::GET, &path, wrong_kind)
+                .await
+                .status(),
+            reqwest::StatusCode::UNAUTHORIZED,
+            "token must bind the actual resource kind"
+        );
+        assert_eq!(
+            fixture
+                .request(reqwest::Method::POST, &path, read)
+                .await
+                .status(),
+            reqwest::StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            fixture
+                .request(reqwest::Method::GET, &path, write)
+                .await
+                .status(),
+            reqwest::StatusCode::FORBIDDEN
+        );
         let created = fixture.request(reqwest::Method::POST, &path, write).await;
         assert_eq!(created.status(), reqwest::StatusCode::CREATED);
         let created: serde_json::Value = created.json().await.expect("actual catalog resource");
         let id = created["id"].as_str().expect("stable resource ID");
         let detail = format!("{path}/{id}");
-        assert_eq!(fixture.request(reqwest::Method::GET, &path, read).await.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            fixture
+                .request(reqwest::Method::GET, &path, read)
+                .await
+                .status(),
+            reqwest::StatusCode::OK
+        );
         let detail_response = fixture.request(reqwest::Method::GET, &detail, read).await;
         assert_eq!(detail_response.status(), reqwest::StatusCode::OK);
-        let detail_response: serde_json::Value = detail_response.json().await.expect("namespace-bound detail");
-        assert_eq!(detail_response["applicationId"], fixture.scope.application_id.to_string());
-        assert_eq!(fixture.request(reqwest::Method::DELETE, &detail, read).await.status(), reqwest::StatusCode::FORBIDDEN);
-        assert_eq!(fixture.request(reqwest::Method::DELETE, &detail, write).await.status(), reqwest::StatusCode::NO_CONTENT);
-        assert_eq!(fixture.request(reqwest::Method::GET, &detail, read).await.status(), reqwest::StatusCode::NOT_FOUND);
+        let detail_response: serde_json::Value = detail_response
+            .json()
+            .await
+            .expect("namespace-bound detail");
+        assert_eq!(
+            detail_response["applicationId"],
+            fixture.scope.application_id.to_string()
+        );
+        assert_eq!(
+            fixture
+                .request(reqwest::Method::DELETE, &detail, read)
+                .await
+                .status(),
+            reqwest::StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            fixture
+                .request(reqwest::Method::DELETE, &detail, write)
+                .await
+                .status(),
+            reqwest::StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            fixture
+                .request(reqwest::Method::GET, &detail, read)
+                .await
+                .status(),
+            reqwest::StatusCode::NOT_FOUND
+        );
     }
-    let wrong_socket = tokio_tungstenite::connect_async(fixture.socket_url(&database_read, false)).await;
-    assert!(matches!(wrong_socket, Err(tokio_tungstenite::tungstenite::Error::Http(ref response)) if response.status() == reqwest::StatusCode::UNAUTHORIZED), "database token must not open a filesystem socket");
+    let wrong_socket =
+        tokio_tungstenite::connect_async(fixture.socket_url(&database_read, false)).await;
+    assert!(
+        matches!(wrong_socket, Err(tokio_tungstenite::tungstenite::Error::Http(ref response)) if response.status() == reqwest::StatusCode::UNAUTHORIZED),
+        "database token must not open a filesystem socket"
+    );
     let file = fixture.file().await;
-    file.write("shared.txt", b"before").await.expect("native resource");
+    file.write("shared.txt", b"before")
+        .await
+        .expect("native resource");
     let mut reader = fixture.socket(&read, false).await;
-    send(&mut reader, StorageRequest::Read { path: "shared.txt".into() }).await;
-    assert_eq!(response(&mut reader).await, StorageResponse::Read { content: b"before".to_vec() });
-    send(&mut reader, StorageRequest::Write { path: "shared.txt".into(), content: b"denied".to_vec() }).await;
-    assert!(matches!(response(&mut reader).await, StorageResponse::Error { .. }));
-    assert_eq!(file.read("shared.txt").await.expect("read-only mutation denied"), b"before");
+    send(
+        &mut reader,
+        StorageRequest::Read {
+            path: "shared.txt".into(),
+        },
+    )
+    .await;
+    assert_eq!(
+        response(&mut reader).await,
+        StorageResponse::Read {
+            content: b"before".to_vec()
+        }
+    );
+    send(
+        &mut reader,
+        StorageRequest::Write {
+            path: "shared.txt".into(),
+            content: b"denied".to_vec(),
+        },
+    )
+    .await;
+    assert!(matches!(
+        response(&mut reader).await,
+        StorageResponse::Error { .. }
+    ));
+    assert_eq!(
+        file.read("shared.txt")
+            .await
+            .expect("read-only mutation denied"),
+        b"before"
+    );
     let mut writer = fixture.socket(&write, false).await;
-    send(&mut writer, StorageRequest::Write { path: "shared.txt".into(), content: b"after".to_vec() }).await;
-    assert!(matches!(response(&mut writer).await, StorageResponse::Written { .. }));
-    send(&mut writer, StorageRequest::Read { path: "shared.txt".into() }).await;
-    assert!(matches!(response(&mut writer).await, StorageResponse::Error { .. }));
-    assert_eq!(file.read("shared.txt").await.expect("real API write"), b"after");
+    send(
+        &mut writer,
+        StorageRequest::Write {
+            path: "shared.txt".into(),
+            content: b"after".to_vec(),
+        },
+    )
+    .await;
+    assert!(matches!(
+        response(&mut writer).await,
+        StorageResponse::Written { .. }
+    ));
+    send(
+        &mut writer,
+        StorageRequest::Read {
+            path: "shared.txt".into(),
+        },
+    )
+    .await;
+    assert!(matches!(
+        response(&mut writer).await,
+        StorageResponse::Error { .. }
+    ));
+    assert_eq!(
+        file.read("shared.txt").await.expect("real API write"),
+        b"after"
+    );
     fixture.revoke_user().await;
-    send(&mut reader, StorageRequest::Read { path: "shared.txt".into() }).await;
+    send(
+        &mut reader,
+        StorageRequest::Read {
+            path: "shared.txt".into(),
+        },
+    )
+    .await;
     assert_no_response(&mut reader).await;
-    send(&mut writer, StorageRequest::Write { path: "shared.txt".into(), content: b"revoked".to_vec() }).await;
+    send(
+        &mut writer,
+        StorageRequest::Write {
+            path: "shared.txt".into(),
+            content: b"revoked".to_vec(),
+        },
+    )
+    .await;
     assert_no_response(&mut writer).await;
-    assert_eq!(file.read("shared.txt").await.expect("revoked mutation absent"), b"after");
-    assert_eq!(fixture.request(reqwest::Method::GET, "/storage/filesystems", &read).await.status(), reqwest::StatusCode::UNAUTHORIZED);
-    assert!(matches!(storage_server::authorize_storage_token(&fixture.client, &read).await, Err(storage_server::StorageAuthorizationError::InvalidToken)));
+    assert_eq!(
+        file.read("shared.txt")
+            .await
+            .expect("revoked mutation absent"),
+        b"after"
+    );
+    assert_eq!(
+        fixture
+            .request(reqwest::Method::GET, "/storage/filesystems", &read)
+            .await
+            .status(),
+        reqwest::StatusCode::UNAUTHORIZED
+    );
+    assert!(matches!(
+        storage_server::authorize_storage_token(&fixture.client, &read).await,
+        Err(storage_server::StorageAuthorizationError::InvalidToken)
+    ));
     drop(reader);
     drop(writer);
     fixture.stop().await;
@@ -145,19 +289,46 @@ async fn native_local_tokens_bound_api_actions_resource_kind_and_existing_socket
 async fn native_local_token_authorized_write_survives_revoked_response_and_next_operation_denial() {
     let gate = Gate::default();
     let fixture = Fixture::new(gate.clone()).await;
-    let token = fixture.token("storage:filesystems", vec![StorageAuthorizationAction::Write]).await;
+    let token = fixture
+        .token(
+            "storage:filesystems",
+            vec![StorageAuthorizationAction::Write],
+        )
+        .await;
     let file = fixture.file().await;
     let mut socket = fixture.socket(&token, true).await;
-    send(&mut socket, StorageRequest::Write { path: "committed.txt".into(), content: b"authorized in-flight content".to_vec() }).await;
+    send(
+        &mut socket,
+        StorageRequest::Write {
+            path: "committed.txt".into(),
+            content: b"authorized in-flight content".to_vec(),
+        },
+    )
+    .await;
     gate.reached().await;
-    assert_eq!(file.read("committed.txt").await.expect("actual write completed before learning denial"), b"authorized in-flight content");
+    assert_eq!(
+        file.read("committed.txt")
+            .await
+            .expect("actual write completed before learning denial"),
+        b"authorized in-flight content"
+    );
     fixture.revoke_user().await;
     gate.release();
     assert_no_response(&mut socket).await;
-    let next = fixture.request(reqwest::Method::POST, "/storage/filesystems", &token).await;
+    let next = fixture
+        .request(reqwest::Method::POST, "/storage/filesystems", &token)
+        .await;
     assert_eq!(next.status(), reqwest::StatusCode::UNAUTHORIZED);
-    assert!(matches!(tokio_tungstenite::connect_async(fixture.socket_url(&token, false)).await, Err(tokio_tungstenite::tungstenite::Error::Http(ref response)) if response.status() == reqwest::StatusCode::UNAUTHORIZED), "revoked token cannot reconnect for another write");
-    assert_eq!(file.read("committed.txt").await.expect("earlier write retained"), b"authorized in-flight content");
+    assert!(
+        matches!(tokio_tungstenite::connect_async(fixture.socket_url(&token, false)).await, Err(tokio_tungstenite::tungstenite::Error::Http(ref response)) if response.status() == reqwest::StatusCode::UNAUTHORIZED),
+        "revoked token cannot reconnect for another write"
+    );
+    assert_eq!(
+        file.read("committed.txt")
+            .await
+            .expect("earlier write retained"),
+        b"authorized in-flight content"
+    );
     drop(socket);
     fixture.stop().await;
 }
@@ -214,22 +385,56 @@ async fn independent_idp_service_loss_denies_response_and_api_without_cached_fal
 async fn native_catalog_create_response_denies_learned_user_deletion_without_rollback() {
     let gate = Gate::default();
     let fixture = Fixture::with_catalog_gate(Gate::default(), Some(gate.clone())).await;
-    let token = fixture.token("storage:filesystems", vec![StorageAuthorizationAction::Write]).await;
+    let token = fixture
+        .token(
+            "storage:filesystems",
+            vec![StorageAuthorizationAction::Write],
+        )
+        .await;
     let source = fixture.file().await;
-    source.write("source.txt", b"earlier content").await.expect("existing resource content");
-    let mut request = Box::pin(fixture.request(reqwest::Method::POST, "/storage/filesystems", &token));
+    source
+        .write("source.txt", b"earlier content")
+        .await
+        .expect("existing resource content");
+    let mut request =
+        Box::pin(fixture.request(reqwest::Method::POST, "/storage/filesystems", &token));
     tokio::select! {
         response = &mut request => panic!("catalog result transmitted without post-execution authorization: {}", response.status()),
         () = gate.reached() => {}
     }
-    assert_eq!(fixture.files.list_resources(&fixture.scope).await.expect("observe completed creation before learned denial").len(), 2);
+    assert_eq!(
+        fixture
+            .files
+            .list_resources(&fixture.scope)
+            .await
+            .expect("observe completed creation before learned denial")
+            .len(),
+        2
+    );
     fixture.revoke_user().await;
     gate.release();
     let response = request.await;
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
-    assert!(response.bytes().await.expect("denial body").is_empty(), "catalog result must not be disclosed");
-    assert_eq!(fixture.files.list_resources(&fixture.scope).await.expect("authorized creation retained").len(), 2);
-    assert_eq!(source.read("source.txt").await.expect("earlier source retained"), b"earlier content");
+    assert!(
+        response.bytes().await.expect("denial body").is_empty(),
+        "catalog result must not be disclosed"
+    );
+    assert_eq!(
+        fixture
+            .files
+            .list_resources(&fixture.scope)
+            .await
+            .expect("authorized creation retained")
+            .len(),
+        2
+    );
+    assert_eq!(
+        source
+            .read("source.txt")
+            .await
+            .expect("earlier source retained"),
+        b"earlier content"
+    );
     fixture.stop().await;
 }
 
@@ -248,7 +453,10 @@ async fn catalog_response_denial(kind: &str, operation: &str) {
         )
         .await;
     let source = fixture.file().await;
-    source.write("source.txt", b"earlier content").await.expect("existing resource content");
+    source
+        .write("source.txt", b"earlier content")
+        .await
+        .expect("existing resource content");
     let target = if kind == "databases" {
         fixture
             .databases
@@ -302,9 +510,7 @@ async fn catalog_response_denial(kind: &str, operation: &str) {
             .expect("completed filesystem operation")
             .len()
     };
-    assert_eq!(
-        observed, expected,
-    );
+    assert_eq!(observed, expected,);
     fixture.revoke_user().await;
     gate.release();
     let response = request.await;
@@ -331,9 +537,7 @@ async fn catalog_response_denial(kind: &str, operation: &str) {
             .expect("retained filesystem mutation")
             .len()
     };
-    assert_eq!(
-        retained, expected,
-    );
+    assert_eq!(retained, expected,);
     assert_eq!(
         source
             .read("source.txt")
@@ -426,10 +630,7 @@ async fn generated_rust_and_built_javascript_use_actual_owner_routes() {
 
     // Fetch the Rust-generated OpenAPI from the running server
     let client = reqwest::Client::new();
-    let rust_response = client
-        .get("http://127.0.0.1:0/openapi.json")
-        .send()
-        .await;
+    let rust_response = client.get("http://127.0.0.1:0/openapi.json").send().await;
     if rust_response.is_err() {
         // Server not running, skip test
         return;

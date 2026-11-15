@@ -2,9 +2,11 @@ use axum::{
     extract::{Form, State},
     http::HeaderMap,
 };
-use of_model::idp::contract::{ErrorResponse, RevocationRequest};
+use of_model::idp::contract::{
+    error_response::ErrorResponse, revocation_request::RevocationRequest,
+};
 
-use crate::router::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(post, path = "/oauth2/revoke", request_body(content = RevocationRequest, content_type = "application/x-www-form-urlencoded"), responses((status = 200, description = "Revoke token")))]
 pub(crate) async fn revoke(

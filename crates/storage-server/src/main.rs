@@ -1,4 +1,4 @@
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    storage_server::run().await
+    storage_server::cli::run::run().await
 }

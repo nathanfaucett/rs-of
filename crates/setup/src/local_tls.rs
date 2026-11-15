@@ -16,10 +16,12 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, pem::
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, server::TlsStream};
 
-use crate::setup_files::{
-    absolute, create_private_directory, private_options, read_private, require_absent,
-    sync_ancestry,
-};
+use crate::setup_files::absolute;
+use crate::setup_files::create_private_directory;
+use crate::setup_files::private_options;
+use crate::setup_files::read_private;
+use crate::setup_files::require_absent;
+use crate::setup_files::sync_ancestry;
 
 /// Domain config mapping without a dependency on any composing host.
 pub trait LocalTlsConfig {
@@ -315,7 +317,8 @@ impl axum::serve::Listener for TlsListener {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{LocalTls, LocalTlsConfig};
+    use crate::local_tls::LocalTls;
+    use crate::local_tls::LocalTlsConfig;
     use std::{fs, net::SocketAddr, path::PathBuf};
 
     struct Config(PathBuf);

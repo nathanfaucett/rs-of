@@ -1,6 +1,6 @@
 use std::{io, net::SocketAddr, path::Path};
 
-use setup::IndependentSetupHost;
+use setup::independent_setup::IndependentSetupHost;
 
 use server_common::setup_https_fixture as fixture;
 
@@ -9,7 +9,7 @@ fn prepare(
     prefix: &str,
     address: SocketAddr,
 ) -> io::Result<Option<IndependentSetupHost>> {
-    let mut config = crate::AppConfig {
+    let mut config = crate::config::app_config::AppConfig {
         data_dir: root.join("storage").to_string_lossy().into_owned(),
         ..crate::AppConfig::default()
     };

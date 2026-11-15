@@ -1,25 +1,30 @@
-use std::{
-    fs::{self, OpenOptions},
-    io::{self, Write},
-    path::Path,
-    sync::Arc,
-};
+use crate::cli::provision_service_client::run::std::fs::self;
+use crate::cli::provision_service_client::run::std::fs::OpenOptions;
+use crate::cli::provision_service_client::run::std::io::self;
+use crate::cli::provision_service_client::run::std::io::Write;
+use crate::cli::provision_service_client::run::std::crate::cli::provision_service_client::run::path::Path;
+use crate::cli::provision_service_client::run::std::crate::cli::provision_service_client::run::sync::Arc;
 
-use db::Database;
+use crate::cli::provision_service_client::run::ofdb_sql::database::Database;
+use crate::cli::provision_service_client::run::run::serde::Serialize;
 use idp_service::{
-    generate_random_string,
-    replica::{DbApplicationRepo, DbClientRepo, DbKeyRepo},
-    repo::{
-        ApplicationRepo, ClientRepo, KeyRepo, KeyService, PrivateKeyKeyringRepo, PrivateKeyRepo,
+    replica::{
+        application_repo::DbApplicationRepo, client_repo::DbClientRepo, key_repo::DbKeyRepo,
     },
+    repo::{
+        appliccation_repo::ApplicationRepo, client_repo::ClientRepo, key_repo::KeyRepo,
+        key_service::KeyService, private_key_keyring_repo::PrivateKeyKeyringRepo,
+        private_key_repo::PrivateKeyRepo,
+    },
+    util::generate_random_string,
 };
 use of_model::idp::contract::{
-    ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType, GrantType,
-    TokenEndpointAuthMethod,
+    application_registration::ApplicationRegistration, client_profile::ClientProfile,
+    client_registration::ClientRegistration, client_type::ClientType, entity_type::EntityType,
+    grant_type::GrantType, token_endpoint_auth_method::TokenEndpointAuthMethod,
 };
-use serde::Serialize;
 
-use crate::AppConfig;
+use crate::config::app_config::AppConfig;
 
 #[derive(Serialize)]
 struct ClientCredentials {
@@ -34,38 +39,50 @@ pub async fn run(
     audiences: Vec<String>,
     scopes: Vec<String>,
     credentials_path: &Path,
-) -> io::Result<()> {
+) -> crate::cli::provision_service_client::run::io::Result<()> {
     validate_values(application_uri, client_name, &audiences, &scopes)?;
     #[cfg(not(unix))]
-    return Err(io::Error::new(
-        io::ErrorKind::Unsupported,
+    return Err(crate::cli::provision_service_client::run::io::Error::new(
+        crate::cli::provision_service_client::run::io::ErrorKind::Unsupported,
         "service-client credential files require Unix owner-only permissions",
     ));
 
-    let database_path = Path::new(&app_config.data_dir).join("idp.redb");
+    let database_path =
+        crate::cli::provision_service_client::run::Path::new(&app_config.data_dir).join("idp.redb");
     if !database_path.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
+        return Err(crate::cli::provision_service_client::run::io::Error::new(
+            crate::cli::provision_service_client::run::io::ErrorKind::NotFound,
             format!("IdP database does not exist: {}", database_path.display()),
         ));
     }
     if credentials_path.exists() {
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
+        return Err(crate::cli::provision_service_client::run::io::Error::new(
+            crate::cli::provision_service_client::run::io::ErrorKind::AlreadyExists,
             "credential output file already exists",
         ));
     }
 
-    let engine = Arc::new(Database::open(database_path).map_err(io::Error::other)?);
+    let engine = crate::cli::provision_service_client::run::Arc::new(
+        crate::cli::provision_service_client::run::Database::open(database_path)
+            .map_err(crate::cli::provision_service_client::run::io::Error::other)?,
+    );
 
-    let key_service = Arc::new(KeyService::new(
-        DbKeyRepo::new(engine.client()),
-        PrivateKeyKeyringRepo::new(&app_config.oauth2.issuer).map_err(io::Error::other)?,
-        app_config.key_namespace.clone(),
-    ));
-    let client_repo = DbClientRepo::new(engine.client(), Arc::clone(&key_service));
+    let key_service = crate::cli::provision_service_client::run::Arc::new(
+        crate::cli::provision_service_client::run::KeyService::new(
+            crate::cli::provision_service_client::run::DbKeyRepo::new(engine.client()),
+            crate::cli::provision_service_client::run::PrivateKeyKeyringRepo::new(
+                &app_config.oauth2.issuer,
+            )
+            .map_err(crate::cli::provision_service_client::run::io::Error::other)?,
+            app_config.key_namespace.clone(),
+        ),
+    );
+    let client_repo = crate::cli::provision_service_client::run::DbClientRepo::new(
+        engine.client(),
+        crate::cli::provision_service_client::run::Arc::clone(&key_service),
+    );
     provision(
-        &DbApplicationRepo::new(engine.client()),
+        &crate::cli::provision_service_client::run::DbApplicationRepo::new(engine.client()),
         &client_repo,
         &key_service,
         application_uri,
@@ -86,7 +103,7 @@ async fn provision<A, C, K, P>(
     audiences: Vec<String>,
     scopes: Vec<String>,
     credentials_path: &Path,
-) -> io::Result<()>
+) -> crate::cli::provision_service_client::run::io::Result<()>
 where
     A: ApplicationRepo,
     C: ClientRepo,
@@ -96,19 +113,24 @@ where
     let application = application_repo
         .find_by_uri(application_uri)
         .await
-        .map_err(io::Error::other)?
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "application not found"))?;
+        .map_err(crate::cli::provision_service_client::run::io::Error::other)?
+        .ok_or_else(|| {
+            crate::cli::provision_service_client::run::io::Error::new(
+                crate::cli::provision_service_client::run::io::ErrorKind::NotFound,
+                "application not found",
+            )
+        })?;
 
     let client_id = generate_random_string::<32>();
     let client_secret = generate_random_string::<64>();
     if client_repo
         .find_client_by_client_id(&client_id)
         .await
-        .map_err(io::Error::other)?
+        .map_err(crate::cli::provision_service_client::run::io::Error::other)?
         .is_some()
     {
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
+        return Err(crate::cli::provision_service_client::run::io::Error::new(
+            crate::cli::provision_service_client::run::io::ErrorKind::AlreadyExists,
             "generated client ID already exists; retry provisioning",
         ));
     }
@@ -117,12 +139,14 @@ where
         client_id: client_id.clone(),
         client_secret: client_secret.clone(),
     };
-    let credential_bytes = serde_json::to_vec(&credentials).map_err(io::Error::other)?;
-    let mut options = OpenOptions::new();
+    let credential_bytes =
+        crate::cli::provision_service_client::run::serde_json::to_vec(&credentials)
+            .map_err(crate::cli::provision_service_client::run::io::Error::other)?;
+    let mut options = crate::cli::provision_service_client::run::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
+        use crate::cli::provision_service_client::run::run::std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
     let mut credentials_file = options.open(credentials_path)?;
@@ -131,7 +155,7 @@ where
         .and_then(|()| credentials_file.sync_all())
     {
         drop(credentials_file);
-        fs::remove_file(credentials_path)?;
+        crate::cli::provision_service_client::run::fs::remove_file(credentials_path)?;
         return Err(error);
     }
     drop(credentials_file);
@@ -140,9 +164,11 @@ where
         let parent = credentials_path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
-        if let Err(error) = std::fs::File::open(parent).and_then(|directory| directory.sync_all()) {
-            fs::remove_file(credentials_path)?;
+            .unwrap_or_else(|| crate::cli::provision_service_client::run::Path::new("."));
+        if let Err(error) = crate::cli::provision_service_client::run::std::fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+        {
+            crate::cli::provision_service_client::run::fs::remove_file(credentials_path)?;
             return Err(error);
         }
     }
@@ -160,17 +186,20 @@ where
         client_name: client_name.to_owned(),
         client_uri: None,
         logo_uri: None,
-        contacts: Vec::new(),
+        contacts: crate::cli::provision_service_client::run::Vec::new(),
         terms_of_service_uri: None,
         policy_uri: None,
-        client_type: ClientType::Confidential,
-        profile: ClientProfile::Web,
-        redirect_uris: Vec::new(),
-        allowed_grant_types: vec![GrantType::ClientCredentials],
-        response_types: Vec::new(),
+        client_type: crate::cli::provision_service_client::run::ClientType::Confidential,
+        profile: crate::cli::provision_service_client::run::ClientProfile::Web,
+        redirect_uris: crate::cli::provision_service_client::run::Vec::new(),
+        allowed_grant_types: vec![
+            crate::cli::provision_service_client::run::GrantType::ClientCredentials,
+        ],
+        response_types: crate::cli::provision_service_client::run::Vec::new(),
         allowed_scopes: scopes,
         allowed_audiences: audiences,
-        token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretPost,
+        token_endpoint_auth_method:
+            crate::cli::provision_service_client::run::TokenEndpointAuthMethod::ClientSecretPost,
         software_statement: None,
         software_id: None,
         software_version: None,
@@ -183,17 +212,17 @@ where
                 .find_client_by_client_id(&client_id)
                 .await
                 .map_err(|cleanup_error| {
-                    io::Error::other(format!(
+                    crate::cli::provision_service_client::run::io::Error::other(format!(
                         "provisioning failed ({error}); could not verify client cleanup ({cleanup_error}); credentials retained at {}",
                         credentials_path.display()
                     ))
                 })?;
             if let Some(partial_client) = partial_client {
                 key_service
-                    .delete_entity_key_material(EntityType::Client, partial_client.id)
+                    .delete_entity_key_material(crate::cli::provision_service_client::run::EntityType::Client, partial_client.id)
                     .await
                     .map_err(|cleanup_error| {
-                        io::Error::other(format!(
+                        crate::cli::provision_service_client::run::io::Error::other(format!(
                             "provisioning failed ({error}); key cleanup failed ({cleanup_error}); credentials retained at {}",
                             credentials_path.display()
                         ))
@@ -202,14 +231,16 @@ where
                     .delete_client_by_client_id(&client_id)
                     .await
                     .map_err(|cleanup_error| {
-                        io::Error::other(format!(
+                        crate::cli::provision_service_client::run::io::Error::other(format!(
                             "provisioning failed ({error}); client cleanup failed ({cleanup_error}); credentials retained at {}",
                             credentials_path.display()
                         ))
                     })?;
             }
-            fs::remove_file(credentials_path)?;
-            Err(io::Error::other(error))
+            crate::cli::provision_service_client::run::fs::remove_file(credentials_path)?;
+            Err(crate::cli::provision_service_client::run::io::Error::other(
+                error,
+            ))
         }
     }
 }
@@ -219,7 +250,7 @@ fn validate_values(
     client_name: &str,
     audiences: &[String],
     scopes: &[String],
-) -> io::Result<()> {
+) -> crate::cli::provision_service_client::run::io::Result<()> {
     if application_uri.trim().is_empty()
         || client_name.trim().is_empty()
         || audiences.is_empty()
@@ -231,8 +262,8 @@ fn validate_values(
         || has_duplicates(audiences)
         || has_duplicates(scopes)
     {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
+        return Err(crate::cli::provision_service_client::run::io::Error::new(
+            crate::cli::provision_service_client::run::io::ErrorKind::InvalidInput,
             "application, client name, unique audiences, and unique scopes are required",
         ));
     }
@@ -248,43 +279,34 @@ fn has_duplicates(values: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        any::Any,
-        collections::HashMap,
-        fs,
-        io::{Read, Write},
-        net::TcpStream,
-        os::unix::fs::PermissionsExt,
-        sync::{Arc, Mutex},
-    };
+    use crate::cli::provision_service_client::run::std::crate::cli::provision_service_client::run::any::Any;
+    use crate::cli::provision_service_client::run::std::crate::cli::provision_service_client::run::collections::HashMap;
+    use crate::cli::provision_service_client::run::std::fs;
+    use crate::cli::provision_service_client::run::std::io::Read;
+    use crate::cli::provision_service_client::run::std::io::Write;
+    use crate::cli::provision_service_client::run::std::crate::cli::provision_service_client::run::net::TcpStream;
+    use crate::cli::provision_service_client::run::std::crate::cli::provision_service_client::run::os::unix::fs::PermissionsExt;
+    use crate::cli::provision_service_client::run::std::sync::Arc;
+    use crate::cli::provision_service_client::run::std::sync::Mutex;
 
-    use db::Database;
-    use idp_service::{
-        PasswordConfig,
-        oauth2::{OAuth2Config, OAuth2Service, decode_jwt},
-        replica::{
-            DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
-            DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
-        },
-        repo::{
-            ApplicationRepo, ClientRepo, KeyRepo, KeyService, OAuth2AuthorizationCodeRepo,
-            PrivateKeyKeyringRepo, PrivateKeyRepo, RepoResult, UserRepo,
-        },
-    };
-    use iroh::{Endpoint, SecretKey, endpoint::presets};
-    use key::{DerivationPath, DerivedKey};
-    use management_service::LocalPermissions;
-    use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
-    use of_model::idp::contract::{
-        ClientCredentialsGrantRequest, EntityType, IntrospectionRequest, OAuth2ClientAuth,
-        TokenRequest,
-    };
+    use crate::cli::provision_service_client::run::ofdb_sql::database::Database;
+    use idp_service::{oauth2::{config::{OAuth2Config}, jwt::{decode_jwt}, service::{OAuth2Service}}, password_config::{PasswordConfig}, replica::{application_repo::{DbApplicationRepo}, client_repo::{DbClientRepo}, key_repo::{DbKeyRepo}, oauth2_authorization_code_repo::{DbOAuth2AuthorizationCodeRepo}, oauth2_refresh_token_repo::{DbOAuth2RefreshTokenRepo}, oauth2_user_consent_repo::{DbOAuth2UserConsentRepo}, user_repo::{DbUserRepo}}, repo::{appliccation_repo::{ApplicationRepo}, client_repo::{ClientRepo}, error::{RepoResult}, key_repo::{KeyRepo}, key_service::{KeyService}, oauth2_authorization_code_repo::{OAuth2AuthorizationCodeRepo}, private_key_keyring_repo::{PrivateKeyKeyringRepo}, private_key_repo::{PrivateKeyRepo}, user_repo::{UserRepo}}};
+    use crate::cli::provision_service_client::run::iroh::Endpoint;
+    use crate::cli::provision_service_client::run::iroh::SecretKey;
+    use crate::cli::provision_service_client::run::iroh::crate::cli::provision_service_client::run::endpoint::presets;
+    use bip32::DerivationPath;
+    use key::derived_key::DerivedKey;
+    use management_service::local_permissions::LocalPermissions;
+    use of_model::contract::{principal_type::{PrincipalType}, standard_claims::{StandardClaims}, token_type::{TokenType}, token_use::{TokenUse}};
+    use of_model::idp::contract::{client_credentials_grant_request::{ClientCredentialsGrantRequest}, entity_type::{EntityType}, introspection_request::{IntrospectionRequest}, oauth2_client_auth::{OAuth2ClientAuth}, token_request::{TokenRequest}};
 
     struct ModifierTolerantTestStore {
-        inner: Arc<keyring_core::mock::Store>,
+        inner: Arc<crate::cli::provision_service_client::run::keyring_core::mock::Store>,
     }
 
-    impl keyring_core::api::CredentialStoreApi for ModifierTolerantTestStore {
+    impl crate::cli::provision_service_client::run::keyring_core::api::CredentialStoreApi
+        for ModifierTolerantTestStore
+    {
         fn vendor(&self) -> String {
             self.inner.vendor()
         }
@@ -298,15 +320,27 @@ mod tests {
             service: &str,
             user: &str,
             _modifiers: Option<&HashMap<&str, &str>>,
-        ) -> keyring_core::Result<keyring_core::Entry> {
-            keyring_core::api::CredentialStoreApi::build(&*self.inner, service, user, None)
+        ) -> crate::cli::provision_service_client::run::keyring_core::Result<
+            crate::cli::provision_service_client::run::keyring_core::Entry,
+        > {
+            crate::cli::provision_service_client::run::keyring_core::api::CredentialStoreApi::build(
+                &*self.inner,
+                service,
+                user,
+                None,
+            )
         }
 
         fn search(
             &self,
             spec: &HashMap<&str, &str>,
-        ) -> keyring_core::Result<Vec<keyring_core::Entry>> {
-            keyring_core::api::CredentialStoreApi::search(&*self.inner, spec)
+        ) -> crate::cli::provision_service_client::run::keyring_core::Result<
+            Vec<crate::cli::provision_service_client::run::keyring_core::Entry>,
+        > {
+            crate::cli::provision_service_client::run::keyring_core::api::CredentialStoreApi::search(
+                &*self.inner,
+                spec,
+            )
         }
 
         fn as_any(&self) -> &dyn Any {
@@ -314,13 +348,19 @@ mod tests {
         }
     }
 
-    fn test_keyring_store() -> Arc<keyring_core::CredentialStore> {
-        Arc::new(ModifierTolerantTestStore {
-            inner: keyring_core::mock::Store::new().expect("create mock credential store"),
+    fn test_keyring_store()
+    -> Arc<crate::cli::provision_service_client::run::keyring_core::CredentialStore> {
+        crate::cli::provision_service_client::run::Arc::new(ModifierTolerantTestStore {
+            inner: crate::cli::provision_service_client::run::keyring_core::mock::Store::new()
+                .expect("create mock credential store"),
         })
     }
 
-    use super::{has_duplicates, provision, validate_values};
+    use crate::cli::provision_service_client::run::has_duplicates;
+
+    use crate::cli::provision_service_client::run::provision;
+
+    use crate::cli::provision_service_client::run::validate_values;
 
     #[derive(Clone)]
     struct TestPrivateKeyRepo {
@@ -332,8 +372,14 @@ mod tests {
     impl TestPrivateKeyRepo {
         fn new(fail_on_store: Option<usize>) -> Self {
             Self {
-                keys: Arc::new(Mutex::new(HashMap::new())),
-                store_calls: Arc::new(Mutex::new(0)),
+                keys: crate::cli::provision_service_client::run::Arc::new(
+                    crate::cli::provision_service_client::run::Mutex::new(
+                        crate::cli::provision_service_client::run::HashMap::new(),
+                    ),
+                ),
+                store_calls: crate::cli::provision_service_client::run::Arc::new(
+                    crate::cli::provision_service_client::run::Mutex::new(0),
+                ),
                 fail_on_store,
             }
         }
@@ -348,7 +394,12 @@ mod tests {
             let keys = self.keys.lock().expect("test key map lock");
             Ok(keys
                 .get(&(namespace.to_owned(), derivation_path.to_string()))
-                .map(|key| DerivedKey::from_xprv(key.clone(), derivation_path.clone()))
+                .map(|key| {
+                    crate::cli::provision_service_client::run::DerivedKey::from_xprv(
+                        key.clone(),
+                        derivation_path.clone(),
+                    )
+                })
                 .transpose()?)
         }
 
@@ -356,7 +407,7 @@ mod tests {
             let mut store_calls = self.store_calls.lock().expect("test store count lock");
             *store_calls += 1;
             if self.fail_on_store == Some(*store_calls) {
-                return Err(idp_service::repo::RepoError::InvalidInput(
+                return Err(idp_service::repo::error::RepoError::InvalidInput(
                     "injected keyring write failure".to_owned(),
                 ));
             }
@@ -418,27 +469,27 @@ mod tests {
 
     #[test]
     fn provider_denied_registration_creates_metadata_only_but_node_signer_write_denies() {
-        std::thread::Builder::new()
+        crate::cli::provision_service_client::run::std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
-                tokio::runtime::Builder::new_current_thread()
+                crate::cli::provision_service_client::run::tokio::runtime::Builder::new_current_thread()
                     .build()
                     .expect("build test runtime")
                     .block_on(async {
-                        let root = std::env::temp_dir().join(format!(
+                        let root = crate::cli::provision_service_client::run::std::env::temp_dir().join(format!(
                             "idp-service-client-metadata-{}-{}",
-                            std::process::id(),
-                            of_model::idp::model::Id::now_v7()
+                            crate::cli::provision_service_client::run::std::process::id(),
+                            of_model::id::Id::now_v7()
                         ));
-                        fs::create_dir_all(&root).expect("create temporary test directory");
+                        crate::cli::provision_service_client::run::fs::create_dir_all(&root).expect("create temporary test directory");
                         let database_path = root.join("idp.redb");
                         let credentials_path = root.join("credentials.json");
                         let engine =
-                            Arc::new(Database::open(&database_path).expect("open test database"));
+                            crate::cli::provision_service_client::run::Arc::new(crate::cli::provision_service_client::run::Database::open(&database_path).expect("open test database"));
                         of_model::idp::replica::up(&engine)
                             .await
                             .expect("initialize current IdP schema");
-                        let applications = DbApplicationRepo::new(engine.client());
+                        let applications = crate::cli::provision_service_client::run::DbApplicationRepo::new(engine.client());
                         applications
                             .create_application(
                                 "Test application".to_owned(),
@@ -447,13 +498,13 @@ mod tests {
                             )
                             .await
                             .expect("create canonical application");
-                        let private_keys = TestPrivateKeyRepo::new(Some(1));
-                        let key_service = Arc::new(KeyService::new(
-                            DbKeyRepo::new(engine.client()),
+                        let private_keys = crate::cli::provision_service_client::run::TestPrivateKeyRepo::new(Some(1));
+                        let key_service = crate::cli::provision_service_client::run::Arc::new(crate::cli::provision_service_client::run::KeyService::new(
+                            crate::cli::provision_service_client::run::DbKeyRepo::new(engine.client()),
                             private_keys.clone(),
                             "test-namespace".to_owned(),
                         ));
-                        let clients = DbClientRepo::new(engine.client(), Arc::clone(&key_service));
+                        let clients = crate::cli::provision_service_client::run::DbClientRepo::new(engine.client(), crate::cli::provision_service_client::run::Arc::clone(&key_service));
 
                         provision(
                             &applications,
@@ -468,9 +519,9 @@ mod tests {
                         .await
                         .expect("Client registration does not require provider writes");
                         let credential_bytes =
-                            fs::read(&credentials_path).expect("retained confidential credentials");
-                        let credentials: serde_json::Value =
-                            serde_json::from_slice(&credential_bytes).expect("credential document");
+                            crate::cli::provision_service_client::run::fs::read(&credentials_path).expect("retained confidential credentials");
+                        let credentials: crate::cli::provision_service_client::run::serde_json::Value =
+                            crate::cli::provision_service_client::run::serde_json::from_slice(&credential_bytes).expect("credential document");
                         let client = clients
                             .find_client_by_client_id(
                                 credentials["client_id"].as_str().expect("Client ID"),
@@ -486,20 +537,20 @@ mod tests {
                         );
                         let root_key = key_service
                             .key_repo()
-                            .find_active_entity_root_key(EntityType::Client, client.id)
+                            .find_active_entity_root_key(crate::cli::provision_service_client::run::EntityType::Client, client.id)
                             .await
                             .expect("Client root lookup")
                             .expect("actual metadata root");
-                        assert_eq!(root_key.entity_type, EntityType::Client);
+                        assert_eq!(root_key.entity_type, crate::cli::provision_service_client::run::EntityType::Client);
                         assert_eq!(root_key.entity_id, client.id);
                         assert!(root_key.parent_id.is_none());
                         assert!(root_key.public_jwk.is_none());
                         assert_eq!(*private_keys.store_calls.lock().expect("store count"), 0);
                         assert!(private_keys.keys.lock().expect("private store").is_empty());
 
-                        let binding = idp_service::oauth2::NodeSignerBinding {
-                            member_id: of_model::idp::model::Id::now_v7(),
-                            key_id: of_model::idp::model::Id::now_v7(),
+                        let binding = idp_service::oauth2::node_signer::NodeSignerBinding {
+                            member_id: of_model::id::Id::now_v7(),
+                            key_id: of_model::id::Id::now_v7(),
                             endpoint_id: "provider-denied-endpoint".into(),
                         };
                         let error = key_service
@@ -509,13 +560,13 @@ mod tests {
                         assert_eq!(*private_keys.store_calls.lock().expect("store count"), 1);
                         assert!(private_keys.keys.lock().expect("private store").is_empty());
                         assert!(
-                            fs::read(&credentials_path).expect("credentials remain")
+                            crate::cli::provision_service_client::run::fs::read(&credentials_path).expect("credentials remain")
                                 == credential_bytes
                         );
                         assert_eq!(
                             key_service
                                 .key_repo()
-                                .find_active_entity_root_key(EntityType::Client, client.id)
+                                .find_active_entity_root_key(crate::cli::provision_service_client::run::EntityType::Client, client.id)
                                 .await
                                 .expect("Client root remains")
                                 .expect("metadata root"),
@@ -533,7 +584,7 @@ mod tests {
                         drop(clients);
                         drop(applications);
                         drop(engine);
-                        fs::remove_dir_all(root).expect("remove temporary test directory");
+                        crate::cli::provision_service_client::run::fs::remove_dir_all(root).expect("remove temporary test directory");
                     });
             })
             .expect("spawn test thread")
@@ -543,10 +594,10 @@ mod tests {
 
     #[test]
     fn live_idp_listener_issues_and_introspects_service_tokens() {
-        std::thread::Builder::new()
+        crate::cli::provision_service_client::run::std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
-                tokio::runtime::Builder::new_multi_thread()
+                crate::cli::provision_service_client::run::tokio::runtime::Builder::new_multi_thread()
                     .worker_threads(2)
                     .thread_stack_size(16 * 1024 * 1024)
                     .enable_all()
@@ -560,17 +611,22 @@ mod tests {
     }
 
     async fn run_live_idp_listener_test() {
-        let root = std::env::temp_dir().join(format!(
+        let root = crate::cli::provision_service_client::run::std::env::temp_dir().join(format!(
             "idp-live-service-client-{}-{}",
-            std::process::id(),
-            of_model::idp::model::Id::now_v7()
+            crate::cli::provision_service_client::run::std::process::id(),
+            of_model::id::Id::now_v7()
         ));
-        fs::create_dir_all(&root).expect("create temporary test directory");
-        let engine = Arc::new(Database::open(root.join("idp.redb")).expect("open test database"));
+        crate::cli::provision_service_client::run::fs::create_dir_all(&root)
+            .expect("create temporary test directory");
+        let engine = crate::cli::provision_service_client::run::Arc::new(
+            crate::cli::provision_service_client::run::Database::open(root.join("idp.redb"))
+                .expect("open test database"),
+        );
         of_model::idp::replica::up(&engine)
             .await
             .expect("initialize current IdP schema");
-        let applications = DbApplicationRepo::new(engine.client());
+        let applications =
+            crate::cli::provision_service_client::run::DbApplicationRepo::new(engine.client());
         applications
             .create_application(
                 "Test application".to_owned(),
@@ -579,12 +635,20 @@ mod tests {
             )
             .await
             .expect("create canonical application");
-        let key_service = Arc::new(KeyService::new(
-            DbKeyRepo::new(engine.client()),
-            PrivateKeyKeyringRepo::new_with_store("idp-live-test", test_keyring_store()),
-            "live-test-namespace".to_owned(),
-        ));
-        let clients = DbClientRepo::new(engine.client(), Arc::clone(&key_service));
+        let key_service = crate::cli::provision_service_client::run::Arc::new(
+            crate::cli::provision_service_client::run::KeyService::new(
+                crate::cli::provision_service_client::run::DbKeyRepo::new(engine.client()),
+                crate::cli::provision_service_client::run::PrivateKeyKeyringRepo::new_with_store(
+                    "idp-live-test",
+                    test_keyring_store(),
+                ),
+                "live-test-namespace".to_owned(),
+            ),
+        );
+        let clients = crate::cli::provision_service_client::run::DbClientRepo::new(
+            engine.client(),
+            crate::cli::provision_service_client::run::Arc::clone(&key_service),
+        );
         let credentials_path = root.join("service-credentials.json");
         provision(
             &applications,
@@ -602,9 +666,12 @@ mod tests {
         )
         .await
         .expect("provision test service client");
-        let credentials: serde_json::Value =
-            serde_json::from_slice(&fs::read(&credentials_path).expect("read service credentials"))
-                .expect("parse service credentials");
+        let credentials: crate::cli::provision_service_client::run::serde_json::Value =
+            crate::cli::provision_service_client::run::serde_json::from_slice(
+                &crate::cli::provision_service_client::run::fs::read(&credentials_path)
+                    .expect("read service credentials"),
+            )
+            .expect("parse service credentials");
         let client_id = credentials["client_id"]
             .as_str()
             .expect("service client ID is a string");
@@ -619,32 +686,36 @@ mod tests {
             .application_id
             .to_string();
         let issuer = "https://idp.example.test";
-        let secret_key = SecretKey::generate();
-        let endpoint = Endpoint::builder(presets::N0)
-            .secret_key(secret_key.clone())
-            .bind()
-            .await
-            .expect("bind temporary IdP Iroh endpoint");
-        let policy_engine =
-            Arc::new(Database::open(root.join("devices.redb")).expect("open local policy store"));
+        let secret_key = crate::cli::provision_service_client::run::SecretKey::generate();
+        let endpoint = crate::cli::provision_service_client::run::Endpoint::builder(
+            crate::cli::provision_service_client::run::presets::N0,
+        )
+        .secret_key(secret_key.clone())
+        .bind()
+        .await
+        .expect("bind temporary IdP Iroh endpoint");
+        let policy_engine = crate::cli::provision_service_client::run::Arc::new(
+            crate::cli::provision_service_client::run::Database::open(root.join("devices.redb"))
+                .expect("open local policy store"),
+        );
         of_model::idp::replica::up(&policy_engine)
             .await
             .expect("initialize local policy schema");
-        device_service::replica::up(&policy_engine)
+        device_service::replica::schema::up(&policy_engine)
             .await
             .expect("initialize local device schema");
         let endpoint_id = endpoint.id().to_string();
-        let local_signer = idp_service::oauth2::NodeSignerBinding {
-            member_id: of_model::idp::model::Id::now_v7(),
-            key_id: of_model::idp::model::Id::now_v7(),
+        let local_signer = idp_service::oauth2::node_signer::NodeSignerBinding {
+            member_id: of_model::id::Id::now_v7(),
+            key_id: of_model::id::Id::now_v7(),
             endpoint_id: endpoint_id.clone(),
         };
         let public_jwk = key_service
             .prepare_node_signer(&local_signer)
             .expect("prepare independent local Node signer");
-        idp_service::replica::DbReplicaSignerRepo::new(engine.client())
+        idp_service::replica::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
             .enroll(
-                &of_model::idp::contract::ReplicaMembership {
+                &of_model::idp::contract::idp_signer::ReplicaMembership {
                     installation_id: issuer.into(),
                     issuer: issuer.into(),
                     member_id: local_signer.member_id,
@@ -652,7 +723,7 @@ mod tests {
                     approved_at: 1,
                     revoked_at: None,
                 },
-                &of_model::idp::contract::IdpSignerRecord {
+                &of_model::idp::contract::idp_signer::IdpSignerRecord {
                     member_id: local_signer.member_id,
                     key_id: local_signer.key_id,
                     issuer: issuer.into(),
@@ -664,36 +735,52 @@ mod tests {
             )
             .await
             .expect("approve matching local signer trust");
-        let oauth2_service = Arc::new(OAuth2Service::new(
-            DbApplicationRepo::new(engine.client()),
-            DbClientRepo::new(engine.client(), Arc::clone(&key_service)),
-            DbOAuth2AuthorizationCodeRepo::new(engine.client()),
-            DbOAuth2RefreshTokenRepo::new(engine.client()),
-            DbUserRepo::new(engine.client(), PasswordConfig::default()),
-            DbOAuth2UserConsentRepo::new(engine.client()),
-            key_service,
-            OAuth2Config {
-                issuer: issuer.to_owned(),
-                local_signer: Some(local_signer.clone()),
-                ..OAuth2Config::default()
-            },
-        ));
+        let oauth2_service = crate::cli::provision_service_client::run::Arc::new(
+            crate::cli::provision_service_client::run::OAuth2Service::new(
+                crate::cli::provision_service_client::run::DbApplicationRepo::new(engine.client()),
+                crate::cli::provision_service_client::run::DbClientRepo::new(
+                    engine.client(),
+                    crate::cli::provision_service_client::run::Arc::clone(&key_service),
+                ),
+                crate::cli::provision_service_client::run::DbOAuth2AuthorizationCodeRepo::new(
+                    engine.client(),
+                ),
+                crate::cli::provision_service_client::run::DbOAuth2RefreshTokenRepo::new(
+                    engine.client(),
+                ),
+                crate::cli::provision_service_client::run::DbUserRepo::new(
+                    engine.client(),
+                    crate::cli::provision_service_client::run::PasswordConfig::default(),
+                ),
+                crate::cli::provision_service_client::run::DbOAuth2UserConsentRepo::new(
+                    engine.client(),
+                ),
+                key_service,
+                OAuth2Config {
+                    issuer: issuer.to_owned(),
+                    local_signer: Some(local_signer.clone()),
+                    ..OAuth2Config::default()
+                },
+            ),
+        );
         let refresh_client = oauth2_service
             .client_repo
             .create_client(
-                serde_json::from_value(serde_json::json!({
-                    "application": { "uri": "https://example.test/app" },
-                    "client_id": "live-refresh-client",
-                    "client_secret": "live-refresh-secret",
-                    "client_name": "Refresh client",
-                    "client_type": "confidential",
-                    "profile": "web_application",
-                    "redirect_uris": ["https://example.test/callback"],
-                    "allowed_grant_types": ["authorization_code", "refresh_token"],
-                    "response_types": ["code"],
-                    "allowed_scopes": ["openid", "setup"],
-                    "token_endpoint_auth_method": "client_secret_basic"
-                }))
+                crate::cli::provision_service_client::run::serde_json::from_value(
+                    crate::cli::provision_service_client::run::serde_json::json!({
+                        "application": { "uri": "https://example.test/app" },
+                        "client_id": "live-refresh-client",
+                        "client_secret": "live-refresh-secret",
+                        "client_name": "Refresh client",
+                        "client_type": "confidential",
+                        "profile": "web_application",
+                        "redirect_uris": ["https://example.test/callback"],
+                        "allowed_grant_types": ["authorization_code", "refresh_token"],
+                        "response_types": ["code"],
+                        "allowed_scopes": ["openid", "setup"],
+                        "token_endpoint_auth_method": "client_secret_basic"
+                    }),
+                )
                 .expect("build refresh client registration"),
             )
             .await
@@ -705,13 +792,17 @@ mod tests {
             .expect("create refresh user");
         oauth2_service
             .key_service
-            .ensure_entity_master_key(EntityType::User, refresh_user.id, "refresh-password")
+            .ensure_entity_master_key(
+                crate::cli::provision_service_client::run::EntityType::User,
+                refresh_user.id,
+                "refresh-password",
+            )
             .expect("create refresh user master key");
         let (refresh_key, _) = oauth2_service
             .key_service
             .create_key(
                 None,
-                EntityType::User,
+                crate::cli::provision_service_client::run::EntityType::User,
                 refresh_user.id,
                 true,
                 "refresh key".into(),
@@ -730,48 +821,62 @@ mod tests {
                 None,
                 None,
                 None,
-                (std::time::SystemTime::now() + std::time::Duration::from_secs(300)).into(),
+                (crate::cli::provision_service_client::run::std::time::SystemTime::now()
+                    + crate::cli::provision_service_client::run::std::time::Duration::from_secs(
+                        300,
+                    ))
+                .into(),
             )
             .await
             .expect("persist live authorization code");
-        let policy = management_service::ManagementService::new(
-            management_service::replica::DbPermissionRepo::new(policy_engine.client()),
-            management_service::replica::DbRoleRepo::new(policy_engine.client()),
+        let policy = management_service::service::ManagementService::new(
+            management_service::replica::permission_repo::DbPermissionRepo::new(
+                policy_engine.client(),
+            ),
+            management_service::replica::role_repo::DbRoleRepo::new(policy_engine.client()),
         );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind IdP HTTP listener");
+        let listener =
+            crate::cli::provision_service_client::run::tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind IdP HTTP listener");
         let address = listener.local_addr().expect("read IdP HTTP address");
-        let state = crate::RouterState::new(
+        let state = crate::router::state::RouterState::new(
             issuer,
             "https://example.test/app",
             engine.client(),
             oauth2_service,
             None,
-            Arc::new(
-                device_service::DeviceIdentity::new(endpoint.clone(), secret_key)
+            crate::cli::provision_service_client::run::Arc::new(
+                device_service::device_identity::DeviceIdentity::new(endpoint.clone(), secret_key)
                     .expect("matching endpoint identity key"),
             ),
         )
-        .with_local_permissions(LocalPermissions::new(policy_engine.client()));
-        let app = crate::openapi_router(state.clone(), "/")
+        .with_local_permissions(
+            crate::cli::provision_service_client::run::LocalPermissions::new(
+                policy_engine.client(),
+            ),
+        );
+        let app = crate::router::openapi_router::openapi_router(state.clone(), "/")
             .split_for_parts()
             .0;
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app)
+        let server = crate::cli::provision_service_client::run::tokio::spawn(async move {
+            crate::cli::provision_service_client::run::axum::serve(listener, app)
                 .await
                 .expect("serve IdP test router");
         });
-        let signer_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind signer authorization listener");
+        let signer_listener =
+            crate::cli::provision_service_client::run::tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind signer authorization listener");
         let signer_address = signer_listener
             .local_addr()
             .expect("read signer authorization address");
         let signer_state = state.clone().with_service_audience("live-refresh-client");
-        let signer_app = crate::openapi_router(signer_state, "/").split_for_parts().0;
-        let signer_server = tokio::spawn(async move {
-            axum::serve(signer_listener, signer_app)
+        let signer_app = crate::router::openapi_router::openapi_router(signer_state, "/")
+            .split_for_parts()
+            .0;
+        let signer_server = crate::cli::provision_service_client::run::tokio::spawn(async move {
+            crate::cli::provision_service_client::run::axum::serve(signer_listener, signer_app)
                 .await
                 .expect("serve signer authorization router");
         });
@@ -802,7 +907,9 @@ mod tests {
             "{removed_sign_route}"
         );
 
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use crate::cli::provision_service_client::run::base64::Engine as _;
+
+        use crate::cli::provision_service_client::run::base64::crate::cli::provision_service_client::run::engine::general_purpose::STANDARD;
         let refresh_auth = format!(
             "Basic {}",
             STANDARD.encode("live-refresh-client:live-refresh-secret")
@@ -821,8 +928,11 @@ mod tests {
             Some(&refresh_auth),
         );
         assert!(issued.starts_with("HTTP/1.1 200"), "{issued}");
-        let issued: of_model::contract::TokenResponse =
-            serde_json::from_str(http_response_body(&issued)).expect("parse user token response");
+        let issued: of_model::contract::token_response::TokenResponse =
+            crate::cli::provision_service_client::run::serde_json::from_str(http_response_body(
+                &issued,
+            ))
+            .expect("parse user token response");
         let user_access_token = issued.access_token.0;
         let (_, user_claims) = decode_jwt::<StandardClaims>(&user_access_token)
             .expect("decode issued user access token");
@@ -834,11 +944,14 @@ mod tests {
                 .kid,
             refresh_key.id.to_string()
         );
-        let member_id = of_model::idp::model::Id::now_v7();
-        let secondary_endpoint_id = SecretKey::generate().public().to_string();
-        let peer_binding = idp_service::oauth2::NodeSignerBinding {
+        let member_id = of_model::id::Id::now_v7();
+        let secondary_endpoint_id =
+            crate::cli::provision_service_client::run::SecretKey::generate()
+                .public()
+                .to_string();
+        let peer_binding = idp_service::oauth2::node_signer::NodeSignerBinding {
             member_id,
-            key_id: of_model::idp::model::Id::now_v7(),
+            key_id: of_model::id::Id::now_v7(),
             endpoint_id: secondary_endpoint_id.clone(),
         };
         let signer_jwk = state
@@ -846,7 +959,7 @@ mod tests {
             .key_service
             .prepare_node_signer(&peer_binding)
             .expect("prepare independent peer signer");
-        let enrollment = serde_json::json!({
+        let enrollment = crate::cli::provision_service_client::run::serde_json::json!({
             "memberId": member_id,
             "endpointId": secondary_endpoint_id,
             "publicJwk": signer_jwk,
@@ -880,7 +993,7 @@ mod tests {
             .client()
             .translate_and_execute(
                 "SELECT id FROM idp_replica_signers",
-                &ofdb_sql::SqlTranslator,
+                &crate::cli::provision_service_client::run::ofdb_sql::SqlTranslator,
             )
             .await
             .expect("check rejected enrollment did not create signer state");
@@ -893,7 +1006,7 @@ mod tests {
             .client()
             .translate_and_execute(
                 "SELECT id FROM idp_replica_members",
-                &ofdb_sql::SqlTranslator,
+                &crate::cli::provision_service_client::run::ofdb_sql::SqlTranslator,
             )
             .await
             .expect("check rejected enrollment did not create membership state");
@@ -903,19 +1016,19 @@ mod tests {
             "denied enrollment leaves only local membership"
         );
 
-        use of_model::idp::contract::IdentityAction;
+        use of_model::idp::contract::permission_evaluation::IdentityAction;
         let admin_role = policy
             .provision_initial_administrator(
                 refresh_user.id,
-                of_model::idp::model::Id::now_v7(),
+                of_model::id::Id::now_v7(),
                 &[
-                    IdentityAction::DevicePairingRead,
-                    IdentityAction::DevicePairingUpdate,
-                    IdentityAction::ReplicaSignersEnroll,
-                    IdentityAction::ReplicaSignersRotate,
-                    IdentityAction::ReplicaSignersRevoke,
+                    crate::cli::provision_service_client::run::IdentityAction::DevicePairingRead,
+                    crate::cli::provision_service_client::run::IdentityAction::DevicePairingUpdate,
+                    crate::cli::provision_service_client::run::IdentityAction::ReplicaSignersEnroll,
+                    crate::cli::provision_service_client::run::IdentityAction::ReplicaSignersRotate,
+                    crate::cli::provision_service_client::run::IdentityAction::ReplicaSignersRevoke,
                 ]
-                .map(|action| (of_model::idp::model::Id::now_v7(), action)),
+                .map(|action| (of_model::id::Id::now_v7(), action)),
             )
             .await
             .expect("grant local signer administration permissions");
@@ -943,7 +1056,7 @@ mod tests {
             enrollment_retry.starts_with("HTTP/1.1 200"),
             "{enrollment_retry}"
         );
-        let conflicting_enrollment = serde_json::json!({
+        let conflicting_enrollment = crate::cli::provision_service_client::run::serde_json::json!({
             "memberId": member_id,
             "endpointId": "different-endpoint",
             "publicJwk": signer_jwk,
@@ -959,8 +1072,8 @@ mod tests {
         );
         assert!(conflict.starts_with("HTTP/1.1 400"), "{conflict}");
 
-        let replacement_binding = idp_service::oauth2::NodeSignerBinding {
-            key_id: of_model::idp::model::Id::now_v7(),
+        let replacement_binding = idp_service::oauth2::node_signer::NodeSignerBinding {
+            key_id: of_model::id::Id::now_v7(),
             ..peer_binding
         };
         let replacement_jwk = state
@@ -968,7 +1081,7 @@ mod tests {
             .key_service
             .prepare_node_signer(&replacement_binding)
             .expect("prepare independent replacement signer");
-        let replacement_body = serde_json::json!({ "publicJwk": replacement_jwk }).to_string();
+        let replacement_body = crate::cli::provision_service_client::run::serde_json::json!({ "publicJwk": replacement_jwk }).to_string();
         let rotated_signer = loopback_http_request(
             signer_address,
             "PUT",
@@ -997,7 +1110,7 @@ mod tests {
             .client()
             .translate_and_execute(
                 "SELECT key_id FROM idp_replica_signers WHERE active_member_id IS NOT NULL",
-                &ofdb_sql::SqlTranslator,
+                &crate::cli::provision_service_client::run::ofdb_sql::SqlTranslator,
             )
             .await
             .expect("check revocation removed active signer binding");
@@ -1011,7 +1124,7 @@ mod tests {
                 .client()
                 .translate_and_execute(
                     "SELECT id FROM idp_replica_members",
-                    &ofdb_sql::SqlTranslator
+                    &crate::cli::provision_service_client::run::ofdb_sql::SqlTranslator
                 )
                 .await
                 .expect("count memberships")[0]
@@ -1020,8 +1133,10 @@ mod tests {
             2
         );
 
-        let registration = serde_json::to_string(
-            &of_model::idp::contract::ClientRegistration::from(refresh_client.clone()),
+        let registration = crate::cli::provision_service_client::run::serde_json::to_string(
+            &of_model::idp::contract::client_registration::ClientRegistration::from(
+                refresh_client.clone(),
+            ),
         )
         .expect("serialize valid registration body");
         policy
@@ -1082,8 +1197,10 @@ mod tests {
             );
             assert!(rejected.starts_with("HTTP/1.1 400"), "{rejected}");
             assert_eq!(
-                serde_json::from_str::<serde_json::Value>(http_response_body(&rejected))
-                    .expect("parse wrong-client rejection")["error"],
+                crate::cli::provision_service_client::run::serde_json::from_str::<
+                    crate::cli::provision_service_client::run::serde_json::Value,
+                >(http_response_body(&rejected))
+                .expect("parse wrong-client rejection")["error"],
                 "invalid_client"
             );
         }
@@ -1110,9 +1227,11 @@ mod tests {
             Some(&refresh_auth),
         );
         assert!(rotated.starts_with("HTTP/1.1 200"), "{rotated}");
-        let rotated: of_model::contract::TokenResponse =
-            serde_json::from_str(http_response_body(&rotated))
-                .expect("parse rotated token response");
+        let rotated: of_model::contract::token_response::TokenResponse =
+            crate::cli::provision_service_client::run::serde_json::from_str(http_response_body(
+                &rotated,
+            ))
+            .expect("parse rotated token response");
         let replacement = rotated.refresh_token.expect("rotated refresh token").0;
         assert_ne!(refresh, replacement);
         let reuse = loopback_http_authorized_request(
@@ -1125,8 +1244,10 @@ mod tests {
         );
         assert!(reuse.starts_with("HTTP/1.1 400"), "{reuse}");
         assert_eq!(
-            serde_json::from_str::<serde_json::Value>(http_response_body(&reuse))
-                .expect("parse refresh reuse rejection")["error"],
+            crate::cli::provision_service_client::run::serde_json::from_str::<
+                crate::cli::provision_service_client::run::serde_json::Value,
+            >(http_response_body(&reuse))
+            .expect("parse refresh reuse rejection")["error"],
             "invalid_grant"
         );
         let revoke_form = format!(
@@ -1148,8 +1269,10 @@ mod tests {
             );
             assert!(denied.starts_with("HTTP/1.1 400"), "{denied}");
             assert_eq!(
-                serde_json::from_str::<serde_json::Value>(http_response_body(&denied))
-                    .expect("parse revoke authentication rejection")["error"],
+                crate::cli::provision_service_client::run::serde_json::from_str::<
+                    crate::cli::provision_service_client::run::serde_json::Value,
+                >(http_response_body(&denied))
+                .expect("parse revoke authentication rejection")["error"],
                 "invalid_client"
             );
         }
@@ -1178,8 +1301,10 @@ mod tests {
         );
         assert!(revoked.starts_with("HTTP/1.1 400"), "{revoked}");
         assert_eq!(
-            serde_json::from_str::<serde_json::Value>(http_response_body(&revoked))
-                .expect("parse revoked refresh rejection")["error"],
+            crate::cli::provision_service_client::run::serde_json::from_str::<
+                crate::cli::provision_service_client::run::serde_json::Value,
+            >(http_response_body(&revoked))
+            .expect("parse revoked refresh rejection")["error"],
             "invalid_grant"
         );
 
@@ -1206,9 +1331,11 @@ mod tests {
             rejected_token.starts_with("HTTP/1.1 400"),
             "{rejected_token}"
         );
-        let rejected_body: serde_json::Value =
-            serde_json::from_str(http_response_body(&rejected_token))
-                .expect("parse rejected client authentication response");
+        let rejected_body: crate::cli::provision_service_client::run::serde_json::Value =
+            crate::cli::provision_service_client::run::serde_json::from_str(http_response_body(
+                &rejected_token,
+            ))
+            .expect("parse rejected client authentication response");
         assert_eq!(rejected_body["error"], "invalid_client");
 
         let token_response = loopback_http_request(
@@ -1224,8 +1351,9 @@ mod tests {
             "{token_response}"
         );
         let token_body = http_response_body(&token_response);
-        let token: serde_json::Value =
-            serde_json::from_str(token_body).expect("parse live token response");
+        let token: crate::cli::provision_service_client::run::serde_json::Value =
+            crate::cli::provision_service_client::run::serde_json::from_str(token_body)
+                .expect("parse live token response");
         assert!(token["id_token"].is_null());
         assert!(token["refresh_token"].is_null());
         let access_token = token["access_token"]
@@ -1244,10 +1372,12 @@ mod tests {
             "service token must not access user administration: {admin_response}"
         );
 
-        let introspection_body = serde_json::to_string(&IntrospectionRequest {
-            token: access_token.to_owned(),
-            token_type_hint: None,
-        })
+        let introspection_body = crate::cli::provision_service_client::run::serde_json::to_string(
+            &IntrospectionRequest {
+                token: access_token.to_owned(),
+                token_type_hint: None,
+            },
+        )
         .expect("serialize introspection request");
         let introspection_response = loopback_http_request(
             address,
@@ -1261,10 +1391,15 @@ mod tests {
             introspection_response.starts_with("HTTP/1.1 200"),
             "{introspection_response}"
         );
-        let introspected: of_model::idp::contract::IntrospectionResponse =
-            serde_json::from_str(http_response_body(&introspection_response))
-                .expect("parse live introspection response");
-        assert_eq!(introspected.claims.principal_type, PrincipalType::Client);
+        let introspected: of_model::idp::contract::introspection_response::IntrospectionResponse =
+            crate::cli::provision_service_client::run::serde_json::from_str(http_response_body(
+                &introspection_response,
+            ))
+            .expect("parse live introspection response");
+        assert_eq!(
+            introspected.claims.principal_type,
+            crate::cli::provision_service_client::run::PrincipalType::Client
+        );
         assert_eq!(introspected.claims.client_id, client_id);
         assert_eq!(introspected.claims.aud, "https://example.test/app");
         assert_eq!(introspected.claims.scope, vec!["idp.token.validate"]);
@@ -1281,11 +1416,12 @@ mod tests {
         drop(clients);
         drop(applications);
         drop(engine);
-        fs::remove_dir_all(root).expect("remove test database directory");
+        crate::cli::provision_service_client::run::fs::remove_dir_all(root)
+            .expect("remove test database directory");
     }
 
     fn loopback_http_request(
-        address: std::net::SocketAddr,
+        address: crate::cli::provision_service_client::run::std::net::SocketAddr,
         method: &str,
         path: &str,
         content_type: &str,
@@ -1304,19 +1440,24 @@ mod tests {
     }
 
     fn loopback_http_authorized_request(
-        address: std::net::SocketAddr,
+        address: crate::cli::provision_service_client::run::std::net::SocketAddr,
         method: &str,
         path: &str,
         content_type: &str,
         body: &str,
         authorization: Option<&str>,
     ) -> String {
-        let mut stream = TcpStream::connect(address).expect("connect to IdP HTTP listener");
+        let mut stream = crate::cli::provision_service_client::run::TcpStream::connect(address)
+            .expect("connect to IdP HTTP listener");
         stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .set_read_timeout(Some(
+                crate::cli::provision_service_client::run::std::time::Duration::from_secs(10),
+            ))
             .expect("set HTTP read timeout");
         stream
-            .set_write_timeout(Some(std::time::Duration::from_secs(10)))
+            .set_write_timeout(Some(
+                crate::cli::provision_service_client::run::std::time::Duration::from_secs(10),
+            ))
             .expect("set HTTP write timeout");
         let authorization = authorization
             .map(|value| format!("Authorization: {value}\r\n"))
@@ -1327,7 +1468,7 @@ mod tests {
             body.len(),
         )
         .expect("write request to IdP listener");
-        let mut response = String::new();
+        let mut response = crate::cli::provision_service_client::run::String::new();
         stream
             .read_to_string(&mut response)
             .expect("read response from IdP listener");
@@ -1342,12 +1483,12 @@ mod tests {
     }
 
     fn form_encode(value: &str) -> String {
-        let mut encoded = String::new();
+        let mut encoded = crate::cli::provision_service_client::run::String::new();
         for byte in value.bytes() {
             if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-                encoded.push(char::from(byte));
+                encoded.push(crate::cli::provision_service_client::run::char::from(byte));
             } else {
-                use std::fmt::Write as _;
+                use crate::cli::provision_service_client::run::run::std::fmt::Write as _;
                 write!(encoded, "%{byte:02X}").expect("write percent-encoded form value");
             }
         }
@@ -1356,29 +1497,29 @@ mod tests {
 
     #[test]
     fn provisioning_creates_scoped_client_and_private_credentials_file() {
-        std::thread::Builder::new()
+        crate::cli::provision_service_client::run::std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
-                tokio::runtime::Builder::new_current_thread()
+                crate::cli::provision_service_client::run::tokio::runtime::Builder::new_current_thread()
                     .build()
                     .expect("build test runtime")
                     .block_on(async {
-                        let root = std::env::temp_dir().join(format!(
+                        let root = crate::cli::provision_service_client::run::std::env::temp_dir().join(format!(
                             "idp-service-client-{}-{}",
-                            std::process::id(),
-                            of_model::idp::model::Id::now_v7()
+                            crate::cli::provision_service_client::run::std::process::id(),
+                            of_model::id::Id::now_v7()
                         ));
-                        fs::create_dir_all(&root).expect("create temporary test directory");
+                        crate::cli::provision_service_client::run::fs::create_dir_all(&root).expect("create temporary test directory");
                         let database_path = root.join("idp.redb");
                         let credentials_path = root.join("credentials.json");
-                        let engine = Arc::new(
-                            Database::open(&database_path).expect("open test database"),
+                        let engine = crate::cli::provision_service_client::run::Arc::new(
+                            crate::cli::provision_service_client::run::Database::open(&database_path).expect("open test database"),
                         );
                         of_model::idp::replica::up(&engine)
                             .await
                             .expect("initialize current IdP schema");
 
-                        let applications = DbApplicationRepo::new(engine.client());
+                        let applications = crate::cli::provision_service_client::run::DbApplicationRepo::new(engine.client());
                         applications
                             .create_application(
                                 "Test application".to_owned(),
@@ -1387,13 +1528,13 @@ mod tests {
                             )
                             .await
                             .expect("create canonical application");
-                        let key_service = Arc::new(KeyService::new(
-                            DbKeyRepo::new(engine.client()),
-                            TestPrivateKeyRepo::new(None),
+                        let key_service = crate::cli::provision_service_client::run::Arc::new(crate::cli::provision_service_client::run::KeyService::new(
+                            crate::cli::provision_service_client::run::DbKeyRepo::new(engine.client()),
+                            crate::cli::provision_service_client::run::TestPrivateKeyRepo::new(None),
                             "test-namespace".to_owned(),
                         ));
                         let clients =
-                            DbClientRepo::new(engine.client(), Arc::clone(&key_service));
+                            crate::cli::provision_service_client::run::DbClientRepo::new(engine.client(), crate::cli::provision_service_client::run::Arc::clone(&key_service));
 
                         provision(
                             &applications,
@@ -1413,8 +1554,8 @@ mod tests {
                         .await
                         .expect("provision service client");
 
-                        let credentials: serde_json::Value = serde_json::from_slice(
-                            &fs::read(&credentials_path).expect("read credentials"),
+                        let credentials: crate::cli::provision_service_client::run::serde_json::Value = crate::cli::provision_service_client::run::serde_json::from_slice(
+                            &crate::cli::provision_service_client::run::fs::read(&credentials_path).expect("read credentials"),
                         )
                         .expect("parse credentials");
                         let client_id = credentials["client_id"]
@@ -1441,10 +1582,10 @@ mod tests {
                         );
                         assert_eq!(
                             client.allowed_grant_types,
-                            vec![of_model::idp::contract::GrantType::ClientCredentials]
+                            vec![of_model::idp::contract::grant_type::GrantType::ClientCredentials]
                         );
                         assert_eq!(
-                            fs::metadata(&credentials_path)
+                            crate::cli::provision_service_client::run::fs::metadata(&credentials_path)
                                 .expect("read credential file metadata")
                                 .permissions()
                                 .mode()
@@ -1467,9 +1608,9 @@ mod tests {
                             .is_err()
                         );
                         assert_eq!(
-                            fs::read(&credentials_path)
+                            crate::cli::provision_service_client::run::fs::read(&credentials_path)
                                 .expect("existing credentials stay unchanged"),
-                            serde_json::to_vec(&credentials).expect("serialize credentials")
+                            crate::cli::provision_service_client::run::serde_json::to_vec(&credentials).expect("serialize credentials")
                         );
 
                         let first_client_id = client_id.to_owned();
@@ -1509,8 +1650,8 @@ mod tests {
                             )
                             .await
                             .expect("provision distinct service client");
-                            let service_credentials: serde_json::Value = serde_json::from_slice(
-                                &fs::read(&service_credentials_path)
+                            let service_credentials: crate::cli::provision_service_client::run::serde_json::Value = crate::cli::provision_service_client::run::serde_json::from_slice(
+                                &crate::cli::provision_service_client::run::fs::read(&service_credentials_path)
                                     .expect("read service credentials"),
                             )
                             .expect("parse service credentials");
@@ -1528,21 +1669,21 @@ mod tests {
                             assert_eq!(service_client.allowed_scopes, scopes);
                             assert_eq!(
                                 service_client.allowed_grant_types,
-                                vec![of_model::idp::contract::GrantType::ClientCredentials]
+                                vec![of_model::idp::contract::grant_type::GrantType::ClientCredentials]
                             );
                         }
 
-                        let local_signer = idp_service::oauth2::NodeSignerBinding {
-                            member_id: of_model::idp::model::Id::now_v7(),
-                            key_id: of_model::idp::model::Id::now_v7(),
+                        let local_signer = idp_service::oauth2::node_signer::NodeSignerBinding {
+                            member_id: of_model::id::Id::now_v7(),
+                            key_id: of_model::id::Id::now_v7(),
                             endpoint_id: "test-endpoint".to_owned(),
                         };
                         let public_jwk = key_service
                             .prepare_node_signer(&local_signer)
                             .expect("prepare local Node signer");
-                        idp_service::replica::DbReplicaSignerRepo::new(engine.client())
+                        idp_service::replica::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
                             .enroll(
-                                &of_model::idp::contract::ReplicaMembership {
+                                &of_model::idp::contract::idp_signer::ReplicaMembership {
                                     installation_id: "https://idp.example.test".into(),
                                     issuer: "https://idp.example.test".into(),
                                     member_id: local_signer.member_id,
@@ -1550,7 +1691,7 @@ mod tests {
                                     approved_at: 1,
                                     revoked_at: None,
                                 },
-                                &of_model::idp::contract::IdpSignerRecord {
+                                &of_model::idp::contract::idp_signer::IdpSignerRecord {
                                     member_id: local_signer.member_id,
                                     key_id: local_signer.key_id,
                                     issuer: "https://idp.example.test".into(),
@@ -1562,14 +1703,14 @@ mod tests {
                             )
                             .await
                             .expect("approve local signer trust");
-                        let oauth2_service = OAuth2Service::new(
-                            DbApplicationRepo::new(engine.client()),
-                            DbClientRepo::new(engine.client(), Arc::clone(&key_service)),
-                            DbOAuth2AuthorizationCodeRepo::new(engine.client()),
-                            DbOAuth2RefreshTokenRepo::new(engine.client()),
-                            DbUserRepo::new(engine.client(), PasswordConfig::default()),
-                            DbOAuth2UserConsentRepo::new(engine.client()),
-                            Arc::clone(&key_service),
+                        let oauth2_service = crate::cli::provision_service_client::run::OAuth2Service::new(
+                            crate::cli::provision_service_client::run::DbApplicationRepo::new(engine.client()),
+                            crate::cli::provision_service_client::run::DbClientRepo::new(engine.client(), crate::cli::provision_service_client::run::Arc::clone(&key_service)),
+                            crate::cli::provision_service_client::run::DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+                            crate::cli::provision_service_client::run::DbOAuth2RefreshTokenRepo::new(engine.client()),
+                            crate::cli::provision_service_client::run::DbUserRepo::new(engine.client(), crate::cli::provision_service_client::run::PasswordConfig::default()),
+                            crate::cli::provision_service_client::run::DbOAuth2UserConsentRepo::new(engine.client()),
+                            crate::cli::provision_service_client::run::Arc::clone(&key_service),
                             OAuth2Config {
                                 issuer: "https://idp.example.test".to_owned(),
                                 local_signer: Some(local_signer),
@@ -1593,8 +1734,8 @@ mod tests {
                                 "management.replication.read management.replication.admit",
                             ),
                         ] {
-                            let service_credentials: serde_json::Value = serde_json::from_slice(
-                                &fs::read(root.join(file_name)).expect("read provisioned secrets"),
+                            let service_credentials: crate::cli::provision_service_client::run::serde_json::Value = crate::cli::provision_service_client::run::serde_json::from_slice(
+                                &crate::cli::provision_service_client::run::fs::read(root.join(file_name)).expect("read provisioned secrets"),
                             )
                             .expect("parse provisioned secrets");
                             let client_id = service_credentials["client_id"]
@@ -1607,7 +1748,7 @@ mod tests {
                                 .to_owned();
                             let response = oauth2_service
                                 .token(
-                                    TokenRequest::ClientCredentials(
+                                    crate::cli::provision_service_client::run::TokenRequest::ClientCredentials(
                                         ClientCredentialsGrantRequest {
                                             client_id: client_id.clone(),
                                             client_secret: client_secret.clone(),
@@ -1619,7 +1760,7 @@ mod tests {
                                     Some(OAuth2ClientAuth {
                                         client_id: client_id.clone(),
                                         client_secret: Some(client_secret.clone()),
-                                        method: of_model::idp::contract::TokenEndpointAuthMethod::ClientSecretPost,
+                                        method: of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod::ClientSecretPost,
                                     }),
                                 )
                                 .await
@@ -1629,15 +1770,15 @@ mod tests {
                             let (_, claims) =
                                 decode_jwt::<StandardClaims>(&response.access_token.0)
                                     .expect("decode issued service token");
-                            assert_eq!(claims.principal_type, PrincipalType::Client);
+                            assert_eq!(claims.principal_type, crate::cli::provision_service_client::run::PrincipalType::Client);
                             assert_eq!(claims.client_id, client_id);
                             assert_eq!(claims.aud, audience);
                             assert_eq!(
                                 claims.scope,
-                                scope.split(' ').map(str::to_owned).collect::<Vec<_>>()
+                                scope.split(' ').map(crate::cli::provision_service_client::run::str::to_owned).collect::<Vec<_>>()
                             );
-                            assert_eq!(claims.r#type, TokenType::Bearer);
-                            assert_eq!(claims.r#use, TokenUse::Access);
+                            assert_eq!(claims.r#type, crate::cli::provision_service_client::run::TokenType::Bearer);
+                            assert_eq!(claims.r#use, crate::cli::provision_service_client::run::TokenUse::Access);
                             for (requested_audience, requested_scope) in [
                                 ("https://unauthorized.example.test", scope),
                                 (audience, "ungranted.scope"),
@@ -1645,7 +1786,7 @@ mod tests {
                                 assert!(
                                     oauth2_service
                                         .token(
-                                            TokenRequest::ClientCredentials(
+                                            crate::cli::provision_service_client::run::TokenRequest::ClientCredentials(
                                                 ClientCredentialsGrantRequest {
                                                     client_id: client_id.clone(),
                                                     client_secret: client_secret.clone(),
@@ -1657,7 +1798,7 @@ mod tests {
                                             Some(OAuth2ClientAuth {
                                                 client_id: client_id.clone(),
                                                 client_secret: Some(client_secret.clone()),
-                                                method: of_model::idp::contract::TokenEndpointAuthMethod::ClientSecretPost,
+                                                method: of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod::ClientSecretPost,
                                             }),
                                         )
                                         .await
@@ -1670,7 +1811,7 @@ mod tests {
                         drop(clients);
                         drop(applications);
                         drop(engine);
-                        fs::remove_dir_all(root).expect("remove temporary test directory");
+                        crate::cli::provision_service_client::run::fs::remove_dir_all(root).expect("remove temporary test directory");
                     });
             })
             .expect("spawn test thread")

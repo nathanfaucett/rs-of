@@ -8,12 +8,12 @@ use alloc::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::idp::contract::PasswordGrantRequest;
+use crate::idp::contract::password_grant_request::PasswordGrantRequest;
 
-use super::{
-    AuthorizationCodeGrantRequest, ClientCredentialsGrantRequest, RefreshTokenGrantRequest,
-    TokenExchangeGrantRequest,
-};
+use crate::idp::contract::authorization_code_grant_request::AuthorizationCodeGrantRequest;
+use crate::idp::contract::client_credentials_grant_request::ClientCredentialsGrantRequest;
+use crate::idp::contract::refresh_token_grant_request::RefreshTokenGrantRequest;
+use crate::idp::contract::token_exchange_grant_request::TokenExchangeGrantRequest;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

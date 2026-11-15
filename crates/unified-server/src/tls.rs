@@ -11,7 +11,7 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, server::TlsStream};
 
-use crate::{TlsConfig, UnifiedConfig};
+use crate::config::{TlsConfig, UnifiedConfig};
 
 fn paths(config: &UnifiedConfig) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     match &config.tls {

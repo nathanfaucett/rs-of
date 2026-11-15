@@ -1,9 +1,13 @@
 use std::io;
 
-use of_model::idp::model::Id;
+use of_model::id::Id;
 use ofdb_sql::{Client, Transaction, decode};
 
-use super::{Catalog, CatalogRecord, DatabaseResource};
+use super::Catalog;
+
+use super::CatalogRecord;
+
+use of_model::storage::database_resource::DatabaseResource;
 
 fn worker<R: Send>(work: impl FnOnce() -> io::Result<R> + Send) -> io::Result<R> {
     std::thread::scope(|scope| {

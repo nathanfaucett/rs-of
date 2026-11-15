@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     DatabaseId, DatabaseInfo, DeviceId, FilesystemId, FilesystemInfo, KvStoreId, KvStoreInfo,
-    ResourceId, SyncSession,
+    ResourceId, SyncSession, SyncToDeviceRequest,
     error::{Result, StorageClientError},
     handle::{FilesystemHandle, KvStoreHandle, SqlDatabaseHandle},
     protocol::StoreIdentity,

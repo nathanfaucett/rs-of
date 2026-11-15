@@ -17,6 +17,6 @@ pub fn verification_client() -> io::Result<reqwest::Client> {
 mod tests {
     #[test]
     fn system_trust_client_does_not_require_setup() {
-        super::verification_client().expect("system trust verification client");
+        crate::http_client::verification_client().expect("system trust verification client");
     }
 }

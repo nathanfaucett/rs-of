@@ -1,6 +1,7 @@
 use k256::ecdsa::VerifyingKey as ECDSAVerifyingKey;
 
-use key::{KeyResult, MasterKey};
+use key::error::KeyResult;
+use key::master_key::MasterKey;
 
 const TEST_ENTROPY: [u8; 32] = [0x42; 32];
 

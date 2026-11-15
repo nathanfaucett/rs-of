@@ -10,14 +10,14 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use iroh_chain::{DATA_ALPN, Server};
-use of_model::contract::SelectedResource;
-use of_model::storage::StorageNamespace;
-use storage_service::ScopedFileSystemRuntime;
+use of_model::contract::replication::SelectedResource;
+use of_model::storage::namespace::StorageNamespace;
+use storage_service::scoped_file_system::ScopedFileSystemRuntime;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    LocalReplicationAuthorizer,
     filesystem_transport::{FILESYSTEM_STREAM_KIND, IrohFileTransport, IrohResourceDescriptor},
+    local_replication_authorizer::LocalReplicationAuthorizer,
 };
 
 #[derive(Clone)]
@@ -393,13 +393,13 @@ pub(crate) fn descriptor(resource: &SelectedResource) -> IrohResourceDescriptor 
 }
 struct Namespace {
     owner_subject: String,
-    application_id: of_model::idp::model::Id,
+    application_id: of_model::id::Id,
 }
 impl StorageNamespace for Namespace {
     fn user_sub(&self) -> &str {
         &self.owner_subject
     }
-    fn application_id(&self) -> of_model::idp::model::Id {
+    fn application_id(&self) -> of_model::id::Id {
         self.application_id
     }
 }

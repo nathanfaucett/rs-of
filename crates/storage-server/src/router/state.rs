@@ -1,6 +1,8 @@
 #[cfg(feature = "network")]
-use crate::LocalReplicationAuthorizer;
-use crate::{DeviceClient, IdpClient, ManagementClient};
+use crate::local_replication_authorizer::LocalReplicationAuthorizer;
+use crate::{
+    device_client::DeviceClient, idp_client::IdpClient, management_client::ManagementClient,
+};
 
 #[derive(Clone)]
 pub struct RouterState {

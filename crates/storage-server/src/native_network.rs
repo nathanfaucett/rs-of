@@ -1,9 +1,9 @@
-use std::{io, sync::Arc};
+use std::{io, sync::{Arc}};
 
 use iroh_chain::Server;
 use tokio::sync::watch;
 
-use crate::{DataProtocolHandler, StorageSyncDriver};
+use crate::{StorageSyncDriver, data_protocol::{DataProtocolHandler}};
 
 #[derive(Clone)]
 pub struct StorageNetwork {

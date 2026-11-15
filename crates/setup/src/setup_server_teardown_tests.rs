@@ -15,7 +15,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::IndependentSetupHost;
+use crate::independent_setup::IndependentSetupHost;
 
 struct TeardownGate {
     entered: Mutex<Option<oneshot::Sender<()>>>,
@@ -164,7 +164,7 @@ async fn cancellation_interrupts_pending_https_verification_before_owner_reopen(
         );
         let shutdown = CancellationToken::new();
         drop(reserved);
-        let serving = super::serve_setup_verified(
+        let serving = crate::setup_server::serve_setup_verified(
             host,
             tls,
             address,
@@ -237,7 +237,7 @@ async fn independent_shutdown_joins_actual_connection_teardown_before_reopen() {
             wake: Condvar::new(),
         });
         let release = Release(gate.clone());
-        let serving = super::serve_listener(host, GatedListener { listener, gate }, router, shutdown.clone());
+        let serving = crate::setup_server::serve_listener(host, GatedListener { listener, gate }, router, shutdown.clone());
         tokio::pin!(serving);
         let client = reqwest::Client::builder().http1_only().build().expect("HTTP client");
         let response = tokio::select! {

@@ -1,13 +1,15 @@
 use std::{io, path::Path};
 
-use server_common::{IndependentPeer, IndependentReset};
-use device_service::independent_join::IndependentJoinApproval;
-use of_model::idp::model::Id;
-use idp_service::setup_credentials::delete_setup_secrets;
-use management_service::INITIAL_ADMINISTRATOR_ACTIONS;
-use serde::Deserialize;
+use setup::independent_peer::IndependentPeer;
 
-use crate::AppConfig;
+use device_service::independent_join::IndependentJoinApproval;
+use idp_service::setup_credentials::delete_setup_secrets;
+use management_service::service::INITIAL_ADMINISTRATOR_ACTIONS;
+use of_model::id::Id;
+use serde::Deserialize;
+use setup::independent_reset::IndependentReset;
+
+use crate::config::app_config::AppConfig;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -166,13 +168,13 @@ pub async fn reset_independent(
 
 #[cfg(test)]
 mod tests {
-    use setup::IndependentSetupHost;
-    use of_model::idp::model::Id;
+    use of_model::id::Id;
+    use setup::independent_setup::IndependentSetupHost;
 
     #[tokio::test]
     async fn reset_cannot_remove_a_running_setup_only_management_host() {
         let domain = std::env::temp_dir().join(format!("device-reset-{}", Id::now_v7()));
-        let config = crate::AppConfig {
+        let config = crate::config::app_config::AppConfig {
             data_dir: domain.to_string_lossy().into_owned(),
             ..Default::default()
         };
@@ -187,7 +189,7 @@ mod tests {
         .expect("prepare")
         .expect("host");
         assert!(
-            super::reset_independent(&config, true, || Ok(()))
+            crate::independent_reset::reset_independent(&config, true, || Ok(()))
                 .await
                 .is_err()
         );

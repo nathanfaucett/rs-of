@@ -9,7 +9,9 @@ use axum::{
 };
 use tower::ServiceExt;
 
-use crate::{SetupAdmission, SetupAdmissionError, setup_admission_middleware};
+use crate::setup_admission::SetupAdmission;
+use crate::setup_admission::SetupAdmissionError;
+use crate::setup_admission::setup_admission_middleware;
 
 fn fixture() -> (
     tempfile::TempDir,

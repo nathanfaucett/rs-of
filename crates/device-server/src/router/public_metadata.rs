@@ -8,7 +8,11 @@ pub fn public_metadata_router(api_base_uri: &str, prefix: &str) -> Router {
     let routes = Router::new()
         .route("/version", get(version))
         .route("/openapi.json", get(openapi_json))
-        .with_state(server_common::canonical_openapi("device", api_base_uri, ""));
+        .with_state(server_common::canonical_openapi::canonical_openapi(
+            "device",
+            api_base_uri,
+            "",
+        ));
 
     if prefix.is_empty() || prefix == "/" {
         routes
@@ -30,7 +34,7 @@ mod tests {
     async fn public_metadata_is_state_free_and_only_exposes_version_and_openapi() {
         for prefix in ["", "/", "/device", "/custom/device"] {
             let base = "https://node.example/custom/device";
-            let router = crate::public_metadata_router(base, prefix);
+            let router = crate::router::public_metadata::public_metadata_router(base, prefix);
             let mount = if prefix == "/" { "" } else { prefix };
             for path in ["/version", "/openapi.json"] {
                 let response = router
@@ -53,7 +57,10 @@ mod tests {
                     assert!(value["version"].is_string());
                     assert!(value["build"].is_string());
                 } else {
-                    assert_eq!(value, server_common::canonical_openapi("device", base, ""));
+                    assert_eq!(
+                        value,
+                        server_common::canonical_openapi::canonical_openapi("device", base, "")
+                    );
                     assert_eq!(value["servers"][0]["url"], base);
                     assert!(value["paths"]["/version"].is_object());
                     assert!(value["paths"]["/openapi.json"].is_object());

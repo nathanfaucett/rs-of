@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use iroh::protocol::ProtocolHandler;
 use iroh_chain::{EndpointIdStore, Server};
-use of_model::contract::SelectedResource;
-use of_model::idp::model::Id;
+use of_model::contract::replication::SelectedResource;
+use of_model::id::Id;
 
-use storage_service::DatabaseRuntime;
+use storage_service::database_runtime::DatabaseRuntime;
 use tokio_util::sync::CancellationToken;
 
 use super::{AuthorizedTransport, FrameAuthorizer, KvAuthorizedTransport, Namespace, check_apply};
@@ -172,12 +172,12 @@ fn sql_opposite(role: ofdb_sql::history::SyncRole) -> ofdb_sql::history::SyncRol
         ofdb_sql::history::SyncRole::Responder => ofdb_sql::history::SyncRole::Initiator,
     }
 }
-async fn values(database: &ofdb_sql::Database) -> Vec<db::Value> {
+async fn values(database: &ofdb_sql::Database) -> Vec<ofdb_sql::Value> {
     database
         .client()
         .translate_and_execute(
             "SELECT value FROM documents ORDER BY value",
-            &db::SqlTranslator,
+            &ofdb_sql::SqlTranslator,
         )
         .await
         .expect("public SQL observation")[0]
@@ -230,7 +230,7 @@ async fn production_phase(
         return Err(std::io::Error::other("invalid acknowledgement"));
     }
     let mut transport = AuthorizedTransport {
-        transport: crate::DatabaseTransport::new(send, recv),
+        transport: db::database_transport::DatabaseTransport::new(send, recv),
         authorize: fixture.authorize(source),
     };
     match phase {
@@ -268,8 +268,8 @@ async fn real_selected_production_data_handler_uses_injected_local_policy_on_exi
         let authorizer = fixture.nodes[1].authorizer();
         let cancellation = CancellationToken::new();
         let database = super::DatabaseProtocolHandler::new(server.clone(), authorizer.clone(), fixture.runtimes[1].clone(), fixture.nodes[1].root.join("staging"), cancellation.clone());
-        let filesystem = crate::storage_protocol::StorageProtocolHandler::new(server, authorizer, Arc::new(storage_service::ScopedFileSystemRuntime::new(fixture.nodes[1].root.join("unused-filesystems"), fixture.peers.ids()[1]).expect("filesystem runtime")), cancellation.clone());
-        let handler = crate::DataProtocolHandler::new(database, filesystem, cancellation.clone());
+        let filesystem = crate::storage_protocol::StorageProtocolHandler::new(server, authorizer, Arc::new(storage_service::scoped_file_system::ScopedFileSystemRuntime::new(fixture.nodes[1].root.join("unused-filesystems"), fixture.peers.ids()[1]).expect("filesystem runtime")), cancellation.clone());
+        let handler = crate::data_protocol::DataProtocolHandler::new(database, filesystem, cancellation.clone());
         let connection = fixture.peers.connections[1].clone();
         let task = tokio::spawn(async move { handler.accept(connection).await });
         sql(&fixture.databases[0], &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'kept')", Id::now_v7())).await;
@@ -293,7 +293,7 @@ async fn real_selected_production_data_handler_uses_injected_local_policy_on_exi
         fixture.nodes[1].restrict(0, false).await;
         sql(&fixture.databases[0], &format!("INSERT INTO documents VALUES (CAST('{}' AS UUID), 'denied')", Id::now_v7())).await;
         assert!(production_session(&fixture).await.is_err(), "actual handler rejects the next stream on its already-open connection");
-        assert_eq!(values(&fixture.databases[1]).await, [db::Value::Text("kept".into())]);
+        assert_eq!(values(&fixture.databases[1]).await, [ofdb_sql::Value::Text("kept".into())]);
         fixture.nodes[1].restrict(0, true).await;
         eprintln!("DATA: restriction denied; retrying");
         production_session(&fixture).await.expect("same connection retries when local policy permits");
@@ -343,7 +343,7 @@ async fn delayed_http_policy_cannot_release_database_frame_after_local_denial() 
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind Management policy fixture");
             let base = format!("http://{}", listener.local_addr().expect("Management address"));
             let http = tokio::spawn(async move { axum::serve(listener, app).await.expect("serve current policy") });
-            let policy = crate::LocalReplicationAuthorizer::from_device_client(crate::DeviceClient::new(
+            let policy = crate::local_replication_authorizer::LocalReplicationAuthorizer::from_device_client(crate::device_client::DeviceClient::new(
                 &base, &base, "storage-client", "storage-secret", "https://idp.example", "management-api",
             ).expect("authenticated Management client"));
             let cancellation = CancellationToken::new();
@@ -404,7 +404,7 @@ async fn real_production_database_retirement_denies_existing_connection_with_sel
             server,
             authorizer,
             Arc::new(
-                storage_service::ScopedFileSystemRuntime::new(
+                storage_service::scoped_file_system::ScopedFileSystemRuntime::new(
                     fixture.nodes[1].root.join("unused-filesystems"),
                     fixture.peers.ids()[1],
                 )
@@ -412,7 +412,11 @@ async fn real_production_database_retirement_denies_existing_connection_with_sel
             ),
             cancellation.clone(),
         );
-        let handler = crate::DataProtocolHandler::new(database, filesystem, cancellation.clone());
+        let handler = crate::data_protocol::DataProtocolHandler::new(
+            database,
+            filesystem,
+            cancellation.clone(),
+        );
         let connection = fixture.peers.connections[1].clone();
         let task = tokio::spawn(async move { handler.accept(connection).await });
         let scope = Namespace {
@@ -482,8 +486,8 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
             let authorizer = fixture.nodes[receiver].authorizer();
             let cancellation = CancellationToken::new();
             let database = super::DatabaseProtocolHandler::new(server.clone(), authorizer.clone(), fixture.runtimes[receiver].clone(), fixture.nodes[receiver].root.join("staging"), cancellation.clone());
-            let filesystem = crate::storage_protocol::StorageProtocolHandler::new(server, authorizer, Arc::new(storage_service::ScopedFileSystemRuntime::new(fixture.nodes[receiver].root.join("unused-files"), fixture.peers.ids()[receiver]).expect("filesystem runtime")), cancellation.clone());
-            let handler = crate::DataProtocolHandler::new(database, filesystem, cancellation.clone());
+            let filesystem = crate::storage_protocol::StorageProtocolHandler::new(server, authorizer, Arc::new(storage_service::scoped_file_system::ScopedFileSystemRuntime::new(fixture.nodes[receiver].root.join("unused-files"), fixture.peers.ids()[receiver]).expect("filesystem runtime")), cancellation.clone());
+            let handler = crate::data_protocol::DataProtocolHandler::new(database, filesystem, cancellation.clone());
             let connection = fixture.peers.connections[receiver].clone();
             let task = tokio::spawn(async move { handler.accept(connection).await });
 
@@ -496,7 +500,7 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
             }
             for device in 0..2 {
                 let node = &fixture.nodes[receiver];
-                assert!(device_service::replica::DbSelectionPolicyRepo::new(node.management.clone().client()).deselect_resource_owned(node.devices[device], &fixture.resource.owner_subject, fixture.resource.application_id.parse().expect("Application"), "database", fixture.resource.resource_id.parse().expect("database ID")).await.expect("real local deselection"));
+                assert!(device_service::replica::selection_policy::DbSelectionPolicyRepo::new(node.management.clone().client()).deselect_resource_owned(node.devices[device], &fixture.resource.owner_subject, fixture.resource.application_id.parse().expect("Application"), "database", fixture.resource.resource_id.parse().expect("database ID")).await.expect("real local deselection"));
                 assert!(production_session_claim(&fixture, source, &fixture.resource).await.is_err(), "allowlisted authenticated peer requires BOTH current selections");
                 node.select(&fixture.resource).await;
                 node.restrict(device, false).await;
@@ -513,7 +517,7 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
             eprintln!("admission receiver {receiver}: identity restoration {:?}", started.elapsed());
             sql(&fixture.nodes[receiver].management, "DROP TABLE device_resource_selections").await;
             assert!(production_session_claim(&fixture, source, &fixture.resource).await.is_err(), "failed LOCAL evaluation denies instead of falling back to unreachable HTTP");
-            assert_eq!(values(&fixture.databases[receiver]).await, [db::Value::Text("retained".into())]);
+            assert_eq!(values(&fixture.databases[receiver]).await, [ofdb_sql::Value::Text("retained".into())]);
             assert_eq!(fixture.kv[receiver].client().scan_all().await.expect("KV retained"), vec![("retained".into(), ofdb_kv::Value::Integer(1))]);
             cancellation.cancel(); task.await.expect("production handler joins").expect("clean shutdown");
             fixture.peers.close().await;
@@ -533,10 +537,10 @@ impl ofdb_sql::history::SyncTransport for QueuedPayload {
         ofdb_sql::history::SyncTransport::receive(&mut self.transport).await
     }
     async fn send(&mut self, frame: Vec<u8>) -> std::io::Result<()> {
-        let message = postcard::from_bytes::<ofdb_sql::history::SyncMessage>(&frame)
+        let message = postcard::from_bytes::<ofdb_sql::SyncMessage>(&frame)
             .expect("actual owner SQL frame");
         if !self.paused
-            && matches!(message, ofdb_sql::history::SyncMessage::State(ref rows) if !rows.is_empty())
+            && matches!(message, ofdb_sql::SyncMessage::State(ref rows) if !rows.is_empty())
         {
             self.paused = true;
             self.gate.pause().await;
@@ -618,7 +622,7 @@ async fn real_selected_sql_and_kv_queued_payloads_recheck_native_sender_policy_o
                     fixture.retry_kv(ofdb_kv::history::SyncRole::Responder).await;
                     assert_eq!(fixture.kv[sender].client().scan_all().await.expect("source"), fixture.kv[receiver].client().scan_all().await.expect("same-connection retry"));
                 } else {
-                    assert_eq!(values(&fixture.databases[sender]).await, [db::Value::Text("source".into())]);
+                    assert_eq!(values(&fixture.databases[sender]).await, [ofdb_sql::Value::Text("source".into())]);
                     fixture.sync_sql(ofdb_sql::history::SyncRole::Responder).await;
                     assert_eq!(values(&fixture.databases[sender]).await, values(&fixture.databases[receiver]).await);
                 }
@@ -725,13 +729,13 @@ async fn real_selected_sql_denies_received_apply_and_retries_on_existing_connect
                 )
             });
             tokio::select! { result = &mut run => panic!("SQL ended before actual apply gate: {result:?}"), () = gate.reached() => {} }
-            assert_eq!(values(&fixture.databases[1]).await, [db::Value::Text("kept".into())]);
+            assert_eq!(values(&fixture.databases[1]).await, [ofdb_sql::Value::Text("kept".into())]);
             fixture.nodes[1].restrict(device, false).await;
             gate.release();
             let (_, result) = run.await;
             assert!(matches!(result, Err(ofdb_sql::history::SyncError::PreApply(_))), "actual selected SQL apply denied: {result:?}");
-            assert_eq!(values(&fixture.databases[1]).await, [db::Value::Text("kept".into())]);
-            assert_eq!(values(&fixture.databases[0]).await, [db::Value::Text("denied".into()), db::Value::Text("kept".into())]);
+            assert_eq!(values(&fixture.databases[1]).await, [ofdb_sql::Value::Text("kept".into())]);
+            assert_eq!(values(&fixture.databases[0]).await, [ofdb_sql::Value::Text("denied".into()), ofdb_sql::Value::Text("kept".into())]);
             fixture.nodes[1].restrict(device, true).await;
             fixture.sync_sql(role).await;
             assert_eq!(values(&fixture.databases[0]).await, values(&fixture.databases[1]).await);

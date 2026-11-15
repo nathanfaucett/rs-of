@@ -1,7 +1,9 @@
 use std::{io, sync::Arc};
 
 use iroh::EndpointId;
-use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
+use storage_service::{
+    database_runtime::DatabaseRuntime, scoped_file_system::ScopedFileSystemRuntime,
+};
 
 #[derive(Clone)]
 pub struct StorageCopyRetirement {

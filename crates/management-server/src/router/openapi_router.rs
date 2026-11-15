@@ -1,33 +1,58 @@
-use server_common::SecurityAddon;
-use utoipa::OpenApi;
-use utoipa::openapi::{OpenApi as OpenApiDocument, Paths, RefOr, Schema, Server};
-use utoipa_axum::{router::OpenApiRouter, routes};
+use server_common::openapi::SecurityAddon;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::OpenApi;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::OpenApi as OpenApiDocument;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::Paths;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::RefOr;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::Schema;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::Server;
+use crate::router::openapi_router::openapi_router::utoipa_axum::crate::router::openapi_router::openapi_router::router::OpenApiRouter;
+use crate::router::openapi_router::openapi_router::utoipa_axum::routes;
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
-use super::openapi::{__path_openapi_json, openapi_json};
+use crate::router::openapi_router::openapi_router::openapi_router::openapi::__path_openapi_json;
 
-use super::routes::health::{__path_health, health};
-use super::routes::permission_evaluation::{__path_evaluate_permission, evaluate_permission};
-use super::routes::permissions::{
-    __path_assign_permission_to_role, __path_create_permission, __path_delete_permission,
-    __path_list_permissions, __path_list_role_permissions, __path_revoke_permission_from_role,
-    assign_permission_to_role, create_permission, delete_permission, list_permissions,
-    list_role_permissions, revoke_permission_from_role,
-};
-use super::routes::roles::{
-    __path_assign_role_to_user, __path_create_role, __path_delete_role, __path_list_roles,
-    __path_list_user_roles, __path_revoke_role_from_user, assign_role_to_user, create_role,
-    delete_role, list_roles, list_user_roles, revoke_role_from_user,
-};
-use super::routes::sync_selection::{
-    __path_list_sync_selections, __path_list_sync_targets, __path_set_sync_selection,
-    list_sync_selections, list_sync_targets, set_sync_selection,
-};
-use super::routes::users::{
-    __path_list_user_roles_across_applications, list_user_roles_across_applications,
-};
-use super::routes::version::{__path_version, version};
+use crate::router::openapi_router::openapi_router::openapi_router::openapi::openapi_json;
+
+use crate::router::openapi_router::openapi_router::openapi_router::routes::health::__path_health;
+
+use crate::router::openapi_router::openapi_router::openapi_router::routes::health::health;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permission_evaluation::__path_evaluate_permission;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permission_evaluation::evaluate_permission;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::__path_assign_permission_to_role;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::__path_create_permission;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::__path_delete_permission;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::__path_list_permissions;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::__path_list_role_permissions;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::__path_revoke_permission_from_role;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::assign_permission_to_role;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::create_permission;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::delete_permission;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::list_permissions;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::list_role_permissions;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::permissions::revoke_permission_from_role;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::__path_assign_role_to_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::__path_create_role;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::__path_delete_role;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::__path_list_roles;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::__path_list_user_roles;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::__path_revoke_role_from_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::assign_role_to_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::create_role;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::delete_role;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::list_roles;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::list_user_roles;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::roles::revoke_role_from_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::sync_selection::__path_list_sync_selections;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::sync_selection::__path_list_sync_targets;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::sync_selection::__path_set_sync_selection;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::sync_selection::list_sync_selections;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::sync_selection::list_sync_targets;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::sync_selection::set_sync_selection;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::users::__path_list_user_roles_across_applications;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::users::list_user_roles_across_applications;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::version::__path_version;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::version::version;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -37,7 +62,7 @@ use super::routes::version::{__path_version, version};
 pub(crate) struct ApiDoc;
 
 fn routes() -> OpenApiRouter<RouterState> {
-    OpenApiRouter::new()
+    crate::router::openapi_router::openapi_router::OpenApiRouter::new()
         .routes(routes!(health))
         .routes(routes!(version))
         .routes(routes!(list_user_roles_across_applications))
@@ -62,14 +87,22 @@ fn routes() -> OpenApiRouter<RouterState> {
 /// Builds the complete production API document without provisioning runtime state.
 pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
     let prefix = if prefix == "/" { "" } else { prefix };
-    let spec_router = OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes());
+    let spec_router = crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+        crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+    )
+    .merge(routes());
 
     let mut openapi_spec = spec_router.get_openapi().clone();
 
-    openapi_spec.servers = Some(vec![Server::new(format!("{}{}", api_base_uri, prefix))]);
+    openapi_spec.servers = Some(vec![
+        crate::router::openapi_router::openapi_router::Server::new(format!(
+            "{}{}",
+            api_base_uri, prefix
+        )),
+    ]);
 
     if !prefix.is_empty() {
-        let mut paths = Paths::new();
+        let mut paths = crate::router::openapi_router::openapi_router::Paths::new();
 
         for (path, item) in openapi_spec.paths.paths {
             let path = path.strip_prefix(prefix).unwrap_or(&path).to_owned();
@@ -94,16 +127,25 @@ pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
 }
 
 pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter {
-    let openapi_spec = server_common::canonical_openapi("management", &router_state.api_base_uri, prefix);
+    let openapi_spec = server_common::canonical_openapi::canonical_openapi(
+        "management",
+        &router_state.api_base_uri,
+        prefix,
+    );
     let prefix = if prefix == "/" { "" } else { prefix };
     let runtime_router = if prefix.is_empty() {
-        OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes().with_state(router_state))
+        crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+            crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+        )
+        .merge(routes().with_state(router_state))
     } else {
-        OpenApiRouter::with_openapi(ApiDoc::openapi())
-            .nest(prefix, routes().with_state(router_state))
+        crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+            crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+        )
+        .nest(prefix, routes().with_state(router_state))
     };
 
-    let openapi_json_routes = OpenApiRouter::new()
+    let openapi_json_routes = crate::router::openapi_router::openapi_router::OpenApiRouter::new()
         .routes(routes!(openapi_json))
         .with_state(openapi_spec);
 
@@ -116,16 +158,21 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use crate::router::openapi_router::openapi_router::openapi_router::std::collections::BTreeSet;
 
-    use utoipa::OpenApi;
-    use utoipa_axum::router::OpenApiRouter;
+    use crate::router::openapi_router::openapi_router::openapi_router::utoipa::OpenApi;
+    use crate::router::openapi_router::openapi_router::openapi_router::utoipa_axum::router::OpenApiRouter;
 
-    use super::{ApiDoc, routes};
+    use crate::router::openapi_router::openapi_router::ApiDoc;
+
+    use crate::router::openapi_router::openapi_router::routes;
 
     #[test]
     fn management_contract_excludes_device_authority() {
-        let document = crate::openapi_document("https://management.example", "/management");
+        let document = crate::router::openapi_router::openapi_document(
+            "https://management.example",
+            "/management",
+        );
         for path in document.paths.paths.keys() {
             assert!(
                 !path.starts_with("/device")
@@ -144,13 +191,24 @@ mod tests {
 
     #[test]
     fn openapi_document_preserves_full_registered_contract_without_state() {
-        let registered = OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes());
-        let expected = serde_json::to_value(registered.get_openapi())
-            .expect("serialize registered Management document");
+        let registered =
+            crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+                crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+            )
+            .merge(routes());
+        let expected = crate::router::openapi_router::openapi_router::serde_json::to_value(
+            registered.get_openapi(),
+        )
+        .expect("serialize registered Management document");
 
         for prefix in ["", "/", "/management", "/custom/management"] {
-            let document = crate::openapi_document("https://management.example", prefix);
-            let document = serde_json::to_value(document).expect("serialize Management document");
+            let document = crate::router::openapi_router::openapi_document(
+                "https://management.example",
+                prefix,
+            );
+            let document =
+                crate::router::openapi_router::openapi_router::serde_json::to_value(document)
+                    .expect("serialize Management document");
             let paths = document["paths"]
                 .as_object()
                 .expect("complete Management paths");
@@ -170,7 +228,9 @@ mod tests {
             registered_paths.remove("/openapi.json");
             registered_paths.retain(|path, _| !path.starts_with("/node-joins/"));
             assert_eq!(
-                serde_json::Value::Object(registered_paths),
+                crate::router::openapi_router::openapi_router::serde_json::Value::Object(
+                    registered_paths
+                ),
                 expected["paths"]
             );
             for (name, schema) in expected["components"]["schemas"]

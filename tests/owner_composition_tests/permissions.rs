@@ -10,6 +10,13 @@ use std::{
 
 use db::Database;
 use device_service::HostedControlPlane;
+use idp_service::{
+    replica::{DbApplicationRepo, DbClientRepo, DbKeyRepo},
+    repo::{ApplicationRepo, ClientRepo, KeyService, PrivateKeyKeyringRepo},
+};
+use management_service::ManagementService;
+use management_service::replica::DbPermissionRepo;
+use management_service::replica::DbRoleRepo;
 use of_model::idp::{
     contract::{
         IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
@@ -18,13 +25,6 @@ use of_model::idp::{
     },
     model::Id,
 };
-use idp_service::{
-    replica::{DbApplicationRepo, DbClientRepo, DbKeyRepo},
-    repo::{ApplicationRepo, ClientRepo, KeyService, PrivateKeyKeyringRepo},
-};
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
 use reqwest::StatusCode;
 
 use crate::support::identity::{seed_idp, user_token};
@@ -298,7 +298,8 @@ async fn independent_permission_management_https_child() {
             .await
             .expect("production Management HTTPS server");
         });
-        let client = server_common::LocalTls::verification_client().expect("production native HTTPS client");
+        let client =
+            server_common::LocalTls::verification_client().expect("production native HTTPS client");
         let bearer = user_token(&client, &base, "administrator", "idp-services").await;
         let applications_url = format!("{idp_base}/applications");
         assert_eq!(

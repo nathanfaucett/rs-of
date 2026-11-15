@@ -1,17 +1,19 @@
 use crate::db::Database;
 
-pub const MIGRATION: &str = include_str!("../replica_migrations/0001_init.up.sql");
-pub const DEVICE_MIGRATION: &str = include_str!("../device_migrations/0001_init.up.sql");
+pub const MIGRATION: &str = include_str!("../migrations/0001_init.up.sql");
 
-pub async fn up(database: &dyn Database) -> Result<(), db::QueryError> {
+pub async fn up(database: &dyn Database) -> Result<(), ofdb_sql::QueryError> {
     migrate(&database.client(), MIGRATION).await
 }
 
-pub async fn up_device(client: &db::Client) -> Result<(), db::QueryError> {
-    migrate(client, DEVICE_MIGRATION).await
+pub async fn up_device(client: &ofdb_sql::Client) -> Result<(), ofdb_sql::QueryError> {
+    migrate(client, MIGRATION).await
 }
 
-async fn migrate(client: &db::Client, migration: &str) -> Result<(), db::QueryError> {
+async fn migrate(
+    client: &ofdb_sql::Client,
+    migration: &str,
+) -> Result<(), ofdb_sql::QueryError> {
     let mut transaction = client.transaction().await?;
     let result = async {
         for statement in migration
@@ -20,7 +22,7 @@ async fn migrate(client: &db::Client, migration: &str) -> Result<(), db::QueryEr
             .filter(|statement| !statement.is_empty())
         {
             transaction
-                .translate_and_execute(statement, &db::SqlTranslator)
+                .translate_and_execute(statement, &ofdb_sql::SqlTranslator)
                 .await?;
         }
         Ok(())

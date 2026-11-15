@@ -3,17 +3,20 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, header::AUTHORIZATION},
 };
-use device_service::replica::SelectedResource as StoredSelectedResource;
-use of_model::idp::{
-    contract::{ErrorCode, ErrorResponse},
-    model::Id,
-};
 use of_model::contract::{
-    MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE, OwnerCopyCleanup,
-    PrincipalType, ReplicationAdmissionRequest, SelectedResourcesResponse, StandardClaims,
+    principal_type::PrincipalType,
+    replication::{
+        MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE, OwnerCopyCleanup,
+        ReplicationAdmissionRequest, SelectedResourcesResponse,
+    },
+    standard_claims::StandardClaims,
 };
+use of_model::device::selection_policy::SelectedResource as StoredSelectedResource;
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
 
-use crate::router::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(
     get,
@@ -33,7 +36,7 @@ pub(crate) async fn selected_resources(
     headers: HeaderMap,
 ) -> Result<Json<SelectedResourcesResponse>, ErrorResponse> {
     authorize_storage(&state, &headers, MANAGEMENT_REPLICATION_READ_SCOPE).await?;
-    crate::DeviceAuthority::from_parts(state.control_plane, state.selection_policies)
+    crate::authority::DeviceAuthority::from_parts(state.control_plane, state.selection_policies)
         .selected_resources(&endpoint_id)
         .await
         .map(Json)
@@ -138,7 +141,7 @@ pub(crate) async fn owner_cleanup(
     Json(request): Json<OwnerCopyCleanup>,
 ) -> Result<axum::http::StatusCode, ErrorResponse> {
     authorize_storage(&state, &headers, MANAGEMENT_REPLICATION_ADMIT_SCOPE).await?;
-    crate::DeviceAuthority::from_parts(state.control_plane, state.selection_policies)
+    crate::authority::DeviceAuthority::from_parts(state.control_plane, state.selection_policies)
         .acknowledge_owner_cleanup(&request)
         .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -221,30 +224,33 @@ mod tests {
 
     #[cfg(feature = "cli")]
     use axum::{
-        extract::{Path as AxumPath, State},
+        extract::{Path, State},
         http::{HeaderMap, HeaderValue, header::AUTHORIZATION},
     };
     #[cfg(feature = "cli")]
-    use device_service::HostedControlPlane;
+    use device_service::hosted_control_plane::HostedControlPlane;
     #[cfg(feature = "cli")]
-    use device_service::replica::DbSelectionPolicyRepo;
-    use device_service::replica::SelectedResource as StoredSelectedResource;
+    use device_service::replica::selection_policy::DbSelectionPolicyRepo;
     #[cfg(feature = "cli")]
-    use of_model::idp::contract::IntrospectionResponse;
-    use of_model::idp::model::Id;
+    use management_service::replica::permission_repo::DbPermissionRepo;
     #[cfg(feature = "cli")]
-    use management_service::ManagementService;
+    use management_service::replica::role_repo::DbRoleRepo;
     #[cfg(feature = "cli")]
-    use management_service::replica::DbPermissionRepo;
-    #[cfg(feature = "cli")]
-    use management_service::replica::DbRoleRepo;
+    use management_service::service::ManagementService;
     use of_model::contract::{
-        MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE, PrincipalType,
-        StandardClaims, TokenType, TokenUse,
+        principal_type::PrincipalType,
+        replication::{MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE},
+        standard_claims::StandardClaims,
+        token_type::TokenType,
+        token_use::TokenUse,
     };
+    use of_model::device::selection_policy::SelectedResource as StoredSelectedResource;
+    use of_model::id::Id;
+    #[cfg(feature = "cli")]
+    use of_model::idp::contract::introspection_response::IntrospectionResponse;
 
     #[cfg(feature = "cli")]
-    use crate::router::RouterState;
+    use crate::router::state::RouterState;
 
     #[cfg(feature = "cli")]
     use super::selected_resources;
@@ -261,9 +267,9 @@ mod tests {
             http::{Request, StatusCode},
             routing::{get, post},
         };
-        use device_service::replica::SelectionPolicy;
-        use device_service::replica::up;
-        use of_model::contract::SelectedResourcesResponse;
+        use device_service::replica::schema::up;
+        use of_model::contract::replication::SelectedResourcesResponse;
+        use of_model::device::selection_policy::SelectionPolicy;
         use tower::ServiceExt;
 
         let device = Id::now_v7();
@@ -274,9 +280,9 @@ mod tests {
             "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_owned();
         let root =
             std::env::temp_dir().join(format!("device-current-policy-{}.redb", Id::now_v7()));
-        let engine = Arc::new(db::Database::open(&root).expect("open policy"));
+        let engine = Arc::new(ofdb_sql::Database::open(&root).expect("open policy"));
         up(&engine).await.expect("initialize policy");
-        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &db::SqlTranslator).await.expect("Management Device");
+        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &ofdb_sql::SqlTranslator).await.expect("Management Device");
         let policies = Arc::new(DbSelectionPolicyRepo::new(engine.clone().client()));
 
         let owner_active = Arc::new(AtomicBool::new(true));
@@ -318,10 +324,10 @@ mod tests {
                     match (race.load(Ordering::SeqCst), read) {
                         (1, 1) => return StatusCode::NOT_FOUND,
                         (2, 0) => {
-                            engine.client().translate_and_execute(&format!("UPDATE devices SET revoked_at = 9 WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("revoked during initial owner check");
+                            engine.client().translate_and_execute(&format!("UPDATE devices SET revoked_at = 9 WHERE id = CAST('{device}' AS UUID)"), &ofdb_sql::SqlTranslator).await.expect("revoked during initial owner check");
                         }
                         (3, 0) => {
-                            engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{}' WHERE id = CAST('{device}' AS UUID)", Id::now_v7()), &db::SqlTranslator).await.expect("transferred during initial owner check");
+                            engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{}' WHERE id = CAST('{device}' AS UUID)", Id::now_v7()), &ofdb_sql::SqlTranslator).await.expect("transferred during initial owner check");
                         }
                         _ => {}
                     }
@@ -346,13 +352,15 @@ mod tests {
                     .expect("control plane")
                     .with_idp_service_client("device-client", "device-secret", "idp-api")
                     .expect("authenticated IdP relationship")
-                    .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
-                        engine.clone().client(),
-                    ))),
+                    .with_local_devices(Arc::new(
+                        device_service::replica::device_repo::DbDeviceRepo::new(
+                            engine.clone().client(),
+                        ),
+                    )),
             ),
             "storage-api",
         );
-        let router = crate::router::openapi_router(state, "/")
+        let router = crate::router::openapi_router::openapi_router(state, "/")
             .split_for_parts()
             .0;
         let response = router
@@ -416,13 +424,13 @@ mod tests {
                 }
                 4 => {
                     owner_active.store(true, Ordering::SeqCst);
-                    engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{}' WHERE id = CAST('{device}' AS UUID)", Id::now_v7()), &db::SqlTranslator).await.expect("learn Management transfer");
+                    engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{}' WHERE id = CAST('{device}' AS UUID)", Id::now_v7()), &ofdb_sql::SqlTranslator).await.expect("learn Management transfer");
                 }
                 5 => {
-                    engine.client().translate_and_execute(&format!("UPDATE devices SET revoked_at = 9 WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("learn timestamp revocation");
+                    engine.client().translate_and_execute(&format!("UPDATE devices SET revoked_at = 9 WHERE id = CAST('{device}' AS UUID)"), &ofdb_sql::SqlTranslator).await.expect("learn timestamp revocation");
                 }
                 6 => {
-                    engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{owner}', revoked_at = NULL WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("retained cleanup still denies");
+                    engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{owner}', revoked_at = NULL WHERE id = CAST('{device}' AS UUID)"), &ofdb_sql::SqlTranslator).await.expect("retained cleanup still denies");
                 }
                 _ => {}
             }
@@ -477,7 +485,7 @@ mod tests {
         }
         for mode in 1..=3 {
             owner_active.store(true, Ordering::SeqCst);
-            engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{owner}', revoked_at = NULL WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("restore approved owner for publication race");
+            engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{owner}', revoked_at = NULL WHERE id = CAST('{device}' AS UUID)"), &ofdb_sql::SqlTranslator).await.expect("restore approved owner for publication race");
             active_reads.store(0, Ordering::SeqCst);
             publication_race.store(mode, Ordering::SeqCst);
             let response = router
@@ -645,7 +653,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("device-replication-auth-{}", Id::now_v7()));
         fs::create_dir_all(&root).expect("create test database directory");
         let engine = Arc::new(
-            db::Database::open(Path::new(&root).join("devices.redb"))
+            ofdb_sql::Database::open(Path::new(&root).join("devices.redb"))
                 .expect("open device test engine"),
         );
         let base_url = format!("http://{address}");
@@ -669,7 +677,7 @@ mod tests {
             .await
             .expect("bind Management test listener");
         let management_address = listener.local_addr().expect("read Management address");
-        let router = crate::router::openapi_router(state.clone(), "/")
+        let router = crate::router::openapi_router::openapi_router(state.clone(), "/")
             .split_for_parts()
             .0;
         let management_server = tokio::spawn(async move {
@@ -785,7 +793,7 @@ mod tests {
             std::env::temp_dir().join(format!("device-replication-rejected-{}", Id::now_v7()));
         fs::create_dir_all(&root).expect("create test database directory");
         let engine = Arc::new(
-            db::Database::open(Path::new(&root).join("devices.redb"))
+            ofdb_sql::Database::open(Path::new(&root).join("devices.redb"))
                 .expect("open device test engine"),
         );
         let base_url = format!("http://{address}");
@@ -819,9 +827,9 @@ mod tests {
         .await
         .expect_err("unauthorized token must not authorize selection reads");
         let expected_error = if token_was_introspected {
-            of_model::idp::contract::ErrorCode::AccessDenied
+            of_model::idp::contract::error_code::ErrorCode::AccessDenied
         } else {
-            of_model::idp::contract::ErrorCode::NotAuthorized
+            of_model::idp::contract::error_code::ErrorCode::NotAuthorized
         };
         assert_eq!(error.error, expected_error);
         http_server.join().expect("join IdP test server");

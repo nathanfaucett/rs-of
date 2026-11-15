@@ -1,26 +1,40 @@
-use std::{
-    io,
-    net::{IpAddr, SocketAddr},
-    path::Path,
-    sync::Arc,
-    time::Duration,
+use crate::cli::run::run::std::crate::cli::run::run::path::Path;
+use crate::cli::run::run::std::crate::cli::run::run::sync::Arc;
+use crate::cli::run::run::std::crate::cli::run::run::time::Duration;
+use crate::cli::run::run::std::io;
+use crate::cli::run::run::std::net::IpAddr;
+use crate::cli::run::run::std::net::SocketAddr;
+
+use server_common::{
+    portless::{bind_addr, public_base_url},
+    serve::serve,
 };
 
-use server_common::{bind_addr, public_base_url, serve};
+use crate::cli::run::run::run::clap::Parser;
+use crate::cli::run::run::run::env_logger::Env;
+use cli::{args::CliArgs, shutdown_signal::shutdown_signal};
 
-use clap::Parser;
-use cli::{CliArgs, shutdown_signal};
-use env_logger::Env;
+use crate::cli::run::run::tokio::select;
 
-use tokio::{select, spawn, time::sleep};
-use tokio_util::sync::CancellationToken;
-use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
+use crate::cli::run::run::tokio::spawn;
+
+use crate::cli::run::run::run::tokio_util::sync::CancellationToken;
+use crate::cli::run::run::tokio::crate::cli::run::run::time::sleep;
+use crate::cli::run::run::tower_http::crate::cli::run::run::compression::CompressionLayer;
+use crate::cli::run::run::tower_http::crate::cli::run::run::cors::CorsLayer;
+use crate::cli::run::run::tower_http::crate::cli::run::run::trace::TraceLayer;
 
 #[cfg(not(unix))]
-use crate::AppConfig;
-use crate::{DeviceClient, IdpClient, ManagementClient, RouterState, build_http_runtime, build_runtime};
+use crate::config::app_config::AppConfig;
+use crate::{
+    device_client::DeviceClient,
+    idp_client::IdpClient,
+    management_client::ManagementClient,
+    router::state::RouterState,
+    runtime::{build_http_runtime, build_runtime},
+};
 
-#[derive(clap::Parser, Debug)]
+#[derive(crate::cli::run::run::clap::Parser, Debug)]
 enum StorageCommand {
     #[cfg(unix)]
     #[command(
@@ -41,11 +55,11 @@ enum StorageCommand {
         host: Option<IpAddr>,
     },
     #[cfg(feature = "completions")]
-    Completions { shell: cli::Shell },
+    Completions { shell: clap_complete::Shell },
 }
 
-pub async fn run() -> io::Result<()> {
-    match dotenvy::dotenv() {
+pub async fn run() -> crate::cli::run::run::io::Result<()> {
+    match crate::cli::run::run::dotenvy::dotenv() {
         Ok(_) => {}
         Err(e) => {
             eprintln!("failed to load .env file: {}", e);
@@ -54,82 +68,106 @@ pub async fn run() -> io::Result<()> {
 
     let args = CliArgs::<StorageCommand>::parse();
 
-    let cancellation_token = CancellationToken::new();
+    let cancellation_token = crate::cli::run::run::CancellationToken::new();
 
     #[cfg(unix)]
-    let mut app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
+    let mut app_config = crate::cli::run::run::Arc::new(crate::startup::load_config(
+        crate::cli::run::run::Path::new(&args.config),
+    )?);
     #[cfg(not(unix))]
-    let mut app_config = Arc::new(match AppConfig::try_from(Path::new(&args.config)) {
-        Ok(app_config) => app_config,
-        Err(e) => {
-            eprintln!("failed to load config {:?}: {}", args.config, e);
-            AppConfig::default()
-        }
-    });
+    let mut app_config = crate::cli::run::run::Arc::new(
+        match crate::cli::run::run::AppConfig::try_from(crate::cli::run::run::Path::new(
+            &args.config,
+        )) {
+            Ok(app_config) => app_config,
+            Err(e) => {
+                eprintln!("failed to load config {:?}: {}", args.config, e);
+                crate::cli::run::run::AppConfig::default()
+            }
+        },
+    );
 
     // Check for public base URL (set by portless via PORTLESS_URL or manually via PUBLIC_BASE_URL)
     let has_public_base = public_base_url().is_some();
-    let portless_port = std::env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok());
+    let portless_port = crate::cli::run::run::std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok());
     if has_public_base {
         let base_url = public_base_url().expect("public base URL must be set");
-        let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
+        let mut config =
+            crate::cli::run::run::Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
         config.api_public_uri = format!("{}/storage", base_url.trim_end_matches('/'));
-        config.server.host = IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
+        config.server.host = crate::cli::run::run::IpAddr::V4(
+            crate::cli::run::run::std::net::Ipv4Addr::new(127, 0, 0, 1),
+        );
         if let Some(port) = portless_port {
             config.server.port = port;
         }
-        app_config = Arc::new(config);
+        app_config = crate::cli::run::run::Arc::new(config);
     } else if let Some(port) = portless_port {
-        let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
+        let mut config =
+            crate::cli::run::run::Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
         config.server.port = port;
-        app_config = Arc::new(config);
+        app_config = crate::cli::run::run::Arc::new(config);
     }
 
     #[cfg(unix)]
-    if !has_public_base && matches!(args.command, None | Some(StorageCommand::Serve { .. })) {
+    if !has_public_base
+        && matches!(
+            args.command,
+            None | Some(crate::cli::run::run::StorageCommand::Serve { .. })
+        )
+    {
         let (host, port) = match args.command.as_ref() {
-            Some(StorageCommand::Serve { host, port }) => (*host, *port),
+            Some(crate::cli::run::run::StorageCommand::Serve { host, port }) => (*host, *port),
             _ => (None, None),
         };
         let configured_host = app_config.server.host;
         let setup_host = host.unwrap_or_else(|| {
             if configured_host.is_unspecified() {
-                std::net::Ipv4Addr::LOCALHOST.into()
+                crate::cli::run::run::std::net::Ipv4Addr::LOCALHOST.into()
             } else {
                 configured_host
             }
         });
-        let address = SocketAddr::new(setup_host, port.unwrap_or(app_config.server.port));
-        if let Some(setup) = crate::prepare_setup(&app_config, address)? {
+        let address = crate::cli::run::run::SocketAddr::new(
+            setup_host,
+            port.unwrap_or(app_config.server.port),
+        );
+        if let Some(setup) = crate::startup::prepare_setup(&app_config, address)? {
             let shutdown = shutdown_signal(cancellation_token.clone());
-            let serving = crate::serve_independent_create(
+            let serving = crate::independent_create::serve_independent_create(
                 app_config.clone(),
                 setup,
                 cancellation_token.clone(),
             );
-            tokio::pin!(shutdown, serving);
-            return tokio::select! {
+            crate::cli::run::run::tokio::pin!(shutdown, serving);
+            return crate::cli::run::run::tokio::select! {
                 result = &mut serving => result,
                 () = &mut shutdown => serving.await,
             };
         }
     }
 
-    env_logger::Builder::from_env(
-        Env::default().default_filter_or(format!("{},automerge=warn", app_config.log_level)),
+    crate::cli::run::run::env_logger::Builder::from_env(
+        crate::cli::run::run::Env::default()
+            .default_filter_or(format!("{},automerge=warn", app_config.log_level)),
     )
     .init();
 
     let mut router_state = if app_config.idp_api_base_uri.trim().is_empty() {
-        RouterState::new(&app_config.api_public_uri, &app_config.device_endpoint_id.clone().unwrap_or_default())
+        crate::cli::run::run::RouterState::new(
+            &app_config.api_public_uri,
+            &app_config.device_endpoint_id.clone().unwrap_or_default(),
+        )
     } else {
         let client_id = app_config
             .idp_oauth_client_id
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
+                crate::cli::run::run::io::Error::new(
+                    crate::cli::run::run::io::ErrorKind::InvalidInput,
                     "STORAGE_IDP_OAUTH_CLIENT_ID is required when STORAGE_IDP_API_BASE_URI is configured",
                 )
             })?;
@@ -138,8 +176,8 @@ pub async fn run() -> io::Result<()> {
             .as_deref()
             .filter(|value| !value.is_empty())
             .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
+                crate::cli::run::run::io::Error::new(
+                    crate::cli::run::run::io::ErrorKind::InvalidInput,
                     "STORAGE_IDP_OAUTH_CLIENT_SECRET is required when STORAGE_IDP_API_BASE_URI is configured",
                 )
             })?;
@@ -149,8 +187,8 @@ pub async fn run() -> io::Result<()> {
             .strip_suffix('/')
             .unwrap_or(app_config.idp_issuer_uri.trim());
         if issuer.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
+            return Err(crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "STORAGE_IDP_ISSUER_URI is required when STORAGE_IDP_API_BASE_URI is configured",
             ));
         }
@@ -159,45 +197,53 @@ pub async fn run() -> io::Result<()> {
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
+                crate::cli::run::run::io::Error::new(
+                    crate::cli::run::run::io::ErrorKind::InvalidInput,
                     "STORAGE_IDP_SERVICE_AUDIENCE is required when STORAGE_IDP_API_BASE_URI is configured",
                 )
             })?;
-        let idp_client = IdpClient::new(
+        let idp_client = crate::cli::run::run::IdpClient::new(
             &app_config.idp_api_base_uri,
             client_id,
             client_secret,
             issuer,
             audience,
         )
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        RouterState::new(&app_config.api_public_uri, &app_config.device_endpoint_id.clone().unwrap_or_default())
-            .with_idp_client(idp_client)
+        .map_err(|error| {
+            crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
+                error,
+            )
+        })?;
+        crate::cli::run::run::RouterState::new(
+            &app_config.api_public_uri,
+            &app_config.device_endpoint_id.clone().unwrap_or_default(),
+        )
+        .with_idp_client(idp_client)
     };
     if !app_config.device_api_base_uri.trim().is_empty() {
         let client_id = app_config
             .device_oauth_client_id
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| io::Error::new(
-                io::ErrorKind::InvalidInput,
+            .ok_or_else(|| crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "STORAGE_MANAGEMENT_OAUTH_CLIENT_ID is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
             ))?;
         let client_secret = app_config
             .device_oauth_client_secret
             .as_deref()
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| io::Error::new(
-                io::ErrorKind::InvalidInput,
+            .ok_or_else(|| crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "STORAGE_MANAGEMENT_OAUTH_CLIENT_SECRET is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
             ))?;
         let audience = app_config
             .device_service_audience
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| io::Error::new(
-                io::ErrorKind::InvalidInput,
+            .ok_or_else(|| crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "STORAGE_MANAGEMENT_SERVICE_AUDIENCE is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
             ))?;
         let idp_api_base_uri = app_config
@@ -206,12 +252,12 @@ pub async fn run() -> io::Result<()> {
             .strip_suffix('/')
             .unwrap_or(app_config.idp_api_base_uri.trim());
         if idp_api_base_uri.is_empty() || app_config.idp_issuer_uri.trim().is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
+            return Err(crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "STORAGE_IDP_API_BASE_URI and STORAGE_IDP_ISSUER_URI are required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
             ));
         }
-        let device_client = DeviceClient::new(
+        let device_client = crate::cli::run::run::DeviceClient::new(
             &app_config.device_api_base_uri,
             idp_api_base_uri,
             client_id,
@@ -219,7 +265,12 @@ pub async fn run() -> io::Result<()> {
             &app_config.idp_issuer_uri,
             audience,
         )
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        .map_err(|error| {
+            crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
+                error,
+            )
+        })?;
         router_state = router_state.with_device_client(device_client);
     }
 
@@ -229,24 +280,24 @@ pub async fn run() -> io::Result<()> {
             .management_oauth_client_id
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| io::Error::new(
-                io::ErrorKind::InvalidInput,
+            .ok_or_else(|| crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "STORAGE_MANAGEMENT_OAUTH_CLIENT_ID is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
             ))?;
         let client_secret = app_config
             .management_oauth_client_secret
             .as_deref()
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| io::Error::new(
-                io::ErrorKind::InvalidInput,
+            .ok_or_else(|| crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "STORAGE_MANAGEMENT_OAUTH_CLIENT_SECRET is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
             ))?;
         let _audience = app_config
             .management_service_audience
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| io::Error::new(
-                io::ErrorKind::InvalidInput,
+            .ok_or_else(|| crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "STORAGE_MANAGEMENT_SERVICE_AUDIENCE is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
             ))?;
         let idp_api_base_uri = app_config
@@ -255,31 +306,36 @@ pub async fn run() -> io::Result<()> {
             .strip_suffix('/')
             .unwrap_or(app_config.idp_api_base_uri.trim());
         if idp_api_base_uri.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
+            return Err(crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "STORAGE_IDP_API_BASE_URI is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
             ));
         }
-        let management_client = ManagementClient::new(
+        let management_client = crate::cli::run::run::ManagementClient::new(
             &app_config.management_api_base_uri,
             idp_api_base_uri,
             client_id,
             client_secret,
         )
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        .map_err(|error| {
+            crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
+                error,
+            )
+        })?;
         router_state = router_state.with_management_client(management_client);
     }
 
     let prefix = app_config.server.prefix();
     let mut storage_runtime = if router_state.device_client.is_some() {
         let endpoint = app_config.device_endpoint_id.as_deref()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput,
+            .ok_or_else(|| crate::cli::run::run::io::Error::new(crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "STORAGE_MANAGEMENT_ENDPOINT_ID must identify the current Management-approved endpoint; Storage does not create transport identity"))?
-            .parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput,
+            .parse().map_err(|_| crate::cli::run::run::io::Error::new(crate::cli::run::run::io::ErrorKind::InvalidInput,
                 "invalid STORAGE_MANAGEMENT_ENDPOINT_ID"))?;
         build_http_runtime(
             router_state,
-            Path::new(&app_config.data_dir),
+            crate::cli::run::run::Path::new(&app_config.data_dir),
             prefix,
             endpoint,
             cancellation_token.clone(),
@@ -287,7 +343,7 @@ pub async fn run() -> io::Result<()> {
     } else {
         build_runtime(
             router_state,
-            Path::new(&app_config.data_dir),
+            crate::cli::run::run::Path::new(&app_config.data_dir),
             prefix,
             prefix,
             None,
@@ -296,56 +352,62 @@ pub async fn run() -> io::Result<()> {
     };
     let router = storage_runtime
         .router()
-        .layer(CorsLayer::very_permissive().allow_private_network(true))
-        .layer(TraceLayer::new_for_http())
-        .layer(CompressionLayer::new().gzip(app_config.server.gzip));
+        .layer(crate::cli::run::run::CorsLayer::very_permissive().allow_private_network(true))
+        .layer(crate::cli::run::run::TraceLayer::new_for_http())
+        .layer(crate::cli::run::run::CompressionLayer::new().gzip(app_config.server.gzip));
 
     let run_serve = |host: Option<IpAddr>, port: Option<u16>| {
         let addr = if has_public_base {
             bind_addr()
         } else {
-            SocketAddr::from((
+            crate::cli::run::run::SocketAddr::from((
                 host.unwrap_or(app_config.server.host),
                 port.unwrap_or(app_config.server.port),
             ))
         };
 
         storage_runtime.start_background_tasks()?;
-        Ok::<_, io::Error>(spawn(serve(router, addr, cancellation_token.clone())))
+        Ok::<_, crate::cli::run::run::io::Error>(spawn(serve(
+            router,
+            addr,
+            cancellation_token.clone(),
+        )))
     };
 
     let command_handle = match args.command {
         #[cfg(unix)]
-        Some(StorageCommand::ResetIndependent { .. }) => {
-            return Err(io::Error::other("reset must run before serving"));
+        Some(crate::cli::run::run::StorageCommand::ResetIndependent { .. }) => {
+            return Err(crate::cli::run::run::io::Error::other(
+                "reset must run before serving",
+            ));
         }
         #[cfg(feature = "completions")]
-        Some(StorageCommand::Completions { shell }) => {
-            spawn(async move { cli::run_completions(shell).await })
+        Some(crate::cli::run::run::StorageCommand::Completions { shell }) => {
+            spawn(async move { cli::completions::run_completions(shell).await })
         }
-        Some(StorageCommand::Serve { host, port }) => run_serve(host, port)?,
+        Some(crate::cli::run::run::StorageCommand::Serve { host, port }) => run_serve(host, port)?,
         None => run_serve(None, None)?,
     };
 
     shutdown_signal(cancellation_token).await;
     if let Err(error) = storage_runtime.shutdown().await {
-        log::warn!("Storage replication runtime shutdown failed: {error}");
+        crate::cli::run::run::log::warn!("Storage replication runtime shutdown failed: {error}");
     }
 
-    let shutdown_timeout = Duration::from_secs(10);
+    let shutdown_timeout = crate::cli::run::run::Duration::from_secs(10);
     let mut command_handle = command_handle;
     select! {
       res = &mut command_handle => {
         match res {
-          Ok(Ok(_)) => log::info!("server shutdown complete"),
-          Ok(Err(e)) => log::error!("command error: {}", e),
-          Err(e) => log::error!("join error: {}", e),
+          Ok(Ok(_)) => crate::cli::run::run::log::info!("server shutdown complete"),
+          Ok(Err(e)) => crate::cli::run::run::log::error!("command error: {}", e),
+          Err(e) => crate::cli::run::run::log::error!("join error: {}", e),
         }
       }
       _ = sleep(shutdown_timeout) => {
-        log::warn!("server shutdown timed out after {:?}, aborting serve task", shutdown_timeout);
+        crate::cli::run::run::log::warn!("server shutdown timed out after {:?}, aborting serve task", shutdown_timeout);
         command_handle.abort();
-        sleep(Duration::from_millis(100)).await;
+        sleep(crate::cli::run::run::Duration::from_millis(100)).await;
       }
     }
 
@@ -354,10 +416,10 @@ pub async fn run() -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
-    use cli::CliArgs;
+    use crate::cli::run::run::run::clap::Parser;
+    use cli::args::CliArgs;
 
-    use super::StorageCommand;
+    use crate::cli::run::run::run::StorageCommand;
 
     #[cfg(unix)]
     #[test]

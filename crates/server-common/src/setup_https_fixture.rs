@@ -7,11 +7,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{IndependentSetupHost, LocalTls};
 use axum::http::{
     StatusCode,
     header::{ACCESS_CONTROL_ALLOW_CREDENTIALS, ACCESS_CONTROL_ALLOW_ORIGIN},
 };
+use setup::{IndependentSetupHost, LocalTls};
 use tokio_util::sync::CancellationToken;
 
 pub fn parent(

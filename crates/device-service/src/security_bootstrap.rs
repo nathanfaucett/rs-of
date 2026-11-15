@@ -1,21 +1,27 @@
-use db::DatabaseTransport;
-use idp_service::replica::LocalIdentity;
+use db::database_transport::DatabaseTransport;
+use idp_service::replica::local_identity::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
-use of_model::idp::model::Id;
+use of_model::id::Id;
 use std::{future::Future, io, sync::Arc};
 
 use crate::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
 
-use ofdb_sql::history::{SessionConfig, SyncError, SyncResult, SyncRole, SyncTransport};
+use ofdb_sql::{SessionConfig, SyncError, SyncResult, SyncRole, SyncTransport};
 use serde::{Deserialize, Serialize};
 
-use crate::DeviceRepo;
-use crate::hosted_join::NodeJoinApproval;
+use crate::device_repo::DeviceRepo;
 use crate::node_join_owner::{NodeJoinOwner, NodeJoinStage};
-use crate::replica::DbDeviceRepo;
+use crate::replica::device_repo::DbDeviceRepo;
 use crate::security_candidates::JoinCandidate;
+use of_model::node_join::NodeJoinApproval;
 
-use super::{SecurityContext, SecurityProtocol, denied, now};
+use crate::security_policy::SecurityContext;
+
+use super::SecurityProtocol;
+
+use super::denied;
+
+use super::now;
 
 pub const BOOTSTRAP_ALPN: &[u8] = b"idp-bootstrap/1";
 

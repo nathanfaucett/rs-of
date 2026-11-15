@@ -1,28 +1,29 @@
 use std::{io, path::Path, sync::Arc, time::Instant};
 
-use setup::{
-    IndependentCreateCommand, IndependentCreateControl, IndependentCreateIntent,
-    IndependentOwnerPublic, IndependentSetupHost,
-};
-use of_model::idp::{
-    contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
-        TokenEndpointAuthMethod,
-    },
-    model::Id,
-};
 use idp_service::{
-    oauth2::NodeSignerBinding,
+    oauth2::node_signer::NodeSignerBinding,
     setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret},
 };
+use of_model::id::Id;
+use of_model::idp::contract::application_registration::ApplicationRegistration;
+use of_model::idp::contract::client_profile::ClientProfile;
+use of_model::idp::contract::client_registration::ClientRegistration;
+use of_model::idp::contract::client_type::ClientType;
+use of_model::idp::contract::grant_type::GrantType;
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 use serde::{Deserialize, Serialize};
+use setup::{
+    independent_create::{IndependentCreateCommand, IndependentCreateControl},
+    independent_operation::{IndependentCreateIntent, IndependentOwnerPublic},
+    independent_setup::IndependentSetupHost,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{AppConfig, IdpRuntime, OwnerProvisioner};
+use crate::{config::app_config::AppConfig, provisioning::OwnerProvisioner, runtime::IdpRuntime};
 
 #[path = "independent_join_worker.rs"]
-mod join;
+pub mod join;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -182,7 +183,7 @@ async fn run(
     control: IndependentCreateControl,
     mut commands: mpsc::Receiver<IndependentCreateCommand>,
     shutdown: CancellationToken,
-    owners: tokio::sync::watch::Sender<Option<Arc<db::Database>>>,
+    owners: tokio::sync::watch::Sender<Option<Arc<ofdb_sql::Database>>>,
 ) -> io::Result<()> {
     let mut owner = None;
     let mut runtime = None;
@@ -218,7 +219,7 @@ async fn run(
             }
             public(&config, &control, &intent, &record).await?;
             runtime = Some(
-                crate::build_independent_idp(
+                crate::independent_join::build_independent_idp(
                     &runtime_config(&config, &intent, &record)?,
                     opened.engine.clone(),
                     opened.database.clone(),
@@ -411,7 +412,7 @@ async fn provision(
     command: &IndependentCreateCommand,
     owner: &mut Option<Arc<OwnerProvisioner>>,
     runtime: &mut Option<IdpRuntime>,
-    owners: &tokio::sync::watch::Sender<Option<Arc<db::Database>>>,
+    owners: &tokio::sync::watch::Sender<Option<Arc<ofdb_sql::Database>>>,
 ) -> io::Result<()> {
     let mut record = match control.read_record::<Record>()? {
         Some(record) => record,
@@ -624,7 +625,7 @@ async fn provision(
     let serving_at = Instant::now();
     if runtime.is_none() {
         *runtime = Some(
-            crate::build_independent_idp(
+            crate::independent_join::build_independent_idp(
                 &runtime_config(config, intent, &record)?,
                 owner.engine.clone(),
                 owner.database.clone(),

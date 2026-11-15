@@ -8,7 +8,11 @@ use alloc::{
 
 use serde::{Deserialize, Serialize};
 
-use super::{CodeChallengeMethod, GrantType, ResponseMode, ResponseType, TokenEndpointAuthMethod};
+use crate::idp::contract::code_challenge_method::CodeChallengeMethod;
+use crate::idp::contract::grant_type::GrantType;
+use crate::idp::contract::response_mode::ResponseMode;
+use crate::idp::contract::response_type::ResponseType;
+use crate::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

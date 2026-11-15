@@ -5,10 +5,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use of_model::idp::model::Id;
-use management_service::SyncSelection;
+use of_model::id::Id;
+use of_model::management::SyncSelection;
 use reqwest::{Client, Url, redirect::Policy};
-
 
 #[derive(Clone)]
 pub struct ManagementClient {

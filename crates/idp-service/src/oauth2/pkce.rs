@@ -1,5 +1,9 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use of_model::idp::contract::{CodeChallengeMethod, ErrorCode, ErrorResponse, ErrorResponseResult};
+use of_model::idp::contract::{
+    code_challenge_method::CodeChallengeMethod,
+    error_code::ErrorCode,
+    error_response::{ErrorResponse, ErrorResponseResult},
+};
 use sha2::{Digest, Sha256};
 
 pub fn verify_code_challenge(

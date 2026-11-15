@@ -4,13 +4,20 @@ use alloc::{
     sync::Arc,
 };
 
-use key::{DerivationPath, DerivedKey, create_secret_entry, init_credential_store};
+use bip32::DerivationPath;
 
-use crate::repo::{PrivateKeyRepo, RepoError, RepoResult};
+use key::derived_key::DerivedKey;
+
+use key::create_secret_entry;
+
+use key::init_credential_store;
+
+use super::PrivateKeyRepo;
+use super::error::{RepoError, RepoResult};
 
 #[cfg(feature = "replica")]
 #[path = "local_private_keys.rs"]
-mod local_private_keys;
+pub mod local_private_keys;
 
 enum PrivateKeyStorage {
     Keyring(Arc<keyring_core::CredentialStore>),
@@ -47,7 +54,7 @@ impl PrivateKeyKeyringRepo {
 
     /// Uses a private KV namespace in the local shared host, separate from every SQL catalog.
     #[cfg(feature = "replica")]
-    pub fn new_local(storage: &db::SharedDatabase) -> RepoResult<Self> {
+    pub fn new_local(storage: &btree_redb::SharedDatabase) -> RepoResult<Self> {
         Ok(Self {
             service_name: String::new(),
             storage: PrivateKeyStorage::Local(local_private_keys::LocalPrivateKeys::new(storage)?),

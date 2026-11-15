@@ -7,18 +7,18 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
-use db::Database;
-use device_service::DeviceRepo;
-use device_service::HostedControlPlane;
+use device_service::device_repo::DeviceRepo;
+use device_service::hosted_control_plane::HostedControlPlane;
 use device_service::hosted_join::JoinFuture;
-use device_service::hosted_join::NodeJoinApproval;
 use device_service::hosted_join::NodeJoinIdentity;
-use device_service::hosted_join::NodeJoinRequest;
-use device_service::replica::DbDeviceRepo;
+use device_service::replica::device_repo::DbDeviceRepo;
 use iroh_chain::{PairingOffer, Server};
-use of_model::idp::model::Id;
+use of_model::id::Id;
+use of_model::node_join::NodeJoinApproval;
+use of_model::node_join::NodeJoinRequest;
+use ofdb_sql::Database;
 use serde::{Deserialize, Serialize};
-use server_common::SecurityAddon;
+use server_common::openapi::SecurityAddon;
 use tokio::{
     sync::{Mutex, broadcast},
     task::JoinSet,
@@ -299,8 +299,9 @@ impl NodeJoinSource {
             ));
         }
         log::debug!(target: "setup_timeout", "seam=approval phase=policy_begin elapsed_ms={}", started.elapsed().as_millis());
-        let policies =
-            device_service::replica::DbSelectionPolicyRepo::new(self.device.clone().client());
+        let policies = device_service::replica::selection_policy::DbSelectionPolicyRepo::new(
+            self.device.clone().client(),
+        );
         if policies
             .get(identity.id, &identity.owner_subject, Id::nil())
             .await
@@ -308,7 +309,7 @@ impl NodeJoinSource {
             .is_none()
         {
             policies
-                .set_prevalidated(device_service::replica::SelectionPolicy {
+                .set_prevalidated(of_model::device::selection_policy::SelectionPolicy {
                     device_id: identity.id,
                     owner_subject: identity.owner_subject,
                     application_id: None,
@@ -544,7 +545,7 @@ mod tests {
         protocol::{AcceptError, ProtocolHandler},
     };
     use iroh_chain::{EndpointIdStore, PAIRING_ALPN, Server};
-    use of_model::idp::model::Id;
+    use of_model::id::Id;
     use std::{collections::BTreeMap, sync::Arc, time::Duration};
     use tokio::sync::{Mutex, Notify};
     use tokio_util::sync::CancellationToken;

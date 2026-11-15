@@ -4,11 +4,18 @@ use std::{
     sync::Arc,
 };
 
-use db::{Database, Row, SqlTranslator, Value};
-use device_service::replica::{DbSelectionPolicyRepo, SelectionPolicy};
-use of_model::idp::model::Id;
+use ofdb_sql::Database;
 
-use crate::AppConfig;
+use ofdb_sql::Row;
+
+use ofdb_sql::SqlTranslator;
+
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use of_model::device::selection_policy::SelectionPolicy;
+use of_model::id::Id;
+use ofdb_sql::Value;
+
+use crate::config::app_config::AppConfig;
 
 impl AppConfig {
     pub fn require_provisioned_device(&self) -> io::Result<()> {
@@ -75,14 +82,14 @@ pub async fn open_local_device_database(directory: &Path) -> io::Result<Arc<Data
     fs::create_dir_all(directory)?;
     let engine =
         Arc::new(Database::open(directory.join("devices.redb")).map_err(io::Error::other)?);
-    device_service::replica::up(&engine)
+    device_service::replica::schema::up(&engine)
         .await
         .map_err(io::Error::other)?;
     Ok(engine)
 }
 
 pub async fn provision_initial_device(
-    engine: db::Client,
+    engine: ofdb_sql::Client,
     device_id: Id,
     owner: Id,
     endpoint_id: &str,
@@ -190,9 +197,9 @@ pub async fn provision_initial_device(
 mod tests {
     use std::{fs, io};
 
-    use of_model::idp::model::Id;
+    use of_model::id::Id;
 
-    use crate::AppConfig;
+    use crate::config::app_config::AppConfig;
 
     #[test]
     fn retained_device_preflight_refuses_missing_roots_without_replacement() {
@@ -273,7 +280,7 @@ mod tests {
 
     #[tokio::test]
     async fn local_device_open_initializes_schema_and_reopens_through_owner() {
-        use device_service::{DeviceRepo, replica::DbDeviceRepo};
+        use device_service::{device_repo::DeviceRepo, replica::device_repo::DbDeviceRepo};
 
         let root = std::env::temp_dir().join(format!("device-open-{}", Id::now_v7()));
         let config = AppConfig {
@@ -281,7 +288,7 @@ mod tests {
             ..Default::default()
         };
         {
-            let database = super::open_local_device_database(&root)
+            let database = crate::provisioning::open_local_device_database(&root)
                 .await
                 .expect("initialize local Device owner");
             assert!(
@@ -295,7 +302,7 @@ mod tests {
             .require_provisioned_device()
             .expect("retained Device store");
         {
-            let database = super::open_device_database(&config)
+            let database = crate::provisioning::open_device_database(&config)
                 .await
                 .expect("reopen configured Device owner");
             assert!(
@@ -321,19 +328,24 @@ mod tests {
     async fn remote_device_startup_never_falls_back_to_a_private_database() {
         let root = std::env::temp_dir().join(format!(
             "remote-device-startup-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
-        let config: crate::AppConfig = serde_json::from_value(serde_json::json!({
-            "data_dir": root,
-            "device_database": {"endpoint": "http://127.0.0.1:1", "deadline_ms": 100}
-        }))
-        .expect("remote startup configuration");
+        let config: crate::config::app_config::AppConfig =
+            serde_json::from_value(serde_json::json!({
+                "data_dir": root,
+                "device_database": {"endpoint": "http://127.0.0.1:1", "deadline_ms": 100}
+            }))
+            .expect("remote startup configuration");
         assert!(
-            super::open_device_database(&config).await.is_err(),
+            crate::provisioning::open_device_database(&config)
+                .await
+                .is_err(),
             "remote configuration cannot open a local owner"
         );
         assert!(
-            crate::device_client(&config).await.is_err(),
+            crate::database_client::device_client(&config)
+                .await
+                .is_err(),
             "unavailable remote owner must fail startup"
         );
         assert!(

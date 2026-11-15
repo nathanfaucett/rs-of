@@ -8,25 +8,26 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::sync_validation_direction::SyncValidationDirection;
 use axum::{
     Json, Router,
     extract::{
         State, WebSocketUpgrade,
-        ws::{Message, WebSocket},
+        ws::{Message as AxumMessage, WebSocket},
     },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use db::{Database, Value};
 use futures_util::{SinkExt, StreamExt};
-use ofdb_sql::history::{SessionConfig, SyncCandidateView, SyncError, SyncRole, SyncTransport};
+use ofdb_sql::Database;
+use ofdb_sql::Value;
+use ofdb_sql::SyncValidationDirection;
+use ofdb_sql::{SessionConfig, SyncCandidateView, SyncError, SyncRole, SyncTransport};
 use serde::{Deserialize, Serialize};
 use tokio::{net::TcpStream, sync::Mutex};
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
-    tungstenite::{Message as ClientMessage, client::IntoClientRequest},
+    tungstenite::{Message as WsMessage, client::IntoClientRequest},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -56,7 +57,7 @@ impl JoinHistoryContext {
                 .iter()
                 .map(|table| table.name())
                 .collect(),
-            Self::Device => crate::PUBLIC_DEVICE_TABLES.to_vec(),
+            Self::Device => crate::security_sync::PUBLIC_DEVICE_TABLES.to_vec(),
         }
     }
     fn permits(self, table: &str, column: &str, value: &Value, issuer: &str) -> bool {
@@ -74,7 +75,8 @@ impl JoinHistoryContext {
                         || matches!(value, Value::Text(text) if text == issuer))
             }
             Self::Device => {
-                crate::public_device_columns(table).is_some_and(|columns| columns.contains(&column))
+                crate::security_sync::public_device_columns(table)
+                    .is_some_and(|columns| columns.contains(&column))
                     && (table != "devices"
                         || crate::security_candidates::permits_device_value(column, value))
             }
@@ -179,7 +181,7 @@ async fn request(
     let callback_at = Instant::now();
     let result = async {
         let configuration = of_idp_client::apis::configuration::Configuration {
-            base_path: base, client: server_common::LocalTls::verification_client()?, ..Default::default()
+            base_path: base, client: setup::local_tls::LocalTls::verification_client()?, ..Default::default()
         };
         of_idp_client::apis::owner_setup_api::owner_setup_history(&configuration,
             of_idp_client::apis::owner_setup_api::OwnerSetupHistoryParams {
@@ -273,11 +275,11 @@ impl SyncTransport for HistorySocket {
         let sent_at = Instant::now();
         let result = match self {
             Self::Server(socket, _) => socket
-                .send(Message::Binary(frame.into()))
+                .send(AxumMessage::Binary(frame.into()))
                 .await
                 .map_err(io::Error::other),
             Self::Client(socket, _) => socket
-                .send(ClientMessage::Binary(frame.into()))
+                .send(WsMessage::Binary(frame.into()))
                 .await
                 .map_err(io::Error::other),
         };
@@ -298,13 +300,13 @@ impl SyncTransport for HistorySocket {
         loop {
             let frame = match self {
                 Self::Server(socket, _) => match socket.next().await {
-                    Some(Ok(Message::Binary(frame))) => Some(frame.to_vec()),
-                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => None,
+                    Some(Ok(AxumMessage::Binary(frame))) => Some(frame.to_vec()),
+                    Some(Ok(AxumMessage::Ping(_) | AxumMessage::Pong(_))) => None,
                     _ => return Err(io::Error::other("history stream closed")),
                 },
                 Self::Client(socket, _) => match socket.next().await {
-                    Some(Ok(ClientMessage::Binary(frame))) => Some(frame.to_vec()),
-                    Some(Ok(ClientMessage::Ping(_) | ClientMessage::Pong(_))) => None,
+                    Some(Ok(WsMessage::Binary(frame))) => Some(frame.to_vec()),
+                    Some(Ok(WsMessage::Ping(_) | WsMessage::Pong(_))) => None,
                     _ => return Err(io::Error::other("history stream closed")),
                 },
             };
@@ -336,7 +338,7 @@ pub async fn import_join_history(
         JoinHistoryContext::Idp => &approval.request.source.idp,
         JoinHistoryContext::Device => &approval.request.source.device,
     };
-    let client = server_common::LocalTls::verification_client()?;
+    let client = setup::local_tls::LocalTls::verification_client()?;
     let key = tokio_tungstenite::tungstenite::handshake::client::generate_key();
     let request = match context {
         JoinHistoryContext::Idp => {

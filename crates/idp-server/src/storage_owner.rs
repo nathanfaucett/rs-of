@@ -1,6 +1,11 @@
-use of_model::idp::contract::{ErrorCode, ErrorResponse, IntrospectionResponse};
+use of_model::idp::contract::{
+    error_code::ErrorCode, error_response::ErrorResponse,
+    introspection_response::IntrospectionResponse,
+};
 
-use crate::{RouterState, authorize_bearer_any_principal};
+use crate::router::{
+    middleware::authorization::authorize_bearer_any_principal, state::RouterState,
+};
 
 pub(crate) async fn authorize_storage_bearer(
     state: &RouterState,

@@ -1,6 +1,6 @@
-mod request;
-mod response;
-mod socket_request;
+pub mod request;
+pub mod response;
+pub mod socket_request;
 
 pub use request::StorageRequest;
 pub use response::{StorageEntry, StorageErrorCode, StorageResponse};

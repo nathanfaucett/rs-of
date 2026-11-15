@@ -1,4 +1,4 @@
-pub use of_model::server::device::device_selection::{SelectionKind, SelectionRequest};
+use of_model::server::device::device_selection::{SelectionKind, SelectionRequest};
 use std::string::String;
 
 use axum::{
@@ -6,15 +6,14 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use device_service::replica::SelectionPolicy;
-use of_model::idp::{
-    contract::{ErrorCode, ErrorResponse},
-    model::Id,
-};
+use of_model::device::selection_policy::SelectionPolicy;
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
 
-use crate::router::{RouterState, middleware::DeviceAuthorization};
+use crate::router::{middleware::device_authorization::DeviceAuthorization, state::RouterState};
 
-use crate::router::middleware::require_application_permission;
+use crate::router::middleware::application_permission::require_application_permission;
 
 const SELECTION_PERMISSION: &str = "devices.select";
 
@@ -171,7 +170,8 @@ pub(crate) async fn require_device_owner(
 
 #[cfg(test)]
 mod tests {
-    use super::{SelectionKind, SelectionRequest};
+    use of_model::server::device::device_selection::SelectionKind;
+    use of_model::server::device::device_selection::SelectionRequest;
 
     #[test]
     fn selection_request_accepts_only_supported_kinds() {
@@ -183,7 +183,8 @@ mod tests {
             let parsed: SelectionRequest = serde_json::from_str(&body).expect("supported kind");
             assert!(matches!(
                 parsed.kind,
-                SelectionKind::Database | SelectionKind::Filesystem
+                of_model::server::device::device_selection::SelectionKind::Database
+                    | of_model::server::device::device_selection::SelectionKind::Filesystem
             ));
         }
         let body = format!(

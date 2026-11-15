@@ -4,10 +4,15 @@ use axum::{
     http::{HeaderMap, header::AUTHORIZATION},
 };
 use of_model::idp::contract::{
-    ErrorCode, ErrorResponse, IDP_TOKEN_VALIDATE_SCOPE, IntrospectionRequest, IntrospectionResponse,
+    error_code::ErrorCode, error_response::ErrorResponse,
+    introspection_request::IntrospectionRequest, introspection_response::IntrospectionResponse,
+    service_scopes::IDP_TOKEN_VALIDATE_SCOPE,
 };
 
-use crate::{RouterState, authorize_bearer_any_principal, authorize_bearer_client};
+use crate::router::{
+    middleware::authorization::{authorize_bearer_any_principal, authorize_bearer_client},
+    state::RouterState,
+};
 
 const VALIDATE_TOKEN_SCOPE: &str = IDP_TOKEN_VALIDATE_SCOPE;
 
@@ -49,7 +54,7 @@ pub(crate) async fn introspect(
     let client = caller
         .principal
         .get_entity_as_any()
-        .downcast_ref::<of_model::idp::model::Client>()
+        .downcast_ref::<of_model::idp::model::client::Client>()
         .ok_or_else(not_authorized)?;
 
     let inspected = authorize_bearer_any_principal(&state, &request.token).await?;

@@ -1,12 +1,16 @@
 #[cfg(not(feature = "std"))]
 use alloc::string::{String, ToString};
 
-use crate::idp::model::{Id, Key};
+use crate::id::Id;
+use crate::idp::model::key::Key;
 
-use super::{
-    EntityType, JwkPrivate, JwkPrivateParameters, JwkPublic, JwkPublicParameters, JwsAlgorithm,
-    KeyUse,
-};
+use crate::idp::contract::entity_type::EntityType;
+use crate::idp::contract::jwk_private::JwkPrivate;
+use crate::idp::contract::jwk_private_parameters::JwkPrivateParameters;
+use crate::idp::contract::jwk_public::JwkPublic;
+use crate::idp::contract::jwk_public_parameters::JwkPublicParameters;
+use crate::idp::contract::jws_algorithm::JwsAlgorithm;
+use crate::idp::contract::key_use::KeyUse;
 
 /// Public enrollment state. Approval is checked against the executing Node's trusted local policy.
 /// Deserialization, configuration, and JWK possession do not establish its provenance.
@@ -107,7 +111,9 @@ mod tests {
     #[cfg(not(feature = "std"))]
     use alloc::string::ToString;
 
-    use super::{IdpSignerRecord, ReplicaMembership, TokenPrincipalBinding};
+    use crate::idp::contract::idp_signer::IdpSignerRecord;
+    use crate::idp::contract::idp_signer::ReplicaMembership;
+    use crate::idp::contract::idp_signer::TokenPrincipalBinding;
     use crate::idp::{
         contract::{
             EntityType, JwkPrivate, JwkPrivateParameters, JwkPublic, JwkPublicParameters,

@@ -1,13 +1,17 @@
 use std::sync::Arc;
 
-use db::{Database, SqlTranslator};
-use device_service::DeviceRepo;
-use device_service::replica::DbDeviceRepo;
-use device_service::replica::DbSelectionPolicyRepo;
-use device_service::replica::SelectionPolicy;
-use of_model::idp::model::Id;
-use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
-use of_model::contract::SelectedResource;
+use ofdb_sql::Database;
+
+use device_service::device_repo::DeviceRepo;
+use device_service::replica::device_repo::DbDeviceRepo;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use idp_service::{
+    password_config::PasswordConfig, replica::user_repo::DbUserRepo, repo::user_repo::UserRepo,
+};
+use of_model::contract::replication::SelectedResource;
+use of_model::device::selection_policy::SelectionPolicy;
+use of_model::id::Id;
+use ofdb_sql::SqlTranslator;
 
 use super::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
 
@@ -28,7 +32,7 @@ async fn native_selection_fixture(select: bool) {
     let management =
         Arc::new(Database::open(root.join("management.redb")).expect("Management store"));
     of_model::idp::replica::up(&idp).await.expect("IdP schema");
-    device_service::replica::up(&management)
+    device_service::replica::schema::up(&management)
         .await
         .expect("Management schema");
     let owner = Id::now_v7();
@@ -156,8 +160,10 @@ async fn callback_cleanup_preserves_exact_binding_cancellation_and_remote_denial
         atomic::{AtomicUsize, Ordering},
     };
 
-    use of_model::contract::{OwnerCopyCleanup, SelectedResourcesResponse};
-    use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
+    use of_model::contract::replication::{OwnerCopyCleanup, SelectedResourcesResponse};
+    use storage_service::{
+        database_runtime::DatabaseRuntime, scoped_file_system::ScopedFileSystemRuntime,
+    };
     use tokio_util::sync::CancellationToken;
 
     for scenario in [
@@ -252,7 +258,7 @@ async fn callback_cleanup_preserves_exact_binding_cancellation_and_remote_denial
         );
         // The authorizer is built before the runtimes without retaining their owner.
         if scenario != "not-ready" {
-            let retirement = crate::StorageCopyRetirement::new(
+            let retirement = crate::copy_retirement::StorageCopyRetirement::new(
                 Arc::new(DatabaseRuntime::new(root.join("sql")).expect("database runtime")),
                 Arc::new(
                     ScopedFileSystemRuntime::new(root.join("fs"), endpoint)

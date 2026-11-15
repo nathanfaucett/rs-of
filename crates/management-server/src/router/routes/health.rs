@@ -1,7 +1,7 @@
 use axum::{Json, extract::State, http::StatusCode};
-use of_model::contract::{HealthResponse, HealthStatus};
+use of_model::contract::{health_response::HealthResponse, health_status::HealthStatus};
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(
     get,

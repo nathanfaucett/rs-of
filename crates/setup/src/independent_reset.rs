@@ -9,13 +9,13 @@ use rustls::pki_types::{CertificateDer, pem::PemObject};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::independent_setup::HostSettings;
 use crate::{
     IndependentCreateIntent, SetupAdmission, SetupScope,
     setup_files::{
         absolute, present, private_options, read_private, require_private, sync_ancestry,
     },
 };
-use crate::HostSettings;
 
 #[derive(Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -199,7 +199,7 @@ impl IndependentReset {
     fn save(&self) -> io::Result<()> {
         let temporary = self.journal_path.with_extension(format!(
             "json.{}",
-            crate::random_capability()?
+            crate::independent_exchange::random_capability()?
         ));
         let mut file = private_options(true).open(&temporary)?;
         file.write_all(&serde_json::to_vec(&self.journal)?)?;
@@ -451,8 +451,8 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::IndependentReset;
-    use crate::IndependentSetupHost;
+    use crate::independent_reset::IndependentReset;
+    use crate::independent_setup::IndependentSetupHost;
 
     #[cfg(target_os = "linux")]
     #[test]

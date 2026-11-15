@@ -1,6 +1,6 @@
 use iroh::EndpointId;
 use iroh_chain::{PairingOffer, Server};
-use of_model::idp::model::Id;
+use of_model::id::Id;
 use serde::{Deserialize, Serialize};
 use std::{io, time::Duration};
 
@@ -49,7 +49,7 @@ pub async fn discover_on(
     peer: &str,
     cancellation: &tokio_util::sync::CancellationToken,
 ) -> io::Result<String> {
-    crate::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
+    of_model::node_join::NodeJoinRequest::validate_trusted_peer(peer)?;
     let peer_id: EndpointId = peer.parse().map_err(io::Error::other)?;
     let request = Request {
         purpose: PURPOSE.into(),
@@ -114,7 +114,7 @@ fn decode(request: &Request, peer: &str, reply: &[u8]) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::{PURPOSE, Request, Response, decode};
-    use of_model::idp::model::Id;
+    use of_model::id::Id;
     #[test]
     fn issuer_response_requires_exact_nonce_peer_and_purpose() {
         let request = Request {

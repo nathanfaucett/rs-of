@@ -56,7 +56,7 @@ mod tests {
             ),
             ("https://node.example", "/", "https://node.example"),
         ] {
-            let document = super::canonical_openapi("idp", base, prefix);
+            let document = crate::canonical_openapi::canonical_openapi("idp", base, prefix);
             assert_eq!(document["servers"][0]["url"], expected);
         }
     }

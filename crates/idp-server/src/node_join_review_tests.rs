@@ -2,24 +2,30 @@ use std::{sync::Arc, time::Duration};
 
 use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
 
-use db::{Database, SqlTranslator};
-use device_service::DeviceRepo;
-use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo, repo::UserRepo};
+use ofdb_sql::Database;
+
+use device_service::device_repo::DeviceRepo;
+use idp_service::{
+    oauth2::node_signer::NodeSignerBinding, replica::replica_signer_repo::DbReplicaSignerRepo,
+    repo::user_repo::UserRepo,
+};
 use iroh::{SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
-use of_model::idp::{
-    contract::{INSTALLATION_POLICY_ID, IdentityAction},
-    model::Id,
-};
+use management_service::replica::permission_repo::DbPermissionRepo;
+use management_service::replica::role_repo::DbRoleRepo;
+use management_service::service::ManagementService;
+use of_model::id::Id;
+use of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use ofdb_sql::SqlTranslator;
 use tokio::sync::Notify;
 
 use crate::{
-    AppConfig, BootstrapProtocolHandler, OwnerProvisioner,
+    bootstrap::handler::BootstrapProtocolHandler,
+    config::app_config::AppConfig,
     node_join_tests::{ApprovalFixture, approval_fixture, approval_fixture_for_issuer, user_token},
     node_provisioning_tests::Secrets,
+    provisioning::OwnerProvisioner,
 };
 
 async fn authorize_join(fixture: &ApprovalFixture) -> String {
@@ -48,7 +54,11 @@ async fn authorize_join(fixture: &ApprovalFixture) -> String {
             .await
             .expect("assign join permission");
     }
-    user_token(fixture, management_service::MANAGEMENT_APPLICATION_URI).await
+    user_token(
+        fixture,
+        management_service::service::MANAGEMENT_APPLICATION_URI,
+    )
+    .await
 }
 
 #[tokio::test]
@@ -94,7 +104,7 @@ async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation
     request.installation.push_str(&"i".repeat(padding));
     let fixture = approval_fixture_for_issuer(request.installation.clone()).await;
     request.approving_peer = fixture.server.endpoint().id().to_string();
-    let approval = device_service::hosted_join::NodeJoinApproval::signed_by(
+    let approval = of_model::node_join::NodeJoinApproval::signed_by(
         fixture
             .state
             .transport_identity()
@@ -223,7 +233,7 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
         .expect("approved Device");
     let config = AppConfig {
         data_dir: fixture.root.join("joining").to_string_lossy().into_owned(),
-        oauth2: idp_service::oauth2::OAuth2Config {
+        oauth2: idp_service::oauth2::config::OAuth2Config {
             issuer: fixture.issuer.clone(),
             ..Default::default()
         },
@@ -337,11 +347,12 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
         Database::open(root.join("management/management.redb"))
             .expect("offline Management owner reopen"),
     );
-    let reopened = device_service::replica::DbDeviceRepo::new(management.clone().client())
-        .find_approved_by_public_key(&request.endpoint_id)
-        .await
-        .expect("reopened Device admission")
-        .expect("replacement owner's Device remains approved");
+    let reopened =
+        device_service::replica::device_repo::DbDeviceRepo::new(management.clone().client())
+            .find_approved_by_public_key(&request.endpoint_id)
+            .await
+            .expect("reopened Device admission")
+            .expect("replacement owner's Device remains approved");
     assert_eq!(reopened.id, device.id);
     assert_eq!(reopened.owner_subject, replacement.id.to_string());
     assert_eq!(reopened.name, "Changed Node");
@@ -364,7 +375,7 @@ async fn node_join_rechecks_approving_device_revocation_separately_from_exact_si
     joining.set_pairing_enabled(true);
     let config = AppConfig {
         data_dir: fixture.root.join("joining").to_string_lossy().into_owned(),
-        oauth2: idp_service::oauth2::OAuth2Config {
+        oauth2: idp_service::oauth2::config::OAuth2Config {
             issuer: fixture.issuer.clone(),
             ..Default::default()
         },
@@ -447,10 +458,10 @@ async fn node_join_rechecks_approving_device_revocation_separately_from_exact_si
         &SqlTranslator).await.expect("timestamp-only approving Device state");
     assert_eq!(
         rows[0].rows,
-        vec![db::Row::new(vec![
-            db::Value::Integer(1),
-            db::Value::Integer(1),
-            db::Value::Text(fixture.owner.to_string())
+        vec![ofdb_sql::Row::new(vec![
+            ofdb_sql::Value::Integer(1),
+            ofdb_sql::Value::Integer(1),
+            ofdb_sql::Value::Text(fixture.owner.to_string())
         ])]
     );
     fixture

@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use db::Database;
-use of_model::idp::{model::Id, replica::up};
+use of_model::id::Id;
+use of_model::idp::replica::up;
+use ofdb_sql::Database;
 
 use crate::repo::{OAuth2RefreshToken, OAuth2RefreshTokenRepo};
 
 use super::{DbOAuth2RefreshTokenRepo, equals, select, token_hash};
-use db::Value;
+use ofdb_sql::Value;
 
 fn token(value: &str, client_id: Id, user_id: Id) -> OAuth2RefreshToken {
     OAuth2RefreshToken {
@@ -23,7 +24,7 @@ fn token(value: &str, client_id: Id, user_id: Id) -> OAuth2RefreshToken {
 
 #[tokio::test]
 async fn concurrent_refresh_rotations_have_one_winner() {
-    let engine = Arc::new(db::Database::in_memory());
+    let engine = Arc::new(ofdb_sql::Database::in_memory());
     up(&engine).await.expect("initialize IdP schema");
     let repo = DbOAuth2RefreshTokenRepo::new(engine.client());
     let client = Id::now_v7();
@@ -61,7 +62,7 @@ async fn concurrent_refresh_rotations_have_one_winner() {
 
 #[tokio::test]
 async fn refresh_rotation_rejects_expired_revoked_and_wrong_bindings() {
-    let engine = Arc::new(db::Database::in_memory());
+    let engine = Arc::new(ofdb_sql::Database::in_memory());
     up(&engine).await.expect("initialize IdP schema");
     let repo = DbOAuth2RefreshTokenRepo::new(engine.client());
     let client = Id::now_v7();
@@ -123,7 +124,7 @@ async fn refresh_rotation_rejects_expired_revoked_and_wrong_bindings() {
 
 #[tokio::test]
 async fn failed_refresh_replacement_rolls_back_consumption() {
-    let engine = Arc::new(db::Database::in_memory());
+    let engine = Arc::new(ofdb_sql::Database::in_memory());
     up(&engine).await.expect("initialize IdP schema");
     let repo = DbOAuth2RefreshTokenRepo::new(engine.client());
     let client = Id::now_v7();

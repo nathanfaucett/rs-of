@@ -3,13 +3,14 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use chrono::Utc;
 use k256::ecdsa::SigningKey;
-use of_model::idp::{
-    contract::{
-        EntityType, IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse,
-        ReplicaMembership,
-    },
-    model::Id,
-};
+use of_model::id::Id;
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::contract::idp_signer::IdpSignerRecord;
+use of_model::idp::contract::idp_signer::ReplicaMembership;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use of_model::idp::contract::jwk_public_parameters::JwkPublicParameters;
+use of_model::idp::contract::jws_algorithm::JwsAlgorithm;
+use of_model::idp::contract::key_use::KeyUse;
 use ofdb_sql::{
     AutomergeRowCodec, Engine, EngineExecutor, Kernel, KernelTransaction, RedbKernel, RowCodec,
     Server, redb,
@@ -18,16 +19,19 @@ use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::repo::KeyRepo;
 
-use super::{
-    DbKeyRepo, DbReplicaSignerRepo,
-    observation_test_kernel::{CatalogReads, CountingKernel},
-};
+use crate::replica::key_repo::DbKeyRepo;
+
+use crate::replica::replica_signer_repo::DbReplicaSignerRepo;
+
+use super::observation_test_kernel::CatalogReads;
+
+use super::observation_test_kernel::CountingKernel;
 
 struct Fixture {
     directory: PathBuf,
     engine: Engine<CountingKernel, AutomergeRowCodec>,
     kernel: CountingKernel,
-    remote: db::Client,
+    remote: ofdb_sql::Client,
     reads: Arc<CatalogReads>,
     stop: Option<oneshot::Sender<()>>,
     server: JoinHandle<()>,
@@ -47,14 +51,14 @@ impl Fixture {
             reads: Arc::clone(&reads),
         };
         let engine = Engine::new(kernel.clone(), AutomergeRowCodec::new());
-        let migration = include_str!("../../../model/identity_migrations/0001_init.up.sql");
+        let migration = include_str!("../../../model/migrations/0001_init.up.sql");
         for statement in migration.split(';').map(str::trim).filter(|statement| {
             statement.starts_with("CREATE TABLE IF NOT EXISTS keys (")
                 || statement.starts_with("CREATE TABLE IF NOT EXISTS idp_replica_members (")
                 || statement.starts_with("CREATE TABLE IF NOT EXISTS idp_replica_signers (")
         }) {
             engine
-                .translate_and_execute(statement, &db::SqlTranslator)
+                .translate_and_execute(statement, &ofdb_sql::SqlTranslator)
                 .await
                 .expect("actual owner authority schemas");
         }
@@ -95,7 +99,8 @@ impl Fixture {
     async fn sql(&self, sql: &str) {
         tokio::time::timeout(
             Duration::from_secs(5),
-            self.engine.translate_and_execute(sql, &db::SqlTranslator),
+            self.engine
+                .translate_and_execute(sql, &ofdb_sql::SqlTranslator),
         )
         .await
         .expect("native admission released after lookup")
@@ -107,7 +112,7 @@ impl Fixture {
         self.sql(&format!("INSERT INTO keys (id, parent_id, entity_type, entity_id, derivation_path, derivation_index, hardened, name, revoked_at, expires_at, created_at, updated_at, public_jwk) VALUES (CAST('{id}' AS UUID), {parent}, 0, CAST('{entity}' AS UUID), 'm/0', 0, 1, 'fixture', NULL, NULL, {created}, {created}, NULL)")).await;
     }
 
-    async fn conflict(&self, table: &str, id: Id, column: usize, values: [db::Value; 2]) {
+    async fn conflict(&self, table: &str, id: Id, column: usize, values: [ofdb_sql::Value; 2]) {
         let mut transaction = self
             .kernel
             .transaction()
@@ -140,7 +145,7 @@ impl Fixture {
         transaction.commit().await.expect("commit real conflict");
     }
 
-    async fn replace_value(&self, table: &str, id: Id, column: usize, value: db::Value) {
+    async fn replace_value(&self, table: &str, id: Id, column: usize, value: ofdb_sql::Value) {
         let mut transaction = self
             .kernel
             .transaction()
@@ -167,12 +172,12 @@ impl Fixture {
             .expect("commit learned row evidence");
     }
 
-    async fn resolve(&self, table: &str, id: Id, column: &str, value: db::Value) {
+    async fn resolve(&self, table: &str, id: Id, column: &str, value: ofdb_sql::Value) {
         tokio::time::timeout(
             Duration::from_secs(5),
             self.engine.resolve_row(
                 table,
-                &db::Row::new(vec![db::Value::Uuid(id)]),
+                &ofdb_sql::Row::new(vec![ofdb_sql::Value::Uuid(id)]),
                 vec![(column.into(), value)],
             ),
         )
@@ -186,11 +191,11 @@ impl Fixture {
             .engine
             .translate_and_execute(
                 &format!("SELECT id FROM {table} WHERE member_id = CAST('{member}' AS UUID)"),
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("locate fixture row");
-        db::decode(&results[0].rows[0].values[0], "id").expect("fixture row UUID")
+        ofdb_sql::decode(&results[0].rows[0].values[0], "id").expect("fixture row UUID")
     }
 
     async fn trust(&self) -> (ReplicaMembership, IdpSignerRecord) {
@@ -258,7 +263,7 @@ async fn key_read_preserves_every_decoded_field() {
     let future = Utc::now().timestamp() + 3600;
     fixture.key(id, entity, Some(parent), 10).await;
     fixture.sql(&format!("UPDATE keys SET derivation_path = 'm/7/42', derivation_index = 42, hardened = 0, name = 'Decoded key', public_jwk = '{encoded}', revoked_at = {future}, expires_at = {future}, updated_at = 20 WHERE id = CAST('{id}' AS UUID)")).await;
-    let expected = of_model::idp::model::Key {
+    let expected = of_model::idp::model::key::Key {
         id,
         parent_id: Some(parent),
         entity_type: EntityType::User,
@@ -405,7 +410,10 @@ async fn key_reads_filter_current_revocation_expiry_and_entity_before_clearance(
                 "keys",
                 id,
                 7,
-                [db::Value::from("left"), db::Value::from("right")],
+                [
+                    ofdb_sql::Value::from("left"),
+                    ofdb_sql::Value::from("right"),
+                ],
             )
             .await;
     }
@@ -441,7 +449,7 @@ async fn key_reads_filter_current_revocation_expiry_and_entity_before_clearance(
         "unrelated active key still belongs in the all-active read"
     );
     fixture
-        .resolve("keys", other, "name", db::Value::from("resolved"))
+        .resolve("keys", other, "name", ofdb_sql::Value::from("resolved"))
         .await;
     assert_eq!(
         repo.list_active()
@@ -496,7 +504,10 @@ async fn older_root_and_child_conflicts_deny_before_latest_root_selection() {
                 "keys",
                 conflicted,
                 7,
-                [db::Value::from("left"), db::Value::from("right")],
+                [
+                    ofdb_sql::Value::from("left"),
+                    ofdb_sql::Value::from("right"),
+                ],
             )
             .await;
         assert!(
@@ -525,7 +536,12 @@ async fn older_root_and_child_conflicts_deny_before_latest_root_selection() {
             new
         );
         fixture
-            .resolve("keys", conflicted, "name", db::Value::from("resolved"))
+            .resolve(
+                "keys",
+                conflicted,
+                "name",
+                ofdb_sql::Value::from("resolved"),
+            )
             .await;
         assert_eq!(
             repo.find_active_entity_root_key(EntityType::User, entity)
@@ -625,7 +641,7 @@ async fn empty_and_deleted_keys_are_fresh_on_the_next_call() {
 
 #[tokio::test]
 async fn native_trust_reads_retain_exact_bindings_and_malformed_time_refusals() {
-    use db::Value::{Integer, Null, Text, Uuid};
+    use ofdb_sql::Value::{Integer, Null, Text, Uuid};
     for (table, column, value) in [
         (
             "idp_replica_members",
@@ -704,7 +720,7 @@ async fn trust_conflicts_preserve_pairs_inspect_both_tables_and_refresh() {
             "idp_replica_signers",
             signer_row,
             6,
-            [db::Value::Integer(11), db::Value::Integer(12)],
+            [ofdb_sql::Value::Integer(11), ofdb_sql::Value::Integer(12)],
         )
         .await;
     fixture
@@ -712,7 +728,10 @@ async fn trust_conflicts_preserve_pairs_inspect_both_tables_and_refresh() {
             "idp_replica_members",
             member_row,
             3,
-            [db::Value::from("left"), db::Value::from("right")],
+            [
+                ofdb_sql::Value::from("left"),
+                ofdb_sql::Value::from("right"),
+            ],
         )
         .await;
     fixture.reads.reset();
@@ -733,7 +752,7 @@ async fn trust_conflicts_preserve_pairs_inspect_both_tables_and_refresh() {
             "idp_replica_signers",
             signer_row,
             "approved_at",
-            db::Value::Integer(10),
+            ofdb_sql::Value::Integer(10),
         )
         .await;
     fixture
@@ -741,7 +760,7 @@ async fn trust_conflicts_preserve_pairs_inspect_both_tables_and_refresh() {
             "idp_replica_members",
             member_row,
             "endpoint_id",
-            db::Value::from(pairs[2].0.endpoint_id.as_str()),
+            ofdb_sql::Value::from(pairs[2].0.endpoint_id.as_str()),
         )
         .await;
     fixture.reads.reset();

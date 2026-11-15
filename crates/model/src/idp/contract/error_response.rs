@@ -6,10 +6,10 @@ use alloc::{
     vec::Vec,
 };
 
-use key::KeyError;
+use key::error::KeyError;
 use serde::{Deserialize, Serialize};
 
-use super::ErrorCode;
+use super::error_code::ErrorCode;
 
 /// Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

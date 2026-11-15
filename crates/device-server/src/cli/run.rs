@@ -1,27 +1,33 @@
-use std::{
-    io,
-    net::{IpAddr, SocketAddr},
-    path::Path,
-    sync::Arc,
-    time::Duration,
+use crate::cli::run::run::std::crate::cli::run::run::path::Path;
+use crate::cli::run::run::std::crate::cli::run::run::sync::Arc;
+use crate::cli::run::run::std::crate::cli::run::run::time::Duration;
+use crate::cli::run::run::std::io;
+use crate::cli::run::run::std::net::IpAddr;
+use crate::cli::run::run::std::net::SocketAddr;
+
+use crate::cli::run::run::run::clap::Parser;
+use cli::{args::CliArgs, shutdown_signal::shutdown_signal};
+use server_common::{
+    portless::{bind_addr, public_base_url},
+    serve::serve,
 };
 
-use server_common::{bind_addr, public_base_url, serve};
-use clap::Parser;
-use cli::{CliArgs, shutdown_signal};
+use crate::cli::run::run::run::env_logger::Env;
 
-use env_logger::Env;
-
-use device_service::HostedControlPlane;
-use tokio::{select, spawn, time::sleep};
-use tokio_util::sync::CancellationToken;
-use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
+use crate::cli::run::run::run::tokio_util::sync::CancellationToken;
+use crate::cli::run::run::tokio::crate::cli::run::run::time::sleep;
+use crate::cli::run::run::tokio::select;
+use crate::cli::run::run::tokio::spawn;
+use crate::cli::run::run::tower_http::crate::cli::run::run::compression::CompressionLayer;
+use crate::cli::run::run::tower_http::crate::cli::run::run::cors::CorsLayer;
+use crate::cli::run::run::tower_http::crate::cli::run::run::trace::TraceLayer;
+use device_service::hosted_control_plane::HostedControlPlane;
 
 #[cfg(not(unix))]
-use crate::AppConfig;
-use crate::build_router;
+use crate::config::app_config::AppConfig;
+use crate::runtime::build_router;
 
-#[derive(clap::Parser, Debug)]
+#[derive(crate::cli::run::run::clap::Parser, Debug)]
 enum DeviceCommand {
     #[cfg(unix)]
     #[command(
@@ -42,75 +48,95 @@ enum DeviceCommand {
         host: Option<IpAddr>,
     },
     #[cfg(feature = "completions")]
-    Completions { shell: cli::Shell },
+    Completions { shell: clap_complete::Shell },
 }
 
-pub async fn run() -> io::Result<()> {
-    match dotenvy::dotenv() {
+pub async fn run() -> crate::cli::run::run::io::Result<()> {
+    match crate::cli::run::run::dotenvy::dotenv() {
         Ok(_) => {}
         Err(error) => eprintln!("failed to load .env file: {error}"),
     }
 
     let args = CliArgs::<DeviceCommand>::parse();
-    let cancellation_token = CancellationToken::new();
+    let cancellation_token = crate::cli::run::run::CancellationToken::new();
     #[cfg(unix)]
-    let mut app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
+    let mut app_config = crate::cli::run::run::Arc::new(crate::startup::load_config(
+        crate::cli::run::run::Path::new(&args.config),
+    )?);
     #[cfg(not(unix))]
-    let mut app_config = Arc::new(match AppConfig::try_from(Path::new(&args.config)) {
-        Ok(app_config) => app_config,
-        Err(error) => {
-            eprintln!("failed to load config {:?}: {error}", args.config);
-            AppConfig::default()
-        }
-    });
+    let mut app_config = crate::cli::run::run::Arc::new(
+        match crate::cli::run::run::AppConfig::try_from(crate::cli::run::run::Path::new(
+            &args.config,
+        )) {
+            Ok(app_config) => app_config,
+            Err(error) => {
+                eprintln!("failed to load config {:?}: {error}", args.config);
+                crate::cli::run::run::AppConfig::default()
+            }
+        },
+    );
 
     // Check for public base URL (set by portless via PORTLESS_URL or manually via PUBLIC_BASE_URL)
     let has_public_base = public_base_url().is_some();
-    let portless_port = std::env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok());
+    let portless_port = crate::cli::run::run::std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok());
     if has_public_base {
         let base_url = public_base_url().expect("public base URL must be set");
-        let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
+        let mut config =
+            crate::cli::run::run::Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
         config.api_public_uri = format!("{}/device", base_url.trim_end_matches('/'));
-        config.server.host = IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
+        config.server.host = crate::cli::run::run::IpAddr::V4(
+            crate::cli::run::run::std::net::Ipv4Addr::new(127, 0, 0, 1),
+        );
         if let Some(port) = portless_port {
             config.server.port = port;
         }
-        app_config = Arc::new(config);
+        app_config = crate::cli::run::run::Arc::new(config);
     } else if let Some(port) = portless_port {
-        let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
+        let mut config =
+            crate::cli::run::run::Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
         config.server.port = port;
-        app_config = Arc::new(config);
+        app_config = crate::cli::run::run::Arc::new(config);
     }
 
     #[cfg(unix)]
-    if !has_public_base && matches!(args.command, None | Some(DeviceCommand::Serve { .. })) {
+    if !has_public_base
+        && matches!(
+            args.command,
+            None | Some(crate::cli::run::run::DeviceCommand::Serve { .. })
+        )
+    {
         let (host, port) = match args.command.as_ref() {
-            Some(DeviceCommand::Serve { host, port }) => (*host, *port),
+            Some(crate::cli::run::run::DeviceCommand::Serve { host, port }) => (*host, *port),
             _ => (None, None),
         };
         let configured_host = app_config.server.host;
         let setup_host = host.unwrap_or_else(|| {
             if configured_host.is_unspecified() {
-                std::net::Ipv4Addr::LOCALHOST.into()
+                crate::cli::run::run::std::net::Ipv4Addr::LOCALHOST.into()
             } else {
                 configured_host
             }
         });
-        let address = SocketAddr::new(setup_host, port.unwrap_or(app_config.server.port));
-        if let Some(setup) = crate::prepare_setup(&app_config, address)? {
-            env_logger::Builder::from_env(
-                Env::default()
+        let address = crate::cli::run::run::SocketAddr::new(
+            setup_host,
+            port.unwrap_or(app_config.server.port),
+        );
+        if let Some(setup) = crate::startup::prepare_setup(&app_config, address)? {
+            crate::cli::run::run::env_logger::Builder::from_env(
+                crate::cli::run::run::Env::default()
                     .default_filter_or(format!("{},automerge=warn", app_config.log_level)),
             )
             .init();
             let shutdown = shutdown_signal(cancellation_token.clone());
-            let serving = crate::serve_independent_create(
+            let serving = crate::independent_create::serve_independent_create(
                 app_config.clone(),
                 setup,
                 cancellation_token.clone(),
             );
-            tokio::pin!(shutdown, serving);
-            return tokio::select! {
+            crate::cli::run::run::tokio::pin!(shutdown, serving);
+            return crate::cli::run::run::tokio::select! {
                 result = &mut serving => result,
                 () = &mut shutdown => serving.await,
             };
@@ -122,32 +148,35 @@ pub async fn run() -> io::Result<()> {
         || app_config.expected_issuer.trim().is_empty()
         || app_config.storage_audience.trim().is_empty()
     {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
+        return Err(crate::cli::run::run::io::Error::new(
+            crate::cli::run::run::io::ErrorKind::InvalidInput,
             "idp_api_base, storage_api_base, expected_issuer and storage_audience are required",
         ));
     }
 
-    let idp_client_id = std::env::var("SERVER_IDP_OAUTH_CLIENT_ID").map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "SERVER_IDP_OAUTH_CLIENT_ID is required",
-        )
-    })?;
-    let idp_client_secret = std::env::var("SERVER_IDP_OAUTH_CLIENT_SECRET").map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
+    let idp_client_id =
+        crate::cli::run::run::std::env::var("SERVER_IDP_OAUTH_CLIENT_ID").map_err(|_| {
+            crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
+                "SERVER_IDP_OAUTH_CLIENT_ID is required",
+            )
+        })?;
+    let idp_client_secret = crate::cli::run::run::std::env::var("SERVER_IDP_OAUTH_CLIENT_SECRET")
+        .map_err(|_| {
+        crate::cli::run::run::io::Error::new(
+            crate::cli::run::run::io::ErrorKind::InvalidInput,
             "SERVER_IDP_OAUTH_CLIENT_SECRET is required",
         )
     })?;
-    let idp_service_audience = std::env::var("SERVER_IDP_SERVICE_AUDIENCE").map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
+    let idp_service_audience = crate::cli::run::run::std::env::var("SERVER_IDP_SERVICE_AUDIENCE")
+        .map_err(|_| {
+        crate::cli::run::run::io::Error::new(
+            crate::cli::run::run::io::ErrorKind::InvalidInput,
             "SERVER_IDP_SERVICE_AUDIENCE is required",
         )
     })?;
-    let control_plane = Arc::new(
-        HostedControlPlane::new_with_services(
+    let control_plane = crate::cli::run::run::Arc::new(
+        crate::cli::run::run::HostedControlPlane::new_with_services(
             &app_config.idp_api_base,
             &app_config.storage_api_base,
             &app_config.expected_issuer,
@@ -165,17 +194,23 @@ pub async fn run() -> io::Result<()> {
                 None => Ok(control_plane),
             },
         )
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?,
+        .map_err(|error| {
+            crate::cli::run::run::io::Error::new(
+                crate::cli::run::run::io::ErrorKind::InvalidInput,
+                error,
+            )
+        })?,
     );
 
-    env_logger::Builder::from_env(
-        Env::default().default_filter_or(format!("{},automerge=warn", app_config.log_level)),
+    crate::cli::run::run::env_logger::Builder::from_env(
+        crate::cli::run::run::Env::default()
+            .default_filter_or(format!("{},automerge=warn", app_config.log_level)),
     )
     .init();
 
-    let engine = crate::device_client(&app_config).await?;
+    let engine = crate::database_client::device_client(&app_config).await?;
     let router = build_router(
-        crate::identity_client(&app_config).await?,
+        crate::database_client::identity_client(&app_config).await?,
         engine,
         &app_config.api_public_uri,
         app_config.server.prefix(),
@@ -184,16 +219,16 @@ pub async fn run() -> io::Result<()> {
         None,
     )
     .await
-    .map_err(io::Error::other)?
-    .layer(CorsLayer::very_permissive().allow_private_network(true))
-    .layer(TraceLayer::new_for_http())
-    .layer(CompressionLayer::new().gzip(app_config.server.gzip));
+    .map_err(crate::cli::run::run::io::Error::other)?
+    .layer(crate::cli::run::run::CorsLayer::very_permissive().allow_private_network(true))
+    .layer(crate::cli::run::run::TraceLayer::new_for_http())
+    .layer(crate::cli::run::run::CompressionLayer::new().gzip(app_config.server.gzip));
 
     let run_serve = |host: Option<IpAddr>, port: Option<u16>| {
         let addr = if has_public_base {
             bind_addr()
         } else {
-            SocketAddr::from((
+            crate::cli::run::run::SocketAddr::from((
                 host.unwrap_or(app_config.server.host),
                 port.unwrap_or(app_config.server.port),
             ))
@@ -203,31 +238,33 @@ pub async fn run() -> io::Result<()> {
 
     let command_handle = match args.command {
         #[cfg(unix)]
-        Some(DeviceCommand::ResetIndependent { .. }) => {
-            return Err(io::Error::other("reset must run before serving"));
+        Some(crate::cli::run::run::DeviceCommand::ResetIndependent { .. }) => {
+            return Err(crate::cli::run::run::io::Error::other(
+                "reset must run before serving",
+            ));
         }
         #[cfg(feature = "completions")]
-        Some(DeviceCommand::Completions { shell }) => {
-            spawn(async move { cli::run_completions(shell).await })
+        Some(crate::cli::run::run::DeviceCommand::Completions { shell }) => {
+            spawn(async move { cli::completions::run_completions(shell).await })
         }
-        Some(DeviceCommand::Serve { host, port }) => run_serve(host, port),
+        Some(crate::cli::run::run::DeviceCommand::Serve { host, port }) => run_serve(host, port),
         None => run_serve(None, None),
     };
 
     shutdown_signal(cancellation_token).await;
 
-    let shutdown_timeout = Duration::from_secs(10);
+    let shutdown_timeout = crate::cli::run::run::Duration::from_secs(10);
     let mut command_handle = command_handle;
     select! {
         result = &mut command_handle => match result {
-            Ok(Ok(())) => log::info!("server shutdown complete"),
-            Ok(Err(error)) => log::error!("command error: {error}"),
-            Err(error) => log::error!("join error: {error}"),
+            Ok(Ok(())) => crate::cli::run::run::log::info!("server shutdown complete"),
+            Ok(Err(error)) => crate::cli::run::run::log::error!("command error: {error}"),
+            Err(error) => crate::cli::run::run::log::error!("join error: {error}"),
         },
         _ = sleep(shutdown_timeout) => {
-            log::warn!("server shutdown timed out after {shutdown_timeout:?}, aborting serve task");
+            crate::cli::run::run::log::warn!("server shutdown timed out after {shutdown_timeout:?}, aborting serve task");
             command_handle.abort();
-            sleep(Duration::from_millis(100)).await;
+            sleep(crate::cli::run::run::Duration::from_millis(100)).await;
         }
     }
 
@@ -236,10 +273,10 @@ pub async fn run() -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
-    use cli::CliArgs;
+    use crate::cli::run::run::run::clap::Parser;
+    use cli::args::CliArgs;
 
-    use super::DeviceCommand;
+    use crate::cli::run::run::run::DeviceCommand;
 
     #[cfg(unix)]
     #[test]

@@ -1,24 +1,29 @@
-use db::{
-    Query, QueryColumn, QueryExpr, QueryExprValue, QueryFrom, QueryInsert, QuerySelect,
-    QueryUpdate, QueryUpdateAssignment, Row, Statement, Value,
-};
-use of_model::idp::{
-    model::Id,
-    replica::{SecurityRow, SecurityTable, allows_token_issuance},
-};
-use sha2::{Digest, Sha256};
-
-use crate::repo::{OAuth2RefreshToken, OAuth2RefreshTokenRepo, RepoError, RepoResult};
+use of_model::id::Id;
+use of_model::idp::replica::SecurityRow;
+use of_model::idp::replica::SecurityTable;
+use of_model::idp::replica::allows_token_issuance;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use ofdb_sql::Value;
 
 const TABLE: &str = "oauth2_refresh_tokens";
 
 pub struct DbOAuth2RefreshTokenRepo {
-    engine: db::Client,
+    engine: ofdb_sql::Client,
 }
 
 impl DbOAuth2RefreshTokenRepo {
     #[must_use]
-    pub const fn new(engine: db::Client) -> Self {
+    pub const fn new(engine: ofdb_sql::Client) -> Self {
         Self { engine }
     }
 
@@ -37,6 +42,18 @@ impl DbOAuth2RefreshTokenRepo {
     }
 }
 
+fn token_hash(token: &str) -> String {
+    format!("{:x}", Sha256::digest(token.as_bytes()))
+}
+fn invalid_grant() -> RepoError {
+    RepoError::InvalidInput("refresh token is expired, revoked, consumed, or not found".into())
+}
+fn db_error(error: ofdb_sql::QueryError) -> RepoError {
+    RepoError::InvalidInput(error.to_string())
+}
+fn json_error(error: serde_json::Error) -> RepoError {
+    RepoError::Other(Box::new(error))
+}
 impl OAuth2RefreshTokenRepo for DbOAuth2RefreshTokenRepo {
     async fn issue_refresh_token(
         &self,
@@ -53,13 +70,14 @@ impl OAuth2RefreshTokenRepo for DbOAuth2RefreshTokenRepo {
                 .await
                 .map_err(db_error)?;
             let row = results[0].rows.first().ok_or_else(invalid_grant)?;
-            let id: Id = db::decode(&row.values[0], "id")
+            let id: Id = ofdb_sql::decode(&row.values[0], "id")
                 .map_err(|error| RepoError::InvalidInput(error.to_string()))?;
             self.ensure_clear(id).await?;
             Some(id)
         } else {
             None
-        };
+        }
+        ;
         let id = Id::now_v7();
         let row = Row::new(vec![
             Value::Uuid(id),
@@ -154,6 +172,7 @@ impl OAuth2RefreshTokenRepo for DbOAuth2RefreshTokenRepo {
         Ok(())
     }
 }
+mod tests;
 
 fn insert(row: Row) -> Statement {
     Statement::Query(Query::Insert(QueryInsert {
@@ -215,19 +234,3 @@ fn assignment(name: &str, now: i64) -> QueryUpdateAssignment {
         value: QueryExprValue::Value(Value::Integer(now)),
     }
 }
-fn token_hash(token: &str) -> String {
-    format!("{:x}", Sha256::digest(token.as_bytes()))
-}
-fn invalid_grant() -> RepoError {
-    RepoError::InvalidInput("refresh token is expired, revoked, consumed, or not found".into())
-}
-fn db_error(error: db::QueryError) -> RepoError {
-    RepoError::InvalidInput(error.to_string())
-}
-fn json_error(error: serde_json::Error) -> RepoError {
-    RepoError::Other(Box::new(error))
-}
-
-#[cfg(test)]
-#[path = "refresh_token_tests.rs"]
-mod tests;

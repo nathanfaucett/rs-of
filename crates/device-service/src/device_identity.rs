@@ -1,11 +1,13 @@
 use std::io;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use idp_service::repo::RawKeyringRepo;
+use idp_service::repo::raw_keyring_repo::RawKeyringRepo;
 use iroh::{Endpoint, EndpointId, SecretKey, Signature, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
 
-use crate::{DeviceSelfRevocationRequest, device_self_revocation_payload};
+use of_model::device::contract::device_self_revocation::DeviceSelfRevocationRequest;
+
+use of_model::device::contract::device_self_revocation::device_self_revocation_payload;
 
 #[derive(Clone)]
 pub struct DeviceIdentity {

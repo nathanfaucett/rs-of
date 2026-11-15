@@ -30,9 +30,9 @@
 for this interface. Its runtime requires `std`; domain-only builds do not.
 See [the adapter README](../embedded-db/README.md).
 
-`replica::up` applies the fresh unified schema in one SQL transaction. It includes identity, Device, Management sync, and Storage catalog tables. The integration test uses a real redb file, repeats initialization, commits and rolls back transactions, then checks retained data after reopen.
+There is a single migration: `migrations/0001_init.up.sql` holds the full schema (identity, Device, Management sync, and Storage catalog tables). `replica::up`, `idp::replica::up`, and `replica::up_device` all apply it in one SQL transaction; owner separation is logical (the `Database` owner views and per-owner validation), not separate table sets. The integration test uses a real redb file, repeats initialization, commits and rolls back transactions, then checks retained data after reopen.
 
-Independent identity initialization remains at `idp::replica::up`. Independent Device initialization uses `replica::up_device` and retains Device schema validation in `device-service`. Neither initializes the other owner's tables. Independent Storage keeps its existing file-backed catalogs; the new unified SQL catalog is not a replacement for that runtime yet.
+`idp::replica::up` additionally rejects legacy mixed credential history, and Device schema validation stays in `device-service`. Independent Storage keeps its existing file-backed catalogs; the SQL catalog is not a replacement for that runtime yet.
 
 ## Runtime boundary
 

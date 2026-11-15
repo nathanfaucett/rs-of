@@ -14,7 +14,10 @@ use axum::{
 use serde::Serialize;
 use tower_http::cors::CorsLayer;
 
-use crate::{SetupAdmission, SetupScope, setup_admission_middleware, setup_files::require_absent};
+use crate::setup_admission::SetupAdmission;
+use crate::setup_admission::setup_admission_middleware;
+use crate::setup_scope::SetupScope;
+use crate::setup_files::require_absent;
 
 struct SetupState {
     admission: Arc<SetupAdmission>,

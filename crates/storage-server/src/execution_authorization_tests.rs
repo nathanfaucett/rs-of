@@ -1,29 +1,32 @@
 use std::{
     collections::BTreeMap,
     sync::{
-        Arc, Mutex as StdMutex,
+        Arc, Mutex,
         atomic::{AtomicU64, AtomicUsize},
     },
     time::Duration,
 };
 
-use db::{Database, SqlTranslator};
-use device_service::DeviceRepo;
-use device_service::replica::DbDeviceRepo;
+use ofdb_sql::Database;
+
+use device_service::device_repo::DeviceRepo;
+use device_service::replica::device_repo::DbDeviceRepo;
 use file_system::FileResponse;
-use of_model::idp::{
-    contract::{
-        IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
-        PermissionTarget,
-    },
-    model::Id,
+use idp_service::{
+    password_config::PasswordConfig, replica::user_repo::DbUserRepo, repo::user_repo::UserRepo,
 };
-use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
-use management_service::LocalPermissions;
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
+use management_service::local_permissions::LocalPermissions;
+use management_service::replica::permission_repo::DbPermissionRepo;
+use management_service::replica::role_repo::DbRoleRepo;
+use management_service::service::ManagementService;
+use of_model::id::Id;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::IdentityResource;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use ofdb_sql::SqlTranslator;
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 
 use super::{FrameAuthorizer, Inner, send_response, write_loop};
@@ -64,8 +67,8 @@ async fn queued_write_fixture(in_flight: bool) {
         let idp = Arc::new(Database::open(root.join("idp.redb")).expect("open IdP"));
         let management = Arc::new(Database::open(root.join("management.redb")).expect("open Management"));
         of_model::idp::replica::up(&idp).await.expect("IdP schema");
-        device_service::replica::up(&management).await.expect("Device schema");
-        management_service::replica::up(&management).await.expect("Management policy schema");
+        device_service::replica::schema::up(&management).await.expect("Device schema");
+        of_model::idp::replica::up(&management).await.expect("Management policy schema");
         let actor = Id::now_v7();
         let member = Id::now_v7();
         let role = Id::now_v7();
@@ -129,7 +132,7 @@ async fn queued_write_fixture(in_flight: bool) {
                 write_loop(inner.clone(), send, received, inner.shutdown.subscribe()).await
             })
         };
-        service.remove_role_from_user(of_model::idp::contract::INSTALLATION_POLICY_ID, actor, role).await.expect("learn local denial while queued");
+        service.remove_role_from_user(of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID, actor, role).await.expect("learn local denial while queued");
         assert!(!LocalPermissions::new(management.client()).evaluate(&request).await.expect("current local denial"));
         inner.outgoing.lock().expect("queue lock").take();
         resume.notify_one();

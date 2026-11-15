@@ -6,8 +6,9 @@ use subtle::ConstantTimeEq;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{IndependentCreateControl, LocalTls};
-use crate::exact_https;
+use crate::independent_create::IndependentCreateControl;
+use crate::independent_peer::exact_https;
+use crate::local_tls::LocalTls;
 
 impl IndependentCreateControl {
     pub async fn request_history(
@@ -17,7 +18,7 @@ impl IndependentCreateControl {
         cancellation: &CancellationToken,
     ) -> io::Result<Value> {
         exact_https(source)?;
-        let nonce = crate::random_capability()?;
+        let nonce = crate::independent_exchange::random_capability()?;
         let (sender, mut receiver) = mpsc::channel(1);
         {
             let mut state = self.0.lifecycle.lock().await;

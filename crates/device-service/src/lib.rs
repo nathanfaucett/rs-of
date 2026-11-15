@@ -3,13 +3,14 @@
 
 extern crate alloc;
 
-pub use of_model::device::{
-    ApprovedDeviceEndpoints, Device, DeviceApprovalRequest, DeviceEndpointIdentity,
+pub use of_model::device::contract::{
+    ApprovedDeviceEndpoints, DeviceApprovalRequest, DeviceEndpointIdentity,
     DeviceEnrollment, DeviceEnrollmentRequest, DeviceInfo, DevicePairingApprovalPayload,
-    DevicePairingApprovalRequest, DevicePairingRequest, DeviceSelfRevocationRequest, DeviceState,
+    DevicePairingApprovalRequest, DevicePairingRequest, DeviceSelfRevocationRequest,
     DeviceTransferRequest, PairingAcceptance, TrustedDevice, UpdateDeviceRequest,
-    device_pairing_approval_payload, device_self_revocation_payload,
 };
+pub use of_model::device::device::Device;
+pub use of_model::device::contract::DeviceState;
 
 #[cfg(feature = "replica")]
 pub mod replica;
@@ -41,9 +42,9 @@ pub use pairing_acceptance::{
     PairingAcceptanceController, PairingAcceptanceControllerSlot, TimedPairingAcceptanceController,
 };
 
-#[cfg(all(feature = "independent", unix))]
+#[cfg(all(feature = "replica", unix))]
 pub mod independent_join;
-#[cfg(all(feature = "independent", unix))]
+#[cfg(all(feature = "replica", unix))]
 pub mod join_history;
 #[cfg(feature = "replica")]
 pub mod security_candidates;

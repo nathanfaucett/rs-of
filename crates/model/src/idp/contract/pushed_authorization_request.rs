@@ -8,7 +8,7 @@ use alloc::{
 
 use serde::{Deserialize, Serialize};
 
-use super::CodeChallengeMethod;
+use crate::idp::contract::code_challenge_method::CodeChallengeMethod;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

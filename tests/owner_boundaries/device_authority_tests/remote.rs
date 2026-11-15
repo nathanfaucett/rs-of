@@ -18,11 +18,11 @@ use device_service::{
     HostedControlPlane,
     replica::{DbDeviceRepo, DbSelectionPolicyRepo, SelectionPolicy},
 };
+use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 use of_model::idp::{
     contract::{IdentityAction, IntrospectionResponse},
     model::Id,
 };
-use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 
 const CHILD: &str = "device_authority_tests::remote::remote_device_child";
 const SCOPES: &str =

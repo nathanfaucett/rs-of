@@ -3,10 +3,12 @@ use axum::{
     extract::{Form, State},
 };
 use of_model::idp::contract::{
-    DeviceAuthorization, DeviceAuthorizationRequest, ErrorCode, ErrorResponse,
+    device_authorization::DeviceAuthorization,
+    device_authorization_request::DeviceAuthorizationRequest, error_code::ErrorCode,
+    error_response::ErrorResponse,
 };
 
-use crate::router::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(
     post,

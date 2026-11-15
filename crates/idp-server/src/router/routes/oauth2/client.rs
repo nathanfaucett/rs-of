@@ -2,9 +2,11 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use of_model::idp::contract::{ClientConsentMetadata, ErrorResponse};
+use of_model::idp::contract::{
+    client_consent_metadata::ClientConsentMetadata, error_response::ErrorResponse,
+};
 
-use crate::router::{RouterState, middleware::StandardAuthorization};
+use crate::router::{middleware::authorization::StandardAuthorization, state::RouterState};
 
 #[utoipa::path(get, path = "/oauth2/client/{client_id}",
     params(("client_id" = String, Path)),

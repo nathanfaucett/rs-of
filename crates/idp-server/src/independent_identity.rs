@@ -1,7 +1,7 @@
 use std::{io, path::PathBuf, sync::Arc};
 
-use setup::IndependentCreateControl;
-use db::Database;
+use ofdb_sql::Database;
+use setup::independent_create::IndependentCreateControl;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 

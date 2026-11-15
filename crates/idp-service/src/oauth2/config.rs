@@ -7,8 +7,9 @@ use alloc::{
 };
 
 use of_model::idp::contract::{
-    AuthorizationServerMetadata, CodeChallengeMethod, GrantType, ResponseMode, ResponseType,
-    TokenEndpointAuthMethod,
+    authorization_server_metadata::AuthorizationServerMetadata,
+    code_challenge_method::CodeChallengeMethod, grant_type::GrantType, response_mode::ResponseMode,
+    response_type::ResponseType, token_endpoint_auth_method::TokenEndpointAuthMethod,
 };
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +25,7 @@ pub const DEFAULT_DEVICE_POLL_INTERVAL_SECS: i64 = 5;
 #[serde(default, deny_unknown_fields)]
 pub struct OAuth2Config {
     pub issuer: String,
-    pub local_signer: Option<super::NodeSignerBinding>,
+    pub local_signer: Option<crate::oauth2::node_signer::NodeSignerBinding>,
     pub require_pkce: bool,
     pub token_ttl_secs: u64,
     pub refresh_token_ttl_secs: u64,
@@ -53,7 +54,7 @@ mod tests {
     #[cfg(not(feature = "std"))]
     use alloc::format;
 
-    use super::OAuth2Config;
+    use crate::oauth2::config::OAuth2Config;
     #[test]
     fn metadata_uses_public_endpoints_without_changing_canonical_issuer() {
         let issuer = "https://canonical-idp.example/idp/";

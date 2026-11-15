@@ -2,7 +2,7 @@ use alloc::{string::String, vec, vec::Vec};
 
 use base64::Engine;
 
-use crate::PasswordConfig;
+use crate::password_config::PasswordConfig;
 
 pub fn generate_random_string<const N: usize>() -> String {
     // TODO: use generic_const_exprs once stablized to enforce N > 0 at compile time

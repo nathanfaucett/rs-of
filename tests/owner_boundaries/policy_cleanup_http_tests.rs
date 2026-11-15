@@ -3,10 +3,6 @@ use std::sync::{Arc, OnceLock};
 use device_service::HostedControlPlane;
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use of_model::idp::{
-    contract::{EntityType, GrantType, IdentityAction, TokenEndpointAuthMethod},
-    model::Id,
-};
 use idp_service::{
     replica::DbUserRepo,
     repo::{ClientRepo, UserRepo},
@@ -15,6 +11,10 @@ use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
 use of_model::contract::{StorageAuthorizationAction, TokenResponse};
+use of_model::idp::{
+    contract::{EntityType, GrantType, IdentityAction, TokenEndpointAuthMethod},
+    model::Id,
+};
 use storage_server::{RouterState, StorageCopyRetirement, resource_router};
 
 use crate::support::native::{Fixture, Gate, Listener, registration};

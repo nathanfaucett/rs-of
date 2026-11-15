@@ -3,7 +3,7 @@ use alloc::format;
 
 use serde::{Deserialize, Deserializer, Serializer, de::Error};
 
-use crate::device::DeviceState;
+use crate::device::contract::device_state::DeviceState;
 
 pub fn serialize<S>(value: &DeviceState, serializer: S) -> Result<S::Ok, S::Error>
 where

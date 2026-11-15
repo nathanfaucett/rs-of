@@ -1,7 +1,10 @@
 use axum::{Json, extract::State};
-use of_model::idp::contract::{AuthorizationServerMetadata, ErrorResponse, Jwks};
+use of_model::idp::contract::{
+    authorization_server_metadata::AuthorizationServerMetadata, error_response::ErrorResponse,
+    jwks::Jwks,
+};
 
-use crate::router::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(get, path = "/.well-known/jwks.json", responses((status = 200, description = "JWKS", body = Jwks)))]
 pub(crate) async fn jwks(State(state): State<RouterState>) -> Result<Json<Jwks>, ErrorResponse> {

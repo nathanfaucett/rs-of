@@ -14,13 +14,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use of_model::idp::model::Id;
-use idp_server::{AppConfig, OwnerProvisioner};
+use bip32::DerivationPath;
+use idp_server::{config::app_config::AppConfig, provisioning::OwnerProvisioner};
 use idp_service::{
-    oauth2::NodeSignerBinding,
-    repo::{PrivateKeyRepo, RepoResult},
+    oauth2::node_signer::NodeSignerBinding,
+    repo::{error::RepoResult, private_key_repo::PrivateKeyRepo},
 };
-use key::{DerivationPath, DerivedKey};
+use key::derived_key::DerivedKey;
+use of_model::id::Id;
 
 #[derive(Clone, Default)]
 struct Secrets {
@@ -80,7 +81,7 @@ async fn completed_signer_operation_releases_lock_before_inheriting_child_exec()
     };
     let secrets = Secrets::default();
     let owner = Arc::new(
-        OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        crate::provisioning::OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
             .await
             .expect("fresh owner"),
     );

@@ -3,19 +3,22 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use idp_service::repo::RepoError;
-use of_model::idp::{
-    contract::{
-        ErrorCode, ErrorResponse, IdentityAction, IdentityResource, IdpSignerRecord,
-        PermissionTarget, ReplicaMembership,
-    },
-    model::Id,
-};
-pub use of_model::server::idp::replica_signers::{EnrollReplicaSigner, RotateReplicaSigner};
+use idp_service::repo::error::RepoError;
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::idp::contract::idp_signer::IdpSignerRecord;
+use of_model::idp::contract::idp_signer::ReplicaMembership;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::IdentityResource;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use of_model::server::idp::replica_signers::{EnrollReplicaSigner, RotateReplicaSigner};
 
 use crate::router::{
-    RouterState,
-    middleware::{StandardAuthorization, require_identity_permission},
+    middleware::{
+        authorization::StandardAuthorization, identity_administration::require_identity_permission,
+    },
+    state::RouterState,
 };
 
 #[utoipa::path(

@@ -1,16 +1,18 @@
 use std::sync::Arc;
 
-use of_model::idp::{contract::IntrospectionResponse, model::Id};
+use of_model::idp::contract::introspection_response::IntrospectionResponse;
+
+use of_model::id::Id;
 use iroh_chain::{EndpointIdStore, Server};
-use of_model::contract::SelectedResource;
-use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
+use of_model::contract::replication::SelectedResource;
+use storage_service::{database_runtime::{DatabaseRuntime}, scoped_file_system::{ScopedFileSystemRuntime}};
 use tokio_util::sync::CancellationToken;
 
-use crate::{IdpClient, StorageReplicationRuntime, StorageSyncDirection, StorageSyncRequest};
+use crate::{StorageSyncDirection, StorageSyncRequest, idp_client::{IdpClient}, replication_runtime::{StorageReplicationRuntime}};
 use crate::execution_test_support::{DomainNode, IrohPair, TestDirectory, approved_signers, sql};
 
 struct Namespace { owner: String, application: Id }
-impl of_model::storage::StorageNamespace for Namespace {
+impl of_model::storage::namespace::StorageNamespace for Namespace {
     fn user_sub(&self) -> &str { &self.owner }
     fn application_id(&self) -> Id { self.application }
 }
@@ -56,7 +58,7 @@ async fn user_driven_native_sync_persists_sql_and_kv_at_reopened_destination() {
         let idp = IdpClient::local(move |token| {
             let subject = subject.clone(); let application = application.clone();
             async move {
-                if token != "current-user-token" { return Err(crate::IdpIntrospectionError::InvalidToken); }
+                if token != "current-user-token" { return Err(crate::idp_client::IdpIntrospectionError::InvalidToken); }
                 Ok(serde_json::from_value::<IntrospectionResponse>(serde_json::json!({
                     "claims": { "type":"Bearer", "use":"Access", "exp":i64::MAX, "nbf":0, "iat":0,
                         "iss":"https://installation.example/idp", "aud":"storage:databases", "resource":"storage:databases",
@@ -81,8 +83,8 @@ async fn user_driven_native_sync_persists_sql_and_kv_at_reopened_destination() {
         let destination_sql = databases[1].open_selected(&scope, resource.id).expect("destination SQL").expect("selected SQL");
         sql(&destination_sql, &format!("INSERT INTO documents VALUES (CAST('{}' AS UUID), 'right-kept')", Id::now_v7())).await;
         driver.synchronize("current-user-token", request.clone(), async { Ok(pair.endpoints[1].addr()) }).await.expect("reverse SQL exchange");
-        let source_rows = source.client().translate_and_execute("SELECT value FROM documents ORDER BY value", &db::SqlTranslator).await.expect("reverse SQL apply");
-        assert_eq!(source_rows[0].rows.iter().map(|row| row.values[0].clone()).collect::<Vec<_>>(), [db::Value::Text("native-kept".into()), db::Value::Text("right-kept".into())]);
+        let source_rows = source.client().translate_and_execute("SELECT value FROM documents ORDER BY value", &ofdb_sql::SqlTranslator).await.expect("reverse SQL apply");
+        assert_eq!(source_rows[0].rows.iter().map(|row| row.values[0].clone()).collect::<Vec<_>>(), [ofdb_sql::Value::Text("native-kept".into()), ofdb_sql::Value::Text("right-kept".into())]);
         drop(destination_sql); drop(destination_kv);
         nodes[0].restrict(1, false).await;
         assert!(driver.synchronize("current-user-token", request, async { panic!("restricted Device must not resolve a target") }).await.is_err(), "learned Device restriction stops the next run");
@@ -92,8 +94,8 @@ async fn user_driven_native_sync_persists_sql_and_kv_at_reopened_destination() {
         drop(source_kv); drop(source); drop(databases);
         let reopened = DatabaseRuntime::new(paths[1].clone()).expect("reopen destination owner");
         let sql_owner = reopened.open_selected(&scope, resource.id).expect("reopen selected SQL").expect("SQL exists");
-        let rows = sql_owner.client().translate_and_execute("SELECT value FROM documents ORDER BY value", &db::SqlTranslator).await.expect("read reopened SQL");
-        assert_eq!(rows[0].rows.iter().map(|row| row.values[0].clone()).collect::<Vec<_>>(), [db::Value::Text("native-kept".into()), db::Value::Text("right-kept".into())]);
+        let rows = sql_owner.client().translate_and_execute("SELECT value FROM documents ORDER BY value", &ofdb_sql::SqlTranslator).await.expect("read reopened SQL");
+        assert_eq!(rows[0].rows.iter().map(|row| row.values[0].clone()).collect::<Vec<_>>(), [ofdb_sql::Value::Text("native-kept".into()), ofdb_sql::Value::Text("right-kept".into())]);
         let kv_owner = reopened.open_kv_selected(&scope, resource.id).expect("reopen KV").expect("KV exists");
         assert_eq!(kv_owner.client().get("documents/body").await.expect("read reopened KV"), Some(ofdb_kv::Value::Text("real-kv-body".into())));
         drop(kv_owner); drop(sql_owner); drop(reopened);

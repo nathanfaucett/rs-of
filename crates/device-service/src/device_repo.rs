@@ -1,8 +1,10 @@
 use alloc::{string::String, vec::Vec};
 
-use crate::{Device, TrustedDevice};
+use of_model::device::device::Device;
 
-use crate::DeviceResult;
+use of_model::device::contract::trusted_device::TrustedDevice;
+
+use of_model::device_error::DeviceResult;
 
 pub trait DeviceRepo {
     fn create(
@@ -25,12 +27,12 @@ pub trait DeviceRepo {
 
     fn pending_pairing(
         &self,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
     ) -> impl Future<Output = DeviceResult<Option<(Device, String)>>>;
 
     fn approve_pairing(
         &self,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
     ) -> impl Future<Output = DeviceResult<Option<Device>>>;
 
     fn has_any(&self) -> impl Future<Output = DeviceResult<bool>>;
@@ -59,26 +61,26 @@ pub trait DeviceRepo {
 
     fn approve(
         &self,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
         enrollment_code_hash: &[u8],
     ) -> impl Future<Output = DeviceResult<Option<Device>>>;
 
     fn approve_by_admin(
         &self,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
     ) -> impl Future<Output = DeviceResult<Option<Device>>>;
 
     fn rename(
         &self,
         owner_subject: &str,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
         name: String,
     ) -> impl Future<Output = DeviceResult<Option<Device>>>;
 
     fn revoke(
         &self,
         owner_subject: &str,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
         protected_public_key: &str,
     ) -> impl Future<Output = DeviceResult<bool>>;
 

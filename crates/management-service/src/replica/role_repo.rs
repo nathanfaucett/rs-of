@@ -1,14 +1,30 @@
 use chrono::{DateTime, Timelike, Utc};
-use db::{
-    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
-    QueryInsert, QuerySelect, Row, Statement, Uuid, Value,
-};
-use of_model::idp::{
-    model::{Id, Permission, Role},
-    replica::{SecurityRow, SecurityTable, allows_authorization},
-};
+use of_model::id::Id;
+use of_model::idp::model::permission::Permission;
+use of_model::idp::model::role::Role;
+use of_model::idp::replica::SecurityRow;
+use of_model::idp::replica::SecurityTable;
+use of_model::idp::replica::allows_authorization;
+use ofdb_sql::FromRow;
+use ofdb_sql::FromRowError;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryDelete;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use ofdb_sql::Uuid;
+use ofdb_sql::Value;
 
-use crate::{ManagementError, ManagementResult, RoleRepo};
+use of_model::management_error::ManagementError;
+
+use of_model::management_error::ManagementResult;
+
+use crate::RoleRepo;
 
 const ROLES: &str = "roles";
 const PERMISSIONS: &str = "permissions";
@@ -44,12 +60,12 @@ const USER_ROLE_COLUMNS: [&str; 7] = [
 ];
 
 pub struct DbRoleRepo {
-    engine: db::Client,
+    engine: ofdb_sql::Client,
 }
 
 impl DbRoleRepo {
     #[must_use]
-    pub const fn new(engine: db::Client) -> Self {
+    pub const fn new(engine: ofdb_sql::Client) -> Self {
         Self { engine }
     }
 
@@ -597,8 +613,12 @@ impl From<UserRoleRow> for Row {
     }
 }
 
-fn decode<T: db::FromValue>(row: &Row, columns: &[&str], name: &str) -> Result<T, FromRowError> {
-    db::decode(db::value(row, columns, name)?, name)
+fn decode<T: ofdb_sql::FromValue>(
+    row: &Row,
+    columns: &[&str],
+    name: &str,
+) -> Result<T, FromRowError> {
+    ofdb_sql::decode(ofdb_sql::value(row, columns, name)?, name)
 }
 
 fn timestamp(value: i64) -> ManagementResult<DateTime<Utc>> {
@@ -612,7 +632,7 @@ fn now() -> DateTime<Utc> {
         .expect("zero nanoseconds is valid")
 }
 
-fn db_error(error: db::QueryError) -> ManagementError {
+fn db_error(error: ofdb_sql::QueryError) -> ManagementError {
     ManagementError::InvalidInput(error.to_string())
 }
 

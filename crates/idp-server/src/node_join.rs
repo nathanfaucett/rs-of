@@ -2,22 +2,20 @@ use std::{fs, io, io::Write, path::Path};
 
 use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
 
-use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyRepo};
+use idp_service::{oauth2::node_signer::NodeSignerBinding, repo::private_key_repo::PrivateKeyRepo};
 use iroh::EndpointId;
-use of_model::idp::model::Id;
+use of_model::id::Id;
 use serde::Serialize;
 
-use device_service::hosted_join::NodeJoinApproval;
-use device_service::hosted_join::NodeJoinRequest;
+use of_model::node_join::NodeJoinApproval;
+use of_model::node_join::NodeJoinRequest;
 
-use crate::OwnerProvisioner;
+use crate::provisioning::OwnerProvisioner;
 
 #[path = "node_join_bootstrap.rs"]
-mod bootstrap_state;
-pub use bootstrap_state::NodeJoinStage;
+pub mod bootstrap_state;
 #[path = "node_join_transport.rs"]
-mod transport;
-pub use transport::bind_node_join_endpoint;
+pub mod transport;
 
 impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     /// The peer must be explicitly trusted by the local setup operator, never taken from discovery.
@@ -38,7 +36,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 .oauth2
                 .key_service
                 .private_key_repo()
-                .load(&namespace, &key::DerivationPath::default())
+                .load(&namespace, &bip32::DerivationPath::default())
                 .map_err(io::Error::other)?
                 .is_none()
             {

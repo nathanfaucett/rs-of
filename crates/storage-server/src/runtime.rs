@@ -3,20 +3,25 @@ use std::{io, path::Path, sync::Arc};
 use axum::Router;
 use iroh::EndpointId;
 use iroh_chain::Server;
-use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
+use storage_service::{
+    database_runtime::DatabaseRuntime, scoped_file_system::ScopedFileSystemRuntime,
+};
 use tokio_util::sync::CancellationToken;
 
-use crate::{RouterState, StorageReplicationRuntime, openapi_router, resource_router};
+use crate::{
+    replication_runtime::StorageReplicationRuntime,
+    router::{openapi_router::openapi_router, resources::resource_router, state::RouterState},
+};
 
 pub struct StorageRuntime {
     router: Router,
     replication: Option<StorageReplicationRuntime>,
     cancellation_token: CancellationToken,
-    copies: Option<crate::StorageCopyRetirement>,
+    copies: Option<crate::copy_retirement::StorageCopyRetirement>,
 }
 
 impl StorageRuntime {
-    pub fn copy_retirement(&self) -> Option<crate::StorageCopyRetirement> {
+    pub fn copy_retirement(&self) -> Option<crate::copy_retirement::StorageCopyRetirement> {
         self.copies.clone()
     }
 
@@ -24,7 +29,7 @@ impl StorageRuntime {
         self.router.clone()
     }
 
-    pub fn data_handler(&self) -> Option<crate::DataProtocolHandler> {
+    pub fn data_handler(&self) -> Option<crate::data_protocol::DataProtocolHandler> {
         self.replication
             .as_ref()
             .map(StorageReplicationRuntime::data_handler)
@@ -62,13 +67,13 @@ pub fn build_local_runtime(
     db: Option<Arc<dyn of_model::db::Database>>,
     http_client: Option<reqwest::Client>,
 ) -> io::Result<StorageRuntime> {
-    let database = embedded_db::local_database(data_dir, "storage", db)?;
+    let database = embedded_db::local::local_database(data_dir, "storage", db)?;
     let client = database.client();
     let storage = database
         .local_storage()
         .ok_or_else(|| io::Error::other("local Storage requires shared embedded storage"))?;
     let peer = local_peer(client.clone())?;
-    let idp = crate::IdpClient::new(
+    let idp = crate::idp_client::IdpClient::new(
         idp_base,
         "local-storage",
         "local-password",
@@ -76,13 +81,13 @@ pub fn build_local_runtime(
         idp_base,
     )
     .map_err(io::Error::other)?;
-    let device = crate::DeviceClient::new(
+    let device = crate::device_client::DeviceClient::new(
         device_base,
         idp_base,
         "local-storage",
         "local-password",
         idp_base,
-        management_service::MANAGEMENT_APPLICATION_URI,
+        management_service::service::MANAGEMENT_APPLICATION_URI,
     )
     .map_err(io::Error::other)?;
     let (idp, device) = match http_client {
@@ -111,7 +116,7 @@ pub fn build_local_runtime(
     )
 }
 
-fn local_peer(client: db::Client) -> io::Result<EndpointId> {
+fn local_peer(client: ofdb_sql::Client) -> io::Result<EndpointId> {
     std::thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread().build()?.block_on(async {
             client.execute_sql("CREATE TABLE IF NOT EXISTS local_storage_peer (id UUID PRIMARY KEY, public_key TEXT NOT NULL)", None).await.map_err(io::Error::other)?;
@@ -119,12 +124,12 @@ fn local_peer(client: db::Client) -> io::Result<EndpointId> {
             match rows[0].rows.as_slice() {
                 [] => {
                     let peer = iroh::SecretKey::generate().public();
-                    let id = of_model::idp::model::Id::now_v7();
+                    let id = of_model::id::Id::now_v7();
                     client.execute_sql(&format!("INSERT INTO local_storage_peer (id, public_key) VALUES (CAST('{id}' AS UUID), '{peer}')"), None).await.map_err(io::Error::other)?;
                     Ok(peer)
                 }
                 [row] => {
-                    let value: String = db::decode(&row.values[0], "public_key").map_err(|error| io::Error::other(error.to_string()))?;
+                    let value: String = ofdb_sql::decode(&row.values[0], "public_key").map_err(|error| io::Error::other(error.to_string()))?;
                     value.parse().map_err(io::Error::other)
                 }
                 _ => Err(io::Error::new(io::ErrorKind::InvalidData, "multiple local Storage peers")),
@@ -184,8 +189,8 @@ fn build_runtime_inner(
     server: Option<Server>,
     endpoint: Option<EndpointId>,
     cancellation_token: CancellationToken,
-    catalog_client: Option<db::Client>,
-    shared_storage: Option<db::SharedDatabase>,
+    catalog_client: Option<ofdb_sql::Client>,
+    shared_storage: Option<btree_redb::SharedDatabase>,
 ) -> io::Result<StorageRuntime> {
     let local = catalog_client.is_some();
     let databases = Arc::new(match catalog_client {
@@ -211,12 +216,13 @@ fn build_runtime_inner(
         .transpose()
         .map_err(io::Error::other)?;
 
-    let copies = file_systems
-        .as_ref()
-        .map(|file_systems| crate::StorageCopyRetirement {
-            databases: Arc::clone(&databases),
-            file_systems: Arc::clone(file_systems),
-        });
+    let copies =
+        file_systems.as_ref().map(
+            |file_systems| crate::copy_retirement::StorageCopyRetirement {
+                databases: Arc::clone(&databases),
+                file_systems: Arc::clone(file_systems),
+            },
+        );
     if !local && state.local_replication_authorizer.is_none() {
         state.local_replication_authorizer =
             state
@@ -224,14 +230,14 @@ fn build_runtime_inner(
                 .clone()
                 .map(|client| match (endpoint, copies.clone()) {
                     (Some(endpoint), Some(copies)) => {
-                        crate::LocalReplicationAuthorizer::with_device_cleanup(
+                        crate::local_replication_authorizer::LocalReplicationAuthorizer::with_device_cleanup(
                             client,
                             endpoint,
                             copies,
                             cancellation_token.clone(),
                         )
                     }
-                    _ => crate::LocalReplicationAuthorizer::from_device_client(client),
+                    _ => crate::local_replication_authorizer::LocalReplicationAuthorizer::from_device_client(client),
                 });
     }
     if let (Some(endpoint), Some(policy), Some(idp)) = (
@@ -300,8 +306,8 @@ mod tests {
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
 
-    use super::build_runtime;
-    use crate::RouterState;
+    use crate::router::state::RouterState;
+    use crate::runtime::build_runtime;
 
     #[tokio::test]
     async fn remote_policy_enables_replication_without_replacing_local_policy() {
@@ -312,10 +318,10 @@ mod tests {
         let server = iroh_chain::Server::new(endpoint, iroh_chain::EndpointIdStore::default());
         let data_dir = std::env::temp_dir().join(format!(
             "storage-local-policy-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let cancellation = tokio_util::sync::CancellationToken::new();
-        let remote = crate::DeviceClient::new(
+        let remote = crate::device_client::DeviceClient::new(
             "https://device.example",
             "https://idp.example",
             "storage-client",
@@ -345,29 +351,32 @@ mod tests {
 
         let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let local_calls = calls.clone();
-        let policy = crate::LocalReplicationAuthorizer::new(move |_| {
-            local_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            async { Err("local policy unavailable".to_owned()) }
-        });
-        let idp = crate::IdpClient::local(|_| async {
-            Ok(of_model::idp::contract::IntrospectionResponse {
-                claims: of_model::contract::StandardClaims {
-                    r#type: of_model::contract::TokenType::Bearer,
-                    r#use: of_model::contract::TokenUse::Access,
-                    exp: i64::MAX,
-                    iat: 0,
-                    nbf: 0,
-                    iss: "https://idp.example".into(),
-                    aud: "https://storage.example".into(),
-                    client_id: "application-client".into(),
-                    sub: of_model::idp::model::Id::now_v7().to_string(),
-                    principal_type: of_model::contract::PrincipalType::User,
-                    resource: None,
-                    authorization_details: None,
-                    scope: vec![],
+        let policy =
+            crate::local_replication_authorizer::LocalReplicationAuthorizer::new(move |_| {
+                local_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async { Err("local policy unavailable".to_owned()) }
+            });
+        let idp = crate::idp_client::IdpClient::local(|_| async {
+            Ok(
+                of_model::idp::contract::introspection_response::IntrospectionResponse {
+                    claims: of_model::contract::standard_claims::StandardClaims {
+                        r#type: of_model::contract::token_type::TokenType::Bearer,
+                        r#use: of_model::contract::token_use::TokenUse::Access,
+                        exp: i64::MAX,
+                        iat: 0,
+                        nbf: 0,
+                        iss: "https://idp.example".into(),
+                        aud: "https://storage.example".into(),
+                        client_id: "application-client".into(),
+                        sub: of_model::id::Id::now_v7().to_string(),
+                        principal_type: of_model::contract::principal_type::PrincipalType::User,
+                        resource: None,
+                        authorization_details: None,
+                        scope: vec![],
+                    },
+                    application_id: of_model::id::Id::now_v7().to_string(),
                 },
-                application_id: of_model::idp::model::Id::now_v7().to_string(),
-            })
+            )
         });
         let runtime = build_runtime(
             RouterState::new(

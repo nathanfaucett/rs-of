@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use embedded_db::{MemoryDatabase, local_client};
+use embedded_db::database::MemoryDatabase;
+use embedded_db::local::local_client;
 use of_model::db::Database;
 
 #[cfg(unix)]
 #[tokio::test]
 async fn embedded_database_is_private_and_rejects_unsafe_existing_files() {
-    use embedded_db::EmbeddedDatabase;
+    use embedded_db::database::EmbeddedDatabase;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     let root = tempfile::tempdir().expect("private database root");

@@ -1,13 +1,29 @@
 use std::sync::Arc;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use of_model::idp::contract::{ErrorCode, ErrorResponse, ErrorResponseResult};
 use iroh::{EndpointId, Signature};
-
-use crate::{
-    Device, DeviceEnrollment, DeviceEnrollmentRequest, DeviceInfo, DevicePairingApprovalRequest,
-    DevicePairingRequest, DeviceRepo, UpdateDeviceRequest, device_pairing_approval_payload,
+use of_model::idp::contract::{
+    error_code::ErrorCode,
+    error_response::{ErrorResponse, ErrorResponseResult},
 };
+
+use of_model::device::device::Device;
+
+use of_model::device::contract::device_enrollment::DeviceEnrollment;
+
+use of_model::device::contract::device_enrollment_request::DeviceEnrollmentRequest;
+
+use of_model::device::contract::device_info::DeviceInfo;
+
+use of_model::device::contract::device_pairing::DevicePairingApprovalRequest;
+
+use of_model::device::contract::device_pairing::DevicePairingRequest;
+
+use crate::device_repo::DeviceRepo;
+
+use of_model::device::contract::update_device_request::UpdateDeviceRequest;
+
+use of_model::device::contract::device_pairing::device_pairing_approval_payload;
 
 pub struct DeviceEnrollmentService<R> {
     repo: Arc<R>,
@@ -81,7 +97,7 @@ where
 
     pub async fn approve_pairing(
         &self,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
         request: DevicePairingApprovalRequest,
     ) -> ErrorResponseResult<DeviceInfo> {
         let (device, accepting_public_key) = self
@@ -110,7 +126,7 @@ where
 
     pub async fn pairing_approval_payload(
         &self,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
     ) -> ErrorResponseResult<String> {
         let (device, _) = self
             .repo
@@ -154,7 +170,7 @@ where
     pub async fn rename(
         &self,
         owner_subject: &str,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
         request: UpdateDeviceRequest,
     ) -> ErrorResponseResult<DeviceInfo> {
         validate_name(&request.name)?;
@@ -169,7 +185,7 @@ where
     pub async fn revoke(
         &self,
         owner_subject: &str,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
         protected_public_key: &str,
     ) -> ErrorResponseResult<()> {
         self.repo
@@ -191,7 +207,7 @@ where
 
     pub async fn approve_enrollment(
         &self,
-        device_id: of_model::idp::model::Id,
+        device_id: of_model::id::Id,
     ) -> ErrorResponseResult<DeviceEnrollment> {
         let device = self
             .repo

@@ -3,8 +3,8 @@ use alloc::{string::String, vec::Vec};
 
 use chrono::{DateTime, Utc};
 
-use super::Id;
-use crate::idp::contract::CodeChallengeMethod;
+use crate::id::Id;
+use crate::idp::contract::code_challenge_method::CodeChallengeMethod;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct OAuth2AuthorizationCode {

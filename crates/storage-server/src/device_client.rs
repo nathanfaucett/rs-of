@@ -4,7 +4,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use device_service::ApprovedDeviceEndpoints;
 use iroh::{EndpointId, endpoint::Connection};
 use iroh_chain::Server;
 use of_device_client::apis::{
@@ -17,9 +16,11 @@ use of_device_client::apis::{
 };
 use of_idp_client::apis::default_api::{TokenParams, token};
 use of_model::contract::{
-    OwnerCopyCleanup, ReplicationAdmissionRequest, SelectedResourcesResponse, TokenResponse,
-    TokenType,
+    replication::{OwnerCopyCleanup, ReplicationAdmissionRequest, SelectedResourcesResponse},
+    token_response::TokenResponse,
+    token_type::TokenType,
 };
+use of_model::device::contract::approved_device_endpoints::ApprovedDeviceEndpoints;
 use reqwest::{Client, Url, redirect::Policy};
 
 const MAX_RESPONSE_SIZE: usize = 64 * 1024;
@@ -311,7 +312,7 @@ mod tests {
     #[cfg(feature = "network")]
     use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 
-    use super::DeviceClient;
+    use crate::device_client::DeviceClient;
 
     #[tokio::test]
     async fn cleanup_requires_exact_no_content_status() {
@@ -336,7 +337,7 @@ mod tests {
             AUDIENCE,
         )
         .expect("Management client");
-        let cleanup = of_model::contract::OwnerCopyCleanup {
+        let cleanup = of_model::contract::replication::OwnerCopyCleanup {
             cleanup_id: "cleanup".into(),
             device_id: "device".into(),
             endpoint_id: "endpoint".into(),
@@ -498,8 +499,8 @@ mod tests {
             http::{HeaderMap, StatusCode},
             routing::{get, post},
         };
-        use of_model::contract::SelectedResource;
-        use of_model::idp::model::Id;
+        use of_model::contract::replication::SelectedResource;
+        use of_model::id::Id;
 
         let local = iroh::SecretKey::generate().public();
         let remote = iroh::SecretKey::generate().public();
@@ -560,7 +561,10 @@ mod tests {
             AUDIENCE,
         )
         .expect("remote policy client");
-        let authorizer = crate::LocalReplicationAuthorizer::from_device_client(client);
+        let authorizer =
+            crate::local_replication_authorizer::LocalReplicationAuthorizer::from_device_client(
+                client,
+            );
         assert_eq!(
             authorizer.local_owner(local).await.expect("approved owner"),
             owner
@@ -976,8 +980,10 @@ mod tests {
                 .split_once("\r\n\r\n")
                 .expect("admission request has a body")
                 .1;
-            serde_json::from_str::<of_model::contract::ReplicationAdmissionRequest>(body)
-                .expect("valid admission request body")
+            serde_json::from_str::<of_model::contract::replication::ReplicationAdmissionRequest>(
+                body,
+            )
+            .expect("valid admission request body")
         };
         let forward_request = parse_admission(&admission_requests[0]);
         assert_eq!(forward_request.source_endpoint_id, source_id.to_string());

@@ -1,10 +1,14 @@
 use std::{io, path::Path};
 
-use server_common::{Environment, ServerConfig};
-use idp_service::{PasswordConfig, oauth2::OAuth2Config};
+use of_model::config::environment::Environment;
+
+use idp_service::{oauth2::config::OAuth2Config, password_config::PasswordConfig};
+use of_model::config::server::ServerConfig;
 use serde::{Deserialize, Serialize};
 
-use super::{ManagementPermissionConfig, PairingConfig};
+use crate::config::management_permission_config::ManagementPermissionConfig;
+
+use crate::config::pairing_config::PairingConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -13,7 +17,7 @@ pub struct AppConfig {
     #[serde(skip)]
     pub setup_http_client: Option<reqwest::Client>,
     pub data_dir: String,
-    pub identity_database: Option<db::RemoteDatabaseConfig>,
+    pub identity_database: Option<db::remote::RemoteDatabaseConfig>,
     pub oauth2: OAuth2Config,
     pub password: PasswordConfig,
     pub pairing: PairingConfig,
@@ -98,7 +102,7 @@ impl TryFrom<&Path> for AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::AppConfig;
+    use crate::config::app_config::AppConfig;
 
     #[test]
     fn identity_settings_validation_preserves_errors_and_audience_fallback() {

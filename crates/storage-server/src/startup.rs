@@ -1,8 +1,8 @@
 use std::{io, net::SocketAddr, path::Path};
 
-use setup::IndependentSetupHost;
+use setup::independent_setup::IndependentSetupHost;
 
-use crate::AppConfig;
+use crate::config::app_config::AppConfig;
 
 pub(crate) fn load_config(path: &Path) -> io::Result<AppConfig> {
     let raw = config::Config::builder()
@@ -54,7 +54,7 @@ mod tests {
     fn optional_cli_config_uses_an_independent_root_and_port() {
         let path = std::env::temp_dir().join(format!(
             "absent-storage-{}.yaml",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let config = super::load_config(&path).expect("optional configuration");
         assert_eq!(config.data_dir, "storage-data");
@@ -65,7 +65,7 @@ mod tests {
     fn retained_setup_keeps_the_default_listener_after_domain_creation() {
         let root = std::env::temp_dir().join(format!(
             "storage-retained-port-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         std::fs::create_dir(&root).expect("fixture root");
         let domain = root.join("storage");
@@ -74,7 +74,7 @@ mod tests {
             .expect("routing configuration without a port");
         let config = super::load_config(&path).expect("fresh ordinary configuration");
         assert_eq!(config.server.port, 3002);
-        let host = super::prepare_setup(
+        let host = crate::startup::prepare_setup(
             &config,
             format!("127.0.0.1:{}", config.server.port)
                 .parse()
@@ -115,11 +115,9 @@ mod tests {
 
     #[test]
     fn fresh_owner_routing_settings_are_not_relationship_credentials() {
-        let root = std::env::temp_dir().join(format!(
-            "storage-routing-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
-        let config = crate::AppConfig {
+        let root =
+            std::env::temp_dir().join(format!("storage-routing-{}", of_model::id::Id::now_v7()));
+        let config = crate::config::app_config::AppConfig {
             data_dir: root.join("storage").to_string_lossy().into_owned(),
             idp_api_base_uri: "https://127.0.0.1:3000".into(),
             idp_issuer_uri: "https://127.0.0.1:3000/idp".into(),
@@ -128,9 +126,10 @@ mod tests {
             device_service_audience: Some("storage:databases".into()),
             ..crate::AppConfig::default()
         };
-        let host = super::prepare_setup(&config, "127.0.0.1:3002".parse().expect("address"))
-            .expect("nonsecret routing is allowed")
-            .expect("setup");
+        let host =
+            crate::startup::prepare_setup(&config, "127.0.0.1:3002".parse().expect("address"))
+                .expect("nonsecret routing is allowed")
+                .expect("setup");
         drop(host);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
@@ -139,15 +138,16 @@ mod tests {
     fn fresh_owner_startup_requires_no_relationship_credentials() {
         let root = std::env::temp_dir().join(format!(
             "storage-independent-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
-        let config = crate::AppConfig {
+        let config = crate::config::app_config::AppConfig {
             data_dir: root.join("storage").to_string_lossy().into_owned(),
             ..crate::AppConfig::default()
         };
-        let host = super::prepare_setup(&config, "127.0.0.1:3002".parse().expect("address"))
-            .expect("fresh startup")
-            .expect("setup host");
+        let host =
+            crate::startup::prepare_setup(&config, "127.0.0.1:3002".parse().expect("address"))
+                .expect("fresh startup")
+                .expect("setup host");
         assert!(!std::path::Path::new(&config.data_dir).exists());
         assert!(host.admission_path().is_file());
         drop(host);

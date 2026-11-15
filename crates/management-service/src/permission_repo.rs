@@ -1,8 +1,12 @@
 use alloc::vec::Vec;
 
-use of_model::idp::model::{Id, Permission};
+use of_model::id::Id;
 
-use crate::{ManagementResult, SyncSelection};
+use of_model::idp::model::permission::Permission;
+
+use of_model::management_error::ManagementResult;
+
+use of_model::management::SyncSelection;
 
 pub trait PermissionRepo {
     fn list_permissions(
@@ -90,8 +94,5 @@ pub trait PermissionRepo {
         resource_id: Id,
     ) -> impl Future<Output = ManagementResult<bool>>;
 
-    fn clear_device_selections(
-        &self,
-        device_id: Id,
-    ) -> impl Future<Output = ManagementResult<()>>;
+    fn clear_device_selections(&self, device_id: Id) -> impl Future<Output = ManagementResult<()>>;
 }

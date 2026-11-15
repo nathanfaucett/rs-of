@@ -1,22 +1,20 @@
-use std::{io, path::PathBuf, sync::Arc, time::Duration};
+use std::{io, path::{PathBuf}, sync::{Arc}, time::{Duration}};
 
-use db::Database;
-use db::DatabaseTransport;
-use idp_service::oauth2::NodeSignerBinding;
-use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
+use ofdb_sql::Database;
+use db::database_transport::DatabaseTransport;
+use idp_service::oauth2::node_signer::NodeSignerBinding;
+use iroh::{Endpoint, address_lookup::{MemoryLookup}, endpoint::{presets}};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
-use of_model::idp::{contract::IdentityAction, model::Id};
-use ofdb_sql::history::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
+use management_service::service::ManagementService;
+use management_service::replica::permission_repo::DbPermissionRepo;
+use management_service::replica::role_repo::DbRoleRepo;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::id::Id;
+use ofdb_sql::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
 use tokio_util::sync::CancellationToken;
 
 use super::test_fixtures::{enroll, sql};
-use super::{
-    AuthorizedSecurityTransport, Handshake, Response, SECURITY_STREAM_KIND, SecurityContext,
-    SecurityProtocol,
-};
+use super::{AuthorizedSecurityTransport, Handshake, Response, SECURITY_STREAM_KIND, SecurityContext, SecurityProtocol};
 
 const INSTALLATION: &str = "https://installation.example";
 
@@ -67,7 +65,7 @@ impl Fixture {
             let management = Arc::new(
                 Database::open(root.join("source-management.redb")).expect("native Management"),
             );
-            crate::replica::up(&management)
+            crate::replica::schema::up(&management)
                 .await
                 .expect("Management schema");
             for (member, key, endpoint) in [
@@ -676,15 +674,15 @@ async fn identity_policy_history_grant_and_revocation_reach_an_existing_peer() {
         .add_role_to_user(Id::nil(), fixture.actor, role.id)
         .await
         .expect("assign role");
-    let request = of_model::idp::contract::PermissionEvaluationRequest {
+    let request = of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest {
         request_id: Id::now_v7(),
-        subject: of_model::idp::contract::PermissionSubject::User { id: fixture.actor },
+        subject: of_model::idp::contract::permission_evaluation::PermissionSubject::User { id: fixture.actor },
         action: IdentityAction::ApplicationsRead,
-        target: of_model::idp::contract::PermissionTarget::Installation {
-            resource: of_model::idp::contract::IdentityResource::Application { id: None },
+        target: of_model::idp::contract::permission_evaluation::PermissionTarget::Installation {
+            resource: of_model::idp::contract::permission_evaluation::IdentityResource::Application { id: None },
         },
     };
-    let peer = management_service::LocalPermissions::new(fixture.peer_idp.client());
+    let peer = management_service::local_permissions::LocalPermissions::new(fixture.peer_idp.client());
     assert!(!peer.evaluate(&request).await.expect("no unlearned grant"));
     let (result, _, _) = peer_exchange(
         &fixture,

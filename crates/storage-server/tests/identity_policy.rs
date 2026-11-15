@@ -14,23 +14,30 @@ use axum::{
     body::Body,
     http::{Method, Request, StatusCode, header::AUTHORIZATION},
 };
-use device_service::DeviceState;
 use of_model::contract::{
-    AuthorizationDetail, PrincipalType, StandardClaims, StorageAuthorizationAction,
-    StorageAuthorizationDetail, TokenType, TokenUse,
+    authorization_details::{
+        AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail,
+    },
+    principal_type::PrincipalType,
+    standard_claims::StandardClaims,
+    token_type::TokenType,
+    token_use::TokenUse,
 };
-use of_model::idp::{contract::IntrospectionResponse, model::Id};
+use of_model::device::contract::device_state::DeviceState;
+use of_model::id::Id;
+use of_model::idp::contract::introspection_response::IntrospectionResponse;
 use storage_server::{
-    DeviceReplicationPolicy, IdpClient, IdpIntrospectionError, LocalReplicationAuthorizer,
-    RouterState, resource_router,
+    idp_client::{IdpClient, IdpIntrospectionError},
+    local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer},
+    router::{resources::resource_router, state::RouterState},
 };
-use storage_service::DatabaseRuntime;
+use storage_service::database_runtime::DatabaseRuntime;
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
 
 async fn request_status(client: IdpClient, method: Method) -> StatusCode {
     let app = resource_router(
-        RouterState::new(
+        crate::router::state::RouterState::new(
             "http://storage.local",
             iroh::SecretKey::generate().public().to_string(),
         )
@@ -56,16 +63,16 @@ async fn request_status(client: IdpClient, method: Method) -> StatusCode {
 async fn identity_failure_returns_without_waiting_for_device_policy() {
     for (identity_error, expected_status) in [
         (
-            IdpIntrospectionError::InvalidToken,
+            crate::idp_client::IdpIntrospectionError::InvalidToken,
             StatusCode::UNAUTHORIZED,
         ),
         (
-            IdpIntrospectionError::ServiceUnavailable,
+            crate::idp_client::IdpIntrospectionError::ServiceUnavailable,
             StatusCode::SERVICE_UNAVAILABLE,
         ),
     ] {
         let gate = Arc::new(Semaphore::new(0));
-        let policy = LocalReplicationAuthorizer::new({
+        let policy = crate::local_replication_authorizer::LocalReplicationAuthorizer::new({
             let gate = gate.clone();
             move |_| {
                 let gate = gate.clone();
@@ -78,8 +85,9 @@ async fn identity_failure_returns_without_waiting_for_device_policy() {
                 }
             }
         });
-        let client = IdpClient::local(move |_| async move { Err(identity_error) })
-            .with_local_device_policy(iroh::SecretKey::generate().public(), policy);
+        let client =
+            crate::idp_client::IdpClient::local(move |_| async move { Err(identity_error) })
+                .with_local_device_policy(iroh::SecretKey::generate().public(), policy);
 
         let mut introspection = pin!(client.introspect("invalid-token"));
         let observed = poll_fn(|cx| Poll::Ready(introspection.as_mut().poll(cx))).await;
@@ -157,7 +165,7 @@ async fn valid_identity_waits_for_current_policy_and_observes_learned_denials() 
     let baseline = approved_policy(endpoint, &owner);
     let current = Arc::new(Mutex::new(Ok(baseline.clone())));
     let gate = Arc::new(Semaphore::new(0));
-    let policy = LocalReplicationAuthorizer::new({
+    let policy = crate::local_replication_authorizer::LocalReplicationAuthorizer::new({
         let current = current.clone();
         let gate = gate.clone();
         move |_| {
@@ -172,7 +180,7 @@ async fn valid_identity_waits_for_current_policy_and_observes_learned_denials() 
             }
         }
     });
-    let client = IdpClient::local(move |_| {
+    let client = crate::idp_client::IdpClient::local(move |_| {
         let response = response.clone();
         async move { Ok(response) }
     })
@@ -209,7 +217,7 @@ async fn valid_identity_waits_for_current_policy_and_observes_learned_denials() 
         };
         assert_eq!(
             client.introspect("valid-token").await.err(),
-            Some(IdpIntrospectionError::InvalidToken),
+            Some(crate::idp_client::IdpIntrospectionError::InvalidToken),
             "denial {denial}"
         );
         assert_eq!(
@@ -231,15 +239,17 @@ async fn valid_identity_waits_for_current_policy_and_observes_learned_denials() 
 
 #[tokio::test]
 async fn missing_bearer_is_denied_without_identity_or_policy_work() {
-    let client = IdpClient::local(|_| async { panic!("missing bearer must not inspect identity") })
-        .with_local_device_policy(
-            iroh::SecretKey::generate().public(),
-            LocalReplicationAuthorizer::new(|_| async {
-                panic!("missing bearer must not query policy")
-            }),
-        );
+    let client = crate::idp_client::IdpClient::local(|_| async {
+        panic!("missing bearer must not inspect identity")
+    })
+    .with_local_device_policy(
+        iroh::SecretKey::generate().public(),
+        crate::local_replication_authorizer::LocalReplicationAuthorizer::new(|_| async {
+            panic!("missing bearer must not query policy")
+        }),
+    );
     let response = resource_router(
-        RouterState::new(
+        crate::router::state::RouterState::new(
             "http://storage.local",
             iroh::SecretKey::generate().public().to_string(),
         )
@@ -265,7 +275,7 @@ async fn storage_response_rechecks_policy_before_returning_success() {
     let response = identity(&owner);
     let current = Arc::new(Mutex::new(approved_policy(endpoint, &owner)));
     let gate = Arc::new(Semaphore::new(0));
-    let policy = LocalReplicationAuthorizer::new({
+    let policy = crate::local_replication_authorizer::LocalReplicationAuthorizer::new({
         let current = current.clone();
         let gate = gate.clone();
         let calls = AtomicUsize::new(0);
@@ -284,14 +294,14 @@ async fn storage_response_rechecks_policy_before_returning_success() {
             }
         }
     });
-    let client = IdpClient::local(move |_| {
+    let client = crate::idp_client::IdpClient::local(move |_| {
         let response = response.clone();
         async move { Ok(response) }
     })
     .with_local_device_policy(endpoint, policy);
     let root = std::env::temp_dir().join(format!("storage-response-policy-{}", Id::now_v7()));
     let app = resource_router(
-        RouterState::new(
+        crate::router::state::RouterState::new(
             "http://storage.local",
             iroh::SecretKey::generate().public().to_string(),
         )

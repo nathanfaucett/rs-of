@@ -1,17 +1,35 @@
 use chrono::{DateTime, Timelike, Utc};
-use db::{
-    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
-    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
-};
-use of_model::idp::{
-    contract::Sex,
-    model::{Id, User, UserEmail, UserPassword, UserPhoneNumber},
-    replica::allows_authentication,
-};
+use of_model::id::Id;
+use of_model::idp::contract::sex::Sex;
+use of_model::idp::model::user::User;
+use of_model::idp::model::user_email::UserEmail;
+use of_model::idp::model::user_password::UserPassword;
+use of_model::idp::model::user_phone_number::UserPhoneNumber;
+use of_model::idp::replica::allows_authentication;
+use ofdb_sql::FromRow;
+use ofdb_sql::FromRowError;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryDelete;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use ofdb_sql::Uuid;
+use ofdb_sql::Value;
 
 use crate::{
-    PasswordConfig, encrypt_password,
-    repo::{RepoError, RepoResult, UserRepo},
+    password_config::PasswordConfig,
+    repo::{
+        error::{RepoError, RepoResult},
+        user_repo::UserRepo,
+    },
+    util::encrypt_password,
 };
 
 const USERS: &str = "users";
@@ -22,10 +40,10 @@ const PASSWORD_KIND: &str = "password";
 
 macro_rules! decode {
     ($row:expr, $columns:expr, $column:expr) => {
-        db::decode(db::value($row, $columns, $column)?, $column)
+        ofdb_sql::decode(ofdb_sql::value($row, $columns, $column)?, $column)
     };
     ($type:ty, $row:expr, $columns:expr, $column:expr) => {
-        db::decode::<$type>(db::value($row, $columns, $column)?, $column)
+        ofdb_sql::decode::<$type>(ofdb_sql::value($row, $columns, $column)?, $column)
     };
 }
 
@@ -81,13 +99,13 @@ const CREDENTIAL_COLUMNS: [&str; 7] = [
 ];
 
 pub struct DbUserRepo {
-    engine: db::Client,
+    engine: ofdb_sql::Client,
     password_config: PasswordConfig,
 }
 
 impl DbUserRepo {
     #[must_use]
-    pub const fn new(engine: db::Client, password_config: PasswordConfig) -> Self {
+    pub const fn new(engine: ofdb_sql::Client, password_config: PasswordConfig) -> Self {
         Self {
             engine,
             password_config,
@@ -283,7 +301,7 @@ impl UserRepo for DbUserRepo {
         }
         let results = self.engine.translate_and_execute(
             &format!("SELECT secret_hash FROM local_credential_secrets WHERE credential_id = CAST('{}' AS UUID)", credential.id),
-            &db::SqlTranslator,
+            &ofdb_sql::SqlTranslator,
         ).await.map_err(db_error)?;
         let Some(row) = results[0].rows.first() else {
             return Ok(None);
@@ -292,7 +310,7 @@ impl UserRepo for DbUserRepo {
             id: credential.id,
             user_id: credential.user_id,
             active: credential.active,
-            password_hash: db::decode(&row.values[0], "secret_hash").map_err(row_error)?,
+            password_hash: ofdb_sql::decode(&row.values[0], "secret_hash").map_err(row_error)?,
             created_at: timestamp(credential.created_at)?,
             updated_at: timestamp(credential.updated_at)?,
         }))
@@ -1014,7 +1032,7 @@ fn sex(value: i64) -> RepoResult<Sex> {
         _ => Err(RepoError::InvalidInput("invalid user sex".into())),
     }
 }
-fn db_error(error: db::QueryError) -> RepoError {
+fn db_error(error: ofdb_sql::QueryError) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 fn row_error(error: FromRowError) -> RepoError {
@@ -1077,7 +1095,7 @@ fn select(table: &str, columns: &[&str], predicate: Option<QueryExpr>) -> Query 
 }
 
 #[cfg(test)]
-use db::Database;
+use ofdb_sql::Database;
 
 #[cfg(test)]
 mod tests {
@@ -1102,7 +1120,7 @@ mod tests {
                 .id;
             let metadata = database
                 .client()
-                .translate_and_execute("SELECT * FROM credentials", &db::SqlTranslator)
+                .translate_and_execute("SELECT * FROM credentials", &ofdb_sql::SqlTranslator)
                 .await
                 .expect("query public credential metadata")
                 .remove(0);
@@ -1134,7 +1152,10 @@ mod tests {
             );
             database
                 .client()
-                .translate_and_execute("DELETE FROM local_credential_secrets", &db::SqlTranslator)
+                .translate_and_execute(
+                    "DELETE FROM local_credential_secrets",
+                    &ofdb_sql::SqlTranslator,
+                )
                 .await
                 .expect("simulate metadata without local secret");
             assert!(
@@ -1149,7 +1170,7 @@ mod tests {
 
     #[tokio::test]
     async fn manages_uuid_users_and_password_credentials() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         up(&engine).await.unwrap();
         let repo = DbUserRepo::new(engine.client(), PasswordConfig::default());
         let user = repo

@@ -3,7 +3,7 @@ use std::io;
 use clap::CommandFactory;
 use clap_complete::{Shell, generate};
 
-use crate::CliServerCommand;
+use crate::args::CliServerCommand;
 
 pub async fn run_completions(shell: Shell) -> io::Result<()> {
     generate(

@@ -1,54 +1,84 @@
-use server_common::SecurityAddon;
-use utoipa::OpenApi;
-use utoipa::openapi::{OpenApi as OpenApiDocument, RefOr, Schema, Server};
-use utoipa_axum::{router::OpenApiRouter, routes};
+use server_common::openapi::SecurityAddon;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::OpenApi;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::OpenApi as OpenApiDocument;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::RefOr;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::Schema;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::Server;
+use crate::router::openapi_router::openapi_router::utoipa_axum::crate::router::openapi_router::openapi_router::router::OpenApiRouter;
+use crate::router::openapi_router::openapi_router::utoipa_axum::routes;
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
-use super::openapi::{__path_openapi_json, openapi_json};
+use crate::router::openapi_router::openapi_router::openapi_router::openapi::__path_openapi_json;
 
-use super::routes::device::{__path_device, device};
-use super::routes::device_restriction::{
-    __path_get_device_restriction, __path_put_device_restriction, get_device_restriction,
-    put_device_restriction,
-};
-use super::routes::device_selection::{
-    __path_delete_device_resource_selection, __path_delete_device_selection,
-    __path_put_device_selection, delete_device_resource_selection, delete_device_selection,
-    put_device_selection,
-};
-use super::routes::device_self_revocation::{__path_revoke_self, revoke_self};
-use super::routes::devices::{
-    __path_approve_enrollment, __path_enroll_device, __path_list_approved_device_endpoints,
-    __path_list_devices, __path_list_pending_enrollments, __path_lookup_device_endpoint,
-    __path_lookup_device_identity, __path_pairing_acceptance, __path_revoke_device,
-    __path_set_pairing_acceptance, __path_transfer_device, __path_trusted_devices,
-    __path_update_device, approve_enrollment, enroll_device, list_approved_device_endpoints,
-    list_devices, list_pending_enrollments, lookup_device_endpoint, lookup_device_identity,
-    pairing_acceptance, revoke_device, set_pairing_acceptance, transfer_device, trusted_devices,
-    update_device,
-};
-use super::routes::health::{__path_health, health};
-use super::routes::replication::{
-    __path_owner_cleanup, __path_replication_admission, __path_selected_resources, owner_cleanup,
-    replication_admission, selected_resources,
-};
-use super::routes::version::{__path_version, version};
+use crate::router::openapi_router::openapi_router::openapi_router::openapi::openapi_json;
+
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device::__path_device;
+
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device::device;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_restriction::__path_get_device_restriction;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_restriction::__path_put_device_restriction;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_restriction::get_device_restriction;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_restriction::put_device_restriction;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_selection::__path_delete_device_resource_selection;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_selection::__path_delete_device_selection;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_selection::__path_put_device_selection;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_selection::delete_device_resource_selection;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_selection::delete_device_selection;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_selection::put_device_selection;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_self_revocation::__path_revoke_self;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::device_self_revocation::revoke_self;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_approve_enrollment;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_enroll_device;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_list_approved_device_endpoints;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_list_devices;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_list_pending_enrollments;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_lookup_device_endpoint;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_lookup_device_identity;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_pairing_acceptance;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_revoke_device;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_set_pairing_acceptance;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_transfer_device;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_trusted_devices;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::__path_update_device;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::approve_enrollment;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::enroll_device;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::list_approved_device_endpoints;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::list_devices;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::list_pending_enrollments;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::lookup_device_endpoint;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::lookup_device_identity;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::pairing_acceptance;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::revoke_device;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::set_pairing_acceptance;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::transfer_device;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::trusted_devices;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::devices::update_device;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::health::__path_health;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::health::health;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replication::__path_owner_cleanup;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replication::__path_replication_admission;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replication::__path_selected_resources;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replication::owner_cleanup;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replication::replication_admission;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replication::selected_resources;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::version::__path_version;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::version::version;
 
 #[derive(OpenApi)]
 #[openapi(
     info(title = "LIDP Device API", version = env!("CARGO_PKG_VERSION")),
     paths(
-        super::routes::replication::selected_resources,
-        super::routes::replication::replication_admission,
-        super::routes::replication::owner_cleanup
+        crate::router::openapi_router::openapi_router::routes::replication::selected_resources,
+        crate::router::openapi_router::openapi_router::routes::replication::replication_admission,
+        crate::router::openapi_router::openapi_router::routes::replication::owner_cleanup
     ),
     modifiers(&SecurityAddon)
 )]
 pub(crate) struct ApiDoc;
 
 fn routes() -> OpenApiRouter<RouterState> {
-    OpenApiRouter::new()
+    crate::router::openapi_router::openapi_router::OpenApiRouter::new()
         .routes(routes!(health))
         .routes(routes!(device))
         .routes(routes!(revoke_self))
@@ -79,11 +109,14 @@ fn routes() -> OpenApiRouter<RouterState> {
 /// Builds the complete production API document without provisioning runtime state.
 pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
     let prefix = if prefix == "/" { "" } else { prefix };
-    let spec_router = OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes());
+    let spec_router = crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+        crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+    )
+    .merge(routes());
 
     let mut openapi_spec = spec_router.get_openapi().clone();
 
-    let mut joins = crate::node_join_openapi();
+    let mut joins = crate::node_join_source::node_join_openapi();
     joins.paths.paths = joins
         .paths
         .paths
@@ -116,7 +149,12 @@ pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
         })
         .collect();
     openapi_spec.merge(joins);
-    openapi_spec.servers = Some(vec![Server::new(format!("{}{}", api_base_uri, prefix))]);
+    openapi_spec.servers = Some(vec![
+        crate::router::openapi_router::openapi_router::Server::new(format!(
+            "{}{}",
+            api_base_uri, prefix
+        )),
+    ]);
 
     let mut schemas = Vec::<(String, RefOr<Schema>)>::new();
     let (openapi_json_path, openapi_json_item, openapi_json_types) =
@@ -132,16 +170,25 @@ pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
 }
 
 pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter {
-    let openapi_spec = server_common::canonical_openapi("device", &router_state.api_base_uri, prefix);
+    let openapi_spec = server_common::canonical_openapi::canonical_openapi(
+        "device",
+        &router_state.api_base_uri,
+        prefix,
+    );
     let prefix = if prefix == "/" { "" } else { prefix };
     let runtime_router = if prefix.is_empty() {
-        OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes().with_state(router_state))
+        crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+            crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+        )
+        .merge(routes().with_state(router_state))
     } else {
-        OpenApiRouter::with_openapi(ApiDoc::openapi())
-            .nest(prefix, routes().with_state(router_state))
+        crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+            crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+        )
+        .nest(prefix, routes().with_state(router_state))
     };
 
-    let openapi_json_routes = OpenApiRouter::new()
+    let openapi_json_routes = crate::router::openapi_router::openapi_router::OpenApiRouter::new()
         .routes(routes!(openapi_json))
         .with_state(openapi_spec);
 
@@ -154,22 +201,33 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use crate::router::openapi_router::openapi_router::openapi_router::std::collections::BTreeSet;
 
-    use utoipa::OpenApi;
-    use utoipa_axum::router::OpenApiRouter;
+    use crate::router::openapi_router::openapi_router::openapi_router::utoipa::OpenApi;
+    use crate::router::openapi_router::openapi_router::openapi_router::utoipa_axum::router::OpenApiRouter;
 
-    use super::{ApiDoc, routes};
+    use crate::router::openapi_router::openapi_router::ApiDoc;
+
+    use crate::router::openapi_router::openapi_router::routes;
 
     #[test]
     fn openapi_document_preserves_full_registered_contract_without_state() {
-        let registered = OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes());
-        let expected = serde_json::to_value(registered.get_openapi())
-            .expect("serialize registered Management document");
+        let registered =
+            crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+                crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+            )
+            .merge(routes());
+        let expected = crate::router::openapi_router::openapi_router::serde_json::to_value(
+            registered.get_openapi(),
+        )
+        .expect("serialize registered Management document");
 
         for prefix in ["", "/", "/device", "/custom/device"] {
-            let document = crate::openapi_document("https://device.example", prefix);
-            let document = serde_json::to_value(document).expect("serialize Management document");
+            let document =
+                crate::router::openapi_router::openapi_document("https://device.example", prefix);
+            let document =
+                crate::router::openapi_router::openapi_router::serde_json::to_value(document)
+                    .expect("serialize Management document");
             let paths = document["paths"]
                 .as_object()
                 .expect("complete Management paths");
@@ -189,7 +247,9 @@ mod tests {
             registered_paths.remove("/openapi.json");
             registered_paths.retain(|path, _| !path.starts_with("/node-joins/"));
             assert_eq!(
-                serde_json::Value::Object(registered_paths),
+                crate::router::openapi_router::openapi_router::serde_json::Value::Object(
+                    registered_paths
+                ),
                 expected["paths"]
             );
             for (name, schema) in expected["components"]["schemas"]

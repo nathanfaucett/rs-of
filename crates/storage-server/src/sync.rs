@@ -11,13 +11,17 @@ use axum::{
     response::Response,
     routing::get,
 };
-use of_model::{idp::model::Id, storage::StorageNamespace};
-use ofdb_sql::history::{SessionConfig, SyncRole, SyncTransport};
+use of_model::{id::Id, storage::namespace::StorageNamespace};
+use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
 use serde::{Deserialize, Serialize};
-use storage_service::DatabaseRuntime;
+use storage_service::database_runtime::DatabaseRuntime;
 use uuid::Uuid;
 
-use crate::{DeviceClient, IdpClient, IdpIntrospectionError, RouterState};
+use crate::{
+    device_client::DeviceClient,
+    idp_client::{IdpClient, IdpIntrospectionError},
+    router::state::RouterState,
+};
 
 pub const MAX_FRAME_PAYLOAD: u32 = 16 * 1024 * 1024;
 pub const MAX_SESSION_BYTES: u64 = 1024 * 1024 * 1024;
@@ -224,7 +228,7 @@ pub async fn authorize_sync(
         .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64);
     if claims.exp <= now
         || claims.nbf > now
-        || claims.r#use != of_model::contract::TokenUse::Access
+        || claims.r#use != of_model::contract::token_use::TokenUse::Access
         || claims.aud != "storage:sync"
     {
         return Err(SyncAuthError::Unauthorized);
@@ -264,11 +268,13 @@ async fn authorize_session(
     if let Some(device) = device {
         return authorize_sync(idp, device, token, identity, endpoint_id).await;
     }
-    let authorization = crate::authorize_storage_token(idp, token)
+    let authorization = crate::router::storage_authorization::authorize_storage_token(idp, token)
         .await
         .map_err(|error| match error {
-            crate::StorageAuthorizationError::InvalidToken => SyncAuthError::Unauthorized,
-            crate::StorageAuthorizationError::ServiceUnavailable => {
+            crate::router::storage_authorization::StorageAuthorizationError::InvalidToken => {
+                SyncAuthError::Unauthorized
+            }
+            crate::router::storage_authorization::StorageAuthorizationError::ServiceUnavailable => {
                 SyncAuthError::BackendUnavailable
             }
         })?;

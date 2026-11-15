@@ -1,10 +1,11 @@
 use include_dir::{Dir, include_dir};
 
-use db::{Database, Row, SqlTranslator, Uuid, Value};
+use ofdb_sql::Database;
+use ofdb_sql::{Row, SqlTranslator, Uuid, Value};
 
-static MIGRATIONS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/identity_migrations");
+static MIGRATIONS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
 
-pub async fn up(engine: &Database) -> Result<(), db::QueryError> {
+pub async fn up(engine: &Database) -> Result<(), ofdb_sql::QueryError> {
     for file in MIGRATIONS.files() {
         for statement in file
             .contents_utf8()
@@ -22,7 +23,9 @@ pub async fn up(engine: &Database) -> Result<(), db::QueryError> {
     validate_credential_history(&engine.client()).await
 }
 
-async fn validate_credential_history(client: &db::Client) -> Result<(), db::QueryError> {
+async fn validate_credential_history(
+    client: &ofdb_sql::Client,
+) -> Result<(), ofdb_sql::QueryError> {
     for table in ["clients", "credentials"] {
         let results = client
             .translate_and_execute(&format!("SELECT * FROM {table} LIMIT 0"), &SqlTranslator)
@@ -37,8 +40,8 @@ async fn validate_credential_history(client: &db::Client) -> Result<(), db::Quer
                     | "pairing_accepting_public_key"
             )
         }) {
-            return Err(db::QueryError::new(
-                db::QueryErrorKind::Rejected,
+            return Err(ofdb_sql::QueryError::new(
+                ofdb_sql::QueryErrorKind::Rejected,
                 "mixed credential history is unsupported; initialize a fresh identity database",
             ));
         }
@@ -46,7 +49,9 @@ async fn validate_credential_history(client: &db::Client) -> Result<(), db::Quer
     Ok(())
 }
 
-pub async fn validate_identity(client: &db::Client) -> Result<(), db::QueryError> {
+pub async fn validate_identity(
+    client: &ofdb_sql::Client,
+) -> Result<(), ofdb_sql::QueryError> {
     validate_credential_history(client).await?;
     for table in [
         "users",
@@ -152,10 +157,10 @@ pub struct ResolutionAudit {
 }
 
 pub async fn allows_authentication(
-    engine: &db::Client,
+    engine: &ofdb_sql::Client,
     credentials: &[Uuid],
     keys: &[Uuid],
-) -> Result<bool, db::QueryError> {
+) -> Result<bool, ofdb_sql::QueryError> {
     let mut rows = Vec::with_capacity(credentials.len() + keys.len());
     rows.extend(
         credentials
@@ -172,18 +177,18 @@ pub async fn allows_authentication(
 }
 
 pub async fn allows_authorization(
-    engine: &db::Client,
+    engine: &ofdb_sql::Client,
     rows: &[SecurityRow],
-) -> Result<bool, db::QueryError> {
+) -> Result<bool, ofdb_sql::QueryError> {
     clear(engine, rows).await
 }
 
 /// Inspect candidate (signer row ID, member row ID) pairs without combining their decisions.
 /// Clearance proves only conflict absence; callers must validate the current trust records.
 pub async fn allows_signer_trust_batch(
-    engine: &db::Client,
+    engine: &ofdb_sql::Client,
     pairs: &[(Uuid, Uuid)],
-) -> Result<Vec<bool>, db::QueryError> {
+) -> Result<Vec<bool>, ofdb_sql::QueryError> {
     if pairs.is_empty() {
         return Ok(Vec::new());
     }
@@ -209,19 +214,19 @@ pub async fn allows_signer_trust_batch(
 }
 
 pub async fn allows_token_issuance(
-    engine: &db::Client,
+    engine: &ofdb_sql::Client,
     rows: &[SecurityRow],
-) -> Result<bool, db::QueryError> {
+) -> Result<bool, ofdb_sql::QueryError> {
     clear(engine, rows).await
 }
 
 pub async fn resolve(
-    engine: &db::Client,
+    engine: &ofdb_sql::Client,
     administrator_id: Uuid,
     row: SecurityRow,
     values: Vec<(String, Value)>,
     created_at: i64,
-) -> Result<Option<ResolutionAudit>, db::QueryError> {
+) -> Result<Option<ResolutionAudit>, ofdb_sql::QueryError> {
     let conflicts = engine.row_conflicts(row.table.name(), &row.key()).await?;
     let unsafe_lifecycle = ["revoked_at", "consumed_at"].iter().any(|column| {
         let monotonic = *column == "revoked_at" || row.table.is_token_state();
@@ -255,7 +260,10 @@ pub async fn resolve(
     Ok(Some(audit))
 }
 
-async fn clear(engine: &db::Client, rows: &[SecurityRow]) -> Result<bool, db::QueryError> {
+async fn clear(
+    engine: &ofdb_sql::Client,
+    rows: &[SecurityRow],
+) -> Result<bool, ofdb_sql::QueryError> {
     for group in rows.chunk_by(|left, right| left.table == right.table) {
         let keys = group.iter().map(|row| row.key()).collect::<Vec<_>>();
         if engine
@@ -286,10 +294,13 @@ fn resolution_insert(audit: &ResolutionAudit) -> String {
 mod tests {
     use futures::executor::block_on;
 
-    use super::{
-        SecurityRow, SecurityTable, allows_authentication, allows_authorization,
-        allows_token_issuance, resolve, up,
-    };
+    use super::SecurityRow;
+    use super::SecurityTable;
+    use super::allows_authentication;
+    use super::allows_authorization;
+    use super::allows_token_issuance;
+    use super::resolve;
+    use super::up;
 
     const ADMIN: u128 = 100;
     const DEVICE: u128 = 1;
@@ -302,20 +313,20 @@ mod tests {
 
     // The unified database also carries the device-service `devices` table, which
     // idp-model cannot depend on; sync tests only need the columns they touch.
-    async fn up_unified(engine: &db::Database) {
+    async fn up_unified(engine: &ofdb_sql::Database) {
         up(engine).await.expect("initialize identity schema");
         let client = engine.client();
         client
             .translate_and_execute(
                 "CREATE TABLE IF NOT EXISTS devices (id UUID PRIMARY KEY, public_key TEXT, state INTEGER)",
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("create unified devices table");
         client
             .translate_and_execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS devices_public_key ON devices (public_key)",
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("create devices public key index");
@@ -324,7 +335,7 @@ mod tests {
     #[test]
     fn mixed_legacy_client_schema_is_rejected_not_silently_migrated() {
         block_on(async {
-            let database = db::Database::in_memory();
+            let database = ofdb_sql::Database::in_memory();
             for file in super::MIGRATIONS.files() {
                 let legacy = file.contents_utf8().expect("schema UTF-8").replace(
                     "    client_id TEXT,",
@@ -337,7 +348,7 @@ mod tests {
                 {
                     database
                         .client()
-                        .translate_and_execute(statement, &db::SqlTranslator)
+                        .translate_and_execute(statement, &ofdb_sql::SqlTranslator)
                         .await
                         .expect("create legacy mixed schema");
                 }
@@ -352,13 +363,13 @@ mod tests {
     #[test]
     fn identity_schema_initializes_idempotently_and_rejects_duplicate_device_bindings() {
         block_on(async {
-            let engine = db::Database::in_memory();
+            let engine = ofdb_sql::Database::in_memory();
             up_unified(&engine).await;
             up_unified(&engine).await;
 
             let clients_schema = engine
                 .client()
-                .translate_and_execute("SELECT * FROM clients", &db::SqlTranslator)
+                .translate_and_execute("SELECT * FROM clients", &ofdb_sql::SqlTranslator)
                 .await
                 .expect("query clients")
                 .remove(0);
@@ -391,7 +402,10 @@ mod tests {
             ] {
                 let result = engine
                     .client()
-                    .translate_and_execute(&format!("SELECT * FROM {table}"), &db::SqlTranslator)
+                    .translate_and_execute(
+                        &format!("SELECT * FROM {table}"),
+                        &ofdb_sql::SqlTranslator,
+                    )
                     .await
                     .expect("query identity table")
                     .remove(0);
@@ -400,32 +414,32 @@ mod tests {
 
             engine.client().translate_and_execute(
                     "INSERT INTO devices (id, public_key) VALUES (CAST('00000000-0000-7000-8000-000000000001' AS UUID), 'key')",
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .unwrap();
             assert!(engine.client().translate_and_execute(
                     "INSERT INTO devices (id, public_key) VALUES (CAST('00000000-0000-7000-8000-000000000002' AS UUID), 'key')",
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .is_err());
 
             engine.client().translate_and_execute(
                     "INSERT INTO idp_replica_members (id, installation_id, member_id, endpoint_id, issuer, approved_at) VALUES (CAST('00000000-0000-7000-8000-000000000010' AS UUID), 'installation-a', CAST('00000000-0000-7000-8000-000000000011' AS UUID), 'endpoint-a', 'https://issuer.example', 1)",
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .expect("insert first replica membership");
             assert!(engine.client().translate_and_execute(
                     "INSERT INTO idp_replica_members (id, installation_id, member_id, endpoint_id, issuer, approved_at) VALUES (CAST('00000000-0000-7000-8000-000000000012' AS UUID), 'installation-a', CAST('00000000-0000-7000-8000-000000000011' AS UUID), 'endpoint-b', 'https://issuer.example', 1)",
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .is_err());
             assert!(engine.client().translate_and_execute(
                     "INSERT INTO idp_replica_members (id, installation_id, member_id, endpoint_id, issuer, approved_at) VALUES (CAST('00000000-0000-7000-8000-000000000013' AS UUID), 'installation-a', CAST('00000000-0000-7000-8000-000000000014' AS UUID), 'endpoint-a', 'https://issuer.example', 1)",
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .is_err());
@@ -435,8 +449,8 @@ mod tests {
     #[test]
     fn reconnect_conflict_resolution_cannot_resurrect_revoked_refresh_grants() {
         block_on(async {
-            let source = db::Database::in_memory();
-            let destination = db::Database::in_memory();
+            let source = ofdb_sql::Database::in_memory();
+            let destination = ofdb_sql::Database::in_memory();
             up_unified(&source).await;
             seed(&source).await;
             synchronize(&source, &destination).await;
@@ -462,7 +476,7 @@ mod tests {
                     &source.client(),
                     uuid(ADMIN),
                     grant,
-                    vec![("revoked_at".into(), db::Value::Null)],
+                    vec![("revoked_at".into(), ofdb_sql::Value::Null)],
                     3
                 )
                 .await
@@ -474,7 +488,7 @@ mod tests {
                     &source.client(),
                     uuid(ADMIN),
                     grant,
-                    vec![("revoked_at".into(), db::Value::Integer(1))],
+                    vec![("revoked_at".into(), ofdb_sql::Value::Integer(1))],
                     3
                 )
                 .await
@@ -488,8 +502,8 @@ mod tests {
     fn signer_trust_batch_preserves_pair_local_conflicts_and_refreshes() {
         block_on(async {
             for table in ["idp_replica_members", "idp_replica_signers"] {
-                let source = db::Database::in_memory();
-                let destination = db::Database::in_memory();
+                let source = ofdb_sql::Database::in_memory();
+                let destination = ofdb_sql::Database::in_memory();
                 up(&source).await.expect("initialize trust schema");
                 for id in [101, 102] {
                     let row_id = uuid(id);
@@ -497,7 +511,7 @@ mod tests {
                         &format!(
                             "INSERT INTO idp_replica_members (id, installation_id, member_id, endpoint_id, issuer, approved_at) VALUES (CAST('{row_id}' AS UUID), 'issuer', CAST('{row_id}' AS UUID), 'endpoint-{id}', 'issuer', 1); INSERT INTO idp_replica_signers (id, member_id, active_member_id, key_id, issuer, public_jwk, approved_at) VALUES (CAST('{row_id}' AS UUID), CAST('{row_id}' AS UUID), CAST('{row_id}' AS UUID), CAST('{row_id}' AS UUID), 'issuer', '{{}}', 1)"
                         ),
-                        &db::SqlTranslator,
+                        &ofdb_sql::SqlTranslator,
                     ).await.expect("seed independent trust pairs");
                 }
                 let pairs = [
@@ -537,7 +551,7 @@ mod tests {
                     &source.client(),
                     uuid(ADMIN),
                     SecurityRow::new(table, uuid(101)),
-                    vec![("approved_at".into(), db::Value::Integer(4))],
+                    vec![("approved_at".into(), ofdb_sql::Value::Integer(4))],
                     4,
                 )
                 .await
@@ -556,8 +570,8 @@ mod tests {
     #[test]
     fn authorization_checks_every_selected_row_and_refreshes_after_resolution() {
         block_on(async {
-            let source = db::Database::in_memory();
-            let destination = db::Database::in_memory();
+            let source = ofdb_sql::Database::in_memory();
+            let destination = ofdb_sql::Database::in_memory();
             up_unified(&source).await;
             seed(&source).await;
             let second_role = uuid(101);
@@ -567,7 +581,7 @@ mod tests {
                     &format!(
                         "INSERT INTO roles (id, name) VALUES (CAST('{second_role}' AS UUID), 'second')"
                     ),
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .expect("insert second role");
@@ -606,7 +620,10 @@ mod tests {
                     &source.client(),
                     uuid(ADMIN),
                     roles[1],
-                    vec![("name".to_owned(), db::Value::Text("resolved".to_owned()))],
+                    vec![(
+                        "name".to_owned(),
+                        ofdb_sql::Value::Text("resolved".to_owned())
+                    )],
                     3,
                 )
                 .await
@@ -626,8 +643,8 @@ mod tests {
     #[test]
     fn security_decisions_fail_closed_until_an_administrator_resolves_the_selected_state() {
         block_on(async {
-            let source = db::Database::in_memory();
-            let destination = db::Database::in_memory();
+            let source = ofdb_sql::Database::in_memory();
+            let destination = ofdb_sql::Database::in_memory();
             up_unified(&source).await;
             seed(&source).await;
             synchronize(&source, &destination).await;
@@ -694,7 +711,7 @@ mod tests {
                     &source.client(),
                     uuid(ADMIN),
                     code,
-                    vec![("consumed_at".to_owned(), db::Value::Null)],
+                    vec![("consumed_at".to_owned(), ofdb_sql::Value::Null)],
                     3,
                 )
                 .await
@@ -705,7 +722,7 @@ mod tests {
                 &source.client(),
                 uuid(ADMIN),
                 code,
-                vec![("consumed_at".to_owned(), db::Value::Integer(1))],
+                vec![("consumed_at".to_owned(), ofdb_sql::Value::Integer(1))],
                 3,
             )
             .await
@@ -717,7 +734,7 @@ mod tests {
                     .client()
                     .translate_and_execute(
                         "SELECT id FROM idp_conflict_resolutions",
-                        &db::SqlTranslator,
+                        &ofdb_sql::SqlTranslator,
                     )
                     .await
                     .unwrap()[0]
@@ -733,7 +750,7 @@ mod tests {
         });
     }
 
-    async fn seed(engine: &db::Database) {
+    async fn seed(engine: &ofdb_sql::Database) {
         for (table, id, column, value) in [
             ("devices", DEVICE, "state", "0"),
             ("clients", CLIENT, "client_name", "'client'"),
@@ -750,14 +767,17 @@ mod tests {
                         "INSERT INTO {table} (id, {column}) VALUES (CAST('{}' AS UUID), {value})",
                         uuid(id)
                     ),
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .unwrap();
         }
     }
 
-    async fn synchronize(source: &db::Database, destination: &db::Database) {
+    async fn synchronize(
+        source: &ofdb_sql::Database,
+        destination: &ofdb_sql::Database,
+    ) {
         destination
             .import_history(
                 source
@@ -778,7 +798,13 @@ mod tests {
             .expect("atomic reverse native history import");
     }
 
-    async fn update(engine: &db::Database, table: &str, id: u128, column: &str, value: &str) {
+    async fn update(
+        engine: &ofdb_sql::Database,
+        table: &str,
+        id: u128,
+        column: &str,
+        value: &str,
+    ) {
         let result = engine
             .client()
             .translate_and_execute(
@@ -786,14 +812,14 @@ mod tests {
                     "UPDATE {table} SET {column} = {value} WHERE id = CAST('{}' AS UUID)",
                     uuid(id)
                 ),
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await;
         assert!(result.is_ok(), "{table}: {result:?}");
     }
 
-    fn uuid(value: u128) -> db::Uuid {
-        db::Uuid::from_u128(0x00000000000070008000000000000000 | value)
+    fn uuid(value: u128) -> ofdb_sql::Uuid {
+        ofdb_sql::Uuid::from_u128(0x00000000000070008000000000000000 | value)
     }
 }
 
@@ -802,7 +828,7 @@ mod shared_identity_tests {
     #[test]
     fn identity_owner_migrates_roles_without_device_schema() {
         futures::executor::block_on(async {
-            let database = db::Database::in_memory();
+            let database = ofdb_sql::Database::in_memory();
             super::up(&database).await.expect("identity migration");
             super::up(&database)
                 .await
@@ -819,7 +845,7 @@ mod shared_identity_tests {
                     .client()
                     .translate_and_execute(
                         &format!("SELECT * FROM {table} LIMIT 0"),
-                        &db::SqlTranslator,
+                        &ofdb_sql::SqlTranslator,
                     )
                     .await
                     .expect("identity table");
@@ -834,7 +860,7 @@ mod shared_identity_tests {
                         .client()
                         .translate_and_execute(
                             &format!("SELECT * FROM {table} LIMIT 0"),
-                            &db::SqlTranslator
+                            &ofdb_sql::SqlTranslator
                         )
                         .await
                         .is_err(),

@@ -1,7 +1,7 @@
 use axum::extract::State;
-use of_model::idp::contract::{ErrorCode, ErrorResponse};
+use of_model::idp::contract::{error_code::ErrorCode, error_response::ErrorResponse};
 
-use crate::router::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(get, path = "/oauth2/sessions/logout", responses((status = 302, description = "Logout redirect")))]
 pub(crate) async fn sessions_logout(

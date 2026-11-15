@@ -1,23 +1,35 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Timelike, Utc};
-use db::{
-    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
-    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Transaction,
-    Uuid, Value,
-};
-use of_model::idp::{
-    contract::{
-        ClientProfile, ClientRegistration, ClientType, EntityType, TokenEndpointAuthMethod,
-    },
-    model::{Client, Id},
-    replica::{SecurityRow, SecurityTable, allows_token_issuance},
-};
-
+use of_model::id::Id;
+use of_model::idp::contract::client_profile::ClientProfile;
+use of_model::idp::contract::client_registration::ClientRegistration;
+use of_model::idp::contract::client_type::ClientType;
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
+use of_model::idp::model::client::Client;
+use of_model::idp::replica::SecurityRow;
+use of_model::idp::replica::SecurityTable;
+use of_model::idp::replica::allows_token_issuance;
+use ofdb_sql::FromRow;
+use ofdb_sql::FromRowError;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryDelete;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
 use crate::{
-    PasswordConfig, encrypt_password,
-    replica::DbKeyRepo,
+    password_config::PasswordConfig,
+    replica::key_repo::DbKeyRepo,
     repo::{ClientRepo, KeyService, PrivateKeyRepo, RepoError, RepoResult},
+    util::encrypt_password,
 };
 
 const TABLE: &str = "clients";
@@ -53,7 +65,7 @@ pub struct DbClientRepo<P = crate::repo::PrivateKeyKeyringRepo>
 where
     P: PrivateKeyRepo + Send + Sync,
 {
-    engine: db::Client,
+    engine: ofdb_sql::Client,
     key_service: Arc<KeyService<DbKeyRepo, P>>,
 }
 
@@ -62,7 +74,10 @@ where
     P: PrivateKeyRepo + Send + Sync,
 {
     #[must_use]
-    pub const fn new(engine: db::Client, key_service: Arc<KeyService<DbKeyRepo, P>>) -> Self {
+    pub const fn new(
+        engine: ofdb_sql::Client,
+        key_service: Arc<KeyService<DbKeyRepo, P>>,
+    ) -> Self {
         Self {
             engine,
             key_service,
@@ -73,7 +88,11 @@ where
         &self,
         registration: ClientRegistration,
         allow_application_creation: bool,
-        capture: impl FnOnce(&of_model::idp::model::Key, &[key::DerivationPath]) -> RepoResult<()> + Send,
+        capture: impl FnOnce(
+            &of_model::idp::model::key::Key,
+            &[bip32::DerivationPath],
+        ) -> RepoResult<()>
+        + Send,
     ) -> RepoResult<Client> {
         let client_id = registration
             .client_id
@@ -229,7 +248,7 @@ where
                 .filter(|row| row.values[1] == revision.map_or(Value::Null, Value::Uuid))
             {
                 client.client_secret_hash =
-                    db::decode(&row.values[0], "secret_hash").map_err(row_error)?;
+                    ofdb_sql::decode(&row.values[0], "secret_hash").map_err(row_error)?;
             }
         }
         Ok(clients.into_iter().map(|(client, _)| client).collect())
@@ -458,7 +477,7 @@ where
             row.values[0] == Value::Text(client.client_secret_hash.clone())
                 && row.values[1] == current_revision.map_or(Value::Null, Value::Uuid)
         }) {
-            db::decode(&local.values[1], "credential_id").map_err(row_error)?
+            ofdb_sql::decode(&local.values[1], "credential_id").map_err(row_error)?
         } else {
             Id::now_v7()
         };
@@ -546,7 +565,7 @@ struct ApplicationIdRow {
 impl FromRow for ApplicationIdRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
         })
     }
 }
@@ -583,64 +602,91 @@ struct ClientRow {
 impl FromRow for ClientRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            application_id: db::decode(
-                db::value(row, columns, "application_id")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            application_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "application_id")?,
                 "application_id",
             )?,
-            client_id: db::decode(db::value(row, columns, "client_id")?, "client_id")?,
-            credential_id: db::decode(db::value(row, columns, "credential_id")?, "credential_id")?,
-            client_id_issued_at: db::decode(
-                db::value(row, columns, "client_id_issued_at")?,
+            client_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "client_id")?, "client_id")?,
+            credential_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "credential_id")?,
+                "credential_id",
+            )?,
+            client_id_issued_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "client_id_issued_at")?,
                 "client_id_issued_at",
             )?,
-            client_secret_expires_at: db::decode(
-                db::value(row, columns, "client_secret_expires_at")?,
+            client_secret_expires_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "client_secret_expires_at")?,
                 "client_secret_expires_at",
             )?,
-            client_name: db::decode(db::value(row, columns, "client_name")?, "client_name")?,
-            client_uri: db::decode(db::value(row, columns, "client_uri")?, "client_uri")?,
-            redirect_uris: db::decode(db::value(row, columns, "redirect_uris")?, "redirect_uris")?,
-            client_type: db::decode(db::value(row, columns, "client_type")?, "client_type")?,
-            profile: db::decode(db::value(row, columns, "profile")?, "profile")?,
-            token_endpoint_auth_method: db::decode(
-                db::value(row, columns, "token_endpoint_auth_method")?,
+            client_name: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "client_name")?,
+                "client_name",
+            )?,
+            client_uri: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "client_uri")?,
+                "client_uri",
+            )?,
+            redirect_uris: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "redirect_uris")?,
+                "redirect_uris",
+            )?,
+            client_type: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "client_type")?,
+                "client_type",
+            )?,
+            profile: ofdb_sql::decode(ofdb_sql::value(row, columns, "profile")?, "profile")?,
+            token_endpoint_auth_method: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "token_endpoint_auth_method")?,
                 "token_endpoint_auth_method",
             )?,
-            allowed_grant_types: db::decode(
-                db::value(row, columns, "allowed_grant_types")?,
+            allowed_grant_types: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "allowed_grant_types")?,
                 "allowed_grant_types",
             )?,
-            response_types: db::decode(
-                db::value(row, columns, "response_types")?,
+            response_types: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "response_types")?,
                 "response_types",
             )?,
-            allowed_scopes: db::decode(
-                db::value(row, columns, "allowed_scopes")?,
+            allowed_scopes: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "allowed_scopes")?,
                 "allowed_scopes",
             )?,
-            allowed_audiences: db::decode(
-                db::value(row, columns, "allowed_audiences")?,
+            allowed_audiences: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "allowed_audiences")?,
                 "allowed_audiences",
             )?,
-            logo_uri: db::decode(db::value(row, columns, "logo_uri")?, "logo_uri")?,
-            contacts: db::decode(db::value(row, columns, "contacts")?, "contacts")?,
-            terms_of_service_uri: db::decode(
-                db::value(row, columns, "terms_of_service_uri")?,
+            logo_uri: ofdb_sql::decode(ofdb_sql::value(row, columns, "logo_uri")?, "logo_uri")?,
+            contacts: ofdb_sql::decode(ofdb_sql::value(row, columns, "contacts")?, "contacts")?,
+            terms_of_service_uri: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "terms_of_service_uri")?,
                 "terms_of_service_uri",
             )?,
-            policy_uri: db::decode(db::value(row, columns, "policy_uri")?, "policy_uri")?,
-            software_statement: db::decode(
-                db::value(row, columns, "software_statement")?,
+            policy_uri: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "policy_uri")?,
+                "policy_uri",
+            )?,
+            software_statement: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "software_statement")?,
                 "software_statement",
             )?,
-            software_id: db::decode(db::value(row, columns, "software_id")?, "software_id")?,
-            software_version: db::decode(
-                db::value(row, columns, "software_version")?,
+            software_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "software_id")?,
+                "software_id",
+            )?,
+            software_version: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "software_version")?,
                 "software_version",
             )?,
-            created_at: db::decode(db::value(row, columns, "created_at")?, "created_at")?,
-            updated_at: db::decode(db::value(row, columns, "updated_at")?, "updated_at")?,
+            created_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "created_at")?,
+                "created_at",
+            )?,
+            updated_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "updated_at")?,
+                "updated_at",
+            )?,
         })
     }
 }
@@ -894,7 +940,7 @@ fn token_endpoint_auth_method(value: i64) -> RepoResult<TokenEndpointAuthMethod>
         )),
     }
 }
-fn db_error(error: db::QueryError) -> RepoError {
+fn db_error(error: ofdb_sql::QueryError) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 fn row_error(error: FromRowError) -> RepoError {
@@ -944,7 +990,7 @@ fn select(predicate: Option<QueryExpr>) -> Query {
 }
 
 #[cfg(test)]
-use db::Database;
+use ofdb_sql::Database;
 
 #[cfg(all(test, unix))]
 #[path = "client_observation_tests.rs"]
@@ -958,30 +1004,37 @@ mod tests {
     };
 
     use of_model::idp::{
-        contract::{ApplicationRegistration, ClientProfile, GrantType, ResponseType},
+        contract::{
+            application_registration::ApplicationRegistration, client_profile::ClientProfile,
+            grant_type::GrantType, response_type::ResponseType,
+        },
         replica::up,
     };
 
     use crate::{
-        oauth2::{OAuth2Config, OAuth2Service},
+        oauth2::{config::OAuth2Config, service::OAuth2Service},
         replica::{
-            DbApplicationRepo, DbOAuth2AuthorizationCodeRepo, DbOAuth2RefreshTokenRepo,
-            DbOAuth2UserConsentRepo, DbUserRepo,
+            application_repo::DbApplicationRepo,
+            oauth2_authorization_code_repo::DbOAuth2AuthorizationCodeRepo,
+            oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo,
+            oauth2_user_consent_repo::DbOAuth2UserConsentRepo, user_repo::DbUserRepo,
         },
-        repo::KeyRepo,
+        repo::key_repo::KeyRepo,
         util::verify_password,
     };
 
     use super::*;
 
     #[derive(Default)]
-    pub(super) struct TestPrivateKeyRepo(Mutex<HashMap<(String, String), key::DerivedKey>>);
+    pub(super) struct TestPrivateKeyRepo(
+        Mutex<HashMap<(String, String), key::derived_key::DerivedKey>>,
+    );
     impl PrivateKeyRepo for TestPrivateKeyRepo {
         fn load(
             &self,
             namespace: &str,
-            path: &key::DerivationPath,
-        ) -> RepoResult<Option<key::DerivedKey>> {
+            path: &bip32::DerivationPath,
+        ) -> RepoResult<Option<key::derived_key::DerivedKey>> {
             Ok(self
                 .0
                 .lock()
@@ -989,14 +1042,14 @@ mod tests {
                 .get(&(namespace.into(), path.to_string()))
                 .cloned())
         }
-        fn store(&self, namespace: &str, key: &key::DerivedKey) -> RepoResult<()> {
+        fn store(&self, namespace: &str, key: &key::derived_key::DerivedKey) -> RepoResult<()> {
             self.0
                 .lock()
                 .unwrap()
                 .insert((namespace.into(), key.to_string()), key.clone());
             Ok(())
         }
-        fn delete(&self, namespace: &str, path: &key::DerivationPath) -> RepoResult<()> {
+        fn delete(&self, namespace: &str, path: &bip32::DerivationPath) -> RepoResult<()> {
             self.0
                 .lock()
                 .unwrap()
@@ -1082,7 +1135,7 @@ mod tests {
                         "UPDATE clients SET credential_id = CAST('{}' AS UUID)",
                         Id::now_v7()
                     ),
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .expect("learn a public credential rotation");
@@ -1097,7 +1150,10 @@ mod tests {
             );
             database
                 .client()
-                .translate_and_execute("DELETE FROM local_client_credentials", &db::SqlTranslator)
+                .translate_and_execute(
+                    "DELETE FROM local_client_credentials",
+                    &ofdb_sql::SqlTranslator,
+                )
                 .await
                 .expect("simulate identity without local verifier");
             let client = repo
@@ -1120,7 +1176,10 @@ mod tests {
         up(&database).await.expect("initialize fresh schema");
         database
             .client()
-            .translate_and_execute("DROP TABLE local_client_credentials", &db::SqlTranslator)
+            .translate_and_execute(
+                "DROP TABLE local_client_credentials",
+                &ofdb_sql::SqlTranslator,
+            )
             .await
             .expect("make local credential storage unavailable");
         let keys = Arc::new(KeyService::new(
@@ -1136,7 +1195,7 @@ mod tests {
         );
         let rows = database
             .client()
-            .translate_and_execute("SELECT id FROM clients", &db::SqlTranslator)
+            .translate_and_execute("SELECT id FROM clients", &ofdb_sql::SqlTranslator)
             .await
             .expect("registration rollback");
         assert!(rows[0].rows.is_empty());
@@ -1144,7 +1203,7 @@ mod tests {
 
     #[tokio::test]
     async fn client_secrets_are_disclosed_only_on_creation_and_rotation() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         up(&engine).await.expect("initialize current IdP schema");
         let key_service = Arc::new(KeyService::new(
             DbKeyRepo::new(engine.client()),
@@ -1239,7 +1298,7 @@ mod tests {
         assert_eq!(unchanged.client_secret_hash, stored.client_secret_hash);
         let public = engine
             .client()
-            .translate_and_execute("SELECT * FROM clients", &db::SqlTranslator)
+            .translate_and_execute("SELECT * FROM clients", &ofdb_sql::SqlTranslator)
             .await
             .expect("query syncable client rows")
             .remove(0);
@@ -1285,7 +1344,7 @@ mod tests {
                         paths.first(),
                         Some(&key.derivation_path().expect("actual key path"))
                     );
-                    assert_eq!(paths.last(), Some(&key::DerivationPath::default()));
+                    assert_eq!(paths.last(), Some(&bip32::DerivationPath::default()));
                     assert!(
                         paths
                             .windows(2)
@@ -1315,7 +1374,7 @@ mod tests {
 
     #[tokio::test]
     async fn creates_public_and_confidential_clients_with_metadata_roots_only() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         up(&engine).await.unwrap();
         let key_service = Arc::new(KeyService::new(
             DbKeyRepo::new(engine.client()),

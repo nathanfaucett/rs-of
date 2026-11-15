@@ -10,11 +10,11 @@ use axum::{
 };
 use db::Database;
 use device_service::HostedControlPlane;
+use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 use of_model::idp::{
     contract::{IdentityAction, IntrospectionResponse},
     model::Id,
 };
-use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
 use tower::ServiceExt;
 
 #[tokio::test]

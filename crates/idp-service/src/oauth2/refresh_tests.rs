@@ -4,34 +4,60 @@ use std::{
 };
 
 use base64::{Engine as Base64Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use db::{Query, QueryColumn, QueryFrom, QuerySelect, Statement, Value};
-use of_model::idp::{
-    contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType,
-        ErrorCode, GrantType, OAuth2ClientAuth, RefreshTokenGrantRequest, ResponseType,
-        RevocationRequest, TokenEndpointAuthMethod, TokenRequest,
-    },
-    model::{Client, Id},
-    replica::up,
+use bip32::DerivationPath;
+use key::derived_key::DerivedKey;
+use of_model::contract::{
+    refresh_token::RefreshToken, standard_claims::StandardClaims, token_response::TokenResponse,
 };
-use key::{DerivationPath, DerivedKey};
-use of_model::contract::{RefreshToken, StandardClaims, TokenResponse};
+use of_model::id::Id;
+use of_model::idp::contract::application_registration::ApplicationRegistration;
+use of_model::idp::contract::client_profile::ClientProfile;
+use of_model::idp::contract::client_registration::ClientRegistration;
+use of_model::idp::contract::client_type::ClientType;
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::grant_type::GrantType;
+use of_model::idp::contract::oauth2_client_auth::OAuth2ClientAuth;
+use of_model::idp::contract::refresh_token_grant_request::RefreshTokenGrantRequest;
+use of_model::idp::contract::response_type::ResponseType;
+use of_model::idp::contract::revocation_request::RevocationRequest;
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
+use of_model::idp::contract::token_request::TokenRequest;
+use of_model::idp::model::client::Client;
+use of_model::idp::replica::up;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::Statement;
+use ofdb_sql::Value;
 
 use crate::{
-    PasswordConfig,
-    oauth2::{OAuth2Config, OAuth2Service, UserPrincipal, decode_jwt, encode_jwt},
+    oauth2::{
+        config::OAuth2Config,
+        jwt::{decode_jwt, encode_jwt},
+        principal::UserPrincipal,
+        service::OAuth2Service,
+    },
+    password_config::PasswordConfig,
     replica::{
-        DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
-        DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
+        application_repo::DbApplicationRepo, client_repo::DbClientRepo, key_repo::DbKeyRepo,
+        oauth2_authorization_code_repo::DbOAuth2AuthorizationCodeRepo,
+        oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo,
+        oauth2_user_consent_repo::DbOAuth2UserConsentRepo, user_repo::DbUserRepo,
     },
     repo::{
-        ClientRepo, KeyService, OAuth2RefreshToken, OAuth2RefreshTokenRepo, PrivateKeyRepo,
-        RepoResult, UserRepo,
+        client_repo::ClientRepo,
+        error::RepoResult,
+        key_service::KeyService,
+        oauth2_refresh_token_repo::{OAuth2RefreshToken, OAuth2RefreshTokenRepo},
+        private_key_repo::PrivateKeyRepo,
+        user_repo::UserRepo,
     },
 };
 
 #[path = "public_key_tests.rs"]
-mod public_key_tests;
+pub mod public_key_tests;
 
 #[derive(Clone, Default)]
 struct TestPrivateKeyRepo(Arc<Mutex<HashMap<(String, String), DerivedKey>>>);
@@ -61,7 +87,7 @@ impl PrivateKeyRepo for TestPrivateKeyRepo {
     }
 }
 
-type TestEngine = db::Database;
+type TestEngine = ofdb_sql::Database;
 type TestService = OAuth2Service<
     DbApplicationRepo,
     DbClientRepo<TestPrivateKeyRepo>,
@@ -74,7 +100,7 @@ type TestService = OAuth2Service<
 >;
 
 async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
-    let engine = Arc::new(db::Database::in_memory());
+    let engine = Arc::new(ofdb_sql::Database::in_memory());
     up(&engine).await.expect("initialize IdP schema");
     let keys = Arc::new(KeyService::new(
         DbKeyRepo::new(engine.client()),
@@ -91,7 +117,7 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         keys,
         OAuth2Config::default(),
     );
-    let binding = crate::oauth2::NodeSignerBinding {
+    let binding = crate::oauth2::node_signer::NodeSignerBinding {
         member_id: Id::now_v7(),
         key_id: Id::now_v7(),
         endpoint_id: "node-endpoint".into(),
@@ -101,7 +127,7 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         .prepare_node_signer(&binding)
         .expect("prepare independent local signer");
 
-    let member = of_model::idp::contract::ReplicaMembership {
+    let member = of_model::idp::contract::idp_signer::ReplicaMembership {
         installation_id: service.oauth_config.issuer.clone(),
         issuer: service.oauth_config.issuer.clone(),
         member_id: binding.member_id,
@@ -109,7 +135,7 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         approved_at: 1,
         revoked_at: None,
     };
-    let signer = of_model::idp::contract::IdpSignerRecord {
+    let signer = of_model::idp::contract::idp_signer::IdpSignerRecord {
         member_id: binding.member_id,
         key_id: binding.key_id,
         issuer: member.issuer.clone(),
@@ -118,7 +144,7 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         revoked_at: None,
         expires_at: None,
     };
-    crate::replica::DbReplicaSignerRepo::new(engine.client())
+    crate::replica::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
         .enroll(&member, &signer)
         .await
         .expect("approve local node signer");
@@ -440,7 +466,7 @@ async fn issue(service: &TestService, client: &Client, principal: &UserPrincipal
         .await
         .expect("issue persisted tokens")
 }
-async fn states(engine: &TestEngine) -> Vec<db::Row> {
+async fn states(engine: &TestEngine) -> Vec<ofdb_sql::Row> {
     engine
         .client()
         .execute(vec![Statement::Query(Query::Select(QuerySelect {
@@ -682,10 +708,10 @@ async fn refresh_verification_precedes_consumption() {
     issued.iat += 3600;
     invalid_claims.push(issued);
     let mut use_claim = claims.clone();
-    use_claim.r#use = of_model::contract::TokenUse::Access;
+    use_claim.r#use = of_model::contract::token_use::TokenUse::Access;
     invalid_claims.push(use_claim);
     let mut principal_type = claims.clone();
-    principal_type.principal_type = of_model::contract::PrincipalType::Client;
+    principal_type.principal_type = of_model::contract::principal_type::PrincipalType::Client;
     invalid_claims.push(principal_type);
     let mut tokens: Vec<String> = invalid_claims
         .iter()
@@ -780,7 +806,7 @@ async fn user_token_signer_is_not_the_user_principal() {
 #[tokio::test]
 async fn missing_local_signer_does_not_consume_authorization_code() {
     use crate::repo::OAuth2AuthorizationCodeRepo;
-    use of_model::idp::contract::AuthorizationCodeGrantRequest;
+    use of_model::idp::contract::authorization_code_grant_request::AuthorizationCodeGrantRequest;
     let (_, mut service, client, principal) = setup().await;
     let code = service
         .authorization_code_repo
@@ -847,7 +873,8 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
         .expect("prepared binding")
         .key_id;
     {
-        let engine = Arc::new(db::Database::open(&path).expect("persist Node identity"));
+        let engine =
+            Arc::new(ofdb_sql::Database::open(&path).expect("persist Node identity"));
         up(&engine).await.expect("initialize local trust schema");
         for table in [
             "applications",
@@ -863,7 +890,7 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
         ] {
             let rows = source
                 .client()
-                .translate_and_execute(&format!("SELECT * FROM {table}"), &db::SqlTranslator)
+                .translate_and_execute(&format!("SELECT * FROM {table}"), &ofdb_sql::SqlTranslator)
                 .await
                 .expect("read local fixture state")
                 .remove(0)
@@ -871,11 +898,13 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             for row in rows {
                 engine
                     .client()
-                    .execute(vec![Statement::Query(Query::Insert(db::QueryInsert {
-                        table: table.into(),
-                        row,
-                        returning: None,
-                    }))])
+                    .execute(vec![Statement::Query(Query::Insert(
+                        ofdb_sql::QueryInsert {
+                            table: table.into(),
+                            row,
+                            returning: None,
+                        },
+                    ))])
                     .await
                     .expect("persist local state, not a transport import");
             }
@@ -885,7 +914,8 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
     drop(source);
     let mut replacement = None;
     for reopen in 0..2 {
-        let engine = Arc::new(db::Database::open(&path).expect("reopen offline Node"));
+        let engine =
+            Arc::new(ofdb_sql::Database::open(&path).expect("reopen offline Node"));
         let config: OAuth2Config =
             serde_json::from_slice(&std::fs::read(&config_path).expect("read binding config"))
                 .expect("restore persisted Node binding");
@@ -894,7 +924,7 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             .as_ref()
             .expect("binding survives reopen");
         assert_eq!(binding.key_id, expected_signer);
-        let peers = crate::replica::DbReplicaSignerRepo::new(engine.client());
+        let peers = crate::replica::replica_signer_repo::DbReplicaSignerRepo::new(engine.client());
         let signers = peers
             .trusted_signers(&config.issuer, chrono::Utc::now().timestamp())
             .await
@@ -915,7 +945,7 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
         assert_eq!(
             keys.prepare_node_signer(binding)
                 .expect("exact preparation retry"),
-            of_model::idp::contract::JwkPublic::from(signing)
+            of_model::idp::contract::jwk_public::JwkPublic::from(signing)
         );
         let missing_secret = KeyService::new(
             DbKeyRepo::new(engine.client()),

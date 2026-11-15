@@ -2,9 +2,9 @@ use std::sync::{Arc, OnceLock};
 
 use device_service::replica::DbSelectionPolicyRepo;
 use device_service::replica::SelectionPolicy;
-use of_model::idp::contract::{GrantType, TokenEndpointAuthMethod};
 use idp_service::repo::ClientRepo;
 use of_model::contract::StorageAuthorizationAction;
+use of_model::idp::contract::{GrantType, TokenEndpointAuthMethod};
 use storage_server::{RouterState, StorageCopyRetirement, openapi_router, resource_router};
 use storage_service::ScopedFileSystemRuntime;
 

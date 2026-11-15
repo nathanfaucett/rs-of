@@ -5,12 +5,18 @@ use alloc::{
     vec::Vec,
 };
 
+use of_model::contract::authorization_details::AuthorizationDetail;
 use of_model::idp::contract::{
-    AuthorizationRequest, ClientType, CodeChallengeMethod, ErrorCode, ErrorResponse,
-    ErrorResponseResult, GrantType, ResponseMode, ResponseType,
+    authorization_request::AuthorizationRequest,
+    client_type::ClientType,
+    code_challenge_method::CodeChallengeMethod,
+    error_code::ErrorCode,
+    error_response::{ErrorResponse, ErrorResponseResult},
+    grant_type::GrantType,
+    response_mode::ResponseMode,
+    response_type::ResponseType,
 };
-use of_model::idp::model::Client;
-use of_model::contract::AuthorizationDetail;
+use of_model::idp::model::client::Client;
 
 use super::scope::{parse_scopes, validate_scopes};
 
@@ -130,11 +136,13 @@ fn validate_response_mode(request: &AuthorizationRequest) -> ErrorResponseResult
 
 #[cfg(test)]
 mod tests {
-    use of_model::idp::{
-        contract::{ClientProfile, GrantType, TokenEndpointAuthMethod},
-        model::Id,
+    use of_model::contract::authorization_details::{
+        StorageAuthorizationAction, StorageAuthorizationDetail,
     };
-    use of_model::contract::{StorageAuthorizationAction, StorageAuthorizationDetail};
+    use of_model::id::Id;
+    use of_model::idp::contract::client_profile::ClientProfile;
+    use of_model::idp::contract::grant_type::GrantType;
+    use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
     use super::*;
 

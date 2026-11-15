@@ -1,8 +1,7 @@
 use std::{io, path::PathBuf, time::Duration};
 
+use ofdb_sql::Client;
 use serde::{Deserialize, Serialize};
-
-use crate::Client;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

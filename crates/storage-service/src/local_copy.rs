@@ -6,8 +6,8 @@ use std::{
     sync::Mutex,
 };
 
-use of_model::idp::model::Id;
-use of_model::storage::StorageNamespace;
+use of_model::id::Id;
+use of_model::storage::namespace::StorageNamespace;
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Deserialize, Serialize)]

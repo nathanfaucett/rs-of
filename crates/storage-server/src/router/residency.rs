@@ -3,9 +3,10 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
+use file_system::resource::FileSystemId;
 use iroh::EndpointId;
-pub use of_model::server::storage::residency::{ResidencyMode, ResourceResidency};
-use storage_service::{FileSystemId, ScopedFileSystemRuntime};
+use of_model::server::storage::residency::{ResidencyMode, ResourceResidency};
+use storage_service::scoped_file_system::ScopedFileSystemRuntime;
 
 use super::{ResourceState, StorageNamespace, authorization, authorize_response, namespace};
 

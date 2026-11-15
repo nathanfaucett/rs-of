@@ -1,15 +1,16 @@
 use std::{io, path::Path, sync::Arc, time::Instant};
 
-use setup::{IndependentCreateCommand, IndependentCreateControl};
 use device_service::independent_join::IndependentJoinApproval;
 use device_service::independent_join::IndependentJoinRequest;
 use device_service::join_history::JoinHistoryContext;
 use device_service::join_history::import_join_history;
-use of_model::idp::{contract::ClientRegistration, model::Id};
 use idp_service::setup_credentials::{SetupRelationship, load_setup_secret};
+use of_model::id::Id;
+use of_model::idp::contract::client_registration::ClientRegistration;
+use setup::independent_create::{IndependentCreateCommand, IndependentCreateControl};
 
 use super::{Record, binding, login, observe, open, public, runtime_config, service};
-use crate::{AppConfig, IdpRuntime, OwnerProvisioner};
+use crate::{config::app_config::AppConfig, provisioning::OwnerProvisioner, runtime::IdpRuntime};
 
 pub(super) async fn provision(
     config: &AppConfig,
@@ -18,7 +19,7 @@ pub(super) async fn provision(
     record: &mut Record,
     owner: &mut Option<Arc<OwnerProvisioner>>,
     runtime: &mut Option<IdpRuntime>,
-    owners: &tokio::sync::watch::Sender<Option<Arc<db::Database>>>,
+    owners: &tokio::sync::watch::Sender<Option<Arc<ofdb_sql::Database>>>,
 ) -> io::Result<()> {
     let intent = &command.intent;
     let device = control
@@ -282,7 +283,7 @@ pub(super) async fn provision(
     let serving_at = Instant::now();
     if runtime.is_none() {
         *runtime = Some(
-            crate::build_independent_idp(
+            crate::independent_join::build_independent_idp(
                 &runtime_config(config, intent, record)?,
                 opened.engine.clone(),
                 opened.database.clone(),

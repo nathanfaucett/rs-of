@@ -8,7 +8,7 @@ use alloc::{
 
 use chrono::{DateTime, Utc};
 
-use super::Id;
+use crate::id::Id;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Permission {

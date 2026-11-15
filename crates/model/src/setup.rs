@@ -232,7 +232,7 @@ pub struct IndependentJoinRequest {
     #[serde(rename = "operation")]
     pub operation: Box<models::IndependentCreateIntent>,
     #[serde(rename = "public_signer")]
-    pub public_signer: Box<crate::http::device::JwkPublic>,
+    pub public_signer: Box<crate::http::device::jwk_public::JwkPublic>,
     #[serde(rename = "source")]
     pub source: Box<models::IndependentPeer>,
 }
@@ -243,7 +243,7 @@ impl IndependentJoinRequest {
         endpoint_id: String,
         member_id: uuid::Uuid,
         operation: models::IndependentCreateIntent,
-        public_signer: crate::http::device::JwkPublic,
+        public_signer: crate::http::device::jwk_public::JwkPublic,
         source: models::IndependentPeer,
     ) -> IndependentJoinRequest {
         IndependentJoinRequest {

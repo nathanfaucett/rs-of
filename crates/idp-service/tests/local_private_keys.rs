@@ -1,16 +1,16 @@
 #![cfg(feature = "replica")]
 
-use idp_service::repo::{PrivateKeyKeyringRepo, PrivateKeyRepo};
-use key::DerivationPath;
+use bip32::DerivationPath;
+use idp_service::repo::{
+    private_key_keyring_repo::PrivateKeyKeyringRepo, private_key_repo::PrivateKeyRepo,
+};
 
 #[test]
 fn local_private_keys_persist_without_an_os_credential_store() {
-    let root = std::env::temp_dir().join(format!(
-        "local-private-{}",
-        of_model::idp::model::Id::now_v7()
-    ));
+    let root = std::env::temp_dir().join(format!("local-private-{}", of_model::id::Id::now_v7()));
     std::fs::create_dir(&root).expect("database directory");
-    let database = db::SharedDatabase::create(root.join("unified.redb")).expect("database");
+    let database =
+        btree_redb::SharedDatabase::create(root.join("unified.redb")).expect("database");
     let repo = PrivateKeyKeyringRepo::new_local(&database).expect("database-backed local keys");
     let key = repo.ensure_master_key("local").expect("create local key");
     drop(repo);
@@ -21,7 +21,8 @@ fn local_private_keys_persist_without_an_os_credential_store() {
         .expect("restore private keys with the database only");
     std::fs::remove_dir(root).expect("remove original path");
     let root = restored;
-    let database = db::SharedDatabase::create(root.join("unified.redb")).expect("reopen database");
+    let database = btree_redb::SharedDatabase::create(root.join("unified.redb"))
+        .expect("reopen database");
     let reopened = PrivateKeyKeyringRepo::new_local(&database).expect("reopen local keys");
     assert_eq!(
         reopened
@@ -48,8 +49,8 @@ fn local_private_keys_persist_without_an_os_credential_store() {
     );
     drop(reopened);
     drop(database);
-    let database =
-        db::SharedDatabase::create(root.join("unified.redb")).expect("reopen after delete");
+    let database = btree_redb::SharedDatabase::create(root.join("unified.redb"))
+        .expect("reopen after delete");
     let reopened = PrivateKeyKeyringRepo::new_local(&database).expect("retained key deletion");
     assert!(
         reopened

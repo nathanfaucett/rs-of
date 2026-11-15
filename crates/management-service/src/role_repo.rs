@@ -1,8 +1,12 @@
 use alloc::vec::Vec;
 
-use of_model::idp::model::{Id, Permission, Role};
+use of_model::id::Id;
 
-use crate::ManagementResult;
+use of_model::idp::model::permission::Permission;
+
+use of_model::idp::model::role::Role;
+
+use of_model::management_error::ManagementResult;
 
 pub trait RoleRepo {
     fn list_roles(

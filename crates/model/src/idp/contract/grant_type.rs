@@ -27,7 +27,7 @@ pub enum GrantType {
 
 #[cfg(test)]
 mod tests {
-    use super::GrantType;
+    use crate::idp::contract::grant_type::GrantType;
 
     #[test]
     fn serializes_token_exchange_grant_type_as_its_oauth_urn() {

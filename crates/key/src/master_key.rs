@@ -5,7 +5,9 @@ use bip39::Mnemonic;
 use k256::ecdsa::VerifyingKey as ECDSAVerifyingKey;
 use zeroize::Zeroizing;
 
-use crate::{DerivedKey, KeyError, KeyResult};
+use crate::derived_key::DerivedKey;
+use crate::error::KeyError;
+use crate::error::KeyResult;
 
 #[derive(Debug)]
 pub struct MasterKey {

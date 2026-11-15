@@ -1,8 +1,10 @@
 use alloc::vec::Vec;
 
-use of_model::idp::model::{Id, OAuth2UserConsent};
+use of_model::id::Id;
 
-use crate::repo::RepoResult;
+use of_model::idp::model::oauth2_user_consent::OAuth2UserConsent;
+
+use super::error::RepoResult;
 
 pub trait OAuth2UserConsentRepo {
     fn upsert_user_consent(

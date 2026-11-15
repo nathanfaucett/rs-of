@@ -2,19 +2,25 @@ use std::sync::Arc;
 
 use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
 
-use idp_service::oauth2::NodeSignerBinding;
-use idp_service::repo::ClientRepo;
+use idp_service::oauth2::node_signer::NodeSignerBinding;
+use idp_service::repo::client_repo::ClientRepo;
 use iroh::SecretKey;
-use of_model::idp::{
-    contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
-        INSTALLATION_POLICY_ID, IdentityAction, OAuth2ClientAuth, PasswordGrantRequest,
-        TokenEndpointAuthMethod, TokenRequest,
-    },
-    model::Id,
-};
+use of_model::id::Id;
+use of_model::idp::contract::application_registration::ApplicationRegistration;
+use of_model::idp::contract::client_profile::ClientProfile;
+use of_model::idp::contract::client_registration::ClientRegistration;
+use of_model::idp::contract::client_type::ClientType;
+use of_model::idp::contract::grant_type::GrantType;
+use of_model::idp::contract::oauth2_client_auth::OAuth2ClientAuth;
+use of_model::idp::contract::password_grant_request::PasswordGrantRequest;
+use of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
+use of_model::idp::contract::token_request::TokenRequest;
 
-use crate::{AppConfig, OwnerProvisioner, node_provisioning_tests::Secrets};
+use crate::{
+    config::app_config::AppConfig, node_provisioning_tests::Secrets, provisioning::OwnerProvisioner,
+};
 
 #[tokio::test]
 async fn node_join_invalid_bearer_cannot_approve_pairing() {
@@ -28,7 +34,7 @@ async fn node_join_invalid_bearer_cannot_approve_pairing() {
     .await
     .expect("bind joining endpoint");
     joining.set_pairing_enabled(true);
-    let router = peer.router(crate::BootstrapProtocolHandler);
+    let router = peer.router(crate::bootstrap::handler::BootstrapProtocolHandler);
     peer.set_pairing_enabled(true);
     let mut offers = peer.subscribe_pairing_offers();
     let send = tokio::spawn({
@@ -100,10 +106,10 @@ async fn node_join_anchor_verification_is_existing_only_and_does_not_write() {
         .prepare_node_join(&binding, "Read-only verification", peer.public())
         .expect("explicit preparation");
     let signature = peer.sign(
-        &device_service::hosted_join::NodeJoinApproval::payload(&request, subject)
+        &of_model::node_join::NodeJoinApproval::payload(&request, subject)
             .expect("exact approval payload"),
     );
-    let approval = device_service::hosted_join::NodeJoinApproval {
+    let approval = of_model::node_join::NodeJoinApproval {
         request,
         owner_subject: subject,
         signature: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
@@ -155,8 +161,8 @@ async fn node_join_anchor_verification_is_existing_only_and_does_not_write() {
 async fn node_join_failed_private_write_cannot_regenerate_on_retry() {
     use std::sync::atomic::Ordering;
 
-    use idp_service::repo::PrivateKeyRepo;
-    use key::DerivationPath;
+    use bip32::DerivationPath;
+    use idp_service::repo::private_key_repo::PrivateKeyRepo;
 
     let root = std::env::temp_dir().join(format!("node-join-attempted-{}", Id::now_v7()));
     let config = AppConfig {
@@ -268,7 +274,7 @@ async fn node_join_secure_store_loss_and_corrupt_journal_fail_closed() {
         "missing persisted key cannot be replaced"
     );
     assert_eq!(
-        serde_json::from_slice::<device_service::hosted_join::NodeJoinRequest>(
+        serde_json::from_slice::<of_model::node_join::NodeJoinRequest>(
             &std::fs::read(root.join("node-join-request.json")).expect("preserved journal")
         )
         .expect("request"),
@@ -294,12 +300,12 @@ async fn node_join_secure_store_loss_and_corrupt_journal_fail_closed() {
 }
 
 pub(crate) struct ApprovalFixture {
-    pub(crate) state: crate::RouterState,
+    pub(crate) state: crate::router::state::RouterState,
     pub(crate) server: iroh_chain::Server,
     pub(crate) issuer: String,
     pub(crate) root: std::path::PathBuf,
     pub(crate) owner: Id,
-    pub(crate) management: Arc<db::Database>,
+    pub(crate) management: Arc<ofdb_sql::Database>,
     pub(crate) store: Arc<keyring_core::CredentialStore>,
 }
 
@@ -317,7 +323,10 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
     let store = TestStore::new();
     let mut provisioner = OwnerProvisioner::open_with_private_keys(
         &config,
-        idp_service::repo::PrivateKeyKeyringRepo::new_with_store(&issuer, Arc::clone(&store)),
+        idp_service::repo::private_key_keyring_repo::PrivateKeyKeyringRepo::new_with_store(
+            &issuer,
+            Arc::clone(&store),
+        ),
     )
     .await
     .expect("native owner");
@@ -346,7 +355,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         .oauth2
         .key_service
         .ensure_entity_master_key(
-            of_model::idp::contract::EntityType::User,
+            of_model::idp::contract::entity_type::EntityType::User,
             owner,
             "valid-password",
         )
@@ -356,7 +365,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         .key_service
         .create_key(
             None,
-            of_model::idp::contract::EntityType::User,
+            of_model::idp::contract::entity_type::EntityType::User,
             owner,
             true,
             "User session key".into(),
@@ -402,7 +411,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
             allowed_audiences: vec![
                 "idp-services".into(),
                 "wrong-audience".into(),
-                management_service::MANAGEMENT_APPLICATION_URI.into(),
+                management_service::service::MANAGEMENT_APPLICATION_URI.into(),
             ],
             token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretBasic,
             software_statement: None,
@@ -413,16 +422,16 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         .expect("human session client");
     std::fs::create_dir_all(root.join("management")).expect("separate policy directory");
     let management = Arc::new(
-        db::Database::open(root.join("management/management.redb"))
+        ofdb_sql::Database::open(root.join("management/management.redb"))
             .expect("native Management owner"),
     );
     of_model::idp::replica::up(&management)
         .await
         .expect("identity policy schema");
-    device_service::replica::up(&management)
+    device_service::replica::schema::up(&management)
         .await
         .expect("device schema");
-    device_service::replica::DbDeviceRepo::new(management.clone().client())
+    device_service::replica::device_repo::DbDeviceRepo::new(management.clone().client())
         .enroll_approved_exact(
             peer_binding.member_id,
             owner,
@@ -435,27 +444,28 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
     assert!(
         provisioner
             .engine
-            .translate_and_execute("SELECT id FROM devices", &db::SqlTranslator)
+            .translate_and_execute("SELECT id FROM devices", &ofdb_sql::SqlTranslator)
             .await
             .is_err(),
         "IdP must not contain Device authority"
     );
     let engine = provisioner.engine.clone();
-    let state = crate::RouterState::new(
+    let state = crate::router::state::RouterState::new(
         "https://ui.test",
         "idp-services",
         engine.clone(),
         Arc::new(provisioner.oauth2),
-        Some(Arc::new(device_service::replica::DbDeviceRepo::new(
-            management.clone().client(),
-        ))),
+        Some(Arc::new(
+            device_service::replica::device_repo::DbDeviceRepo::new(management.clone().client()),
+        )),
         Arc::new(
-            device_service::device_identity_from_server(&server, secret).expect("peer identity"),
+            device_service::device_identity::identity_from_server(&server, secret)
+                .expect("peer identity"),
         ),
     )
-    .with_local_permissions(management_service::LocalPermissions::new(
-        management.client(),
-    ));
+    .with_local_permissions(
+        management_service::local_permissions::LocalPermissions::new(management.client()),
+    );
     ApprovalFixture {
         state,
         server,
@@ -493,17 +503,20 @@ pub(crate) async fn user_token(fixture: &ApprovalFixture, audience: &str) -> Str
         .state
         .oauth2_service
         .token(
-            TokenRequest::TokenExchange(of_model::idp::contract::TokenExchangeGrantRequest {
-                subject_token: token,
-                subject_token_type: of_model::idp::contract::SubjectTokenType::AccessToken,
-                actor_token: None,
-                actor_token_type: None,
-                resource: Some(audience.into()),
-                audience: None,
-                authorization_details: None,
-                scope: None,
-                requested_token_type: None,
-            }),
+            TokenRequest::TokenExchange(
+                of_model::idp::contract::token_exchange_grant_request::TokenExchangeGrantRequest {
+                    subject_token: token,
+                    subject_token_type:
+                        of_model::idp::contract::subject_token_type::SubjectTokenType::AccessToken,
+                    actor_token: None,
+                    actor_token_type: None,
+                    resource: Some(audience.into()),
+                    audience: None,
+                    authorization_details: None,
+                    scope: None,
+                    requested_token_type: None,
+                },
+            ),
             Some(OAuth2ClientAuth {
                 client_id: "human-client".into(),
                 client_secret: Some("human-secret".into()),
@@ -518,12 +531,14 @@ pub(crate) async fn user_token(fixture: &ApprovalFixture, audience: &str) -> Str
 
 #[tokio::test]
 async fn node_join_requires_both_permissions_and_retries_after_disconnected_reply() {
-    use device_service::DeviceRepo;
-    use management_service::ManagementService;
-    use management_service::replica::DbPermissionRepo;
-    use management_service::replica::DbRoleRepo;
+    use device_service::device_repo::DeviceRepo;
+    use management_service::replica::permission_repo::DbPermissionRepo;
+    use management_service::replica::role_repo::DbRoleRepo;
+    use management_service::service::ManagementService;
     let fixture = approval_fixture().await;
-    let peer_router = fixture.server.router(crate::BootstrapProtocolHandler);
+    let peer_router = fixture
+        .server
+        .router(crate::bootstrap::handler::BootstrapProtocolHandler);
     fixture.server.set_pairing_enabled(true);
     let mut offers = fixture.server.subscribe_pairing_offers();
     let joining_secret = SecretKey::generate();
@@ -537,7 +552,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     joining.set_pairing_enabled(true);
     let config = AppConfig {
         data_dir: fixture.root.join("joining").to_string_lossy().into_owned(),
-        oauth2: idp_service::oauth2::OAuth2Config {
+        oauth2: idp_service::oauth2::config::OAuth2Config {
             issuer: fixture.issuer.clone(),
             ..Default::default()
         },
@@ -573,13 +588,17 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         .await
         .expect("offer timeout")
         .expect("authenticated offer");
-    let bearer = user_token(&fixture, management_service::MANAGEMENT_APPLICATION_URI).await;
-    let actor = crate::authorize_bearer(&fixture.state, &bearer)
+    let bearer = user_token(
+        &fixture,
+        management_service::service::MANAGEMENT_APPLICATION_URI,
+    )
+    .await;
+    let actor = crate::router::middleware::authorization::authorize_bearer(&fixture.state, &bearer)
         .await
         .expect("ordinary authentication succeeds");
     assert_eq!(
         actor.claims.aud,
-        management_service::MANAGEMENT_APPLICATION_URI
+        management_service::service::MANAGEMENT_APPLICATION_URI
     );
     assert_eq!(actor.claims.sub, fixture.owner.to_string());
     assert!(
@@ -870,11 +889,8 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     forged.signature = URL_SAFE_NO_PAD.encode(
         SecretKey::generate()
             .sign(
-                &device_service::hosted_join::NodeJoinApproval::payload(
-                    &request,
-                    received.owner_subject,
-                )
-                .expect("approval purpose payload"),
+                &of_model::node_join::NodeJoinApproval::payload(&request, received.owner_subject)
+                    .expect("approval purpose payload"),
             )
             .to_bytes(),
     );
@@ -939,19 +955,19 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
                 "UPDATE devices SET revoked_at = 1 WHERE id = CAST('{}' AS UUID)",
                 binding.member_id
             ),
-            &db::SqlTranslator,
+            &ofdb_sql::SqlTranslator,
         )
         .await
         .expect("learn timestamp-only joining Device revocation");
     let rows = fixture.management.client().translate_and_execute(&format!(
         "SELECT state, revoked_at, owner_subject FROM devices WHERE id = CAST('{}' AS UUID)", binding.member_id),
-        &db::SqlTranslator).await.expect("timestamp-only joining Device state");
+        &ofdb_sql::SqlTranslator).await.expect("timestamp-only joining Device state");
     assert_eq!(
         rows[0].rows,
-        vec![db::Row::new(vec![
-            db::Value::Integer(1),
-            db::Value::Integer(1),
-            db::Value::Text(fixture.owner.to_string())
+        vec![ofdb_sql::Row::new(vec![
+            ofdb_sql::Value::Integer(1),
+            ofdb_sql::Value::Integer(1),
+            ofdb_sql::Value::Text(fixture.owner.to_string())
         ])]
     );
     fixture

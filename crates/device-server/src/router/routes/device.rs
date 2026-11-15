@@ -1,7 +1,7 @@
 use axum::{Json, extract::State, http::StatusCode};
-pub use of_model::server::device::device::Device;
+use of_model::server::device::device::Device;
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(
     get,

@@ -42,7 +42,7 @@ pub fn owner_setup_openapi() -> Document {
 mod tests {
     #[test]
     fn complete_routes_include_operation_bound_handoffs() {
-        let document = super::owner_setup_openapi();
+        let document = crate::independent_openapi::owner_setup_openapi();
         let paths = document.paths.paths;
         assert_eq!(paths.len(), 10);
         for path in [

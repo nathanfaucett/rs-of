@@ -1,12 +1,12 @@
 use std::{io, net::IpAddr, path::Path, sync::Arc};
 
-use server_common::{bind_addr, public_base_url};
 use clap::Parser;
-use cli::{CliArgs, shutdown_signal};
-use device_service::HostedControlPlane;
+use cli::{args::CliArgs, shutdown_signal::shutdown_signal};
+use device_service::hosted_control_plane::HostedControlPlane;
+use server_common::portless::{bind_addr, public_base_url};
 use tokio_util::sync::CancellationToken;
 
-use crate::{AppConfig, build_router, identity_client};
+use crate::{config::app_config::AppConfig, provisioning::identity_client, runtime::build_router};
 
 #[derive(Debug, Parser)]
 enum ManagementCommand {
@@ -29,7 +29,7 @@ pub async fn run() -> io::Result<()> {
     let mut config = AppConfig::try_from(Path::new(&args.config)).map_err(io::Error::other)?;
     #[cfg(unix)]
     if let Some(ManagementCommand::ResetIndependent { remove_os_trust }) = &args.command {
-        return crate::reset_independent(&config, *remove_os_trust).await;
+        return crate::independent_reset::reset_independent(&config, *remove_os_trust).await;
     }
     let required = |name: &str| {
         std::env::var(name)
@@ -57,7 +57,9 @@ pub async fn run() -> io::Result<()> {
 
     // Check for public base URL (set by portless via PORTLESS_URL or manually via PUBLIC_BASE_URL)
     let has_public_base = public_base_url().is_some();
-    let portless_port = std::env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok());
+    let portless_port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok());
     if let Some(base_url) = public_base_url() {
         config.api_public_uri = format!("{}/management", base_url.trim_end_matches('/'));
         config.server.host = IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
@@ -93,7 +95,7 @@ pub async fn run() -> io::Result<()> {
         )
             .into()
     };
-    let result = server_common::serve(router, addr, shutdown).await;
+    let result = server_common::serve::serve(router, addr, shutdown).await;
     signal.abort();
     result
 }
@@ -101,7 +103,7 @@ pub async fn run() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
-    use cli::CliArgs;
+    use cli::args::CliArgs;
 
     use super::ManagementCommand;
 

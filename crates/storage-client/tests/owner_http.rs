@@ -10,7 +10,10 @@ use axum::{
     http::HeaderMap,
     routing::{get, post},
 };
-use of_storage_client::{DeviceId, ResourceId, native::StorageClient};
+use of_storage_client::{
+    client::StorageClient,
+    resource::{DeviceId, ResourceId},
+};
 use serde_json::{Value, json};
 use uuid::Uuid;
 

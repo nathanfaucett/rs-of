@@ -1,6 +1,6 @@
 use std::{io, sync::{Arc, RwLock}};
 
-use iroh::{endpoint::Connection, protocol::{AcceptError, DynProtocolHandler, ProtocolHandler}};
+use iroh::{endpoint::{Connection}, protocol::{AcceptError, DynProtocolHandler, ProtocolHandler}};
 use iroh_chain::Server;
 
 #[derive(Clone)]

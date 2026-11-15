@@ -1,13 +1,13 @@
-use of_model::idp::{
-    contract::{
-        ErrorCode, ErrorResponse, IdentityAction, PermissionEvaluationRequest, PermissionSubject,
-        PermissionTarget,
-    },
-    model::Id,
-};
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
 
-use super::DeviceAuthorization;
-use crate::RouterState;
+use crate::router::middleware::device_authorization::DeviceAuthorization;
+use crate::router::state::RouterState;
 
 pub(crate) async fn require_identity_permission(
     state: &RouterState,

@@ -3,6 +3,8 @@ mod remote;
 #[cfg(feature = "remote")]
 pub use remote::RemoteDatabaseConfig;
 
+#[cfg(feature = "native")]
+pub use ofdb_sql::Database;
 #[cfg(feature = "replica")]
 pub use ofdb_sql::{
     Client, FromRow, FromRowError, FromValue, Query, QueryColumn, QueryDelete, QueryError,
@@ -10,8 +12,6 @@ pub use ofdb_sql::{
     QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, SqlTranslator, Statement, Transaction,
     Uuid, Value, ValueType, decode, value,
 };
-#[cfg(feature = "native")]
-pub use ofdb_sql::{Database, SharedDatabase};
 
 #[cfg(feature = "network")]
 mod database_transport;

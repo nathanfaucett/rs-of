@@ -3,7 +3,7 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 
-pub use device_service::security_protocol::BOOTSTRAP_ALPN;
+use device_service::security_protocol::bootstrap::BOOTSTRAP_ALPN;
 
 #[derive(Clone, Debug, Default)]
 pub struct BootstrapProtocolHandler;
@@ -24,7 +24,9 @@ mod tests {
 
     use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
 
-    use super::{BOOTSTRAP_ALPN, BootstrapProtocolHandler};
+    use device_service::security_protocol::bootstrap::BOOTSTRAP_ALPN;
+
+    use crate::bootstrap::handler::BootstrapProtocolHandler;
 
     #[tokio::test]
     async fn bootstrap_denies_admitted_peer_without_privileged_enrollment() {

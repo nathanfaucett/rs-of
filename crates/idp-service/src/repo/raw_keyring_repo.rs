@@ -2,7 +2,7 @@ use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
 
 use key::SecretStore;
 
-use super::RepoResult;
+use super::error::RepoResult;
 
 pub struct RawKeyringRepo(SecretStore);
 

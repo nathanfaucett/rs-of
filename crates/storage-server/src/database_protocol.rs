@@ -6,14 +6,19 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use iroh_chain::{DATA_ALPN, Server};
-use of_model::contract::SelectedResource;
-use of_model::storage::StorageNamespace;
-use ofdb_sql::history::{SessionConfig, SyncRole, SyncTransport};
+use of_model::contract::replication::SelectedResource;
+use of_model::storage::database_resource::DatabaseId;
+use of_model::storage::namespace::StorageNamespace;
+use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
 use serde::{Deserialize, Serialize};
-use storage_service::{DatabaseId, DatabaseRuntime};
+use storage_service::database_runtime::DatabaseRuntime;
 use tokio_util::sync::CancellationToken;
 
-use crate::{DatabaseTransport, LocalReplicationAuthorizer, data_protocol::DATABASE_STREAM_KIND};
+use db::database_transport::DatabaseTransport;
+
+use crate::local_replication_authorizer::LocalReplicationAuthorizer;
+
+use crate::data_protocol::DATABASE_STREAM_KIND;
 
 type FrameAuthorizer = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 const MAX_HANDSHAKE_BYTES: usize = 4096;
@@ -479,13 +484,13 @@ async fn write_frame(send: &mut iroh::endpoint::SendStream, frame: &[u8]) -> io:
 }
 struct Namespace {
     owner_subject: String,
-    application_id: of_model::idp::model::Id,
+    application_id: of_model::id::Id,
 }
 impl StorageNamespace for Namespace {
     fn user_sub(&self) -> &str {
         &self.owner_subject
     }
-    fn application_id(&self) -> of_model::idp::model::Id {
+    fn application_id(&self) -> of_model::id::Id {
         self.application_id
     }
 }

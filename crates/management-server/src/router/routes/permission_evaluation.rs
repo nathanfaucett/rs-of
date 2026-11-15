@@ -3,17 +3,18 @@ use axum::{
     extract::State,
     http::{HeaderMap, header::AUTHORIZATION},
 };
-use of_model::idp::{
-    contract::{
-        ErrorCode, ErrorResponse, MANAGEMENT_PERMISSION_EVALUATE_SCOPE, PermissionAuditIdentity,
-        PermissionEvaluationRequest, PermissionEvaluationResponse, PermissionSubject,
-        PermissionTarget,
-    },
-    model::Id,
-};
-use of_model::contract::{PrincipalType, StandardClaims};
+use of_model::contract::{principal_type::PrincipalType, standard_claims::StandardClaims};
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::idp::contract::permission_evaluation::MANAGEMENT_PERMISSION_EVALUATE_SCOPE;
+use of_model::idp::contract::permission_evaluation::PermissionAuditIdentity;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationResponse;
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(
     post, path = "/permissions/evaluate",
@@ -89,7 +90,7 @@ fn bind_actor(
     if caller.is_nil()
         || id.is_nil()
         || request.request_id.is_nil()
-        || claims.aud != management_service::MANAGEMENT_APPLICATION_URI
+        || claims.aud != management_service::service::MANAGEMENT_APPLICATION_URI
         || request.policy_namespace().is_none()
     {
         return Err(denied());
@@ -126,14 +127,17 @@ fn denied() -> ErrorResponse {
 #[cfg(test)]
 mod tests {
     use super::bind_actor;
-    use of_model::idp::{
-        contract::{
-            IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
-            PermissionEvaluationRequest, PermissionSubject, PermissionTarget,
-        },
-        model::Id,
+    use of_model::contract::{
+        principal_type::PrincipalType, standard_claims::StandardClaims, token_type::TokenType,
+        token_use::TokenUse,
     };
-    use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+    use of_model::id::Id;
+    use of_model::idp::contract::permission_evaluation::IdentityAction;
+    use of_model::idp::contract::permission_evaluation::IdentityResource;
+    use of_model::idp::contract::permission_evaluation::MANAGEMENT_PERMISSION_EVALUATE_SCOPE;
+    use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+    use of_model::idp::contract::permission_evaluation::PermissionSubject;
+    use of_model::idp::contract::permission_evaluation::PermissionTarget;
 
     #[test]
     fn actor_binding_requires_the_distinct_idp_relationship_or_the_same_user() {
@@ -157,7 +161,7 @@ mod tests {
             iat: 0,
             nbf: 0,
             iss: "issuer".into(),
-            aud: management_service::MANAGEMENT_APPLICATION_URI.into(),
+            aud: management_service::service::MANAGEMENT_APPLICATION_URI.into(),
             client_id: "idp-evaluator".into(),
             sub: Id::now_v7().to_string(),
             principal_type: PrincipalType::Client,

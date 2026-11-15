@@ -12,7 +12,7 @@ fn device_client_and_server_accept_the_same_selection_contract() {
         "id":"00000000-0000-7000-8000-000000000002",
         "storageAccessToken":"scoped-token"
     }"#;
-    let client: of_model::http::device::SelectionRequest =
+    let client: of_model::http::device::selection_request::SelectionRequest =
         serde_json::from_str(fixture).expect("client selection contract");
     let request: SelectionRequest =
         serde_json::from_value(serde_json::to_value(client).expect("serialize client request"))
@@ -48,10 +48,9 @@ fn server_config_preserves_prefix_normalization() {
 #[cfg(feature = "utoipa")]
 #[test]
 fn owner_schemas_are_available_from_the_model_crate() {
-    use of_model::server::{
-        idp::replica_signers::EnrollReplicaSigner,
-        management::permissions::CreatePermissionRequest, storage::resources::SyncConnectRequest,
-    };
+    use of_model::server::idp::replica_signers::EnrollReplicaSigner;
+    use of_model::server::management::permissions::CreatePermissionRequest;
+    use of_model::server::storage::resources::SyncConnectRequest;
     use utoipa::PartialSchema;
 
     for schema in [

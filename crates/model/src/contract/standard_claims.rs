@@ -8,7 +8,10 @@ use alloc::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::contract::{AuthorizationDetail, PrincipalType, TokenType, TokenUse};
+use crate::contract::authorization_details::AuthorizationDetail;
+use crate::contract::principal_type::PrincipalType;
+use crate::contract::token_type::TokenType;
+use crate::contract::token_use::TokenUse;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

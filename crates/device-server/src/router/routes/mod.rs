@@ -9,7 +9,7 @@ pub(crate) mod replication;
 pub(crate) mod version;
 
 #[cfg(test)]
-mod device_authority_tests;
+pub mod device_authority_tests;
 
 #[cfg(test)]
-mod permission_boundary_tests;
+pub mod permission_boundary_tests;

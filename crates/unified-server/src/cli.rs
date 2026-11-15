@@ -7,7 +7,8 @@ use std::{
 use clap::{Parser, Subcommand};
 use tokio_util::sync::CancellationToken;
 
-use crate::{SeedConfig, TlsConfig, UnifiedConfig, serve};
+use crate::config::{SeedConfig, TlsConfig, UnifiedConfig};
+use crate::runtime::serve;
 
 #[derive(Parser)]
 #[command(
@@ -80,7 +81,7 @@ pub async fn run() -> io::Result<()> {
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let cancellation = CancellationToken::new();
-    let signal = tokio::spawn(cli::shutdown_signal(cancellation.clone()));
+    let signal = tokio::spawn(cli::shutdown_signal::shutdown_signal(cancellation.clone()));
     let result = serve(config, cancellation).await;
     signal.abort();
     result

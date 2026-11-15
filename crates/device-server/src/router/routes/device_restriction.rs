@@ -3,16 +3,17 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use of_model::idp::{
-    contract::{
-        ErrorCode, ErrorResponse, IdentityAction, IdentityResource, PermissionEvaluationRequest,
-        PermissionSubject, PermissionTarget,
-    },
-    model::Id,
-};
-pub use of_model::server::device::device_restriction::DeviceRestriction;
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::IdentityResource;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use of_model::server::device::device_restriction::DeviceRestriction;
 
-use crate::router::{RouterState, middleware::DeviceAuthorization};
+use crate::router::{middleware::device_authorization::DeviceAuthorization, state::RouterState};
 
 async fn binding(
     state: &RouterState,
@@ -104,7 +105,7 @@ pub(crate) async fn put_device_restriction(
 
 #[cfg(test)]
 mod tests {
-    use super::DeviceRestriction;
+    use of_model::server::device::device_restriction::DeviceRestriction;
 
     #[test]
     fn malformed_restriction_is_not_a_policy_update() {

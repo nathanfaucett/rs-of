@@ -22,7 +22,9 @@ async fn reset_uses_the_stopped_owner_reset_boundaries() {
     let ca = fs::read(&ca_path).expect("shared CA");
     let address = host.local_addr();
     drop(host);
-    super::run(&data).await.expect("reset each fresh owner");
+    super::runtime::run(&data)
+        .await
+        .expect("reset each fresh owner");
     assert_eq!(fs::read(&ca_path).expect("preserved shared CA"), ca);
     let fresh = crate::native_host::prepare(&data.join("node")).expect("fresh owners after reset");
     assert_eq!(fresh.local_addr(), address);
@@ -80,7 +82,7 @@ async fn interrupted_owner_completion_resumes_before_and_after_desktop_acknowled
             }
             assert!(super::pending(&data).expect("interrupted reset pending"));
             assert!(crate::native_host::prepare(&data.join("node")).is_err());
-            super::run(&data)
+            super::runtime::run(&data)
                 .await
                 .expect("resume exact reset after interruption");
             assert!(!super::pending(&data).expect("reset complete"));

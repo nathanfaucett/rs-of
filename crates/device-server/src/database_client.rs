@@ -1,8 +1,8 @@
 use std::io;
 
-use db::Client;
+use ofdb_sql::Client;
 
-use crate::AppConfig;
+use crate::config::app_config::AppConfig;
 
 pub async fn device_client(config: &AppConfig) -> io::Result<Client> {
     if let Some(remote) = &config.device_database {
@@ -16,12 +16,14 @@ pub async fn device_client(config: &AppConfig) -> io::Result<Client> {
             ));
         }
         let client = remote.connect().await?;
-        device_service::replica::validate_device(&client)
+        device_service::replica::schema::validate_device(&client)
             .await
             .map_err(io::Error::other)?;
         Ok(client)
     } else {
-        Ok(crate::open_device_database(config).await?.client())
+        Ok(crate::provisioning::open_device_database(config)
+            .await?
+            .client())
     }
 }
 
@@ -50,7 +52,7 @@ pub async fn identity_client(config: &AppConfig) -> io::Result<Client> {
 #[derive(Clone)]
 pub(crate) struct DeviceStore {
     pub client: Client,
-    pub owner: Option<std::sync::Arc<db::Database>>,
+    pub owner: Option<std::sync::Arc<ofdb_sql::Database>>,
 }
 
 impl DeviceStore {
@@ -63,7 +65,7 @@ impl DeviceStore {
                 owner: None,
             })
         } else {
-            let owner = crate::open_device_database(config).await?;
+            let owner = crate::provisioning::open_device_database(config).await?;
             Ok(Self {
                 client: owner.client(),
                 owner: Some(owner),

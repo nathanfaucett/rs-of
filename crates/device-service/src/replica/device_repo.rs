@@ -1,12 +1,34 @@
 use chrono::{DateTime, Timelike, Utc};
-use db::{
-    Client, FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue,
-    QueryFrom, QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid,
-    Value,
-};
-use of_model::idp::model::Id;
+use of_model::id::Id;
+use ofdb_sql::FromRow;
+use ofdb_sql::FromRowError;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryDelete;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use ofdb_sql::Uuid;
+use ofdb_sql::Value;
+use ofdb_sql::Client;
 
-use crate::{Device, DeviceError, DeviceRepo, DeviceResult, DeviceState, TrustedDevice};
+use of_model::device::device::Device;
+
+use of_model::device_error::DeviceError;
+
+use crate::device_repo::DeviceRepo;
+
+use of_model::device_error::DeviceResult;
+
+use of_model::device::contract::device_state::DeviceState;
+
+use of_model::device::contract::trusted_device::TrustedDevice;
 
 const TABLE: &str = "devices";
 const COLUMNS: [&str; 10] = [
@@ -302,15 +324,17 @@ impl DbDeviceRepo {
         for row in &mut rows {
             let results = self.engine.translate_and_execute(
                 &format!("SELECT enrollment_code_hash, enrollment_expires_at, pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = CAST('{}' AS UUID)", row.id),
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             ).await.map_err(db_error)?;
             if let Some(local) = results[0].rows.first() {
                 row.enrollment_code_hash =
-                    db::decode(&local.values[0], "enrollment_code_hash").map_err(row_error)?;
+                    ofdb_sql::decode(&local.values[0], "enrollment_code_hash")
+                        .map_err(row_error)?;
                 row.enrollment_expires_at =
-                    db::decode(&local.values[1], "enrollment_expires_at").map_err(row_error)?;
+                    ofdb_sql::decode(&local.values[1], "enrollment_expires_at")
+                        .map_err(row_error)?;
                 row.pairing_accepting_public_key =
-                    db::decode(&local.values[2], "pairing_accepting_public_key")
+                    ofdb_sql::decode(&local.values[2], "pairing_accepting_public_key")
                         .map_err(row_error)?;
             }
         }
@@ -818,7 +842,7 @@ struct DeviceRow {
 
 impl FromRow for DeviceRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
-        let state = db::decode::<i64>(db::value(row, columns, "state")?, "state")?;
+        let state = ofdb_sql::decode::<i64>(ofdb_sql::value(row, columns, "state")?, "state")?;
         let state = match state {
             0 => DeviceState::Pending,
             1 => DeviceState::Approved,
@@ -826,25 +850,43 @@ impl FromRow for DeviceRow {
             _ => {
                 return Err(FromRowError::InvalidValue {
                     column: "state".into(),
-                    expected: db::ValueType::Integer,
-                    actual: db::ValueType::Integer,
+                    expected: ofdb_sql::ValueType::Integer,
+                    actual: ofdb_sql::ValueType::Integer,
                 });
             }
         };
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            owner_subject: db::decode(db::value(row, columns, "owner_subject")?, "owner_subject")?,
-            name: db::decode(db::value(row, columns, "name")?, "name")?,
-            public_key: db::decode(db::value(row, columns, "public_key")?, "public_key")?,
-            address: db::decode(db::value(row, columns, "address")?, "address")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            owner_subject: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "owner_subject")?,
+                "owner_subject",
+            )?,
+            name: ofdb_sql::decode(ofdb_sql::value(row, columns, "name")?, "name")?,
+            public_key: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "public_key")?,
+                "public_key",
+            )?,
+            address: ofdb_sql::decode(ofdb_sql::value(row, columns, "address")?, "address")?,
             enrollment_code_hash: None,
             enrollment_expires_at: None,
             pairing_accepting_public_key: None,
             state,
-            approved_at: db::decode(db::value(row, columns, "approved_at")?, "approved_at")?,
-            revoked_at: db::decode(db::value(row, columns, "revoked_at")?, "revoked_at")?,
-            created_at: db::decode(db::value(row, columns, "created_at")?, "created_at")?,
-            updated_at: db::decode(db::value(row, columns, "updated_at")?, "updated_at")?,
+            approved_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "approved_at")?,
+                "approved_at",
+            )?,
+            revoked_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "revoked_at")?,
+                "revoked_at",
+            )?,
+            created_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "created_at")?,
+                "created_at",
+            )?,
+            updated_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "updated_at")?,
+                "updated_at",
+            )?,
         })
     }
 }
@@ -930,7 +972,7 @@ fn timestamp(value: i64) -> DeviceResult<DateTime<Utc>> {
         .ok_or_else(|| DeviceError::InvalidInput("invalid device timestamp".into()))
 }
 
-fn db_error(error: db::QueryError) -> DeviceError {
+fn db_error(error: ofdb_sql::QueryError) -> DeviceError {
     DeviceError::InvalidInput(error.to_string())
 }
 
@@ -986,14 +1028,14 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use crate::DeviceState;
-    use db::Database;
+    use of_model::device::contract::device_state::DeviceState;
+    use ofdb_sql::Database;
 
-    use crate::{DeviceRepo, replica::DbDeviceRepo};
+    use crate::{device_repo::DeviceRepo, replica::device_repo::DbDeviceRepo};
 
     async fn repo() -> DbDeviceRepo {
-        let engine = Arc::new(db::Database::in_memory());
-        crate::replica::up(&engine)
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
+        crate::replica::schema::up(&engine)
             .await
             .expect("initialize replica schema");
         DbDeviceRepo::new(engine.client())
@@ -1002,8 +1044,8 @@ mod tests {
     #[tokio::test]
     async fn pending_join_binding_allows_absence_but_denies_changed_or_revoked_management_device() {
         let repo = repo().await;
-        let device = of_model::idp::model::Id::now_v7();
-        let owner = of_model::idp::model::Id::now_v7();
+        let device = of_model::id::Id::now_v7();
+        let owner = of_model::id::Id::now_v7();
         let endpoint = iroh::SecretKey::generate().public().to_string();
         repo.check_pending_approved_binding(device, owner, "Joining", &endpoint)
             .await
@@ -1011,7 +1053,7 @@ mod tests {
         assert!(matches!(
             repo.enroll_approved_exact(device, owner, "Joining", "invalid-endpoint", 1)
                 .await,
-            Err(crate::DeviceError::InvalidInput(_))
+            Err(of_model::device_error::DeviceError::InvalidInput(_))
         ));
         repo.enroll_approved_exact(device, owner, "Joining", &endpoint, 1)
             .await
@@ -1027,7 +1069,7 @@ mod tests {
         assert!(
             repo.check_pending_approved_binding(
                 device,
-                of_model::idp::model::Id::now_v7(),
+                of_model::id::Id::now_v7(),
                 "Joining",
                 &endpoint
             )
@@ -1050,13 +1092,13 @@ mod tests {
     async fn enrollment_secrets_are_local_durable_and_removed_on_approval() {
         let path = std::env::temp_dir().join(format!(
             "local-enrollment-{}.redb",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let pending;
         let paired;
         {
             let database = Arc::new(Database::open(&path).expect("open local identity"));
-            crate::replica::up(&database)
+            crate::replica::schema::up(&database)
                 .await
                 .expect("initialize new schema");
             let repo = DbDeviceRepo::new(Arc::clone(&database).client());
@@ -1094,7 +1136,7 @@ mod tests {
                 .id;
             let public = database
                 .client()
-                .translate_and_execute("SELECT * FROM devices", &db::SqlTranslator)
+                .translate_and_execute("SELECT * FROM devices", &ofdb_sql::SqlTranslator)
                 .await
                 .expect("query syncable devices")
                 .remove(0);
@@ -1140,7 +1182,7 @@ mod tests {
                 .client()
                 .translate_and_execute(
                     "SELECT device_id FROM local_device_enrollments",
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .expect("read local pending workflow");
@@ -1254,7 +1296,7 @@ mod tests {
                     "UPDATE devices SET revoked_at = 1 WHERE id = CAST('{}' AS UUID)",
                     device.id
                 ),
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("retain contradictory approved state with explicit revocation");
@@ -1392,7 +1434,7 @@ mod tests {
     #[tokio::test]
     async fn approved_identity_requires_no_local_enrollment_workflow() {
         let source_owner = Database::in_memory();
-        crate::replica::up(&source_owner)
+        crate::replica::schema::up(&source_owner)
             .await
             .expect("source schema");
         let source = DbDeviceRepo::new(source_owner.client());
@@ -1419,12 +1461,15 @@ mod tests {
             .await
             .expect("create unrelated local enrollment");
         let public = Arc::new(Database::in_memory());
-        crate::replica::up(&public)
+        crate::replica::schema::up(&public)
             .await
             .expect("initialize public Device schema");
         public
             .client()
-            .translate_and_execute("DROP TABLE local_device_enrollments", &db::SqlTranslator)
+            .translate_and_execute(
+                "DROP TABLE local_device_enrollments",
+                &ofdb_sql::SqlTranslator,
+            )
             .await
             .expect("exclude local workflow from public-only fixture");
         sync_devices(&source_owner, &public).await;
@@ -1465,7 +1510,7 @@ mod tests {
             .await
             .expect("create approved Device");
             repo.engine
-                .translate_and_execute("DROP INDEX devices_public_key", &db::SqlTranslator)
+                .translate_and_execute("DROP INDEX devices_public_key", &ofdb_sql::SqlTranslator)
                 .await
                 .expect("allow ambiguous endpoint fixture");
             let duplicate = repo
@@ -1501,7 +1546,7 @@ mod tests {
     #[tokio::test]
     async fn approved_identity_requires_current_conflict_clear_owner() {
         let first_owner = Database::in_memory();
-        crate::replica::up(&first_owner)
+        crate::replica::schema::up(&first_owner)
             .await
             .expect("first schema");
         let first = DbDeviceRepo::new(first_owner.client());
@@ -1532,7 +1577,7 @@ mod tests {
             "new-owner"
         );
         let second_owner = Database::in_memory();
-        crate::replica::up(&second_owner)
+        crate::replica::schema::up(&second_owner)
             .await
             .expect("second schema");
         let second = DbDeviceRepo::new(second_owner.client());
@@ -1544,7 +1589,7 @@ mod tests {
                         "UPDATE devices SET owner_subject = '{owner}' WHERE id = CAST('{}' AS UUID)",
                         device.id
                     ),
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .expect("concurrent public Device owner change");
@@ -1553,7 +1598,7 @@ mod tests {
         for repo in [&first, &second] {
             assert!(matches!(
                 repo.find_approved_by_public_key("transport-key").await,
-                Err(crate::DeviceError::InvalidInput(message)) if message == "conflicted device"
+                Err(of_model::device_error::DeviceError::InvalidInput(message)) if message == "conflicted device"
             ));
         }
     }
@@ -1621,7 +1666,7 @@ mod tests {
         );
         assert!(
             !repo
-                .revoke("owner-b", of_model::idp::model::Id::now_v7(), "key-a")
+                .revoke("owner-b", of_model::id::Id::now_v7(), "key-a")
                 .await
                 .expect("unknown Device is not a successful revocation")
         );
@@ -1648,7 +1693,7 @@ mod tests {
         {
             let engine: Arc<Database> =
                 Arc::new(Database::open(&path).expect("open durable test database"));
-            crate::replica::up(&engine)
+            crate::replica::schema::up(&engine)
                 .await
                 .expect("initialize replica schema");
             let repo = DbDeviceRepo::new(engine.client());

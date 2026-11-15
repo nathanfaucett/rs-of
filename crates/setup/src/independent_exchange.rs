@@ -6,7 +6,9 @@ use std::{
 use axum::{Json, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
 
-use crate::{IndependentCreateControl, IndependentCreateIntent, IndependentOwnerPublic};
+use crate::independent_create::IndependentCreateControl;
+use crate::independent_operation::IndependentCreateIntent;
+use crate::independent_operation::IndependentOwnerPublic;
 
 #[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -401,8 +403,10 @@ mod tests {
     use tokio_util::sync::CancellationToken;
     use tower::ServiceExt;
 
-    use super::{Challenge, OutstandingChallenge};
-    use crate::{IndependentCreateIntent, IndependentSetupHost};
+    use super::Challenge;
+    use super::OutstandingChallenge;
+    use crate::independent_operation::IndependentCreateIntent;
+    use crate::independent_setup::IndependentSetupHost;
 
     #[tokio::test]
     async fn registration_consumes_only_the_exact_outstanding_capability() {

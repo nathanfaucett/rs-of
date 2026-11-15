@@ -1,8 +1,8 @@
 use std::{io, net::SocketAddr, path::Path};
 
-use setup::IndependentSetupHost;
+use setup::independent_setup::IndependentSetupHost;
 
-use crate::AppConfig;
+use crate::config::app_config::AppConfig;
 
 pub(crate) fn load_config(path: &Path) -> io::Result<AppConfig> {
     let raw = config::Config::builder()
@@ -63,8 +63,7 @@ mod https_tests;
 mod tests {
     #[test]
     fn optional_cli_config_uses_independent_defaults_and_rejects_malformed_config() {
-        let root =
-            std::env::temp_dir().join(format!("idp-config-{}", of_model::idp::model::Id::now_v7()));
+        let root = std::env::temp_dir().join(format!("idp-config-{}", of_model::id::Id::now_v7()));
         std::fs::create_dir(&root).expect("fixture");
         let path = root.join("config.yaml");
         let config = super::load_config(&path).expect("optional absent config");
@@ -76,33 +75,32 @@ mod tests {
 
     #[test]
     fn fresh_owner_routing_settings_are_not_relationship_credentials() {
-        let root =
-            std::env::temp_dir().join(format!("idp-routing-{}", of_model::idp::model::Id::now_v7()));
-        let config = crate::AppConfig {
+        let root = std::env::temp_dir().join(format!("idp-routing-{}", of_model::id::Id::now_v7()));
+        let config = crate::config::app_config::AppConfig {
             data_dir: root.join("idp").to_string_lossy().into_owned(),
             control_plane_uri: Some("https://127.0.0.1:3001".into()),
             ..crate::AppConfig::default()
         };
-        let host = super::prepare_setup(&config, "127.0.0.1:3000".parse().expect("address"))
-            .expect("nonsecret routing is allowed")
-            .expect("setup");
+        let host =
+            crate::startup::prepare_setup(&config, "127.0.0.1:3000".parse().expect("address"))
+                .expect("nonsecret routing is allowed")
+                .expect("setup");
         drop(host);
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[test]
     fn fresh_owner_startup_does_not_create_domain_state_or_select_issuer() {
-        let root = std::env::temp_dir().join(format!(
-            "idp-independent-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
-        let config = crate::AppConfig {
+        let root =
+            std::env::temp_dir().join(format!("idp-independent-{}", of_model::id::Id::now_v7()));
+        let config = crate::config::app_config::AppConfig {
             data_dir: root.join("idp").to_string_lossy().into_owned(),
             ..crate::AppConfig::default()
         };
-        let host = super::prepare_setup(&config, "127.0.0.1:3000".parse().expect("address"))
-            .expect("fresh startup")
-            .expect("setup rather than normal runtime");
+        let host =
+            crate::startup::prepare_setup(&config, "127.0.0.1:3000".parse().expect("address"))
+                .expect("fresh startup")
+                .expect("setup rather than normal runtime");
         assert!(!std::path::Path::new(&config.data_dir).exists());
         assert!(host.admission_path().is_file());
         drop(host);

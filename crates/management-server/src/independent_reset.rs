@@ -1,6 +1,6 @@
 use std::{io, path::Path};
 
-use crate::AppConfig;
+use crate::config::app_config::AppConfig;
 
 pub async fn reset_independent(config: &AppConfig, _remove_os_trust: bool) -> io::Result<()> {
     config.validate_identity_connection()?;
@@ -27,34 +27,46 @@ mod tests {
     async fn socket_reset_validates_selector_without_connecting_or_removing_socket() {
         let root = std::env::temp_dir().join(format!(
             "management-socket-reset-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         std::fs::create_dir(&root).expect("test root");
         let socket = root.join("identity.sock");
         let listener = std::os::unix::net::UnixListener::bind(&socket).expect("owner socket");
-        let mut config = crate::AppConfig {
+        let mut config = crate::config::app_config::AppConfig {
             data_dir: root.join("consumer").to_string_lossy().into_owned(),
             identity_socket: Some(socket.clone()),
             ..Default::default()
         };
-        super::reset_independent(&config, false)
+        crate::independent_reset::reset_independent(&config, false)
             .await
             .expect("stateless socket reset needs no connection");
         assert!(socket.exists());
         config.identity_socket_deadline_ms = 0;
-        assert!(super::reset_independent(&config, false).await.is_err());
+        assert!(
+            crate::independent_reset::reset_independent(&config, false)
+                .await
+                .is_err()
+        );
         config.identity_socket_deadline_ms = 1000;
-        config.identity_database = Some(db::RemoteDatabaseConfig {
+        config.identity_database = Some(db::remote::RemoteDatabaseConfig {
             endpoint: "http://127.0.0.1:50051".into(),
             ca_certificate: None,
             client_certificate: None,
             client_key: None,
             deadline_ms: 100,
         });
-        assert!(super::reset_independent(&config, false).await.is_err());
+        assert!(
+            crate::independent_reset::reset_independent(&config, false)
+                .await
+                .is_err()
+        );
         config.identity_database = None;
         std::fs::create_dir(&config.data_dir).expect("retained evidence");
-        assert!(super::reset_independent(&config, true).await.is_err());
+        assert!(
+            crate::independent_reset::reset_independent(&config, true)
+                .await
+                .is_err()
+        );
         assert!(socket.exists());
         drop(listener);
         std::fs::remove_dir_all(root).expect("test cleanup");
@@ -62,13 +74,11 @@ mod tests {
 
     #[tokio::test]
     async fn stateless_consumer_reset_never_removes_retained_owner_data() {
-        let root = std::env::temp_dir().join(format!(
-            "management-reset-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
-        let config = crate::AppConfig {
+        let root =
+            std::env::temp_dir().join(format!("management-reset-{}", of_model::id::Id::now_v7()));
+        let config = crate::config::app_config::AppConfig {
             data_dir: root.to_string_lossy().into_owned(),
-            identity_database: Some(db::RemoteDatabaseConfig {
+            identity_database: Some(db::remote::RemoteDatabaseConfig {
                 endpoint: "http://127.0.0.1:50051".into(),
                 ca_certificate: None,
                 client_certificate: None,
@@ -77,14 +87,18 @@ mod tests {
             }),
             ..Default::default()
         };
-        super::reset_independent(&config, false)
+        crate::independent_reset::reset_independent(&config, false)
             .await
             .expect("stateless reset needs no SQL or OS trust operation");
         assert!(!root.exists());
         std::fs::create_dir(&root).expect("retained owner root");
         let evidence = root.join("identity.redb");
         std::fs::write(&evidence, "retained").expect("retained owner evidence");
-        assert!(super::reset_independent(&config, true).await.is_err());
+        assert!(
+            crate::independent_reset::reset_independent(&config, true)
+                .await
+                .is_err()
+        );
         assert_eq!(
             std::fs::read_to_string(&evidence).expect("owner untouched"),
             "retained"

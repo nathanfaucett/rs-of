@@ -1,6 +1,6 @@
-use device_service::Device;
-use device_service::DeviceInfo;
-use device_service::DeviceState;
+use of_model::device::contract::device_info::DeviceInfo;
+use of_model::device::contract::device_state::DeviceState;
+use of_model::device::device::Device;
 use serde_json::json;
 
 #[test]
@@ -22,17 +22,23 @@ fn device_persistence_and_public_info_keep_their_wire_formats() {
         let device: Device = serde_json::from_value(value.clone()).expect("known Device state");
         assert_eq!(serde_json::to_value(&device).expect("stored state"), value);
         assert_eq!(
-            serde_json::to_value(DeviceInfo::from(device)).expect("public state")["state"],
+            serde_json::to_value(of_model::device::contract::device_info::DeviceInfo::from(
+                device
+            ))
+            .expect("public state")["state"],
             name
         );
     }
     let device: Device = serde_json::from_value(stored.clone()).expect("stored device");
-    assert_eq!(device.state, DeviceState::Approved);
+    assert_eq!(
+        device.state,
+        of_model::device::contract::device_state::DeviceState::Approved
+    );
     assert_eq!(
         serde_json::to_value(&device).expect("stored format"),
         stored
     );
-    let info = DeviceInfo::from(device);
+    let info = of_model::device::contract::device_info::DeviceInfo::from(device);
     assert_eq!(
         serde_json::to_value(info).expect("public device info"),
         json!({
@@ -53,10 +59,12 @@ fn device_persistence_and_public_info_keep_their_wire_formats() {
 
 #[test]
 fn device_pairing_signed_payload_keeps_its_length_delimited_bytes() {
-    let id = of_model::idp::model::Id::parse_str("00000000-0000-0000-0000-000000000001")
+    let id = of_model::id::Id::parse_str("00000000-0000-0000-0000-000000000001")
         .expect("fixed Device identity");
     assert_eq!(
-        device_service::device_pairing_approval_payload(id, "é\n", "key", "local"),
+        of_model::device::contract::device_pairing::device_pairing_approval_payload(
+            id, "é\n", "key", "local"
+        ),
         "idp-device-pairing-approval-v1\n00000000-0000-0000-0000-000000000001\n3\né\n\n3\nkey\n5\nlocal"
     );
 }
@@ -66,33 +74,33 @@ fn device_pairing_signed_payload_keeps_its_length_delimited_bytes() {
 fn device_contracts_export_api_schemas_from_management() {
     fn schema<T: utoipa::ToSchema>() {}
 
-    schema::<device_service::DeviceState>();
-    schema::<device_service::DeviceInfo>();
-    schema::<device_service::DeviceEnrollment>();
-    schema::<device_service::DeviceEnrollmentRequest>();
-    schema::<device_service::DeviceApprovalRequest>();
-    schema::<device_service::DevicePairingRequest>();
-    schema::<device_service::DevicePairingApprovalRequest>();
-    schema::<device_service::DevicePairingApprovalPayload>();
-    schema::<device_service::PairingAcceptance>();
-    schema::<device_service::DeviceEndpointIdentity>();
-    schema::<device_service::ApprovedDeviceEndpoints>();
-    schema::<device_service::TrustedDevice>();
-    schema::<device_service::UpdateDeviceRequest>();
-    schema::<device_service::DeviceTransferRequest>();
-    schema::<device_service::DeviceSelfRevocationRequest>();
+    schema::<of_model::device::contract::device_state::DeviceState>();
+    schema::<of_model::device::contract::device_info::DeviceInfo>();
+    schema::<of_model::device::contract::device_enrollment::DeviceEnrollment>();
+    schema::<of_model::device::contract::device_enrollment_request::DeviceEnrollmentRequest>();
+    schema::<of_model::device::contract::device_approval_request::DeviceApprovalRequest>();
+    schema::<of_model::device::contract::device_pairing::DevicePairingRequest>();
+    schema::<of_model::device::contract::device_pairing::DevicePairingApprovalRequest>();
+    schema::<of_model::device::contract::device_pairing::DevicePairingApprovalPayload>();
+    schema::<of_model::device::contract::device_pairing::PairingAcceptance>();
+    schema::<of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity>();
+    schema::<of_model::device::contract::approved_device_endpoints::ApprovedDeviceEndpoints>();
+    schema::<of_model::device::contract::trusted_device::TrustedDevice>();
+    schema::<of_model::device::contract::update_device_request::UpdateDeviceRequest>();
+    schema::<of_model::device::contract::update_device_request::DeviceTransferRequest>();
+    schema::<of_model::device::contract::device_self_revocation::DeviceSelfRevocationRequest>();
 }
 
 #[cfg(feature = "replica")]
 #[tokio::test]
 async fn approved_enrollment_preserves_exact_identity_and_denies_replacement_or_revocation() {
-    use device_service::DeviceRepo;
-    use device_service::replica::DbDeviceRepo;
-    use of_model::idp::model::Id;
+    use device_service::device_repo::DeviceRepo;
+    use device_service::replica::device_repo::DbDeviceRepo;
+    use of_model::id::Id;
     use std::sync::Arc;
 
-    let engine = Arc::new(db::Database::in_memory());
-    device_service::replica::up(&engine)
+    let engine = Arc::new(ofdb_sql::Database::in_memory());
+    device_service::replica::schema::up(&engine)
         .await
         .expect("Management schema");
     let repo = DbDeviceRepo::new(engine.clone().client());
@@ -152,13 +160,13 @@ async fn approved_enrollment_preserves_exact_identity_and_denies_replacement_or_
 #[cfg(feature = "replica")]
 #[tokio::test]
 async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revocation() {
-    use device_service::DeviceRepo;
-    use device_service::replica::DbDeviceRepo;
-    use of_model::idp::model::Id;
+    use device_service::device_repo::DeviceRepo;
+    use device_service::replica::device_repo::DbDeviceRepo;
+    use of_model::id::Id;
     use std::sync::Arc;
 
-    let engine = Arc::new(db::Database::in_memory());
-    device_service::replica::up(&engine)
+    let engine = Arc::new(ofdb_sql::Database::in_memory());
+    device_service::replica::schema::up(&engine)
         .await
         .expect("Management schema");
     let repo = DbDeviceRepo::new(engine.clone().client());
@@ -177,7 +185,7 @@ async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revoca
             .client()
             .translate_and_execute(
                 &format!("{mutation} WHERE id = CAST('{id}' AS UUID)"),
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("learn invalid enrollment state");
@@ -198,12 +206,12 @@ async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revoca
 #[cfg(feature = "replica")]
 #[tokio::test]
 async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_visible_binding() {
-    use device_service::replica::DbDeviceRepo;
-    use of_model::idp::model::Id;
+    use device_service::replica::device_repo::DbDeviceRepo;
+    use of_model::id::Id;
     use std::sync::Arc;
 
-    let left = Arc::new(db::Database::in_memory());
-    device_service::replica::up(&left)
+    let left = Arc::new(ofdb_sql::Database::in_memory());
+    device_service::replica::schema::up(&left)
         .await
         .expect("Management schema");
     let repo = DbDeviceRepo::new(left.clone().client());
@@ -213,7 +221,7 @@ async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_v
     repo.enroll_approved_exact(id, owner, "Joining Node", &endpoint, 123)
         .await
         .expect("approved binding");
-    let right = db::Database::in_memory();
+    let right = ofdb_sql::Database::in_memory();
     right
         .import_history(left.export_history().await.expect("initial native history"))
         .await
@@ -225,7 +233,7 @@ async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_v
                 &format!(
                     "UPDATE devices SET address = '{address}' WHERE id = CAST('{id}' AS UUID)"
                 ),
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("concurrent Management update");
@@ -240,7 +248,10 @@ async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_v
     assert!(
         !left
             .client()
-            .row_conflicts("devices", &db::Row::new(vec![db::Value::Uuid(id)]))
+            .row_conflicts(
+                "devices",
+                &ofdb_sql::Row::new(vec![ofdb_sql::Value::Uuid(id)])
+            )
             .await
             .expect("conflicted fixture")
             .is_empty()

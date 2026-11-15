@@ -2,8 +2,8 @@ use alloc::string::String;
 
 use serde::Deserialize;
 
-use crate::idp::model::Id;
-use crate::storage::ResourceKind;
+use crate::id::Id;
+use crate::storage::resource_catalog::ResourceKind;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

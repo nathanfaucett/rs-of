@@ -1,9 +1,9 @@
 use alloc::{string::String, vec::Vec};
 
-use of_model::idp::model::Id;
-use of_model::contract::AuthorizationDetail;
+use of_model::contract::authorization_details::AuthorizationDetail;
+use of_model::id::Id;
 
-use super::RepoResult;
+use super::error::RepoResult;
 
 pub struct OAuth2RefreshToken {
     pub token: String,

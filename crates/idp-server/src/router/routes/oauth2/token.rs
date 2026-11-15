@@ -4,10 +4,13 @@ use axum::{
     http::HeaderMap,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use of_model::idp::contract::{ErrorResponse, OAuth2ClientAuth, TokenEndpointAuthMethod, TokenRequest};
-use of_model::contract::TokenResponse;
+use of_model::contract::token_response::TokenResponse;
+use of_model::idp::contract::{
+    error_response::ErrorResponse, oauth2_client_auth::OAuth2ClientAuth,
+    token_endpoint_auth_method::TokenEndpointAuthMethod, token_request::TokenRequest,
+};
 
-use crate::router::RouterState;
+use crate::router::state::RouterState;
 
 #[utoipa::path(post, path = "/oauth2/token", params(("Authorization" = Option<String>, Header, description = "Optional HTTP Basic OAuth Client credentials; client_credentials also accepts client_secret_post")), request_body(content = TokenRequest, content_type = "application/x-www-form-urlencoded"), responses((status = 200, description = "Token response", body = TokenResponse), (status = 400, description = "Invalid OAuth grant", body = ErrorResponse), (status = 401, description = "Client authentication denied", body = ErrorResponse)))]
 pub(crate) async fn token(
@@ -44,24 +47,24 @@ pub(super) fn parse_basic_client_auth(
         return Ok(None);
     };
     let raw = value.to_str().map_err(|_| {
-        ErrorResponse::new(of_model::idp::contract::ErrorCode::InvalidClient)
+        ErrorResponse::new(of_model::idp::contract::error_code::ErrorCode::InvalidClient)
             .with_description("invalid authorization header encoding")
     })?;
 
     let Some(encoded) = raw.strip_prefix("Basic ") else {
-        return Err(
-            ErrorResponse::new(of_model::idp::contract::ErrorCode::InvalidClient)
-                .with_description("unsupported token endpoint authorization method"),
-        );
+        return Err(ErrorResponse::new(
+            of_model::idp::contract::error_code::ErrorCode::InvalidClient,
+        )
+        .with_description("unsupported token endpoint authorization method"));
     };
 
     let decoded = STANDARD.decode(encoded).map_err(|_| {
-        ErrorResponse::new(of_model::idp::contract::ErrorCode::InvalidClient)
+        ErrorResponse::new(of_model::idp::contract::error_code::ErrorCode::InvalidClient)
             .with_description("invalid basic authorization token")
     })?;
 
     let decoded = String::from_utf8(decoded).map_err(|_| {
-        ErrorResponse::new(of_model::idp::contract::ErrorCode::InvalidClient)
+        ErrorResponse::new(of_model::idp::contract::error_code::ErrorCode::InvalidClient)
             .with_description("invalid basic authorization token")
     })?;
 
@@ -70,10 +73,10 @@ pub(super) fn parse_basic_client_auth(
     let client_secret = parts.next();
 
     if client_id.is_empty() {
-        return Err(
-            ErrorResponse::new(of_model::idp::contract::ErrorCode::InvalidClient)
-                .with_description("client_id is required in basic authorization"),
-        );
+        return Err(ErrorResponse::new(
+            of_model::idp::contract::error_code::ErrorCode::InvalidClient,
+        )
+        .with_description("client_id is required in basic authorization"));
     }
 
     Ok(Some(OAuth2ClientAuth {

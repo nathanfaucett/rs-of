@@ -3,13 +3,19 @@ use axum::{
     extract::{Path, State},
 };
 use of_model::idp::contract::{
-    ClientRegistration, ClientType, ErrorCode, ErrorResponse, IdentityAction, IdentityResource,
-    PermissionTarget,
+    client_registration::ClientRegistration,
+    client_type::ClientType,
+    error_code::ErrorCode,
+    error_response::ErrorResponse,
+    permission_evaluation::{IdentityAction, IdentityResource, PermissionTarget},
 };
 
 use crate::router::{
-    RouterState,
-    middleware::{StandardAuthorization, infrastructure_client, require_identity_permission},
+    middleware::{
+        authorization::StandardAuthorization,
+        identity_administration::{infrastructure_client, require_identity_permission},
+    },
+    state::RouterState,
 };
 
 #[utoipa::path(post, path = "/oauth2/register", request_body = ClientRegistration,
@@ -225,7 +231,7 @@ pub(crate) async fn rotate_client_secret(
 }
 
 fn client_target(
-    application_id: of_model::idp::model::Id,
+    application_id: of_model::id::Id,
     infrastructure: bool,
     client_id: Option<String>,
 ) -> PermissionTarget {
@@ -243,10 +249,10 @@ fn client_target(
 #[cfg(test)]
 mod tests {
     use super::client_target;
-    use of_model::idp::{
-        contract::{IdentityAction, PermissionEvaluationRequest, PermissionSubject},
-        model::Id,
-    };
+    use of_model::id::Id;
+    use of_model::idp::contract::permission_evaluation::IdentityAction;
+    use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+    use of_model::idp::contract::permission_evaluation::PermissionSubject;
 
     #[test]
     fn infrastructure_clients_never_use_application_permissions() {

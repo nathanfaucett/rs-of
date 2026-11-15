@@ -1,14 +1,12 @@
 #![forbid(unsafe_code)]
 
-mod database;
-mod local;
+pub mod database;
+pub mod local;
 
-pub use local::{local_client, local_database};
+pub use local::local_client;
 
-#[cfg(feature = "postgres")]
-pub use database::NetworkDatabase;
 #[cfg(feature = "network")]
-pub use database::RemoteDatabase;
+pub use database::NetworkDatabase;
 pub use database::{EmbeddedDatabase, MemoryDatabase};
 #[cfg(feature = "network")]
 pub use db::RemoteDatabaseConfig;

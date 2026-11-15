@@ -3,35 +3,40 @@
 #[cfg(feature = "browser")]
 use {
     alloc::{string::String, vec::Vec},
+    of_model::storage::{
+        sdk::{
+            DatabaseId, DatabaseInfo, FilesystemId, FilesystemInfo, KvStoreId, KvStoreInfo,
+            ResourceId,
+        },
+        sdk_sync::{DeviceId, SyncResult, SyncSession, SyncToDeviceConfig},
+        sync::{SyncDirection as ClientSyncDirection, SyncStatus},
+    },
+    of_storage_client::apis::sync_api::sync_connect as http_sync_connect,
+    of_storage_client::models::{SyncConnectRequest, SyncSessionResponse},
     ofdb_sql::{
-        Database as SqlDatabase, SessionConfig, SyncResult as OfdbSyncResult, SyncRole, SyncTransport,
-        Client as SqlClient, Transaction as SqlTransaction,
+        Client as SqlClient, Database as SqlDatabase, SessionConfig, SyncResult as OfdbSyncResult,
+        SyncRole, SyncTransport, Transaction as SqlTransaction,
         query::{QueryParams, QueryResult},
     },
     ofdb_value::Value as OfdbValue,
-    of_storage_client::apis::sync_api::sync_connect as http_sync_connect,
-    of_storage_client::models::{SyncConnectRequest, SyncSessionResponse},
-    storage_sync_client::{
-        browser::browser::BrowserSyncTransport, protocol::StoreIdentity, TokenProvider,
-    },
     std::sync::Arc,
-    wasm_bindgen_futures::spawn_local,
+    storage_sync_client::{
+        TokenProvider, browser::browser::BrowserSyncTransport, protocol::StoreIdentity,
+    },
     uuid::Uuid,
+    wasm_bindgen_futures::spawn_local,
 };
 
 #[cfg(feature = "browser")]
-use crate::{
-    error::{StorageSdkError, StorageSdkResult},
-    handle::{
-        DatabaseId, DatabaseInfo, FilesystemId, FilesystemInfo, KvStoreId,
-        KvStoreInfo,
-    },
-    sync::{DeviceId, ResourceId, SyncDirection as ClientSyncDirection, SyncResult, SyncSession, SyncToDeviceConfig},
-};
+use crate::error::{StorageSdkError, StorageSdkResult};
 
 /// Type alias for the token provider function.
 #[cfg(feature = "browser")]
-type BrowserTokenProvider = Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, storage_sync_client::SyncError>>>>>;
+type BrowserTokenProvider = Box<
+    dyn Fn() -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<String, storage_sync_client::SyncError>>>,
+    >,
+>;
 
 #[cfg(feature = "browser")]
 #[derive(Clone)]
@@ -84,7 +89,9 @@ impl StorageSdk {
             .map_err(|_| StorageSdkError::other("Failed to set content type"))?;
         opts.headers(&headers);
 
-        opts.body(Some(&wasm_bindgen::JsValue::from_str(&serde_json::to_string(body)?)));
+        opts.body(Some(&wasm_bindgen::JsValue::from_str(
+            &serde_json::to_string(body)?,
+        )));
 
         let request = web_sys::Request::new_with_str_and_init(&url, &opts)
             .map_err(|_| StorageSdkError::other("Failed to create request"))?;
@@ -119,10 +126,7 @@ impl StorageSdk {
         Ok(result)
     }
 
-    async fn http_get<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> StorageSdkResult<T> {
+    async fn http_get<T: serde::de::DeserializeOwned>(&self, path: &str) -> StorageSdkResult<T> {
         let url = format!("{}{}", self.base_url, path);
         let token = (self.token_provider)().await?;
 
@@ -173,7 +177,8 @@ impl StorageSdk {
     /// Create a new SQL database.
     pub async fn create_sql_db(&self, name: &str) -> StorageSdkResult<SqlDatabaseHandle> {
         let request = serde_json::json!({ "name": name });
-        let db_info: of_storage_client::models::DatabaseResource = self.http_post("/storage/databases", &request).await?;
+        let db_info: of_storage_client::models::DatabaseResource =
+            self.http_post("/storage/databases", &request).await?;
 
         let database = self.open_local_database(&db_info.id).await?;
 
@@ -190,7 +195,8 @@ impl StorageSdk {
 
     /// Open an existing SQL database by ID.
     pub async fn open_sql_db(&self, id: DatabaseId) -> StorageSdkResult<SqlDatabaseHandle> {
-        let db_info: of_storage_client::models::DatabaseDetailResponse = self.http_get(&format!("/storage/databases/{}", id)).await?;
+        let db_info: of_storage_client::models::DatabaseDetailResponse =
+            self.http_get(&format!("/storage/databases/{}", id)).await?;
 
         let database = self.open_local_database(&id).await?;
 
@@ -207,19 +213,24 @@ impl StorageSdk {
 
     /// List all SQL databases.
     pub async fn list_sql_dbs(&self) -> StorageSdkResult<Vec<DatabaseInfo>> {
-        let databases: Vec<of_storage_client::models::DatabaseResource> = self.http_get("/storage/databases").await?;
-        
-        Ok(databases.into_iter().map(|d| DatabaseInfo {
-            id: d.id,
-            name: d.name.unwrap_or_default(),
-            application_id: self.application_id.clone(),
-        }).collect())
+        let databases: Vec<of_storage_client::models::DatabaseResource> =
+            self.http_get("/storage/databases").await?;
+
+        Ok(databases
+            .into_iter()
+            .map(|d| DatabaseInfo {
+                id: d.id,
+                name: d.name.unwrap_or_default(),
+                application_id: self.application_id.clone(),
+            })
+            .collect())
     }
 
     /// Create a new KV store.
     pub async fn create_kv_store(&self, name: &str) -> StorageSdkResult<KvStoreHandle> {
         let request = serde_json::json!({ "name": name });
-        let info: of_storage_client::models::FileSystemResourceResponse = self.http_post("/storage/kv/create", &request).await?;
+        let info: of_storage_client::models::FileSystemResourceResponse =
+            self.http_post("/storage/kv/create", &request).await?;
 
         let kv_store = self.open_local_kv_store(&info.id).await?;
 
@@ -236,7 +247,8 @@ impl StorageSdk {
 
     /// Open an existing KV store by ID.
     pub async fn open_kv_store(&self, id: KvStoreId) -> StorageSdkResult<KvStoreHandle> {
-        let info: of_storage_client::models::FileSystemResourceResponse = self.http_get(&format!("/storage/kv/{}", id)).await?;
+        let info: of_storage_client::models::FileSystemResourceResponse =
+            self.http_get(&format!("/storage/kv/{}", id)).await?;
 
         let kv_store = self.open_local_kv_store(&id).await?;
 
@@ -253,19 +265,24 @@ impl StorageSdk {
 
     /// List all KV stores.
     pub async fn list_kv_stores(&self) -> StorageSdkResult<Vec<KvStoreInfo>> {
-        let stores: Vec<of_storage_client::models::FileSystemResourceResponse> = self.http_get("/storage/kv").await?;
-        
-        Ok(stores.into_iter().map(|f| KvStoreInfo {
-            id: f.id,
-            name: f.name.unwrap_or_default(),
-            application_id: self.application_id.clone(),
-        }).collect())
+        let stores: Vec<of_storage_client::models::FileSystemResourceResponse> =
+            self.http_get("/storage/kv").await?;
+
+        Ok(stores
+            .into_iter()
+            .map(|f| KvStoreInfo {
+                id: f.id,
+                name: f.name.unwrap_or_default(),
+                application_id: self.application_id.clone(),
+            })
+            .collect())
     }
 
     /// Create a new filesystem.
     pub async fn create_filesystem(&self, name: &str) -> StorageSdkResult<FilesystemHandle> {
         let request = serde_json::json!({ "name": name });
-        let info: of_storage_client::models::FileSystemResourceResponse = self.http_post("/storage/filesystems", &request).await?;
+        let info: of_storage_client::models::FileSystemResourceResponse =
+            self.http_post("/storage/filesystems", &request).await?;
 
         let fs = self.open_local_filesystem(&info.id).await?;
 
@@ -282,7 +299,9 @@ impl StorageSdk {
 
     /// Open an existing filesystem by ID.
     pub async fn open_filesystem(&self, id: FilesystemId) -> StorageSdkResult<FilesystemHandle> {
-        let info: of_storage_client::models::FileSystemDetailResponse = self.http_get(&format!("/storage/filesystems/{}", id)).await?;
+        let info: of_storage_client::models::FileSystemDetailResponse = self
+            .http_get(&format!("/storage/filesystems/{}", id))
+            .await?;
 
         let fs = self.open_local_filesystem(&id).await?;
 
@@ -299,13 +318,17 @@ impl StorageSdk {
 
     /// List all filesystems.
     pub async fn list_filesystems(&self) -> StorageSdkResult<Vec<FilesystemInfo>> {
-        let filesystems: Vec<of_storage_client::models::FileSystemResourceResponse> = self.http_get("/storage/filesystems").await?;
-        
-        Ok(filesystems.into_iter().map(|f| FilesystemInfo {
-            id: f.id,
-            name: f.name.unwrap_or_default(),
-            application_id: self.application_id.clone(),
-        }).collect())
+        let filesystems: Vec<of_storage_client::models::FileSystemResourceResponse> =
+            self.http_get("/storage/filesystems").await?;
+
+        Ok(filesystems
+            .into_iter()
+            .map(|f| FilesystemInfo {
+                id: f.id,
+                name: f.name.unwrap_or_default(),
+                application_id: self.application_id.clone(),
+            })
+            .collect())
     }
 
     /// Start a sync session to another device.
@@ -323,9 +346,13 @@ impl StorageSdk {
         http_config.base_path = self.base_url.clone();
         http_config.bearer_access_token = Some(((self.token_provider)().await?).into());
 
-        let session = http_sync_connect(&http_config, of_storage_client::apis::sync_api::SyncConnectParams {
-            sync_connect_request: request,
-        }).await?;
+        let session = http_sync_connect(
+            &http_config,
+            of_storage_client::apis::sync_api::SyncConnectParams {
+                sync_connect_request: request,
+            },
+        )
+        .await?;
 
         Ok(SyncSession {
             session_id: session.session_id,
@@ -363,7 +390,10 @@ impl StorageSdk {
         Ok(kv_store)
     }
 
-    async fn open_local_filesystem(&self, id: &FilesystemId) -> StorageSdkResult<file_system::FileSystem> {
+    async fn open_local_filesystem(
+        &self,
+        id: &FilesystemId,
+    ) -> StorageSdkResult<file_system::FileSystem> {
         let fs_name = format!("offs-{}", id);
         let fs = file_system::FileSystem::open(&fs_name)
             .await
@@ -458,10 +488,7 @@ impl SqlDatabaseHandle {
     }
 
     /// Start a sync session to another device via the storage service.
-    pub async fn sync_to_device(
-        &self,
-        target_device: DeviceId,
-    ) -> StorageSdkResult<SyncSession> {
+    pub async fn sync_to_device(&self, target_device: DeviceId) -> StorageSdkResult<SyncSession> {
         self.sdk
             .sync_to_device(SyncToDeviceConfig {
                 resource_id: self.info.id.into(),
@@ -500,7 +527,9 @@ impl KvStoreHandle {
     pub async fn get(&self, key: &[u8]) -> StorageSdkResult<Option<Vec<u8>>> {
         let key_str = String::from_utf8(key.to_vec())
             .map_err(|e| StorageSdkError::kv_store(e.to_string()))?;
-        let result = self.kv_store.get(&key_str)
+        let result = self
+            .kv_store
+            .get(&key_str)
             .await
             .map_err(|e| StorageSdkError::kv_store(e.to_string()))?;
         Ok(result.map(|v| v.as_bytes().to_vec()))
@@ -512,7 +541,8 @@ impl KvStoreHandle {
         let value_str = String::from_utf8(value.to_vec())
             .map_err(|e| StorageSdkError::kv_store(e.to_string()))?;
         let value = bytes_to_value(value_str.as_bytes());
-        self.kv_store.set(&key_str, value, None::<i64>)
+        self.kv_store
+            .set(&key_str, value, None::<i64>)
             .await
             .map_err(|e| StorageSdkError::kv_store(e.to_string()))
     }
@@ -520,15 +550,13 @@ impl KvStoreHandle {
     pub async fn delete(&self, key: &[u8]) -> StorageSdkResult<()> {
         let key_str = String::from_utf8(key.to_vec())
             .map_err(|e| StorageSdkError::kv_store(e.to_string()))?;
-        self.kv_store.delete(&key_str)
+        self.kv_store
+            .delete(&key_str)
             .await
             .map_err(|e| StorageSdkError::kv_store(e.to_string()))
     }
 
-    pub async fn sync_to_device(
-        &self,
-        target_device: DeviceId,
-    ) -> StorageSdkResult<SyncSession> {
+    pub async fn sync_to_device(&self, target_device: DeviceId) -> StorageSdkResult<SyncSession> {
         self.sdk
             .sync_to_device(SyncToDeviceConfig {
                 resource_id: self.info.id.into(),
@@ -564,10 +592,7 @@ impl FilesystemHandle {
         &self.filesystem
     }
 
-    pub async fn sync_to_device(
-        &self,
-        target_device: DeviceId,
-    ) -> StorageSdkResult<SyncSession> {
+    pub async fn sync_to_device(&self, target_device: DeviceId) -> StorageSdkResult<SyncSession> {
         self.sdk
             .sync_to_device(SyncToDeviceConfig {
                 resource_id: self.info.id.into(),

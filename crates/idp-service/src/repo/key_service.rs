@@ -1,17 +1,17 @@
 use alloc::{format, string::String, vec::Vec};
 
+use bip32::DerivationPath;
 use chrono::{DateTime, Utc};
-use of_model::idp::{
-    contract::EntityType,
-    model::{Id, Key},
-};
-use key::{DerivationPath, DerivedKey};
+use key::derived_key::DerivedKey;
+use of_model::id::Id;
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::model::key::Key;
 
 #[cfg(feature = "std")]
 use crate::repo::PrivateKeyKeyringRepo;
 #[cfg(not(feature = "std"))]
 type DefaultPrivateKeyRepo = ();
-use crate::repo::{KeyRepo, PrivateKeyRepo, RepoResult};
+use super::{error::RepoResult, key_repo::KeyRepo, private_key_repo::PrivateKeyRepo};
 
 #[cfg(feature = "std")]
 pub struct KeyService<R, P = PrivateKeyKeyringRepo> {

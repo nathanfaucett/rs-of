@@ -11,14 +11,14 @@ use std::{
     },
 };
 
-use server_common::{IndependentCreateIntent, LocalTls};
-use of_model::idp::model::Id;
 use idp_service::repo::RawKeyringRepo;
 use keyring_core::{
     Entry,
     server_common::{Credential, CredentialApi, CredentialStoreApi},
 };
+use of_model::idp::model::Id;
 use serde_json::Value;
+use server_common::{IndependentCreateIntent, LocalTls};
 use tokio::time::{Duration, Instant, sleep};
 use tokio_util::sync::CancellationToken;
 

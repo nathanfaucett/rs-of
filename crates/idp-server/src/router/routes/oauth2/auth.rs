@@ -4,12 +4,13 @@ use axum::{
     response::Redirect,
 };
 use of_model::idp::contract::{
-    AuthorizationCodeResponse, AuthorizationRequest,
-    AuthorizationUiRequest, ErrorCode, ErrorResponse, ResponseType,
+    authorization_code_response::AuthorizationCodeResponse,
+    authorization_request::AuthorizationRequest, authorization_ui_request::AuthorizationUiRequest,
+    error_code::ErrorCode, error_response::ErrorResponse, response_type::ResponseType,
 };
-pub use of_model::server::idp::auth::OnboardingRegistration;
+use of_model::server::idp::auth::OnboardingRegistration;
 
-use crate::router::{RouterState, middleware::StandardAuthorization};
+use crate::router::{middleware::authorization::StandardAuthorization, state::RouterState};
 
 #[utoipa::path(
     post,

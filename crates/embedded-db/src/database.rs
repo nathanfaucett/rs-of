@@ -1,16 +1,19 @@
 use std::path::Path;
 
-use db::{Client, QueryErrorKind};
+use btree_redb::SharedDatabase;
 use of_model::{
     db::{Database, DeviceDatabase, IdpDatabase, ManagementDatabase, StorageDatabase},
     error::DatabaseError,
     replica,
 };
+use ofdb_sql::QueryErrorKind;
+use ofdb_sql::Client;
+use ofdb_sql::Database as SqlDatabase;
 
 #[derive(Clone)]
 pub struct EmbeddedDatabase {
-    database: db::Database,
-    storage: db::SharedDatabase,
+    database: SqlDatabase,
+    storage: SharedDatabase,
 }
 
 impl EmbeddedDatabase {
@@ -23,7 +26,7 @@ impl EmbeddedDatabase {
     pub async fn open_file(path: impl AsRef<Path>) -> Result<Self, DatabaseError> {
         let storage = crate::local::open_private_storage(path.as_ref()).map_err(storage_error)?;
         let database = Self {
-            database: db::Database::open_shared(&storage, "control")?,
+            database: SqlDatabase::open_shared(&storage, "control")?,
             storage,
         };
         replica::up(&database).await?;
@@ -33,15 +36,15 @@ impl EmbeddedDatabase {
 
 #[derive(Clone)]
 pub struct MemoryDatabase {
-    database: db::Database,
-    storage: db::SharedDatabase,
+    database: SqlDatabase,
+    storage: SharedDatabase,
 }
 
 impl MemoryDatabase {
     pub async fn new() -> Result<Self, DatabaseError> {
-        let storage = db::SharedDatabase::in_memory().map_err(storage_error)?;
+        let storage = SharedDatabase::in_memory().map_err(storage_error)?;
         let database = Self {
-            database: db::Database::open_shared(&storage, "control")?,
+            database: SqlDatabase::open_shared(&storage, "control")?,
             storage,
         };
         replica::up(&database).await?;
@@ -58,7 +61,7 @@ pub struct RemoteDatabase {
 #[cfg(feature = "network")]
 impl RemoteDatabase {
     /// Connects to the existing ofdb SQL service and initializes the shared schema.
-    pub async fn connect(config: &db::RemoteDatabaseConfig) -> Result<Self, DatabaseError> {
+    pub async fn connect(config: &db::remote::RemoteDatabaseConfig) -> Result<Self, DatabaseError> {
         let database = Self {
             client: config.connect().await.map_err(|error| {
                 let kind = match error.kind() {
@@ -120,7 +123,7 @@ macro_rules! database {
             }
         }
         impl Database for $type {
-            fn local_storage(&self) -> Option<db::SharedDatabase> {
+            fn local_storage(&self) -> Option<SharedDatabase> {
                 ($storage)(self)
             }
             fn client(&self) -> Client {

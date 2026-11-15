@@ -5,7 +5,7 @@ use of_storage_client::{
     protocol::StoreIdentity,
     transport::{TokenProvider, TransportConfig},
 };
-use ofdb_sql::history::{SessionConfig, SyncRole};
+use ofdb_sql::{SessionConfig, SyncRole};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 

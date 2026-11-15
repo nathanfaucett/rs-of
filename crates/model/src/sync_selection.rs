@@ -1,5 +1,6 @@
+use crate::id::Id;
+use crate::management::SyncSelection;
 use crate::management_error::ManagementResult;
-use crate::{idp::model::Id, management::SyncSelection};
 use alloc::vec::Vec;
 
 /// Sync selection repository trait.

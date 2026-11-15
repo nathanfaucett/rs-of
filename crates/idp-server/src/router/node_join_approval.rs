@@ -2,21 +2,30 @@ use std::{io, time::Instant};
 
 use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
 
-use db::{Row, SqlTranslator, Transaction, Value};
-use device_service::DeviceRepo;
-use idp_service::replica::DbReplicaSignerRepo;
-use iroh_chain::{MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer};
-use of_model::idp::{
-    contract::{
-        IdentityAction, IdentityResource, IdpSignerRecord, PermissionTarget, ReplicaMembership,
-    },
-    model::Id,
-};
+use ofdb_sql::Row;
 
-use super::middleware::require_identity_permission_for_audience;
-use crate::{RouterState, authorize_bearer, node_join::invalid};
-use device_service::hosted_join::NodeJoinApproval;
-use device_service::hosted_join::NodeJoinRequest;
+use ofdb_sql::SqlTranslator;
+
+use ofdb_sql::Transaction;
+
+use device_service::device_repo::DeviceRepo;
+use idp_service::replica::replica_signer_repo::DbReplicaSignerRepo;
+use iroh_chain::{MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer};
+use of_model::id::Id;
+use of_model::idp::contract::idp_signer::IdpSignerRecord;
+use of_model::idp::contract::idp_signer::ReplicaMembership;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::IdentityResource;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use ofdb_sql::Value;
+
+use crate::router::middleware::identity_administration::require_identity_permission_for_audience;
+use crate::{
+    node_join::invalid,
+    router::{middleware::authorization::authorize_bearer, state::RouterState},
+};
+use of_model::node_join::NodeJoinApproval;
+use of_model::node_join::NodeJoinRequest;
 
 impl RouterState {
     /// Approves only an authenticated pairing offer using a locally authenticated User session.
@@ -36,7 +45,7 @@ impl RouterState {
             require_identity_permission_for_audience(
                 self,
                 &actor,
-                management_service::MANAGEMENT_APPLICATION_URI,
+                management_service::service::MANAGEMENT_APPLICATION_URI,
                 action,
                 PermissionTarget::Installation { resource },
             )
@@ -261,7 +270,7 @@ impl RouterState {
             DbReplicaSignerRepo::enroll_in_transaction(&mut transaction, &membership, &signer)
                 .await
                 .map_err(|error| match error {
-                    idp_service::repo::RepoError::InvalidInput(message) => invalid(&message),
+                    idp_service::repo::error::RepoError::InvalidInput(message) => invalid(&message),
                     error => io::Error::other(error),
                 })?;
             for (table, query) in [
@@ -359,7 +368,7 @@ async fn require_clear(transaction: &mut Transaction, table: &str, key: &Row) ->
 fn text(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
-fn auth_error(error: of_model::idp::contract::ErrorResponse) -> io::Error {
+fn auth_error(error: of_model::idp::contract::error_response::ErrorResponse) -> io::Error {
     io::Error::new(
         io::ErrorKind::PermissionDenied,
         format!("join authorization denied: {:?}", error.error),

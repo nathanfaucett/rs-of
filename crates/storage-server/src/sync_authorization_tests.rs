@@ -7,7 +7,7 @@ use axum::{
 use serde_json::{Value, json};
 
 use super::{StoreIdentity, SyncAuthError, authorize_sync};
-use crate::{DeviceClient, IdpClient};
+use crate::{device_client::DeviceClient, idp_client::IdpClient};
 
 #[tokio::test]
 async fn ws_authorization_requires_exact_current_resource_policy() {

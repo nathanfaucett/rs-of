@@ -1,14 +1,13 @@
 use std::{io, sync::Arc};
 
-use db::Database;
-use of_model::idp::{
-    contract::IdentityAction,
-    model::{Id, Role},
-};
 use management_service::{
-    INITIAL_ADMINISTRATOR_ACTIONS, ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
+    replica::{permission_repo::DbPermissionRepo, role_repo::DbRoleRepo},
+    service::{INITIAL_ADMINISTRATOR_ACTIONS, ManagementService},
 };
+use of_model::id::Id;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::model::role::Role;
+use ofdb_sql::Database;
 
 #[derive(serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct InitialAdministratorGrant {
@@ -59,7 +58,9 @@ impl InitialAdministratorGrant {
     }
 }
 
-pub async fn identity_client(config: &crate::AppConfig) -> io::Result<db::Client> {
+pub async fn identity_client(
+    config: &crate::config::app_config::AppConfig,
+) -> io::Result<ofdb_sql::Client> {
     config.validate_identity_connection()?;
     if let Some(remote) = &config.identity_database {
         let client = remote.connect().await?;
@@ -72,7 +73,7 @@ pub async fn identity_client(config: &crate::AppConfig) -> io::Result<db::Client
     {
         let deadline = std::time::Duration::from_millis(config.identity_socket_deadline_ms);
         tokio::time::timeout(deadline, async {
-            let client = db::Client::connect_unix(
+            let client = ofdb_sql::Client::connect_unix(
                 config
                     .identity_socket
                     .as_ref()
@@ -123,16 +124,16 @@ pub async fn provision_initial_administrator(
 mod tests {
     #[test]
     fn administrator_inventory_reopens_current_seeds_and_rejects_old_seeds_without_mutation() {
-        let fresh = super::InitialAdministratorGrant::fresh();
+        let fresh = crate::provisioning::InitialAdministratorGrant::fresh();
         let retained = serde_json::to_value(&fresh).expect("retain current inventory");
         assert_eq!(
             retained["permissions"]
                 .as_array()
                 .expect("permission IDs")
                 .len(),
-            management_service::INITIAL_ADMINISTRATOR_ACTIONS.len()
+            management_service::service::INITIAL_ADMINISTRATOR_ACTIONS.len()
         );
-        let reopened: super::InitialAdministratorGrant =
+        let reopened: crate::provisioning::InitialAdministratorGrant =
             serde_json::from_value(retained.clone()).expect("reopen current inventory");
         reopened
             .validate()
@@ -147,7 +148,7 @@ mod tests {
             .expect("old permission IDs")
             .pop()
             .expect("remove newly added permission");
-        let rejected: super::InitialAdministratorGrant =
+        let rejected: crate::provisioning::InitialAdministratorGrant =
             serde_json::from_value(old.clone()).expect("decode old inventory");
         assert_eq!(
             rejected
@@ -166,13 +167,13 @@ mod tests {
     #[tokio::test]
     async fn standalone_identity_uses_explicit_socket_without_opening_files() {
         use std::{sync::Arc, time::Duration};
-        let root = std::env::temp_dir().join(format!(
-            "management-socket-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("management-socket-{}", of_model::id::Id::now_v7()));
         std::fs::create_dir(&root).expect("private test root");
         let socket = root.join("identity.sock");
-        let engine = Arc::new(db::Database::open(root.join("owner.redb")).expect("owner database"));
+        let engine = Arc::new(
+            ofdb_sql::Database::open(root.join("owner.redb")).expect("owner database"),
+        );
         of_model::idp::replica::up(&engine)
             .await
             .expect("identity schema");
@@ -193,13 +194,13 @@ mod tests {
         })
         .await
         .expect("SQL listener startup");
-        let config = crate::AppConfig {
+        let config = crate::config::app_config::AppConfig {
             data_dir: root.join("consumer").to_string_lossy().into_owned(),
             identity_socket: Some(socket),
             identity_socket_deadline_ms: 1000,
             ..Default::default()
         };
-        let client = super::identity_client(&config)
+        let client = crate::provisioning::identity_client(&config)
             .await
             .expect("explicit socket identity connection");
         of_model::idp::replica::validate_identity(&client)
@@ -225,19 +226,19 @@ mod tests {
         };
         let root = std::env::temp_dir().join(format!(
             "management-socket-denial-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         std::fs::create_dir(&root).expect("test root");
-        let mut config = crate::AppConfig {
+        let mut config = crate::config::app_config::AppConfig {
             data_dir: root.join("consumer").to_string_lossy().into_owned(),
             identity_socket: Some(root.join("missing.sock")),
             identity_socket_deadline_ms: 50,
             ..Default::default()
         };
-        assert!(super::identity_client(&config).await.is_err());
+        assert!(crate::provisioning::identity_client(&config).await.is_err());
         std::fs::write(root.join("not-a-socket"), b"retained evidence").expect("ordinary file");
         config.identity_socket = Some(root.join("not-a-socket"));
-        assert!(super::identity_client(&config).await.is_err());
+        assert!(crate::provisioning::identity_client(&config).await.is_err());
         assert_eq!(
             std::fs::read(root.join("not-a-socket")).expect("file untouched"),
             b"retained evidence"
@@ -247,13 +248,13 @@ mod tests {
             tokio::net::UnixListener::bind(config.identity_socket.as_ref().expect("socket"))
                 .expect("stalled listener");
         let started = Instant::now();
-        assert!(super::identity_client(&config).await.is_err());
+        assert!(crate::provisioning::identity_client(&config).await.is_err());
         assert!(
             started.elapsed() < Duration::from_secs(2),
             "stalled socket must be bounded"
         );
         drop(listener);
-        config.identity_database = Some(db::RemoteDatabaseConfig {
+        config.identity_database = Some(db::remote::RemoteDatabaseConfig {
             endpoint: "http://127.0.0.1:50051".into(),
             ca_certificate: None,
             client_certificate: None,
@@ -261,7 +262,7 @@ mod tests {
             deadline_ms: 100,
         });
         assert_eq!(
-            super::identity_client(&config)
+            crate::provisioning::identity_client(&config)
                 .await
                 .expect_err("ambiguous selectors")
                 .kind(),
@@ -271,7 +272,7 @@ mod tests {
         for deadline in [0, 300_001] {
             config.identity_socket_deadline_ms = deadline;
             assert_eq!(
-                super::identity_client(&config)
+                crate::provisioning::identity_client(&config)
                     .await
                     .expect_err("invalid deadline")
                     .kind(),
@@ -281,14 +282,15 @@ mod tests {
         config.identity_socket_deadline_ms = 1000;
         config.identity_socket = Some("relative.sock".into());
         assert_eq!(
-            super::identity_client(&config)
+            crate::provisioning::identity_client(&config)
                 .await
                 .expect_err("relative socket")
                 .kind(),
             std::io::ErrorKind::InvalidInput
         );
         let engine = Arc::new(
-            db::Database::open(root.join("wrong-schema.redb")).expect("uninitialized owner"),
+            ofdb_sql::Database::open(root.join("wrong-schema.redb"))
+                .expect("uninitialized owner"),
         );
         let (stop, stopped) = tokio::sync::oneshot::channel();
         let serving = engine.clone();
@@ -310,7 +312,7 @@ mod tests {
         .expect("SQL listener");
         config.identity_socket = Some(socket);
         assert!(
-            super::identity_client(&config).await.is_err(),
+            crate::provisioning::identity_client(&config).await.is_err(),
             "socket transport must not bypass identity schema validation"
         );
         assert!(!root.join("consumer").exists());
@@ -322,23 +324,21 @@ mod tests {
 
     #[tokio::test]
     async fn standalone_identity_requires_remote_without_local_fallback() {
-        let root = std::env::temp_dir().join(format!(
-            "management-client-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
-        let mut config = crate::AppConfig {
+        let root =
+            std::env::temp_dir().join(format!("management-client-{}", of_model::id::Id::now_v7()));
+        let mut config = crate::config::app_config::AppConfig {
             data_dir: root.to_string_lossy().into_owned(),
             ..Default::default()
         };
-        assert!(super::identity_client(&config).await.is_err());
-        config.identity_database = Some(db::RemoteDatabaseConfig {
+        assert!(crate::provisioning::identity_client(&config).await.is_err());
+        config.identity_database = Some(db::remote::RemoteDatabaseConfig {
             endpoint: "http://sql.example:50051".into(),
             ca_certificate: None,
             client_certificate: None,
             client_key: None,
             deadline_ms: 100,
         });
-        assert!(super::identity_client(&config).await.is_err());
+        assert!(crate::provisioning::identity_client(&config).await.is_err());
         assert!(!root.exists());
     }
 }
@@ -347,17 +347,16 @@ mod tests {
 mod initial_administrator_tests {
     use std::sync::Arc;
 
-    use db::Database;
-    use of_model::idp::{
-        contract::{
-            IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
-            PermissionTarget,
-        },
-        model::Id,
-    };
-    use management_service::LocalPermissions;
+    use management_service::local_permissions::LocalPermissions;
+    use of_model::id::Id;
+    use of_model::idp::contract::permission_evaluation::IdentityAction;
+    use of_model::idp::contract::permission_evaluation::IdentityResource;
+    use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+    use of_model::idp::contract::permission_evaluation::PermissionSubject;
+    use of_model::idp::contract::permission_evaluation::PermissionTarget;
+    use ofdb_sql::Database;
 
-    use super::InitialAdministratorGrant;
+    use crate::provisioning::InitialAdministratorGrant;
 
     #[tokio::test]
     async fn retained_grant_retries_exactly_and_reopens_offline() {

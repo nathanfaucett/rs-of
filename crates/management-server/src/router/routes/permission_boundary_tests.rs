@@ -4,31 +4,33 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use device_service::HostedControlPlane;
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
+use device_service::hosted_control_plane::HostedControlPlane;
+use management_service::replica::permission_repo::DbPermissionRepo;
+use management_service::replica::role_repo::DbRoleRepo;
+use management_service::service::ManagementService;
+use of_model::id::Id;
+use of_model::idp::contract::error_code::ErrorCode;
+use of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::IdentityResource;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
 use of_model::idp::replica::up;
-use of_model::idp::{
-    contract::{
-        ErrorCode, INSTALLATION_POLICY_ID, IdentityAction, IdentityResource,
-        PermissionEvaluationRequest, PermissionSubject, PermissionTarget,
-    },
-    model::Id,
-};
 
 use crate::router::{
-    RouterState,
-    middleware::ManagementAuthorization,
+    middleware::management_authorization::ManagementAuthorization,
     routes::{permissions, roles, users},
+    state::RouterState,
 };
 
 #[tokio::test]
 async fn typed_evaluation_separates_application_and_installation_assignments() {
     let root = std::env::temp_dir().join(format!("management-evaluation-{}", Id::now_v7()));
     std::fs::create_dir_all(&root).expect("create isolated test directory");
-    let engine =
-        Arc::new(db::Database::open(root.join("management.redb")).expect("open test engine"));
+    let engine = Arc::new(
+        ofdb_sql::Database::open(root.join("management.redb")).expect("open test engine"),
+    );
     up(&engine).await.expect("initialize policy schema");
     let state = state(Arc::clone(&engine));
     let service = &state.management_service;
@@ -151,7 +153,7 @@ async fn typed_evaluation_separates_application_and_installation_assignments() {
     std::fs::remove_dir_all(root).expect("remove test database");
 }
 
-fn state(engine: Arc<db::Database>) -> RouterState {
+fn state(engine: Arc<ofdb_sql::Database>) -> RouterState {
     RouterState::new(
         "http://127.0.0.1",
         Arc::new(ManagementService::new(
@@ -173,8 +175,10 @@ fn state(engine: Arc<db::Database>) -> RouterState {
 async fn all_rbac_routes_reject_cross_application_before_repository_access() {
     let root = std::env::temp_dir().join(format!("management-scope-{}", Id::now_v7()));
     std::fs::create_dir_all(&root).expect("create isolated test directory");
-    let engine =
-        Arc::new(db::Database::open(root.join("management.redb")).expect("open empty engine"));
+    let engine = Arc::new(
+        ofdb_sql::Database::open(root.join("management.redb"))
+            .expect("open empty engine"),
+    );
     let state = state(Arc::clone(&engine));
     let caller_app = Id::now_v7();
     let target_app = Id::now_v7();
@@ -279,7 +283,9 @@ async fn all_rbac_routes_reject_cross_application_before_repository_access() {
 async fn application_permission_requires_live_assignment_and_does_not_expose_other_roles() {
     let root = std::env::temp_dir().join(format!("management-permission-{}", Id::now_v7()));
     std::fs::create_dir_all(&root).expect("create isolated test directory");
-    let engine = Arc::new(db::Database::open(root.join("management.redb")).expect("open engine"));
+    let engine = Arc::new(
+        ofdb_sql::Database::open(root.join("management.redb")).expect("open engine"),
+    );
     up(&engine).await.expect("initialize Management schema");
     let state = state(Arc::clone(&engine));
     let service = state.management_service.as_ref();

@@ -1,7 +1,9 @@
 use core::{future::Future, pin::Pin};
 use std::boxed::Box;
 
-pub use db::{Client, QueryError, Transaction};
+use btree_redb::SharedDatabase;
+use ofdb_sql::QueryError;
+use ofdb_sql::{Client, Transaction};
 
 pub trait IdpDatabase: Send + Sync {
     fn client(&self) -> Client;
@@ -21,7 +23,7 @@ pub trait ManagementDatabase: Send + Sync {
 
 /// Query access is shared; hosting and replication stay with the database owner.
 pub trait Database: Send + Sync {
-    fn local_storage(&self) -> Option<db::SharedDatabase> {
+    fn local_storage(&self) -> Option<SharedDatabase> {
         None
     }
     fn client(&self) -> Client;
@@ -78,5 +80,8 @@ macro_rules! database {
     };
 }
 
-database!(db::Database, db::Database::client);
+database!(
+    ofdb_sql::Database,
+    ofdb_sql::Database::client
+);
 database!(Client, Client::clone);

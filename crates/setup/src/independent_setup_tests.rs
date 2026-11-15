@@ -1,11 +1,11 @@
 use std::{fs, path::Path};
 
-use crate::IndependentSetupHost;
+use crate::independent_setup::IndependentSetupHost;
 
 #[test]
 fn independent_join_binds_a_pinned_source_without_an_administrator_seed() {
     let pin = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
-    let intent: crate::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"join", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"", "node":"Joining Node", "idp":"https://127.0.0.1:3000/idp", "device":"https://127.0.0.1:3001/device", "storage":"https://127.0.0.1:3002/storage", "issuer":"https://existing.installation/idp", "peer":format!("https://127.0.0.1:4001/device#{pin}")})).expect("Join intent");
+    let intent: crate::independent_operation::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"join", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"", "node":"Joining Node", "idp":"https://127.0.0.1:3000/idp", "device":"https://127.0.0.1:3001/device", "storage":"https://127.0.0.1:3002/storage", "issuer":"https://existing.installation/idp", "peer":format!("https://127.0.0.1:4001/device#{pin}")})).expect("Join intent");
     intent
         .canonical()
         .expect("Join is not a fresh administrator Create");
@@ -167,7 +167,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let (host, mut commands) = setup
         .into_create(tokio_util::sync::CancellationToken::new())
         .expect("host");
-    let intent: crate::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3001", "device":"https://127.0.0.1:3000", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3001", "peer":null})).expect("operation");
+    let intent: crate::independent_operation::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3001", "device":"https://127.0.0.1:3000", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3001", "peer":null})).expect("operation");
     let response = host
         .router()
         .oneshot(
@@ -188,7 +188,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let blocked = Mutex::new(blocked);
     host.control()
         .set_public(
-            crate::IndependentOwnerPublic {
+            crate::independent_operation::IndependentOwnerPublic {
                 operation: intent.clone(),
                 owner: "device".into(),
                 clients: vec![registration.clone()],
@@ -271,7 +271,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
 
 #[test]
 fn setup_scope_accepts_only_single_owner_or_complete_unified_host() {
-    use crate::SetupScope;
+    use crate::setup_scope::SetupScope;
 
     for owner in ["idp", "device", "storage"] {
         assert_eq!(
@@ -637,7 +637,10 @@ async fn configured_native_setup_origin_is_exact_and_does_not_grant_admission() 
             "http://tauri.localhost:4100",
             "http://unrelated.test",
         ] {
-            assert!(crate::setup_origin(invalid).is_err(), "reject {invalid}");
+            assert!(
+                crate::setup_routes::setup_origin(invalid).is_err(),
+                "reject {invalid}"
+            );
         }
     }
 }
@@ -785,8 +788,12 @@ async fn resetting_one_composed_owner_preserves_the_shared_authority_and_other_o
     )
     .expect("composed Storage");
     drop(device);
-    let mut reset = crate::IndependentReset::open("device", &root.path().join("device"), true)
-        .expect("stopped Device reset");
+    let mut reset = crate::independent_reset::IndependentReset::open(
+        "device",
+        &root.path().join("device"),
+        true,
+    )
+    .expect("stopped Device reset");
     assert!(reset.worker().is_none());
     reset.secrets_removed().expect("no attempted material");
     assert!(
@@ -806,7 +813,7 @@ async fn resetting_one_composed_owner_preserves_the_shared_authority_and_other_o
         .is_err(),
         "unacknowledged reset must fence fresh admission"
     );
-    crate::IndependentReset::open("device", &root.path().join("device"), true)
+    crate::independent_reset::IndependentReset::open("device", &root.path().join("device"), true)
         .expect("reopen completion evidence without setup directory")
         .finish(|| Ok(()))
         .expect("acknowledged owner reset without removing shared trust");

@@ -1,7 +1,10 @@
 use axum::{Json, extract::State};
-use of_model::idp::contract::{EntityType, ErrorCode, ErrorResponse, UserInfo};
+use of_model::idp::contract::{
+    entity_type::EntityType, error_code::ErrorCode, error_response::ErrorResponse,
+    user_info::UserInfo,
+};
 
-use crate::router::{RouterState, middleware::StandardAuthorization};
+use crate::router::{middleware::authorization::StandardAuthorization, state::RouterState};
 
 #[utoipa::path(
     get,

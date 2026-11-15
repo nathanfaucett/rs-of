@@ -10,7 +10,7 @@ use std::{
 use rustix::process::{Pid, Signal, WaitOptions, kill_process, set_child_subreaper, waitpid};
 use tokio_util::sync::CancellationToken;
 
-use crate::IndependentSetupHost;
+use crate::independent_setup::IndependentSetupHost;
 
 fn pid(root: &Path, name: &str) -> Option<Pid> {
     fs::read_to_string(root.join(name))

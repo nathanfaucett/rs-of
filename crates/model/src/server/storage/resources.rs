@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::storage::DatabaseId;
+use crate::storage::database_resource::DatabaseId;
 
 #[derive(Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -60,7 +60,8 @@ pub struct SyncConnectRequest {
     pub _direction: SyncDirection,
 }
 
-pub use crate::storage::sync::{SyncDirection, SyncStatus};
+use crate::storage::sync::SyncDirection;
+use crate::storage::sync::SyncStatus;
 
 #[derive(Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

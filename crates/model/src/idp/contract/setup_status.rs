@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::SetupStage;
+use crate::idp::contract::setup_stage::SetupStage;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

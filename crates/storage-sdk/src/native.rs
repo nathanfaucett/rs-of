@@ -3,43 +3,54 @@
 #[cfg(feature = "native")]
 use {
     alloc::{string::String, vec::Vec},
-    ofdb_sql::{
-        Database as SqlDatabase, SessionConfig, SyncResult as OfdbSyncResult, SyncRole, SyncTransport,
-        QueryParams, QueryResult,
-        Client as SqlClient, Transaction as SqlTransaction,
+    of_model::storage::{
+        sdk::{
+            DatabaseId, DatabaseInfo, FilesystemId, FilesystemInfo, KvStoreId, KvStoreInfo,
+            ResourceId,
+        },
+        sdk_sync::{DeviceId, SyncResult, SyncSession, SyncToDeviceConfig},
+        sync::{SyncDirection as ClientSyncDirection, SyncStatus},
     },
-    ofdb_value::Value as OfdbValue,
     of_storage_api_client::apis::configuration::Configuration,
     of_storage_api_client::apis::resources_api::{
-        create_database, create_file_system, delete_database,
-        get_database, get_file_system, list_databases, list_file_systems,
-        GetDatabaseParams, GetFileSystemParams,
+        GetDatabaseParams, GetFileSystemParams, create_database, create_file_system,
+        delete_database, get_database, get_file_system, list_databases, list_file_systems,
     },
     of_storage_api_client::apis::sync_api::sync_connect,
-    of_storage_api_client::models::{SyncConnectRequest, SyncSessionResponse, Status, CreateResourceRequest},
+    of_storage_api_client::models::{
+        CreateResourceRequest, Status, SyncConnectRequest, SyncSessionResponse,
+    },
+    ofdb_sql::{
+        Client as SqlClient, Database as SqlDatabase, QueryParams, QueryResult, SessionConfig,
+        SyncResult as OfdbSyncResult, SyncRole, SyncTransport, Transaction as SqlTransaction,
+    },
+    ofdb_value::Value as OfdbValue,
+    std::sync::{Arc, Mutex},
     storage_sync_client::{
-        native::WebSocketSyncTransport, protocol::StoreIdentity, TokenProvider,
+        TokenProvider,
         client::{WsTransportBridge, WsTransportBridgeShared},
+        native::WebSocketSyncTransport,
+        protocol::StoreIdentity,
         transport::TransportError,
     },
-    std::sync::{Arc, Mutex},
     tokio::sync::Mutex as TokioMutex,
     uuid::Uuid,
 };
 
 #[cfg(feature = "native")]
-use crate::{
-    error::{StorageSdkError, StorageSdkResult},
-    handle::{ResourceId,
-        DatabaseId, DatabaseInfo, FilesystemId, FilesystemInfo, KvStoreId,
-        KvStoreInfo,
-    },
-    sync::{DeviceId, SyncDirection as ClientSyncDirection, SyncResult, SyncSession, SyncStatus, SyncToDeviceConfig},
-};
+use crate::error::{StorageSdkError, StorageSdkResult};
 
 /// Type alias for the token provider function.
 #[cfg(feature = "native")]
-type BoxTokenProvider = Box<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, storage_sync_client::SyncError>> + Send>> + Send + Sync>;
+type BoxTokenProvider = Box<
+    dyn Fn() -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<String, storage_sync_client::SyncError>>
+                    + Send,
+            >,
+        > + Send
+        + Sync,
+>;
 
 #[cfg(feature = "native")]
 #[derive(Clone)]
@@ -56,7 +67,14 @@ impl StorageSdk {
     /// Create a new storage SDK.
     pub fn new(
         base_url: impl Into<String>,
-        token_provider: impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, storage_sync_client::SyncError>> + Send>> + Send + Sync + 'static,
+        token_provider: impl Fn() -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<String, storage_sync_client::SyncError>>
+                    + Send,
+            >,
+        > + Send
+        + Sync
+        + 'static,
         application_id: impl Into<String>,
         user_sub: impl Into<String>,
         device_id: DeviceId,
@@ -84,14 +102,21 @@ impl StorageSdk {
     /// Create a new SQL database.
     pub async fn create_sql_db(&self, name: &str) -> StorageSdkResult<SqlDatabaseHandle> {
         let token = (self.token_provider)().await?;
-        self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
+        self.with_config(|config| config.bearer_access_token = Some(token.into()))
+            .await;
 
         let request = of_storage_api_client::apis::resources_api::CreateDatabaseParams {
-            create_resource_request: CreateResourceRequest { name: Some(Some(name.to_string())) },
+            create_resource_request: CreateResourceRequest {
+                name: Some(Some(name.to_string())),
+            },
         };
         let db_info = create_database(&self.http_config.lock().unwrap(), request).await?;
 
-        let database = self.open_local_database(&DatabaseId::from_uuid(Uuid::parse_str(&db_info.id).unwrap())).await?;
+        let database = self
+            .open_local_database(&DatabaseId::from_uuid(
+                Uuid::parse_str(&db_info.id).unwrap(),
+            ))
+            .await?;
 
         Ok(SqlDatabaseHandle {
             sdk: self.clone(),
@@ -107,12 +132,16 @@ impl StorageSdk {
     /// Open an existing SQL database by ID.
     pub async fn open_sql_db(&self, id: DatabaseId) -> StorageSdkResult<SqlDatabaseHandle> {
         let token = (self.token_provider)().await?;
-        self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
+        self.with_config(|config| config.bearer_access_token = Some(token.into()))
+            .await;
 
         let db_info = get_database(
             &self.http_config.lock().unwrap(),
-            of_storage_api_client::apis::resources_api::GetDatabaseParams { database_id: id.to_string() },
-        ).await?;
+            of_storage_api_client::apis::resources_api::GetDatabaseParams {
+                database_id: id.to_string(),
+            },
+        )
+        .await?;
 
         let database = self.open_local_database(&id).await?;
 
@@ -130,43 +159,58 @@ impl StorageSdk {
     /// List all SQL databases.
     pub async fn list_sql_dbs(&self) -> StorageSdkResult<Vec<DatabaseInfo>> {
         let token = (self.token_provider)().await?;
-        self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
+        self.with_config(|config| config.bearer_access_token = Some(token.into()))
+            .await;
 
         let databases = list_databases(&self.http_config.lock().unwrap()).await?;
 
-        Ok(databases.into_iter().map(|d| DatabaseInfo {
-            id: DatabaseId::from_uuid(Uuid::parse_str(&d.id).unwrap()),
-            name: d.name.flatten().unwrap_or_default(),
-            application_id: self.application_id.clone(),
-        }).collect())
+        Ok(databases
+            .into_iter()
+            .map(|d| DatabaseInfo {
+                id: DatabaseId::from_uuid(Uuid::parse_str(&d.id).unwrap()),
+                name: d.name.flatten().unwrap_or_default(),
+                application_id: self.application_id.clone(),
+            })
+            .collect())
     }
 
     /// Create a new KV store.
     pub async fn create_kv_store(&self, _name: &str) -> StorageSdkResult<KvStoreHandle> {
-        Err(StorageSdkError::other("KV store not yet implemented in generated client"))
+        Err(StorageSdkError::other(
+            "KV store not yet implemented in generated client",
+        ))
     }
 
     /// Open an existing KV store by ID.
     pub async fn open_kv_store(&self, _id: KvStoreId) -> StorageSdkResult<KvStoreHandle> {
-        Err(StorageSdkError::other("KV store not yet implemented in generated client"))
+        Err(StorageSdkError::other(
+            "KV store not yet implemented in generated client",
+        ))
     }
 
     /// List all KV stores.
     pub async fn list_kv_stores(&self) -> StorageSdkResult<Vec<KvStoreInfo>> {
-        Err(StorageSdkError::other("KV store not yet implemented in generated client"))
+        Err(StorageSdkError::other(
+            "KV store not yet implemented in generated client",
+        ))
     }
 
     /// Create a new filesystem.
     pub async fn create_filesystem(&self, name: &str) -> StorageSdkResult<FilesystemHandle> {
         let token = (self.token_provider)().await?;
-        self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
+        self.with_config(|config| config.bearer_access_token = Some(token.into()))
+            .await;
 
         let request = of_storage_api_client::apis::resources_api::CreateFileSystemParams {
-            create_resource_request: CreateResourceRequest { name: Some(Some(name.to_string())) },
+            create_resource_request: CreateResourceRequest {
+                name: Some(Some(name.to_string())),
+            },
         };
         let info = create_file_system(&self.http_config.lock().unwrap(), request).await?;
 
-        let fs = self.open_local_filesystem(&FilesystemId::from_uuid(Uuid::parse_str(&info.id).unwrap())).await?;
+        let fs = self
+            .open_local_filesystem(&FilesystemId::from_uuid(Uuid::parse_str(&info.id).unwrap()))
+            .await?;
 
         Ok(FilesystemHandle {
             sdk: self.clone(),
@@ -182,12 +226,16 @@ impl StorageSdk {
     /// Open an existing filesystem by ID.
     pub async fn open_filesystem(&self, id: FilesystemId) -> StorageSdkResult<FilesystemHandle> {
         let token = (self.token_provider)().await?;
-        self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
+        self.with_config(|config| config.bearer_access_token = Some(token.into()))
+            .await;
 
         let info = get_file_system(
             &self.http_config.lock().unwrap(),
-            GetFileSystemParams { filesystem_id: id.to_string() },
-        ).await?;
+            GetFileSystemParams {
+                filesystem_id: id.to_string(),
+            },
+        )
+        .await?;
 
         let fs = self.open_local_filesystem(&id).await?;
 
@@ -205,15 +253,19 @@ impl StorageSdk {
     /// List all filesystems.
     pub async fn list_filesystems(&self) -> StorageSdkResult<Vec<FilesystemInfo>> {
         let token = (self.token_provider)().await?;
-        self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
+        self.with_config(|config| config.bearer_access_token = Some(token.into()))
+            .await;
 
         let filesystems = list_file_systems(&self.http_config.lock().unwrap()).await?;
 
-        Ok(filesystems.into_iter().map(|f| FilesystemInfo {
-            id: FilesystemId::from_uuid(Uuid::parse_str(&f.id).unwrap()),
-            name: f.name.flatten().unwrap_or_default(),
-            application_id: self.application_id.clone(),
-        }).collect())
+        Ok(filesystems
+            .into_iter()
+            .map(|f| FilesystemInfo {
+                id: FilesystemId::from_uuid(Uuid::parse_str(&f.id).unwrap()),
+                name: f.name.flatten().unwrap_or_default(),
+                application_id: self.application_id.clone(),
+            })
+            .collect())
     }
 
     /// Start a sync session to another device.
@@ -222,16 +274,21 @@ impl StorageSdk {
         config: SyncToDeviceConfig,
     ) -> StorageSdkResult<SyncSession> {
         let token = (self.token_provider)().await?;
-        self.with_config(|config| config.bearer_access_token = Some(token.into())).await;
+        self.with_config(|config| config.bearer_access_token = Some(token.into()))
+            .await;
 
         let request = SyncConnectRequest {
             resource_id: config.resource_id.into(),
             target_device: config.target_device.into(),
         };
 
-        let session = sync_connect(&self.http_config.lock().unwrap(), of_storage_api_client::apis::sync_api::SyncConnectParams {
-            sync_connect_request: request,
-        }).await?;
+        let session = sync_connect(
+            &self.http_config.lock().unwrap(),
+            of_storage_api_client::apis::sync_api::SyncConnectParams {
+                sync_connect_request: request,
+            },
+        )
+        .await?;
 
         let status = match session.status {
             Status::Connecting => SyncStatus::Connecting,
@@ -256,8 +313,8 @@ impl StorageSdk {
         let path = format!("./data/databases/{}.redb", id);
         std::fs::create_dir_all("./data/databases").ok();
 
-        let database = SqlDatabase::open(&path)
-            .map_err(|e| StorageSdkError::database(e.to_string()))?;
+        let database =
+            SqlDatabase::open(&path).map_err(|e| StorageSdkError::database(e.to_string()))?;
 
         Ok(database)
     }
@@ -266,14 +323,17 @@ impl StorageSdk {
         let path = format!("./data/kv/{}.redb", id);
         std::fs::create_dir_all("./data/kv").ok();
 
-        let database = ofdb_kv::Database::open(&path)
-            .map_err(|e| StorageSdkError::kv_store(e.to_string()))?;
+        let database =
+            ofdb_kv::Database::open(&path).map_err(|e| StorageSdkError::kv_store(e.to_string()))?;
         let client = database.client();
 
         Ok(client)
     }
 
-    async fn open_local_filesystem(&self, id: &FilesystemId) -> StorageSdkResult<file_system::FileSystem> {
+    async fn open_local_filesystem(
+        &self,
+        id: &FilesystemId,
+    ) -> StorageSdkResult<file_system::FileSystem> {
         let path = format!("./data/filesystems/{}", id);
         std::fs::create_dir_all(&path).ok();
 
@@ -377,10 +437,7 @@ impl SqlDatabaseHandle {
     }
 
     /// Start a sync session to another device via the storage service.
-    pub async fn sync_to_device(
-        &self,
-        target_device: DeviceId,
-    ) -> StorageSdkResult<SyncSession> {
+    pub async fn sync_to_device(&self, target_device: DeviceId) -> StorageSdkResult<SyncSession> {
         self.sdk
             .sync_to_device(SyncToDeviceConfig {
                 resource_id: self.info.id.into(),
@@ -424,7 +481,8 @@ impl KvStoreHandle {
         let kv = self.kv_store().await?;
         let key_str = String::from_utf8(key.to_vec())
             .map_err(|e| StorageSdkError::kv_store(e.to_string()))?;
-        let result = kv.get(&key_str)
+        let result = kv
+            .get(&key_str)
             .await
             .map_err(|e| StorageSdkError::kv_store(e.to_string()))?;
         Ok(result.map(|v| value_to_bytes(v)))
@@ -451,10 +509,7 @@ impl KvStoreHandle {
             .map_err(|e| StorageSdkError::kv_store(e.to_string()))
     }
 
-    pub async fn sync_to_device(
-        &self,
-        target_device: DeviceId,
-    ) -> StorageSdkResult<SyncSession> {
+    pub async fn sync_to_device(&self, target_device: DeviceId) -> StorageSdkResult<SyncSession> {
         self.sdk
             .sync_to_device(SyncToDeviceConfig {
                 resource_id: self.info.id.into(),
@@ -494,10 +549,7 @@ impl FilesystemHandle {
             .ok_or_else(|| StorageSdkError::filesystem("Filesystem not initialized"))
     }
 
-    pub async fn sync_to_device(
-        &self,
-        target_device: DeviceId,
-    ) -> StorageSdkResult<SyncSession> {
+    pub async fn sync_to_device(&self, target_device: DeviceId) -> StorageSdkResult<SyncSession> {
         self.sdk
             .sync_to_device(SyncToDeviceConfig {
                 resource_id: self.info.id.into(),

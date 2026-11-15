@@ -1,11 +1,13 @@
 use std::{future::Future, io, sync::Arc};
 
-use db::Database;
-use of_model::idp::contract::JwkPublic;
-use idp_service::oauth2::NodeSignerBinding;
+use idp_service::oauth2::node_signer::NodeSignerBinding;
 use iroh::EndpointId;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use ofdb_sql::Database;
 
-use crate::hosted_join::{NodeJoinApproval, NodeJoinRequest};
+use of_model::node_join::NodeJoinApproval;
+
+use of_model::node_join::NodeJoinRequest;
 
 #[derive(Clone, Copy)]
 pub enum NodeJoinStage {

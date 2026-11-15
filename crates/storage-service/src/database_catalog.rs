@@ -7,12 +7,15 @@ use std::{
 };
 
 #[path = "sql_catalog.rs"]
-mod sql_catalog;
+pub mod sql_catalog;
 
-use of_model::storage::{ResourceCatalog, ResourceIdentity, ResourceKind, StorageNamespace};
+use of_model::storage::{
+    namespace::StorageNamespace,
+    resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
+};
 use serde::{Deserialize, Serialize};
 
-pub use of_model::storage::{DatabaseId, DatabaseResource};
+pub use of_model::storage::database_resource::{DatabaseId, DatabaseResource};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct CatalogRecord {
@@ -83,10 +86,13 @@ impl DatabaseCatalog {
     pub(crate) fn owner_resources(
         &self,
         owner: &str,
-    ) -> io::Result<Vec<(of_model::idp::model::Id, DatabaseId)>> {
+    ) -> io::Result<Vec<(of_model::id::Id, DatabaseId)>> {
         catalog_path(
             &self.root,
-            &crate::local_copy::CopyScope(owner.to_owned(), DatabaseId::now_v7()),
+            &crate::local_copy::CopyScope(
+                owner.to_owned(),
+                of_model::storage::database_resource::DatabaseId::now_v7(),
+            ),
         )?;
         let _guard = self
             .lock
@@ -129,7 +135,7 @@ impl DatabaseCatalog {
     ) -> io::Result<DatabaseResource> {
         self.with_catalog(scope, true, |catalog| {
             let resource = DatabaseResource {
-                id: DatabaseId::now_v7(),
+                id: of_model::storage::database_resource::DatabaseId::now_v7(),
                 name,
             };
             catalog.records.insert(
@@ -162,7 +168,10 @@ impl DatabaseCatalog {
             &scope.application_id().to_string(),
             key,
         ])?;
-        let id = DatabaseId::new_v5(&DatabaseId::NAMESPACE_URL, &identity);
+        let id = of_model::storage::database_resource::DatabaseId::new_v5(
+            &of_model::storage::database_resource::DatabaseId::NAMESPACE_URL,
+            &identity,
+        );
         self.with_catalog(scope, true, |catalog| {
             if let Some(record) = catalog.records.get(&id) {
                 if record.deleted {
@@ -336,7 +345,7 @@ impl StorageNamespace for NamespaceRef<'_> {
         self.0.user_sub()
     }
 
-    fn application_id(&self) -> of_model::idp::model::Id {
+    fn application_id(&self) -> of_model::id::Id {
         self.0.application_id()
     }
 }
@@ -376,7 +385,10 @@ fn write_catalog(path: &Path, catalog: &Catalog) -> io::Result<()> {
         .parent()
         .ok_or_else(|| io::Error::other("catalog path has no parent"))?;
     fs::create_dir_all(parent)?;
-    let temp_path = path.with_extension(format!("{}.tmp", DatabaseId::now_v7()));
+    let temp_path = path.with_extension(format!(
+        "{}.tmp",
+        of_model::storage::database_resource::DatabaseId::now_v7()
+    ));
     let bytes = serde_json::to_vec(catalog)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let mut file = File::create(&temp_path)?;
@@ -391,14 +403,17 @@ fn write_catalog(path: &Path, catalog: &Catalog) -> io::Result<()> {
 mod tests {
     use std::fs;
 
-    use of_model::storage::{ResourceCatalog, ResourceIdentity, ResourceKind, StorageNamespace};
+    use of_model::storage::{
+        namespace::StorageNamespace,
+        resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
+    };
 
-    use super::DatabaseCatalog;
+    use crate::database_catalog::DatabaseCatalog;
 
     #[derive(Clone, Copy)]
     struct Scope {
         subject: &'static str,
-        application: of_model::idp::model::Id,
+        application: of_model::id::Id,
     }
 
     impl StorageNamespace for Scope {
@@ -406,7 +421,7 @@ mod tests {
             self.subject
         }
 
-        fn application_id(&self) -> of_model::idp::model::Id {
+        fn application_id(&self) -> of_model::id::Id {
             self.application
         }
     }
@@ -416,18 +431,18 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "database-catalog-{}-{}",
             std::process::id(),
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let scope = Scope {
             subject: "subject-a",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
         let other_subject = Scope {
             subject: "subject-b",
             ..scope
         };
         let other_application = Scope {
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
             ..scope
         };
         let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
@@ -517,13 +532,13 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "database-catalog-imported-tombstone-{}-{}",
             std::process::id(),
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let scope = Scope {
             subject: "subject-a",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
-        let id = of_model::idp::model::Id::now_v7();
+        let id = of_model::id::Id::now_v7();
         let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
         catalog
             .apply_tombstone(&scope, id)
@@ -557,7 +572,7 @@ mod tests {
         let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
         let scope = Scope {
             subject: "../other",
-            application: of_model::idp::model::Id::now_v7(),
+            application: of_model::id::Id::now_v7(),
         };
         assert!(catalog.list(&scope).is_err());
         fs::remove_dir_all(root).expect("test catalog is removed");

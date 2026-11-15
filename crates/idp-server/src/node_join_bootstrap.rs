@@ -1,13 +1,20 @@
 use std::{io, sync::Arc};
 
-use db::{Database, Row, SqlTranslator, Value};
-use of_model::idp::{contract::JwkPublic, model::Id};
-use idp_service::{oauth2::NodeSignerBinding, repo::PrivateKeyRepo};
+use ofdb_sql::Database;
+
+use ofdb_sql::Row;
+
+use ofdb_sql::SqlTranslator;
+
+use idp_service::{oauth2::node_signer::NodeSignerBinding, repo::private_key_repo::PrivateKeyRepo};
+use of_model::id::Id;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use ofdb_sql::Value;
 
 use super::{NodeJoinApproval, invalid, persist_exact, read_optional};
-use crate::OwnerProvisioner;
+use crate::provisioning::OwnerProvisioner;
 
-pub use device_service::node_join_owner::NodeJoinStage;
+use device_service::node_join_owner::NodeJoinStage;
 
 fn stage_file(stage: NodeJoinStage) -> &'static str {
     match stage {
@@ -138,15 +145,13 @@ impl<P: PrivateKeyRepo + Send + Sync> device_service::node_join_owner::NodeJoinO
         binding: &NodeSignerBinding,
         name: &str,
         peer: iroh::EndpointId,
-    ) -> io::Result<device_service::hosted_join::NodeJoinRequest> {
+    ) -> io::Result<of_model::node_join::NodeJoinRequest> {
         OwnerProvisioner::prepare_node_join(self, binding, name, peer)
     }
     fn record_node_join_approval(&self, approval: &NodeJoinApproval) -> io::Result<()> {
         OwnerProvisioner::record_node_join_approval(self, approval)
     }
-    fn node_join_request(
-        &self,
-    ) -> io::Result<Option<device_service::hosted_join::NodeJoinRequest>> {
+    fn node_join_request(&self) -> io::Result<Option<of_model::node_join::NodeJoinRequest>> {
         OwnerProvisioner::node_join_request(self)
     }
     fn node_join_approval(&self) -> io::Result<Option<NodeJoinApproval>> {

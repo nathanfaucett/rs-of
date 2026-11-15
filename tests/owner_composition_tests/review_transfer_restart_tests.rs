@@ -1,10 +1,10 @@
 use std::{fs, net::SocketAddr, path::Path, sync::Arc, time::Duration};
 
-use server_common::IndependentCreateIntent;
 use device_service::replica::DbDeviceRepo;
 use device_service::replica::DbSelectionPolicyRepo;
 use of_model::idp::model::Id;
 use reqwest::{Client, StatusCode};
+use server_common::IndependentCreateIntent;
 use tokio_util::sync::CancellationToken;
 
 pub(super) async fn qualify(

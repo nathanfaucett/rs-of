@@ -23,7 +23,7 @@ impl fmt::Display for DeviceState {
 
 #[cfg(test)]
 mod tests {
-    use super::DeviceState;
+    use crate::device::contract::device_state::DeviceState;
 
     #[test]
     fn serializes_as_a_stable_name() {

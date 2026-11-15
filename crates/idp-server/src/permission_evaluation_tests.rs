@@ -14,22 +14,31 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
-use of_model::idp::{
-    contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType,
-        GrantType, IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,
-        PermissionAuditIdentity, PermissionEvaluationRequest, PermissionEvaluationResponse,
-        PermissionSubject, PermissionTarget, TokenEndpointAuthMethod,
-    },
-    model::Id,
-};
-use idp_service::{oauth2::NodeSignerBinding, repo::ClientRepo};
-use of_model::contract::PrincipalType;
+use idp_service::{oauth2::node_signer::NodeSignerBinding, repo::client_repo::ClientRepo};
+use of_model::contract::principal_type::PrincipalType;
+use of_model::id::Id;
+use of_model::idp::contract::application_registration::ApplicationRegistration;
+use of_model::idp::contract::client_profile::ClientProfile;
+use of_model::idp::contract::client_registration::ClientRegistration;
+use of_model::idp::contract::client_type::ClientType;
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::contract::grant_type::GrantType;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::IdentityResource;
+use of_model::idp::contract::permission_evaluation::MANAGEMENT_PERMISSION_EVALUATE_SCOPE;
+use of_model::idp::contract::permission_evaluation::PermissionAuditIdentity;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationResponse;
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 use tower::ServiceExt;
 
 use crate::{
-    AppConfig, ManagementPermissionClient, ManagementPermissionConfig, RouterState,
+    config::{app_config::AppConfig, management_permission_config::ManagementPermissionConfig},
+    management_permission_client::ManagementPermissionClient,
     node_join_tests::{approval_fixture, user_token},
+    router::state::RouterState,
 };
 
 fn config(uri: &str) -> ManagementPermissionConfig {
@@ -94,7 +103,10 @@ async fn evaluate(
     let claims = state
         .idp
         .oauth2_service
-        .validate_access_token(bearer, management_service::MANAGEMENT_APPLICATION_URI)
+        .validate_access_token(
+            bearer,
+            management_service::service::MANAGEMENT_APPLICATION_URI,
+        )
         .await
         .expect("real authenticated evaluator token");
     assert_eq!(claims.principal_type, PrincipalType::Client);
@@ -163,7 +175,7 @@ struct TlsConfig {
     root: PathBuf,
     address: SocketAddr,
 }
-impl server_common::LocalTlsConfig for TlsConfig {
+impl setup::local_tls::LocalTlsConfig for TlsConfig {
     fn tls_directory(&self) -> PathBuf {
         self.root.clone()
     }
@@ -173,7 +185,7 @@ impl server_common::LocalTlsConfig for TlsConfig {
 }
 
 async fn applications(state: RouterState, bearer: &str) -> StatusCode {
-    let router: axum::Router = crate::openapi_router(state, "").into();
+    let router: axum::Router = crate::router::openapi_router::openapi_router(state, "").into();
     router
         .oneshot(
             axum::http::Request::builder()
@@ -202,7 +214,7 @@ async fn independent_permission_http_binds_exact_request_and_fails_closed() {
         let registration = ClientRegistration {
             application: ApplicationRegistration {
                 name: Some("Management".into()),
-                uri: management_service::MANAGEMENT_APPLICATION_URI.into(),
+                uri: management_service::service::MANAGEMENT_APPLICATION_URI.into(),
                 description: None,
             },
             client_id: Some("idp-evaluator".into()),
@@ -221,7 +233,7 @@ async fn independent_permission_http_binds_exact_request_and_fails_closed() {
             allowed_grant_types: vec![GrantType::ClientCredentials],
             response_types: vec![],
             allowed_scopes: vec![MANAGEMENT_PERMISSION_EVALUATE_SCOPE.into()],
-            allowed_audiences: vec![management_service::MANAGEMENT_APPLICATION_URI.into()],
+            allowed_audiences: vec![management_service::service::MANAGEMENT_APPLICATION_URI.into()],
             token_endpoint_auth_method: TokenEndpointAuthMethod::ClientSecretBasic,
             software_statement: None,
             software_id: None,
@@ -255,7 +267,7 @@ async fn independent_permission_http_binds_exact_request_and_fails_closed() {
             .await
             .expect("isolated TLS listener");
         let address = listener.local_addr().expect("TLS address");
-        let tls = server_common::LocalTls::create(&TlsConfig {
+        let tls = setup::local_tls::LocalTls::create(&TlsConfig {
             root: fixture.root.join("evaluator-tls"),
             address,
         })
@@ -372,9 +384,9 @@ async fn independent_permission_http_binds_exact_request_and_fails_closed() {
 #[tokio::test]
 async fn local_permission_http_remains_offline_and_does_not_fallback() {
     tokio::time::timeout(std::time::Duration::from_secs(120), async {
-        use management_service::ManagementService;
-        use management_service::replica::DbPermissionRepo;
-        use management_service::replica::DbRoleRepo;
+        use management_service::replica::permission_repo::DbPermissionRepo;
+        use management_service::replica::role_repo::DbRoleRepo;
+        use management_service::service::ManagementService;
 
         let fixture = approval_fixture().await;
         let user = user_token(&fixture, "idp-services").await;
@@ -444,7 +456,7 @@ async fn permission_runtime_rejects_remote_database_configuration_before_opening
         management_permissions: Some(config("https://management.test")),
         ..AppConfig::default()
     };
-    let error = crate::build_runtime(
+    let error = crate::runtime::build_runtime(
         &configuration,
         fixture.state.engine.clone(), None,
         fixture.state.transport_identity().expect("fixture transport").clone(),
@@ -461,7 +473,7 @@ async fn permission_runtime_rejects_remote_database_configuration_before_opening
     );
     configuration.management_data_dir = None;
     configuration.management_permissions = Some(config("http://management.test"));
-    let error = crate::build_runtime(
+    let error = crate::runtime::build_runtime(
         &configuration,
         fixture.state.engine.clone(), None,
         fixture.state.transport_identity().expect("fixture transport").clone(),
@@ -476,7 +488,7 @@ async fn permission_runtime_rejects_remote_database_configuration_before_opening
     configuration.oauth2.local_signer = Some(NodeSignerBinding {
         member_id: Id::now_v7(), key_id: Id::now_v7(), endpoint_id: "deliberately-mismatched-local-endpoint".into(),
     });
-    let error = crate::build_runtime(&configuration, fixture.state.engine.clone(), None, fixture.state.transport_identity().expect("fixture transport").clone(), fixture.server.clone(), Some(management_service::LocalPermissions::new(fixture.management.client())))
+    let error = crate::runtime::build_runtime(&configuration, fixture.state.engine.clone(), None, fixture.state.transport_identity().expect("fixture transport").clone(), fixture.server.clone(), Some(management_service::local_permissions::LocalPermissions::new(fixture.management.client())))
         .await.err().expect("local runtime validates the actual signer without validating unused remote configuration");
     assert_eq!(error.to_string(), "invalid input: local node signer is not approved and active");
     assert!(!directory.exists());

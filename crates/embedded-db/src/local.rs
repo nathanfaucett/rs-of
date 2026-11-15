@@ -1,9 +1,10 @@
 use std::{io, path::Path, sync::Arc};
 
-use db::Client;
+use btree_redb::SharedDatabase;
 use of_model::db::Database;
+use ofdb_sql::Client;
 
-pub fn open_private_storage(path: &Path) -> io::Result<db::SharedDatabase> {
+pub fn open_private_storage(path: &Path) -> io::Result<SharedDatabase> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -33,7 +34,7 @@ pub fn open_private_storage(path: &Path) -> io::Result<db::SharedDatabase> {
             ));
         }
     }
-    db::SharedDatabase::create(path)
+    SharedDatabase::create(path)
 }
 
 /// Opens a fresh local owner database, or uses the supplied query client unchanged.
@@ -64,7 +65,7 @@ pub fn local_database(
     let database = std::thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
             .build()?
-            .block_on(crate::EmbeddedDatabase::open_file(path))
+            .block_on(crate::database::EmbeddedDatabase::open_file(path))
             .map_err(io::Error::other)
     })
     .join()

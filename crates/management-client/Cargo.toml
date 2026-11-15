@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Shared HTTP contracts
-of-model = { path = "../model", default-features = false }
+of-model = { path = "../model", default-features = false, features = ["std"] }
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = [

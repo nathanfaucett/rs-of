@@ -8,13 +8,19 @@ use base64::{
     Engine,
     engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
 };
-use of_model::idp::contract::{
-    ErrorCode, ErrorResponse, ErrorResponseResult, JwkPrivate, JwkPrivateParameters, JwkPublic,
-    JwkPublicParameters, JwsAlgorithm, KeyUse,
-};
 use k256::ecdsa::{
     Signature, SigningKey, VerifyingKey,
     signature::{Signer, Verifier},
+};
+use of_model::idp::contract::{
+    error_code::ErrorCode,
+    error_response::{ErrorResponse, ErrorResponseResult},
+    jwk_private::JwkPrivate,
+    jwk_private_parameters::JwkPrivateParameters,
+    jwk_public::JwkPublic,
+    jwk_public_parameters::JwkPublicParameters,
+    jws_algorithm::JwsAlgorithm,
+    key_use::KeyUse,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -221,11 +227,16 @@ mod tests {
         Engine,
         engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
     };
-    use of_model::idp::contract::{JwkPrivate, JwkPrivateParameters, JwkPublic, JwsAlgorithm, KeyUse};
     use k256::ecdsa::SigningKey;
+    use of_model::idp::contract::{
+        jwk_private::JwkPrivate, jwk_private_parameters::JwkPrivateParameters,
+        jwk_public::JwkPublic, jws_algorithm::JwsAlgorithm, key_use::KeyUse,
+    };
     use serde::{Deserialize, Serialize};
 
-    use super::{encode_jwt, verify_jwt};
+    use crate::oauth2::encode_jwt;
+
+    use crate::oauth2::verify_jwt;
 
     #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
     struct Claims {

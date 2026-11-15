@@ -2,10 +2,12 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use of_model::idp::contract::ErrorResponse;
-pub use of_model::server::management::users::UserApplicationRoleResponse;
+use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::server::management::users::UserApplicationRoleResponse;
 
-use crate::router::{RouterState, middleware::ManagementAuthorization};
+use crate::router::{
+    middleware::management_authorization::ManagementAuthorization, state::RouterState,
+};
 
 use super::roles::require_application_permission;
 
@@ -24,7 +26,7 @@ const USERS_READ_PERMISSION: &str = "users.read";
 )]
 pub(crate) async fn list_user_roles_across_applications(
     State(state): State<RouterState>,
-    Path(user_id): Path<of_model::idp::model::Id>,
+    Path(user_id): Path<of_model::id::Id>,
     authorization: ManagementAuthorization,
 ) -> Result<Json<Vec<UserApplicationRoleResponse>>, ErrorResponse> {
     require_application_permission(

@@ -1,12 +1,13 @@
 use std::{io, sync::Arc};
 
 use axum::{Router, extract::Request, http::StatusCode, response::IntoResponse};
-use embedded_db::EmbeddedDatabase;
+use embedded_db::database::EmbeddedDatabase;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::{UnifiedConfig, tls};
+use crate::config::UnifiedConfig;
+use crate::tls;
 
 pub fn compose_router(idp: Router, management: Router, device: Router, storage: Router) -> Router {
     Router::new().fallback(move |request: Request| {
@@ -57,7 +58,7 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
             .await
             .map_err(io::Error::other)?,
     );
-    let scheme = if matches!(config.tls, crate::TlsConfig::Disabled) {
+    let scheme = if matches!(config.tls, crate::config::TlsConfig::Disabled) {
         "http"
     } else {
         "https"

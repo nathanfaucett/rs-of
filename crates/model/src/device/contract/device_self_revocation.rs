@@ -22,7 +22,7 @@ pub fn device_self_revocation_payload(public_key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::device_self_revocation_payload;
+    use crate::device::contract::device_self_revocation::device_self_revocation_payload;
 
     #[test]
     fn payload_is_length_delimited() {

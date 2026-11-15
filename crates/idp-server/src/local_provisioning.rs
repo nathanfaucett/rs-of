@@ -6,7 +6,7 @@ use std::{
     pin::Pin,
 };
 
-impl crate::AppConfig {
+impl crate::config::app_config::AppConfig {
     pub fn require_provisioned_identity(&self) -> io::Result<()> {
         require_file(&Path::new(&self.data_dir).join("idp.redb"), false)?;
         Ok(())
@@ -18,9 +18,12 @@ impl crate::AppConfig {
 pub struct LocalPasswordVerifier(String);
 
 impl LocalPasswordVerifier {
-    pub fn capture(config: &idp_service::PasswordConfig, password: &str) -> io::Result<Self> {
+    pub fn capture(
+        config: &idp_service::password_config::PasswordConfig,
+        password: &str,
+    ) -> io::Result<Self> {
         validate_password(password)?;
-        idp_service::encrypt_password(config, password)
+        idp_service::util::encrypt_password(config, password)
             .map(Self)
             .map_err(io::Error::other)
     }
@@ -243,11 +246,9 @@ mod tests {
 
     #[test]
     fn retained_identity_requires_existing_database_without_initialization() {
-        let root = std::env::temp_dir().join(format!(
-            "identity-retained-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
-        let config = crate::AppConfig {
+        let root =
+            std::env::temp_dir().join(format!("identity-retained-{}", of_model::id::Id::now_v7()));
+        let config = crate::config::app_config::AppConfig {
             data_dir: root.to_string_lossy().into_owned(),
             ..Default::default()
         };
@@ -265,7 +266,7 @@ mod tests {
 
     #[test]
     fn retained_password_verifier_rejects_different_and_malformed_credentials() {
-        let mut config = crate::AppConfig::default();
+        let mut config = crate::config::app_config::AppConfig::default();
         config.password.memory_mib = 1;
         config.password.iterations = 1;
         let verifier = LocalPasswordVerifier::capture(&config.password, "initial-password")

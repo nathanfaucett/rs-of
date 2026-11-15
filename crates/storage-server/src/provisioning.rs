@@ -3,7 +3,7 @@ use std::{
     path::{Component, Path},
 };
 
-use crate::AppConfig;
+use crate::config::app_config::AppConfig;
 
 impl AppConfig {
     /// Existing-only evidence for acknowledged initialization; never repairs runtime roots.
@@ -50,15 +50,13 @@ impl AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use crate::AppConfig;
+    use crate::config::app_config::AppConfig;
     use std::fs;
 
     #[test]
     fn acknowledged_storage_requires_existing_roots_without_repair() {
-        let root = std::env::temp_dir().join(format!(
-            "storage-retained-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("storage-retained-{}", of_model::id::Id::now_v7()));
         let config = AppConfig {
             data_dir: root.to_string_lossy().into_owned(),
             ..Default::default()

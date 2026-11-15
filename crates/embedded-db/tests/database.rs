@@ -1,5 +1,8 @@
-use embedded_db::{EmbeddedDatabase, MemoryDatabase};
+use embedded_db::database::{EmbeddedDatabase, MemoryDatabase};
 use of_model::db::Database;
+use ofdb_sql::QueryErrorKind;
+use ofdb_sql::Database as SqlDatabase;
+use ofdb_sql::{Row, Value};
 
 #[tokio::test]
 async fn memory_databases_are_migrated_isolated_and_shared_by_clones() {
@@ -20,7 +23,7 @@ async fn memory_databases_are_migrated_isolated_and_shared_by_clones() {
         .expect("read through clone");
     assert_eq!(
         result[0].rows,
-        vec![db::Row::new(vec![db::Value::Text("retained".into())])]
+        vec![Row::new(vec![Value::Text("retained".into())])]
     );
     let isolated = MemoryDatabase::new()
         .await
@@ -67,7 +70,7 @@ async fn check_owner_values(database: &dyn Database) {
             .expect("owner read");
         assert_eq!(
             result[0].rows,
-            vec![db::Row::new(vec![db::Value::Text("shared".into())])],
+            vec![Row::new(vec![Value::Text("shared".into())])],
             "{table}"
         );
     }
@@ -132,7 +135,7 @@ async fn check_owner_operations(database: &dyn Database) {
             .expect("read update");
         assert_eq!(
             result[0].rows,
-            vec![db::Row::new(vec![db::Value::Text("updated".into())])]
+            vec![Row::new(vec![Value::Text("updated".into())])]
         );
         client
             .execute_sql(&format!("UPDATE {table} SET {column} = 'shared'"), None)
@@ -160,7 +163,7 @@ async fn embedded_open_reports_directory_and_redb_errors_as_database_errors() {
         Err(error) => error,
     };
     let _: &of_model::error::DatabaseError = &error;
-    assert_eq!(error.kind, db::QueryErrorKind::Storage);
+    assert_eq!(error.kind, QueryErrorKind::Storage);
     let path = root.path().join("unified.redb");
     std::fs::write(&path, b"not a redb file").expect("write corrupt database");
     assert!(EmbeddedDatabase::open(root.path()).await.is_err());
@@ -175,7 +178,7 @@ async fn embedded_open_returns_migration_errors_without_partial_owner_tables() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let path = directory.path().join("unified.redb");
     {
-        let database = db::Database::open(&path).expect("prepare incompatible database");
+        let database = SqlDatabase::open(&path).expect("prepare incompatible database");
         database
             .client()
             .execute_sql("CREATE TABLE devices (id UUID PRIMARY KEY)", None)
@@ -183,7 +186,7 @@ async fn embedded_open_returns_migration_errors_without_partial_owner_tables() {
             .expect("incompatible Device schema");
     }
     assert!(EmbeddedDatabase::open(directory.path()).await.is_err());
-    let database = db::Database::open(&path).expect("reopen after failed migration");
+    let database = SqlDatabase::open(&path).expect("reopen after failed migration");
     database
         .client()
         .execute_sql("SELECT id FROM devices", None)
@@ -235,6 +238,6 @@ async fn embedded_open_migrates_and_retains_committed_data_after_reopen() {
         .expect("read retained user through another owner");
     assert_eq!(
         result[0].rows,
-        vec![db::Row::new(vec![db::Value::Text("retained".into())])]
+        vec![Row::new(vec![Value::Text("retained".into())])]
     );
 }

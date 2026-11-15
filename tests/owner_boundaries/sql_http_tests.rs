@@ -342,8 +342,8 @@ async fn sql_bounds_and_unknown_fields_reject_without_partial_writes() {
 
 #[tokio::test]
 async fn canonical_application_shares_clients_but_isolates_other_users_and_applications() {
-    use of_model::idp::contract::{GrantType, TokenEndpointAuthMethod};
     use idp_service::repo::ClientRepo;
+    use of_model::idp::contract::{GrantType, TokenEndpointAuthMethod};
     let f = Fixture::new(Default::default()).await;
     for (client, uri) in [
         ("second-client", "https://human.test"),
@@ -400,8 +400,8 @@ async fn canonical_application_shares_clients_but_isolates_other_users_and_appli
         .status(),
         404
     );
-    use of_model::idp::contract::EntityType;
     use idp_service::{replica::DbUserRepo, repo::UserRepo};
+    use of_model::idp::contract::EntityType;
     let user = DbUserRepo::new(f.idp.client(), Default::default())
         .create_user_with_password("other-user", "valid-password")
         .await

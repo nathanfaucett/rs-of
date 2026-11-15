@@ -3,10 +3,12 @@ use std::sync::Arc;
 use tower::ServiceExt;
 #[tokio::test]
 async fn management_serves_only_permission_contract() {
-    let identity = Arc::new(db::Database::in_memory());
-    let control =
-        Arc::new(device_service::HostedControlPlane::new("https://idp.example").expect("control"));
-    let router = crate::build_router(
+    let identity = Arc::new(ofdb_sql::Database::in_memory());
+    let control = Arc::new(
+        device_service::hosted_control_plane::HostedControlPlane::new("https://idp.example")
+            .expect("control"),
+    );
+    let router = crate::runtime::build_router(
         identity.client(),
         "https://node.example",
         "/management",

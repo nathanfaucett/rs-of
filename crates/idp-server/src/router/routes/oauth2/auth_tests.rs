@@ -5,21 +5,23 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header::LOCATION},
 };
-use of_model::idp::contract::AuthorizationRequest;
 use idp_service::{
-    PasswordConfig,
-    oauth2::{OAuth2Config, OAuth2Service},
+    oauth2::{config::OAuth2Config, service::OAuth2Service},
+    password_config::PasswordConfig,
     replica::{
-        DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
-        DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
+        application_repo::DbApplicationRepo, client_repo::DbClientRepo, key_repo::DbKeyRepo,
+        oauth2_authorization_code_repo::DbOAuth2AuthorizationCodeRepo,
+        oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo,
+        oauth2_user_consent_repo::DbOAuth2UserConsentRepo, user_repo::DbUserRepo,
     },
-    repo::{KeyService, PrivateKeyKeyringRepo},
+    repo::{key_service::KeyService, private_key_keyring_repo::PrivateKeyKeyringRepo},
 };
+use of_model::idp::contract::authorization_request::AuthorizationRequest;
 use reqwest::Url;
 use tower::ServiceExt;
 
 fn router() -> Router {
-    let database = Arc::new(db::Database::in_memory());
+    let database = Arc::new(ofdb_sql::Database::in_memory());
     let engine = database.client();
     let keys = Arc::new(KeyService::new(
         DbKeyRepo::new(engine.clone()),
@@ -39,13 +41,13 @@ fn router() -> Router {
         keys,
         OAuth2Config::default(),
     );
-    let state = crate::RouterState::new_oauth(
+    let state = crate::router::state::RouterState::new_oauth(
         "https://ui.test/prefix/",
         "https://idp.test/idp",
         engine,
         Arc::new(service),
     );
-    crate::openapi_router(state, "/idp").into()
+    crate::router::openapi_router::openapi_router(state, "/idp").into()
 }
 
 fn onboarding_url() -> Url {

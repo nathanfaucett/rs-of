@@ -1,24 +1,25 @@
 use std::{io, sync::Arc};
 
-use crate::security_candidates::SyncCandidateView;
-use db::{Database, Value};
 use idp_service::{
-    replica::LocalIdentity,
+    replica::local_identity::LocalIdentity,
     security_sync::{PUBLIC_IDENTITY_POLICY_TABLES, public_security_tables},
 };
-use management_service::LocalPermissions;
-use of_model::idp::{
-    contract::{
-        IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
-        PermissionTarget,
-    },
-    model::Id,
-};
+use management_service::local_permissions::LocalPermissions;
+use of_model::id::Id;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::IdentityResource;
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use of_model::idp::contract::permission_evaluation::PermissionSubject;
+use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use ofdb_sql::Database;
+use ofdb_sql::Value;
+use ofdb_sql::SyncCandidateView;
+use ofdb_sql::SyncTableView as CandidateTable;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DeviceRepo,
-    replica::DbDeviceRepo,
+    device_repo::DeviceRepo,
+    replica::device_repo::DbDeviceRepo,
     security_candidates::{self, JoinCandidate, PeerBinding},
     security_sync::{PUBLIC_DEVICE_TABLES, public_device_columns},
 };
@@ -165,7 +166,7 @@ impl SecurityHistory {
             .join("; ");
         let results = database
             .client()
-            .translate_and_execute(&query, &db::SqlTranslator)
+            .translate_and_execute(&query, &ofdb_sql::SqlTranslator)
             .await
             .map_err(io::Error::other)?;
         if results.len() != tables.len() {
@@ -276,20 +277,23 @@ mod tests {
     use std::sync::Arc;
 
     use super::{SecurityContext, SecurityHistory, SecuritySync};
-    use crate::security_candidates::{CandidateTable, SyncCandidateView};
-    use db::{Database, Value};
     use management_service::{
-        ManagementService,
-        replica::{DbPermissionRepo, DbRoleRepo},
+        replica::{permission_repo::DbPermissionRepo, role_repo::DbRoleRepo},
+        service::ManagementService,
     };
-    use of_model::idp::{contract::IdentityAction, model::Id};
+    use of_model::id::Id;
+    use of_model::idp::contract::permission_evaluation::IdentityAction;
+    use ofdb_sql::Database;
+    use ofdb_sql::Value;
+    use ofdb_sql::SyncCandidateView;
+    use ofdb_sql::SyncTableView;
 
     const INSTALLATION: &str = "https://installation.example";
 
     async fn sql(database: &Database, query: &str) {
         database
             .client()
-            .translate_and_execute(query, &db::SqlTranslator)
+            .translate_and_execute(query, &ofdb_sql::SqlTranslator)
             .await
             .expect("fixture SQL");
     }
@@ -309,7 +313,9 @@ mod tests {
             .await
             .expect("identity schema");
         let devices = Database::in_memory();
-        crate::replica::up(&devices).await.expect("Device schema");
+        crate::replica::schema::up(&devices)
+            .await
+            .expect("Device schema");
         for history in [SecurityHistory::Idp, SecurityHistory::IdentityPolicy] {
             history
                 .validate_schema(&idp)
@@ -399,7 +405,7 @@ mod tests {
     #[test]
     fn candidate_validation_rejects_unreviewed_tables_in_every_history() {
         let view = SyncCandidateView {
-            direction: ofdb_sql::history::SyncValidationDirection::Incoming,
+            direction: ofdb_sql::SyncValidationDirection::Incoming,
             candidates: Vec::new(),
             tables: vec![CandidateTable {
                 name: "local_device_enrollments".into(),
@@ -427,7 +433,9 @@ mod tests {
             .await
             .expect("identity schema");
         let devices = Arc::new(Database::in_memory());
-        crate::replica::up(&devices).await.expect("Device schema");
+        crate::replica::schema::up(&devices)
+            .await
+            .expect("Device schema");
         let actor = Id::now_v7();
         let member = Id::now_v7();
         let endpoint = iroh::SecretKey::generate().public().to_string();

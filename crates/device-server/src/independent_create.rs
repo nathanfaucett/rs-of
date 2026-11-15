@@ -1,25 +1,29 @@
 use std::{io, path::Path, sync::Arc, time::Instant};
 
-use setup::{
-    IndependentCreateCommand, IndependentCreateControl, IndependentCreateIntent,
-    IndependentOwnerPublic, IndependentSetupHost,
-};
-use device_service::DeviceIdentity;
-use device_service::DeviceRepo;
-use device_service::HostedControlPlane;
-use device_service::replica::DbDeviceRepo;
-use device_service::replica::DbSelectionPolicyRepo;
-use of_model::idp::model::Id;
+use device_service::device_identity::DeviceIdentity;
+use device_service::device_repo::DeviceRepo;
+use device_service::hosted_control_plane::HostedControlPlane;
+use device_service::replica::device_repo::DbDeviceRepo;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
 use idp_service::setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret};
-use management_service::INITIAL_ADMINISTRATOR_ACTIONS;
+use management_service::service::INITIAL_ADMINISTRATOR_ACTIONS;
+use of_model::id::Id;
 use serde::{Deserialize, Serialize};
+use setup::{
+    independent_create::{IndependentCreateCommand, IndependentCreateControl},
+    independent_operation::{IndependentCreateIntent, IndependentOwnerPublic},
+    independent_setup::IndependentSetupHost,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{AppConfig, IndependentDeviceRuntime, database_client::DeviceStore};
+use crate::{
+    config::app_config::AppConfig, database_client::DeviceStore,
+    independent_join::IndependentDeviceRuntime,
+};
 
 #[path = "independent_join_worker.rs"]
-mod join;
+pub mod join;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,7 +46,7 @@ struct Record {
     endpoint_attempted: bool,
     endpoint: Option<String>,
     domain_attempted: bool,
-    source: Option<server_common::IndependentPeer>,
+    source: Option<setup::independent_peer::IndependentPeer>,
     approval: Option<device_service::independent_join::IndependentJoinApproval>,
     #[serde(default)]
     imported: bool,
@@ -182,7 +186,9 @@ pub async fn run_owner_setup(
     control: IndependentCreateControl,
     mut commands: mpsc::Receiver<IndependentCreateCommand>,
     shutdown: CancellationToken,
-    serving: Option<tokio::sync::watch::Sender<Option<(db::Client, Arc<HostedControlPlane>)>>>,
+    serving: Option<
+        tokio::sync::watch::Sender<Option<(ofdb_sql::Client, Arc<HostedControlPlane>)>>,
+    >,
 ) -> io::Result<()> {
     let mut engine = None;
     let mut identity = None;
@@ -429,7 +435,7 @@ async fn build(
     serving.idp_api_base = intent.idp.clone();
     serving.api_public_uri = intent.device.clone();
     serving.storage_api_base = intent.storage.clone();
-    crate::build_independent_device(
+    crate::independent_join::build_independent_device(
         &serving,
         engine.client,
         identity_client(config, control, intent).await?,
@@ -567,14 +573,16 @@ async fn provision(
         .zip(INITIAL_ADMINISTRATOR_ACTIONS)
         .collect::<Vec<_>>();
     let identity_client = identity_client(config, control, &command.intent).await?;
-    management_service::ManagementService::new(
-        management_service::replica::DbPermissionRepo::new(identity_client.clone()),
-        management_service::replica::DbRoleRepo::new(identity_client),
+    management_service::service::ManagementService::new(
+        management_service::replica::permission_repo::DbPermissionRepo::new(
+            identity_client.clone(),
+        ),
+        management_service::replica::role_repo::DbRoleRepo::new(identity_client),
     )
     .provision_initial_administrator(user, seed.role, &permissions)
     .await
     .map_err(io::Error::other)?;
-    crate::provision_initial_device(
+    crate::provisioning::provision_initial_device(
         opened.client.clone(),
         record.device,
         user,
@@ -620,9 +628,9 @@ async fn identity_client(
     config: &AppConfig,
     control: &IndependentCreateControl,
     intent: &IndependentCreateIntent,
-) -> io::Result<db::Client> {
+) -> io::Result<ofdb_sql::Client> {
     if config.identity_database.is_some() || config.identity_database_path.is_some() {
-        return crate::identity_client(config).await;
+        return crate::database_client::identity_client(config).await;
     }
     let shutdown = control.shutdown_token();
     let idp = control.wait_peer(intent, "idp", &shutdown).await?;
@@ -631,7 +639,7 @@ async fn identity_client(
     {
         let operation = async {
             loop {
-                if let Ok(client) = db::Client::connect_unix(path).await {
+                if let Ok(client) = ofdb_sql::Client::connect_unix(path).await {
                     let client = client.with_deadline(std::time::Duration::from_secs(10));
                     of_model::idp::replica::validate_identity(&client)
                         .await

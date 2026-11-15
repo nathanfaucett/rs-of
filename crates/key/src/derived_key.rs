@@ -10,7 +10,8 @@ use bip32::{ChildNumber, DerivationPath, Prefix, XPrv};
 use k256::ecdsa::VerifyingKey as ECDSAVerifyingKey;
 use zeroize::Zeroizing;
 
-use crate::{KeyError, KeyResult};
+use crate::error::KeyError;
+use crate::error::KeyResult;
 
 #[derive(Debug, Clone)]
 pub struct DerivedKey {

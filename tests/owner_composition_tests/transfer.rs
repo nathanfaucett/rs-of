@@ -288,7 +288,8 @@ async fn independent_transfer_https_child() {
             "storage-service",
         )
         .expect("existing scoped Storage relationship");
-        let http = server_common::LocalTls::verification_client().expect("native-root HTTPS client");
+        let http =
+            server_common::LocalTls::verification_client().expect("native-root HTTPS client");
         let cleanup_url = format!("{management_base}/replication/owner-cleanup");
         let selection_url = format!("{management_base}/replication/devices/{local}/selections");
         assert_eq!(

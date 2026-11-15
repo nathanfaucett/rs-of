@@ -1,34 +1,37 @@
 use std::io;
 
-use idp_service::repo::{ClientRepo, KeyRepo, UserRepo};
+use idp_service::repo::{client_repo::ClientRepo, key_repo::KeyRepo, user_repo::UserRepo};
 use management_service::{
-    INITIAL_ADMINISTRATOR_ACTIONS, ManagementService,
-    replica::{DbPermissionRepo, DbRoleRepo},
+    replica::{permission_repo::DbPermissionRepo, role_repo::DbRoleRepo},
+    service::{INITIAL_ADMINISTRATOR_ACTIONS, ManagementService},
 };
-use of_model::idp::{
-    contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, EntityType,
-        GrantType, IdentityAction, ResponseType, TokenEndpointAuthMethod,
-    },
-    model::Id,
-};
+use of_model::id::Id;
+use of_model::idp::contract::application_registration::ApplicationRegistration;
+use of_model::idp::contract::client_profile::ClientProfile;
+use of_model::idp::contract::client_registration::ClientRegistration;
+use of_model::idp::contract::client_type::ClientType;
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::contract::grant_type::GrantType;
+use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::response_type::ResponseType;
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
 pub async fn signer(
-    client: db::Client,
-    storage: &db::SharedDatabase,
+    client: ofdb_sql::Client,
+    storage: &btree_redb::SharedDatabase,
     namespace: &str,
     issuer: &str,
-) -> io::Result<idp_service::oauth2::NodeSignerBinding> {
+) -> io::Result<idp_service::oauth2::node_signer::NodeSignerBinding> {
     use idp_service::{
-        replica::{DbKeyRepo, DbReplicaSignerRepo},
-        repo::{KeyService, PrivateKeyKeyringRepo},
+        replica::{key_repo::DbKeyRepo, replica_signer_repo::DbReplicaSignerRepo},
+        repo::{key_service::KeyService, private_key_keyring_repo::PrivateKeyKeyringRepo},
     };
-    use of_model::idp::contract::{IdpSignerRecord, ReplicaMembership};
+    use of_model::idp::contract::idp_signer::{IdpSignerRecord, ReplicaMembership};
     use sha2::{Digest, Sha256};
     let member_id = Id::new_v5(&Id::NAMESPACE_URL, namespace.as_bytes());
-    let binding = idp_service::oauth2::NodeSignerBinding {
+    let binding = idp_service::oauth2::node_signer::NodeSignerBinding {
         member_id,
         key_id: Id::new_v5(&member_id, b"local-signer"),
         endpoint_id: iroh::SecretKey::from_bytes(&Sha256::digest(namespace.as_bytes()).into())
@@ -118,7 +121,7 @@ pub async fn seed(state: &RouterState, origin: &str) -> io::Result<()> {
         state.api_base_uri.clone(),
         state.api_base_uri.trim_end_matches("/idp").to_owned() + "/device",
         state.api_base_uri.trim_end_matches("/idp").to_owned() + "/storage",
-        management_service::MANAGEMENT_APPLICATION_URI.into(),
+        management_service::service::MANAGEMENT_APPLICATION_URI.into(),
         "storage:databases".into(),
         "storage:filesystems".into(),
         "storage:sync".into(),

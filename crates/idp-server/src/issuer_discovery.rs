@@ -23,7 +23,7 @@ pub async fn discover_with_preset(
     cancellation: &tokio_util::sync::CancellationToken,
     preset: impl presets::Preset,
 ) -> io::Result<String> {
-    device_service::hosted_join::NodeJoinRequest::validate_trusted_peer(peer)?;
+    of_model::node_join::NodeJoinRequest::validate_trusted_peer(peer)?;
     let peer_id: EndpointId = peer.parse().map_err(io::Error::other)?;
     let allowed = EndpointIdStore::default();
     allowed.replace([peer_id]);

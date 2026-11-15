@@ -15,11 +15,15 @@ postgres = ["db/postgres"]
 
 [dependencies]
 # Internal
+btree-redb = { package = "ofdb-btree-redb", path = "../../../ofdb/crates/btree-redb", default-features = false }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
     "replica",
 ] }
 of-model = { path = "../model", default-features = false, features = [
     "replica",
+] }
+ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
+    "sql",
 ] }
 
 # Async

@@ -2,9 +2,11 @@
 
 use std::{fs, sync::Arc};
 
-use db::Database;
-use device_service::replica::{DbSelectionPolicyRepo, SelectionPolicy, up};
-use of_model::idp::model::Id;
+use device_service::replica::schema::up;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use of_model::device::selection_policy::SelectionPolicy;
+use of_model::id::Id;
+use ofdb_sql::Database;
 
 #[tokio::test]
 async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restricted() {
@@ -20,7 +22,7 @@ async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restri
     {
         let engine = Arc::new(Database::open(&path).expect("Management owner"));
         up(&engine).await.expect("Management schema");
-        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{next}', 'transfer', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &db::SqlTranslator).await.expect("current Management binding");
+        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{next}', 'transfer', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &ofdb_sql::SqlTranslator).await.expect("current Management binding");
         let policies = DbSelectionPolicyRepo::new(engine.clone().client());
         policies
             .set_prevalidated(SelectionPolicy {
@@ -44,7 +46,7 @@ async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restri
             .await
             .expect("cleanup obligation")
             .expect("durable cleanup ID");
-        engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{third}' WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("owner changes during Storage cleanup");
+        engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{third}' WHERE id = CAST('{device}' AS UUID)"), &ofdb_sql::SqlTranslator).await.expect("owner changes during Storage cleanup");
         assert!(
             !policies
                 .complete_owner_cleanup_bound(device, &old, &next, &endpoint, cleanup_id)
@@ -119,7 +121,7 @@ async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restri
         let engine = Arc::new(Database::open(&path).expect("owner-cycle reopen"));
         let policies = DbSelectionPolicyRepo::new(engine.clone().client());
         for owner in [&old, &third] {
-            engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{owner}' WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("later owner cycle");
+            engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{owner}' WHERE id = CAST('{device}' AS UUID)"), &ofdb_sql::SqlTranslator).await.expect("later owner cycle");
             assert!(
                 !policies
                     .reconcile_owner_prevalidated(device, owner)
@@ -174,7 +176,7 @@ async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
     {
         let engine = Arc::new(Database::open(&path).expect("Management owner"));
         up(&engine).await.expect("schema");
-        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{next}', 'cycle', '{endpoint}', '', 1, 1, 1, 1)"), &db::SqlTranslator).await.expect("current endpoint");
+        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{next}', 'cycle', '{endpoint}', '', 1, 1, 1, 1)"), &ofdb_sql::SqlTranslator).await.expect("current endpoint");
         let policies = DbSelectionPolicyRepo::new(engine.clone().client());
         policies
             .set_prevalidated(SelectionPolicy {
@@ -204,7 +206,7 @@ async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
                 &format!(
                     "UPDATE devices SET owner_subject = '{old}' WHERE id = CAST('{device}' AS UUID)"
                 ),
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("original owner returns before cleanup");
@@ -257,7 +259,7 @@ async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
                 .expect("no restored selection")
                 .is_empty()
         );
-        engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{next}' WHERE id = CAST('{device}' AS UUID)"), &db::SqlTranslator).await.expect("separate transfer");
+        engine.client().translate_and_execute(&format!("UPDATE devices SET owner_subject = '{next}' WHERE id = CAST('{device}' AS UUID)"), &ofdb_sql::SqlTranslator).await.expect("separate transfer");
         assert!(
             !policies
                 .reconcile_owner_prevalidated(device, &next)
@@ -276,7 +278,7 @@ async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
                 &format!(
                     "UPDATE devices SET owner_subject = '{old}' WHERE id = CAST('{device}' AS UUID)"
                 ),
-                &db::SqlTranslator,
+                &ofdb_sql::SqlTranslator,
             )
             .await
             .expect("return again");

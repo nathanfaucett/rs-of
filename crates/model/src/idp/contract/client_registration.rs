@@ -8,9 +8,13 @@ use alloc::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::idp::contract::ApplicationRegistration;
+use crate::idp::contract::application_registration::ApplicationRegistration;
 
-use super::{ClientProfile, ClientType, GrantType, ResponseType, TokenEndpointAuthMethod};
+use crate::idp::contract::client_profile::ClientProfile;
+use crate::idp::contract::client_type::ClientType;
+use crate::idp::contract::grant_type::GrantType;
+use crate::idp::contract::response_type::ResponseType;
+use crate::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

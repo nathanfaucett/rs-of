@@ -1,1 +1,1 @@
-pub use db::QueryError as DatabaseError;
+pub use ofdb_sql::QueryError as DatabaseError;

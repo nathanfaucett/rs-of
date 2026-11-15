@@ -3,9 +3,12 @@ use alloc::format;
 
 use serde::{Deserialize, Deserializer, Serializer, de::Error};
 
-use crate::idp::contract::{
-    ClientProfile, ClientType, CodeChallengeMethod, EntityType, Sex, TokenEndpointAuthMethod,
-};
+use crate::idp::contract::client_profile::ClientProfile;
+use crate::idp::contract::client_type::ClientType;
+use crate::idp::contract::code_challenge_method::CodeChallengeMethod;
+use crate::idp::contract::entity_type::EntityType;
+use crate::idp::contract::sex::Sex;
+use crate::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
 pub mod client_type {
     use super::*;

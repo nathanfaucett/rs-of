@@ -1,15 +1,14 @@
 use alloc::string::String;
 // Generated from the canonical allOf/oneOf composition.
-use crate::http::device as models;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct JwkPublic {
     #[serde(flatten)]
-    pub parameters: models::JwkPublicParameters,
+    pub parameters: crate::http::device::jwk_public_parameters::JwkPublicParameters,
     #[serde(rename = "alg")]
-    pub alg: models::JwsAlgorithm,
+    pub alg: crate::http::device::jws_algorithm::JwsAlgorithm,
     #[serde(rename = "kid")]
     pub kid: String,
     #[serde(rename = "use")]
-    pub r#use: models::KeyUse,
+    pub r#use: crate::http::device::key_use::KeyUse,
 }

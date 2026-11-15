@@ -1,19 +1,19 @@
 use std::sync::Arc;
 
 use axum::Router;
-use db::Client;
-use device_service::DeviceEndpointIdentity;
-use device_service::HostedControlPlane;
-use device_service::replica::DbDeviceRepo;
-use device_service::replica::DbSelectionPolicyRepo;
-use device_service::replica::OwnerPolicyObservation;
-use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
-use of_model::contract::SelectedResource;
-use of_model::idp::model::Id;
+use device_service::hosted_control_plane::HostedControlPlane;
+use device_service::replica::device_repo::DbDeviceRepo;
+use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use management_service::replica::permission_repo::DbPermissionRepo;
+use management_service::replica::role_repo::DbRoleRepo;
+use management_service::service::ManagementService;
+use of_model::contract::replication::SelectedResource;
+use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
+use of_model::device::selection_policy::OwnerPolicyObservation;
+use of_model::id::Id;
+use ofdb_sql::Client;
 
-use crate::{RouterState, router::openapi_router};
+use crate::router::{openapi_router::openapi_router, state::RouterState};
 
 pub(crate) async fn replication_policy_from_repo(
     policies: &DbSelectionPolicyRepo,
@@ -68,7 +68,7 @@ pub async fn build_local_router(
     db: Option<Arc<dyn of_model::db::Database>>,
     http_client: Option<reqwest::Client>,
 ) -> std::io::Result<Router> {
-    let client = embedded_db::local_client(data_dir, "device", db)?;
+    let client = embedded_db::local::local_client(data_dir, "device", db)?;
     let storage_base = format!("{}/storage", idp_base.trim_end_matches("/idp"));
     let control = HostedControlPlane::new_with_services(idp_base, &storage_base, idp_base)
         .and_then(|control| {
@@ -100,8 +100,8 @@ pub async fn build_router(
     prefix: &str,
     storage_audience: &str,
     control_plane: Arc<HostedControlPlane>,
-    node_joins: Option<Arc<crate::NodeJoinSource>>,
-) -> Result<Router, db::QueryError> {
+    node_joins: Option<Arc<crate::node_join_source::NodeJoinSource>>,
+) -> Result<Router, ofdb_sql::QueryError> {
     let control_plane = Arc::new(
         control_plane
             .as_ref()
@@ -129,13 +129,13 @@ pub async fn build_router(
 #[cfg(test)]
 mod tests {
     use super::replication_policy_from_repo;
-    use db::Database;
-    use device_service::DeviceEndpointIdentity;
-    use device_service::replica::DbSelectionPolicyRepo;
-    use device_service::replica::SelectionPolicy;
-    use device_service::replica::up;
-    use of_model::contract::SelectedResource;
-    use of_model::idp::model::Id;
+    use device_service::replica::schema::up;
+    use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+    use of_model::contract::replication::SelectedResource;
+    use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
+    use of_model::device::selection_policy::SelectionPolicy;
+    use of_model::id::Id;
+    use ofdb_sql::Database;
     use std::{fs, sync::Arc};
 
     async fn replication_policy(
@@ -186,7 +186,7 @@ mod tests {
                 .await
                 .expect("coherent ready observation");
             assert!(
-                matches!(observation, device_service::replica::OwnerPolicyObservation::Ready { policy, resources } if policy.admin_allowed && resources.is_empty())
+                matches!(observation, of_model::device::selection_policy::OwnerPolicyObservation::Ready { policy, resources } if policy.admin_allowed && resources.is_empty())
             );
             let forged = DeviceEndpointIdentity {
                 owner_subject: Id::now_v7().to_string(),

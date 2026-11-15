@@ -116,11 +116,14 @@ mod tests {
 
     use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
     use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-    use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
+    use storage_service::{
+        database_runtime::DatabaseRuntime, scoped_file_system::ScopedFileSystemRuntime,
+    };
 
     use super::*;
     use crate::{
-        LocalReplicationAuthorizer, database_protocol::DatabaseProtocolHandler,
+        database_protocol::DatabaseProtocolHandler,
+        local_replication_authorizer::LocalReplicationAuthorizer,
         storage_protocol::StorageProtocolHandler,
     };
 
@@ -167,7 +170,7 @@ mod tests {
         });
         let root = std::env::temp_dir().join(format!(
             "storage-active-shutdown-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let databases = Arc::new(DatabaseRuntime::new(root.join("databases")).expect("open DB"));
         let file_systems = Arc::new(

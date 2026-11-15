@@ -263,7 +263,7 @@ impl PublicSecurityTable {
         if uuid {
             return value
                 .as_str()
-                .and_then(|text| of_model::idp::model::Id::parse_str(text).ok())
+                .and_then(|text| of_model::id::Id::parse_str(text).ok())
                 .is_some_and(|id| {
                     let installation_scope = column == "application_id"
                         && matches!(
@@ -297,17 +297,17 @@ impl PublicSecurityTable {
     /// Check disclosure safety of an assignment or schema default, not complete-row validity.
     #[cfg(feature = "replica")]
     #[must_use]
-    pub fn permits_historical_value(self, column: &str, value: &db::Value) -> bool {
+    pub fn permits_historical_value(self, column: &str, value: &ofdb_sql::Value) -> bool {
         if !self.columns().contains(&column) {
             return false;
         }
         let value = match value {
-            db::Value::Null => return true,
-            db::Value::Text(text) => serde_json::Value::String(text.clone()),
-            db::Value::Uuid(id) => {
+            ofdb_sql::Value::Null => return true,
+            ofdb_sql::Value::Text(text) => serde_json::Value::String(text.clone()),
+            ofdb_sql::Value::Uuid(id) => {
                 serde_json::Value::String(alloc::string::ToString::to_string(id))
             }
-            db::Value::Integer(value) => serde_json::Value::Number((*value).into()),
+            ofdb_sql::Value::Integer(value) => serde_json::Value::Number((*value).into()),
             _ => return false,
         };
         self.permits_value(column, &value)
@@ -343,7 +343,7 @@ fn permits_public_jwk(text: &str) -> bool {
     public
         .keys()
         .all(|field| ["kid", "use", "alg", "kty", "crv", "x", "y"].contains(&field.as_str()))
-        && serde_json::from_str::<of_model::idp::contract::JwkPublic>(text)
+        && serde_json::from_str::<of_model::idp::contract::jwk_public::JwkPublic>(text)
             .ok()
             .is_some_and(|jwk| crate::oauth2::verifing_key_from_jwt(&jwk).is_ok())
 }
@@ -392,17 +392,19 @@ mod tests {
     #[test]
     fn historical_consent_client_id_is_public_oauth_text_not_internal_uuid() {
         assert!(
-            PublicSecurityTable::Consents
-                .permits_historical_value("client_id", &db::Value::Text("human-client".into()))
+            PublicSecurityTable::Consents.permits_historical_value(
+                "client_id",
+                &ofdb_sql::Value::Text("human-client".into())
+            )
         );
         for table in [
             PublicSecurityTable::AuthorizationCodes,
             PublicSecurityTable::RefreshTokens,
         ] {
-            assert!(
-                !table
-                    .permits_historical_value("client_id", &db::Value::Text("human-client".into()))
-            );
+            assert!(!table.permits_historical_value(
+                "client_id",
+                &ofdb_sql::Value::Text("human-client".into())
+            ));
         }
     }
 
@@ -412,16 +414,17 @@ mod tests {
         let public = serde_json::json!({"kid": "node-key", "use": "sig", "alg": "ES256K", "kty": "Ec", "crv": "secp256k1",
             "x": "eb5mfvncu6xVoGKVzocLBwKb/NstzijZWfKBWxb4F5g", "y": "SDradyajxGVdpPv8DhEIqP0XtEimhVQZnEfQj/sQ1Lg"});
         for table in [PublicSecurityTable::Keys, PublicSecurityTable::Signers] {
-            assert!(
-                table.permits_historical_value("public_jwk", &db::Value::Text(public.to_string()))
-            );
+            assert!(table.permits_historical_value(
+                "public_jwk",
+                &ofdb_sql::Value::Text(public.to_string())
+            ));
             for field in ["d", "private_key", "secret", "p", "q", "k"] {
                 let mut private = public.clone();
                 private[field] = serde_json::json!("confidential-material");
                 assert!(
                     !table.permits_historical_value(
                         "public_jwk",
-                        &db::Value::Text(private.to_string())
+                        &ofdb_sql::Value::Text(private.to_string())
                     ),
                     "private field {field}"
                 );
@@ -430,35 +433,41 @@ mod tests {
             invalid_point["x"] = serde_json::json!("not-a-point");
             assert!(!table.permits_historical_value(
                 "public_jwk",
-                &db::Value::Text(invalid_point.to_string())
+                &ofdb_sql::Value::Text(invalid_point.to_string())
             ));
             assert!(!table.permits_historical_value(
                 "public_jwk",
-                &db::Value::Text(alloc::format!("{} trailing-secret", public))
+                &ofdb_sql::Value::Text(alloc::format!("{} trailing-secret", public))
             ));
             assert!(!table.permits_historical_value(
                 "public_jwk",
-                &db::Value::Text(alloc::format!(
+                &ofdb_sql::Value::Text(alloc::format!(
                     "{{\"x\":\"hidden-secret\",{}",
                     &public.to_string()[1..]
                 ))
             ));
-            assert!(!table.permits_historical_value("private_key", &db::Value::Null));
+            assert!(!table.permits_historical_value("private_key", &ofdb_sql::Value::Null));
         }
-        assert!(PublicSecurityTable::Keys.permits_historical_value("public_jwk", &db::Value::Null));
         assert!(
-            PublicSecurityTable::Signers.permits_historical_value("public_jwk", &db::Value::Null),
+            PublicSecurityTable::Keys
+                .permits_historical_value("public_jwk", &ofdb_sql::Value::Null)
+        );
+        assert!(
+            PublicSecurityTable::Signers
+                .permits_historical_value("public_jwk", &ofdb_sql::Value::Null),
             "a null schema default carries no confidential value; complete record validation still rejects it"
         );
         for (table, column) in [
             (PublicSecurityTable::AuthorizationCodes, "code_hash"),
             (PublicSecurityTable::RefreshTokens, "token_hash"),
         ] {
-            assert!(table.permits_historical_value(column, &db::Value::Text("a".repeat(64))));
+            assert!(table.permits_historical_value(column, &ofdb_sql::Value::Text("a".repeat(64))));
             for raw in ["raw-bearer", &"a".repeat(63), &"g".repeat(64)] {
-                assert!(!table.permits_historical_value(column, &db::Value::Text(raw.into())));
+                assert!(
+                    !table.permits_historical_value(column, &ofdb_sql::Value::Text(raw.into()))
+                );
             }
-            assert!(!table.permits_historical_value(column, &db::Value::Integer(1)));
+            assert!(!table.permits_historical_value(column, &ofdb_sql::Value::Integer(1)));
         }
     }
 
@@ -505,18 +514,18 @@ mod tests {
     #[cfg(feature = "replica")]
     #[tokio::test]
     async fn projections_match_query_columns_and_validate_record_types() {
-        let engine = alloc::sync::Arc::new(db::Database::in_memory());
+        let engine = alloc::sync::Arc::new(ofdb_sql::Database::in_memory());
         of_model::idp::replica::up(&engine)
             .await
             .expect("initialize actual schema");
-        let public = serde_json::json!({"kid": of_model::idp::model::Id::now_v7(), "use": "sig", "alg": "ES256K", "kty": "Ec", "crv": "secp256k1",
+        let public = serde_json::json!({"kid": of_model::id::Id::now_v7(), "use": "sig", "alg": "ES256K", "kty": "Ec", "crv": "secp256k1",
             "x": "eb5mfvncu6xVoGKVzocLBwKb/NstzijZWfKBWxb4F5g", "y": "SDradyajxGVdpPv8DhEIqP0XtEimhVQZnEfQj/sQ1Lg"});
         for table in public_security_tables() {
             let schema = engine
                 .client()
                 .translate_and_execute(
                     &format!("SELECT * FROM {}", table.name()),
-                    &db::SqlTranslator,
+                    &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .expect("public table query")
@@ -542,7 +551,7 @@ mod tests {
                             .contains(&column.name.as_str())
                         && !(column.name == "client_id" && table == PublicSecurityTable::Clients)
                 {
-                    serde_json::json!(of_model::idp::model::Id::now_v7())
+                    serde_json::json!(of_model::id::Id::now_v7())
                 } else if column.name.ends_with("_at")
                     || [
                         "active",

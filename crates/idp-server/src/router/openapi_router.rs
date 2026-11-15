@@ -1,63 +1,119 @@
-use server_common::SecurityAddon;
-use utoipa::OpenApi;
-use utoipa::openapi::{OpenApi as OpenApiDocument, Paths, RefOr, Schema, Server};
-use utoipa_axum::{router::OpenApiRouter, routes};
+use server_common::openapi::SecurityAddon;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::OpenApi;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::OpenApi as OpenApiDocument;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::Paths;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::RefOr;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::Schema;
+use crate::router::openapi_router::openapi_router::openapi_router::utoipa::openapi::Server;
+use crate::router::openapi_router::openapi_router::utoipa_axum::crate::router::openapi_router::openapi_router::router::OpenApiRouter;
+use crate::router::openapi_router::openapi_router::utoipa_axum::routes;
 
-use crate::RouterState;
+use crate::router::state::RouterState;
 
-use super::openapi::{__path_openapi_json, openapi_json};
-use super::routes::active_user::{__path_active_user, active_user};
-use super::routes::administration::{
-    __path_create_application, __path_create_user, __path_delete_application, __path_delete_user,
-    __path_get_application, __path_get_user, __path_list_applications, __path_list_client_keys,
-    __path_list_consents, __path_list_users, __path_reset_password, __path_revoke_client_keys,
-    __path_revoke_consent, __path_rotate_client_key, __path_set_user_blocked, __path_set_user_mfa,
-    __path_update_application, __path_update_user, create_application, create_user,
-    delete_application, delete_user, get_application, get_user, list_applications,
-    list_client_keys, list_consents, list_users, reset_password, revoke_client_keys,
-    revoke_consent, rotate_client_key, set_user_blocked, set_user_mfa, update_application,
-    update_user,
-};
-use super::routes::health::{__path_health, health};
-use super::routes::replica_signers::{
-    __path_enroll_replica_signer, __path_revoke_replica_signer, __path_rotate_replica_signer,
-    enroll_replica_signer, revoke_replica_signer, rotate_replica_signer,
-};
+use crate::router::openapi_router::openapi_router::openapi_router::openapi::__path_openapi_json;
 
-use super::routes::oauth2::approvals::{
-    __path_approve_for_user, __path_is_allowed_for_user, approve_for_user, is_allowed_for_user,
-};
-use super::routes::oauth2::auth::{
-    __path_authorize_json, __path_authorize_query, authorize_json, authorize_query,
-};
-use super::routes::oauth2::client::{__path_get_client, get_client};
-use super::routes::oauth2::device::{
-    __path_device_auth, __path_device_verify, device_auth, device_verify,
-};
-use super::routes::oauth2::introspect::{__path_introspect, introspect};
-use super::routes::oauth2::register::{
-    __path_delete_register, __path_get_register, __path_put_register, __path_register,
-    __path_rotate_client_secret, delete_register, get_register, put_register, register,
-    rotate_client_secret,
-};
-use super::routes::oauth2::revoke::{__path_revoke, revoke};
-use super::routes::oauth2::sessions::{__path_sessions_logout, sessions_logout};
-use super::routes::oauth2::token::{__path_token, token};
+use crate::router::openapi_router::openapi_router::openapi_router::openapi::openapi_json;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::active_user::__path_active_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::active_user::active_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_create_application;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_create_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_delete_application;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_delete_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_get_application;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_get_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_list_applications;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_list_client_keys;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_list_consents;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_list_users;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_reset_password;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_revoke_client_keys;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_revoke_consent;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_rotate_client_key;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_set_user_blocked;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_set_user_mfa;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_update_application;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::__path_update_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::create_application;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::create_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::delete_application;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::delete_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::get_application;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::get_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::list_applications;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::list_client_keys;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::list_consents;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::list_users;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::reset_password;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::revoke_client_keys;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::revoke_consent;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::rotate_client_key;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::set_user_blocked;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::set_user_mfa;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::update_application;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::administration::update_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::health::__path_health;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::health::health;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replica_signers::__path_enroll_replica_signer;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replica_signers::__path_revoke_replica_signer;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replica_signers::__path_rotate_replica_signer;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replica_signers::enroll_replica_signer;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replica_signers::revoke_replica_signer;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::replica_signers::rotate_replica_signer;
 
-use super::routes::userinfo::{__path_userinfo, userinfo};
-use super::routes::version::{__path_version, version};
-use super::routes::well_known::{
-    __path_jwks, __path_openid_configuration, jwks, openid_configuration,
-};
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::approvals::__path_approve_for_user;
+
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::approvals::__path_is_allowed_for_user;
+
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::approvals::approve_for_user;
+
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::approvals::is_allowed_for_user;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::auth::__path_authorize_json;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::auth::__path_authorize_query;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::auth::authorize_json;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::auth::authorize_query;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::client::__path_get_client;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::client::get_client;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::device::__path_device_auth;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::device::__path_device_verify;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::device::device_auth;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::device::device_verify;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::introspect::__path_introspect;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::introspect::introspect;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::register::__path_delete_register;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::register::__path_get_register;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::register::__path_put_register;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::register::__path_register;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::register::__path_rotate_client_secret;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::register::delete_register;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::register::get_register;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::register::put_register;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::register::register;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::register::rotate_client_secret;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::revoke::__path_revoke;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::revoke::revoke;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::sessions::__path_sessions_logout;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::sessions::sessions_logout;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::token::__path_token;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::oauth2::token::token;
+
+use crate::router::openapi_router::openapi_router::openapi_router::routes::userinfo::__path_userinfo;
+
+use crate::router::openapi_router::openapi_router::openapi_router::routes::userinfo::userinfo;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::version::__path_version;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::version::version;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::well_known::__path_jwks;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::well_known::__path_openid_configuration;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::well_known::jwks;
+use crate::router::openapi_router::openapi_router::openapi_router::routes::well_known::openid_configuration;
 
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        super::routes::oauth2::introspect::introspect,
-        super::routes::replica_signers::enroll_replica_signer,
-        super::routes::replica_signers::rotate_replica_signer,
-        super::routes::replica_signers::revoke_replica_signer,
-        super::routes::active_user::active_user,
+        crate::router::openapi_router::openapi_router::routes::oauth2::introspect::introspect,
+        crate::router::openapi_router::openapi_router::routes::replica_signers::enroll_replica_signer,
+        crate::router::openapi_router::openapi_router::routes::replica_signers::rotate_replica_signer,
+        crate::router::openapi_router::openapi_router::routes::replica_signers::revoke_replica_signer,
+        crate::router::openapi_router::openapi_router::routes::active_user::active_user,
     ),
     info(title = "OAuth Server", version = env!("CARGO_PKG_VERSION")),
     modifiers(&SecurityAddon)
@@ -65,7 +121,7 @@ use super::routes::well_known::{
 pub(crate) struct ApiDoc;
 
 fn routes() -> OpenApiRouter<RouterState> {
-    OpenApiRouter::new()
+    crate::router::openapi_router::openapi_router::OpenApiRouter::new()
         .routes(routes!(health))
         .routes(routes!(active_user))
         .routes(routes!(enroll_replica_signer))
@@ -114,14 +170,22 @@ fn routes() -> OpenApiRouter<RouterState> {
 /// Builds the complete production API document without provisioning runtime state.
 pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
     let prefix = if prefix == "/" { "" } else { prefix };
-    let spec_router = OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes());
+    let spec_router = crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+        crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+    )
+    .merge(routes());
 
     let mut openapi_spec = spec_router.get_openapi().clone();
 
-    openapi_spec.servers = Some(vec![Server::new(format!("{}{}", api_base_uri, prefix))]);
+    openapi_spec.servers = Some(vec![
+        crate::router::openapi_router::openapi_router::Server::new(format!(
+            "{}{}",
+            api_base_uri, prefix
+        )),
+    ]);
 
     if !prefix.is_empty() {
-        let mut paths = Paths::new();
+        let mut paths = crate::router::openapi_router::openapi_router::Paths::new();
 
         for (path, item) in openapi_spec.paths.paths {
             let path = path.strip_prefix(prefix).unwrap_or(&path).to_owned();
@@ -146,16 +210,25 @@ pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
 }
 
 pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter {
-    let openapi_spec = server_common::canonical_openapi("idp", &router_state.api_base_uri, prefix);
+    let openapi_spec = server_common::canonical_openapi::canonical_openapi(
+        "idp",
+        &router_state.api_base_uri,
+        prefix,
+    );
     let prefix = if prefix == "/" { "" } else { prefix };
     let runtime_router = if prefix.is_empty() {
-        OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes().with_state(router_state))
+        crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+            crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+        )
+        .merge(routes().with_state(router_state))
     } else {
-        OpenApiRouter::with_openapi(ApiDoc::openapi())
-            .nest(prefix, routes().with_state(router_state))
+        crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+            crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+        )
+        .nest(prefix, routes().with_state(router_state))
     };
 
-    let openapi_json_routes = OpenApiRouter::new()
+    let openapi_json_routes = crate::router::openapi_router::openapi_router::OpenApiRouter::new()
         .routes(routes!(openapi_json))
         .with_state(openapi_spec);
 
@@ -168,22 +241,33 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use crate::router::openapi_router::openapi_router::openapi_router::std::collections::BTreeSet;
 
-    use utoipa::OpenApi;
-    use utoipa_axum::router::OpenApiRouter;
+    use crate::router::openapi_router::openapi_router::openapi_router::utoipa::OpenApi;
+    use crate::router::openapi_router::openapi_router::openapi_router::utoipa_axum::router::OpenApiRouter;
 
-    use super::{ApiDoc, routes};
+    use crate::router::openapi_router::openapi_router::ApiDoc;
+
+    use crate::router::openapi_router::openapi_router::routes;
 
     #[test]
     fn openapi_document_preserves_full_registered_contract_without_state() {
-        let registered = OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes());
-        let expected = serde_json::to_value(registered.get_openapi())
-            .expect("serialize registered IdP document");
+        let registered =
+            crate::router::openapi_router::openapi_router::OpenApiRouter::with_openapi(
+                crate::router::openapi_router::openapi_router::ApiDoc::openapi(),
+            )
+            .merge(routes());
+        let expected = crate::router::openapi_router::openapi_router::serde_json::to_value(
+            registered.get_openapi(),
+        )
+        .expect("serialize registered IdP document");
 
         for prefix in ["", "/", "/idp", "/custom/idp"] {
-            let document = crate::openapi_document("https://idp.example", prefix);
-            let document = serde_json::to_value(document).expect("serialize IdP document");
+            let document =
+                crate::router::openapi_router::openapi_document("https://idp.example", prefix);
+            let document =
+                crate::router::openapi_router::openapi_router::serde_json::to_value(document)
+                    .expect("serialize IdP document");
             let paths = document["paths"].as_object().expect("complete IdP paths");
             let operations = paths
                 .values()
@@ -196,7 +280,9 @@ mod tests {
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");
             assert_eq!(
-                serde_json::Value::Object(registered_paths),
+                crate::router::openapi_router::openapi_router::serde_json::Value::Object(
+                    registered_paths
+                ),
                 expected["paths"]
             );
             assert_eq!(document["components"], expected["components"]);
@@ -222,7 +308,8 @@ mod tests {
 
     #[test]
     fn excludes_obsolete_bootstrap_and_keeps_idp_signer_routes() {
-        let document = crate::openapi_document("https://idp.example", "/idp");
+        let document =
+            crate::router::openapi_router::openapi_document("https://idp.example", "/idp");
         assert!(!document.paths.paths.contains_key("/setup/bootstrap"));
         let enrollment = document
             .paths

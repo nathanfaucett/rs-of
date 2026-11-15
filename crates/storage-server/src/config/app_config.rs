@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use server_common::{Environment, ServerConfig};
+use of_model::config::environment::Environment;
+
+use of_model::config::server::ServerConfig;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

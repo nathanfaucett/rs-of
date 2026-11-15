@@ -1,7 +1,8 @@
 #![cfg(feature = "postgres")]
 
-use embedded_db::NetworkDatabase;
+use embedded_db::database::NetworkDatabase;
 use of_model::db::Database;
+use ofdb_sql::{QueryErrorKind, QueryParams, Row, Uuid, Value};
 
 #[tokio::test]
 async fn requires_explicit_plaintext_connection_policy() {
@@ -15,7 +16,7 @@ async fn invalid_postgres_configuration_is_a_validation_error() {
         Ok(_) => panic!("reject invalid PostgreSQL configuration"),
         Err(error) => error,
     };
-    assert_eq!(error.kind, db::QueryErrorKind::Validation);
+    assert_eq!(error.kind, QueryErrorKind::Validation);
 }
 
 #[tokio::test]
@@ -41,8 +42,8 @@ async fn postgres_shared_owner_transactions() {
         .expect("connect and migrate real PostgreSQL");
     let shared: &dyn Database = &database;
     assert!(shared.local_storage().is_none());
-    let id = db::Uuid::now_v7();
-    let params = db::QueryParams::Positional(vec![db::Value::Uuid(id)]);
+    let id = Uuid::now_v7();
+    let params = QueryParams::Positional(vec![Value::Uuid(id)]);
     let mut transaction = shared.txn().await.expect("begin shared transaction");
     transaction
         .execute_sql(
@@ -101,7 +102,7 @@ async fn postgres_shared_owner_transactions() {
             .expect("read persisted owner")[0]
             .rows[0]
             .values[0],
-        db::Value::Uuid(id)
+        Value::Uuid(id)
     );
     for (client, table, column) in [
         (reopened.idp().client(), "users", "handle"),
@@ -124,7 +125,7 @@ async fn postgres_shared_owner_transactions() {
             .expect("update each owner through its view");
         assert_eq!(
             result[0].rows,
-            vec![db::Row::new(vec![db::Value::Text("updated".into())])]
+            vec![Row::new(vec![Value::Text("updated".into())])]
         );
         let result = client
             .execute_sql(
@@ -135,14 +136,14 @@ async fn postgres_shared_owner_transactions() {
             .expect("read each owner update");
         assert_eq!(
             result[0].rows,
-            vec![db::Row::new(vec![db::Value::Text("updated".into())])]
+            vec![Row::new(vec![Value::Text("updated".into())])]
         );
     }
     assert!(
         shared
             .device()
             .client()
-            .row_conflicts("devices", &db::Row::new(vec![db::Value::Uuid(id)]))
+            .row_conflicts("devices", &Row::new(vec![Value::Uuid(id)]))
             .await
             .expect("PostgreSQL has no CRDT conflicts")
             .is_empty()

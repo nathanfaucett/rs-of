@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use server_common::ServerConfig;
+use of_model::config::server::ServerConfig;
 
 use serde::Deserialize;
 
@@ -12,7 +12,7 @@ use serde::Deserialize;
 pub struct AppConfig {
     pub server: ServerConfig,
     pub data_dir: String,
-    pub identity_database: Option<db::RemoteDatabaseConfig>,
+    pub identity_database: Option<db::remote::RemoteDatabaseConfig>,
     pub identity_socket: Option<PathBuf>,
     pub identity_socket_deadline_ms: u64,
 

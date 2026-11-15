@@ -1,4 +1,4 @@
-pub use of_model::server::storage::storage_socket::StorageQuery;
+use of_model::server::storage::storage_socket::StorageQuery;
 use std::{future::Future, sync::Arc};
 
 use axum::{
@@ -11,7 +11,13 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use of_model::storage::{StorageErrorCode, StorageRequest, StorageResponse, StorageSession};
+use of_model::storage::{
+    contract::{
+        request::StorageRequest,
+        response::{StorageErrorCode, StorageResponse},
+    },
+    session::StorageSession,
+};
 
 pub struct StorageSocketAccess<S> {
     pub subject: String,
@@ -191,8 +197,12 @@ async fn send_response(socket: &mut WebSocket, response: StorageResponse) -> Res
 
 #[cfg(test)]
 mod tests {
-    use super::{StorageSocketAccess, allows};
-    use of_model::storage::{StorageRequest, StorageResponse, StorageSession};
+    use super::allows;
+    use crate::router::storage_socket::StorageSocketAccess;
+    use of_model::storage::{
+        contract::{request::StorageRequest, response::StorageResponse},
+        session::StorageSession,
+    };
 
     struct Session;
 

@@ -1,19 +1,21 @@
 use of_model::idp::contract::{
-    AuthorizationCodeGrantRequest, ErrorCode, ErrorResponse, ErrorResponseResult,
+    authorization_code_grant_request::AuthorizationCodeGrantRequest,
+    error_code::ErrorCode,
+    error_response::{ErrorResponse, ErrorResponseResult},
 };
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct PrincipalBoundClaims {
     #[serde(flatten)]
-    pub standard_claims: of_model::contract::StandardClaims,
-    pub principal_key_id: of_model::idp::model::Id,
+    pub standard_claims: of_model::contract::standard_claims::StandardClaims,
+    pub principal_key_id: of_model::id::Id,
 }
 
 #[derive(serde::Serialize)]
 pub(super) struct RefreshClaims {
     #[serde(flatten)]
-    pub standard_claims: of_model::contract::StandardClaims,
-    pub principal_key_id: of_model::idp::model::Id,
+    pub standard_claims: of_model::contract::standard_claims::StandardClaims,
+    pub principal_key_id: of_model::id::Id,
     pub jti: alloc::string::String,
 }
 

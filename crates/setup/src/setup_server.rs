@@ -239,7 +239,7 @@ mod tests {
         let root = tempfile::tempdir().expect("isolated root");
         let reserved = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve");
         let address = reserved.local_addr().expect("address");
-        let host = crate::IndependentSetupHost::prepare(
+        let host = crate::independent_setup::IndependentSetupHost::prepare(
             "storage",
             &root.path().join("storage"),
             address,
@@ -299,7 +299,7 @@ mod tests {
             .expect("address")
             .parse()
             .expect("address");
-        let host = crate::IndependentSetupHost::prepare(
+        let host = crate::independent_setup::IndependentSetupHost::prepare(
             "storage",
             &root.join("storage"),
             address,
@@ -323,7 +323,7 @@ mod tests {
             }}
         })).route("/storage/databases", get(|| async { StatusCode::UNAUTHORIZED }));
         let cancellation = CancellationToken::new();
-        let client = crate::LocalTls::verification_client().expect("native roots");
+        let client = crate::local_tls::LocalTls::verification_client().expect("native roots");
         let server = tokio::spawn(super::serve_setup_inner(
             host,
             tls,

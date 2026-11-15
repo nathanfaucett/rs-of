@@ -10,6 +10,7 @@ use axum::Router;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
+use crate::canonical_openapi::canonical_openapi_router;
 use crate::{
     LocalTls, LocalTlsConfig, SetupAdmission, SetupScope, serve_setup,
     setup_files::{
@@ -18,7 +19,6 @@ use crate::{
     },
     setup_origin, setup_router,
 };
-use crate::canonical_openapi_router;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

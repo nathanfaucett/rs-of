@@ -13,22 +13,22 @@ use file_system::{
     CatalogEntry, FileSystem, FileSystemCatalog, FileSystemId, FileSystemResource, Residency,
 };
 
-use of_model::storage::StorageNamespace;
-use of_model::storage::{ResourceCatalog, ResourceIdentity, ResourceKind};
+use of_model::storage::namespace::StorageNamespace;
+use of_model::storage::resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind};
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::Mutex;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, Serialize)]
 struct StorageNamespaceId {
     user_sub: String,
-    application_id: of_model::idp::model::Id,
+    application_id: of_model::id::Id,
 }
 
 impl StorageNamespace for StorageNamespaceId {
     fn user_sub(&self) -> &str {
         &self.user_sub
     }
-    fn application_id(&self) -> of_model::idp::model::Id {
+    fn application_id(&self) -> of_model::id::Id {
         self.application_id
     }
 }
@@ -36,7 +36,7 @@ impl StorageNamespace for StorageNamespaceId {
 pub(crate) type ContentReader = Arc<
     dyn Fn(
             String,
-            of_model::idp::model::Id,
+            of_model::id::Id,
             FileSystemId,
             String,
         ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + Send>>
@@ -112,7 +112,7 @@ where
     fn namespace_name(id: &StorageNamespaceId) -> String {
         format!(
             "storage-filesystem:{}",
-            of_model::idp::model::Id::new_v5(&id.application_id, id.user_sub.as_bytes())
+            of_model::id::Id::new_v5(&id.application_id, id.user_sub.as_bytes())
         )
     }
 
@@ -122,7 +122,7 @@ where
 
     pub fn set_content_reader<F, U>(&self, reader: F) -> Result<(), String>
     where
-        F: Fn(String, of_model::idp::model::Id, FileSystemId, String) -> U + Send + Sync + 'static,
+        F: Fn(String, of_model::id::Id, FileSystemId, String) -> U + Send + Sync + 'static,
         U: Future<Output = Result<Vec<u8>, String>> + Send + 'static,
     {
         *self
@@ -291,7 +291,7 @@ where
     pub async fn remove_owner_copies(&self, owner: &str) -> Result<(), String> {
         storage_namespace_id(&crate::local_copy::CopyScope(
             owner.to_owned(),
-            of_model::idp::model::Id::now_v7(),
+            of_model::id::Id::now_v7(),
         ))?;
         let catalogs = {
             let _resources = self.resources.lock().await;
@@ -363,7 +363,7 @@ where
 
     pub async fn remove_unselected_projected_resources(
         &self,
-        selected: &[(String, of_model::idp::model::Id, FileSystemId)],
+        selected: &[(String, of_model::id::Id, FileSystemId)],
     ) -> Result<(), String> {
         let tracked = selected
             .iter()
@@ -738,7 +738,7 @@ impl StorageNamespace for NamespaceRef<'_> {
         self.0.user_sub()
     }
 
-    fn application_id(&self) -> of_model::idp::model::Id {
+    fn application_id(&self) -> of_model::id::Id {
         self.0.application_id()
     }
 }
@@ -772,13 +772,18 @@ fn storage_namespace_id(scope: &impl StorageNamespace) -> Result<StorageNamespac
 mod tests {
     use std::{env, fs};
 
-    use of_model::storage::{ResourceCatalog, ResourceIdentity, ResourceKind, StorageNamespace};
+    use of_model::storage::{
+        namespace::StorageNamespace,
+        resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
+    };
 
-    use super::{ScopedFileSystemRuntime, storage_namespace_id};
+    use crate::scoped_file_system::ScopedFileSystemRuntime;
+
+    use super::storage_namespace_id;
 
     struct Namespace {
         user_sub: &'static str,
-        application_id: of_model::idp::model::Id,
+        application_id: of_model::id::Id,
     }
 
     impl StorageNamespace for Namespace {
@@ -786,7 +791,7 @@ mod tests {
             self.user_sub
         }
 
-        fn application_id(&self) -> of_model::idp::model::Id {
+        fn application_id(&self) -> of_model::id::Id {
             self.application_id
         }
     }
@@ -796,10 +801,10 @@ mod tests {
         use of_model::db::Database as ModelDatabase;
         let namespace = Namespace {
             user_sub: "local-user",
-            application_id: of_model::idp::model::Id::now_v7(),
+            application_id: of_model::id::Id::now_v7(),
         };
         let root = env::temp_dir().join(format!("shared-filesystem-{}", namespace.application_id));
-        let database = embedded_db::EmbeddedDatabase::open(&root)
+        let database = embedded_db::database::EmbeddedDatabase::open(&root)
             .await
             .expect("host");
         let runtime =
@@ -832,7 +837,7 @@ mod tests {
         drop(filesystem);
         drop(runtime);
         drop(database);
-        let database = embedded_db::EmbeddedDatabase::open(&root)
+        let database = embedded_db::database::EmbeddedDatabase::open(&root)
             .await
             .expect("restart host");
         let runtime =
@@ -881,7 +886,7 @@ mod tests {
         drop(filesystem);
         drop(runtime);
         drop(database);
-        let database = embedded_db::EmbeddedDatabase::open(&root)
+        let database = embedded_db::database::EmbeddedDatabase::open(&root)
             .await
             .expect("restart retired host");
         let runtime =
@@ -924,7 +929,7 @@ mod tests {
         drop(fresh);
         drop(runtime);
         drop(database);
-        let database = embedded_db::EmbeddedDatabase::open(&root)
+        let database = embedded_db::database::EmbeddedDatabase::open(&root)
             .await
             .expect("restart reselected host");
         let runtime =
@@ -966,7 +971,7 @@ mod tests {
         ] {
             let namespace = Namespace {
                 user_sub: "user",
-                application_id: of_model::idp::model::Id::now_v7(),
+                application_id: of_model::id::Id::now_v7(),
             };
             let root =
                 env::temp_dir().join(format!("residency-order-{}", namespace.application_id));
@@ -1044,7 +1049,7 @@ mod tests {
 
         let namespace = Namespace {
             user_sub: "user",
-            application_id: of_model::idp::model::Id::now_v7(),
+            application_id: of_model::id::Id::now_v7(),
         };
         let root = env::temp_dir().join(format!("residency-recheck-{}", namespace.application_id));
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime opens");
@@ -1111,7 +1116,7 @@ mod tests {
         for user_sub in [".", ".."] {
             let namespace = Namespace {
                 user_sub,
-                application_id: of_model::idp::model::Id::now_v7(),
+                application_id: of_model::id::Id::now_v7(),
             };
             assert!(storage_namespace_id(&namespace).is_err());
         }
@@ -1126,7 +1131,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let namespace = Namespace {
             user_sub: "user",
-            application_id: of_model::idp::model::Id::now_v7(),
+            application_id: of_model::id::Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime opens");
         let selected_id = file_system::FileSystemId::new();
@@ -1174,7 +1179,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let namespace = Namespace {
             user_sub: "user",
-            application_id: of_model::idp::model::Id::now_v7(),
+            application_id: of_model::id::Id::now_v7(),
         };
         let resource_id = file_system::FileSystemId::new();
         {
@@ -1211,13 +1216,10 @@ mod tests {
 
     #[tokio::test]
     async fn retirement_reselection_preserves_id_but_revokes_old_scoped_session() {
-        let root = env::temp_dir().join(format!(
-            "fs-generation-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
+        let root = env::temp_dir().join(format!("fs-generation-{}", of_model::id::Id::now_v7()));
         let scope = Namespace {
             user_sub: "owner",
-            application_id: of_model::idp::model::Id::now_v7(),
+            application_id: of_model::id::Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime");
         let resource = runtime
@@ -1229,7 +1231,7 @@ mod tests {
             .await
             .expect("old owner");
         old.write("old.txt", b"old copy").await.expect("Full write");
-        let session = crate::ScopedStorageService::open_resource(
+        let session = crate::service::ScopedStorageService::open_resource(
             &runtime,
             Namespace {
                 user_sub: "owner",
@@ -1271,10 +1273,12 @@ mod tests {
             .expect("fresh owner writes");
         assert!(
             session
-                .execute(of_model::storage::StorageRequest::Write {
-                    path: "resurrect.txt".into(),
-                    content: b"no".to_vec()
-                })
+                .execute(
+                    of_model::storage::contract::request::StorageRequest::Write {
+                        path: "resurrect.txt".into(),
+                        content: b"no".to_vec()
+                    }
+                )
                 .await
                 .is_err(),
             "old scoped session cannot follow new generation"
@@ -1318,11 +1322,11 @@ mod tests {
     async fn cached_generation_rejects_reopen_after_tombstone(learned: bool) {
         let root = env::temp_dir().join(format!(
             "fs-generation-tombstone-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let scope = Namespace {
             user_sub: "owner",
-            application_id: of_model::idp::model::Id::now_v7(),
+            application_id: of_model::id::Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime opens");
         let resource = runtime
@@ -1346,7 +1350,7 @@ mod tests {
             .remove_unselected_projected_resources(&selected)
             .await
             .expect("later trusted reselection");
-        let session = crate::ScopedStorageService::open_resource(
+        let session = crate::service::ScopedStorageService::open_resource(
             &runtime,
             Namespace {
                 user_sub: "owner",
@@ -1357,10 +1361,12 @@ mod tests {
         .await
         .expect("fresh scoped generation opens");
         session
-            .execute(of_model::storage::StorageRequest::Write {
-                path: "new.txt".into(),
-                content: b"new copy".to_vec(),
-            })
+            .execute(
+                of_model::storage::contract::request::StorageRequest::Write {
+                    path: "new.txt".into(),
+                    content: b"new copy".to_vec(),
+                },
+            )
             .await
             .expect("fresh scoped generation writes");
         assert_eq!(
@@ -1381,7 +1387,7 @@ mod tests {
             );
         }
         assert!(
-            crate::ScopedStorageService::open_resource(
+            crate::service::ScopedStorageService::open_resource(
                 &runtime,
                 Namespace {
                     user_sub: "owner",
@@ -1434,13 +1440,11 @@ mod tests {
 
     #[tokio::test]
     async fn passthrough_domain_read_requires_peer_even_when_old_content_is_cached() {
-        let root = env::temp_dir().join(format!(
-            "cached-passthrough-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
+        let root =
+            env::temp_dir().join(format!("cached-passthrough-{}", of_model::id::Id::now_v7()));
         let scope = Namespace {
             user_sub: "owner",
-            application_id: of_model::idp::model::Id::now_v7(),
+            application_id: of_model::id::Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime");
         let resource = runtime
@@ -1459,12 +1463,13 @@ mod tests {
             .set_resource_residency(&scope, resource.id, file_system::Residency::Passthrough)
             .await
             .expect("local choice");
-        let session = crate::ScopedStorageService::open_resource(&runtime, scope, resource.id)
-            .await
-            .expect("scoped session");
+        let session =
+            crate::service::ScopedStorageService::open_resource(&runtime, scope, resource.id)
+                .await
+                .expect("scoped session");
         assert!(
             session
-                .execute(of_model::storage::StorageRequest::Read {
+                .execute(of_model::storage::contract::request::StorageRequest::Read {
                     path: "cached.txt".into()
                 })
                 .await
@@ -1481,11 +1486,11 @@ mod tests {
     async fn passthrough_resource_stays_read_only_after_offline_restart() {
         let root = env::temp_dir().join(format!(
             "passthrough-resource-{}",
-            of_model::idp::model::Id::now_v7()
+            of_model::id::Id::now_v7()
         ));
         let scope = Namespace {
             user_sub: "owner",
-            application_id: of_model::idp::model::Id::now_v7(),
+            application_id: of_model::id::Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime");
         let resource = runtime
@@ -1535,7 +1540,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let namespace = Namespace {
             user_sub: "user",
-            application_id: of_model::idp::model::Id::now_v7(),
+            application_id: of_model::id::Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime opens");
         let projected_id = file_system::FileSystemId::new();
@@ -1558,7 +1563,7 @@ mod tests {
             .join("filesystems")
             .join(projected_id.as_uuid().to_string());
         assert!(projected_root.exists());
-        let session = crate::ScopedStorageService::open_resource(
+        let session = crate::service::ScopedStorageService::open_resource(
             &runtime,
             Namespace {
                 user_sub: namespace.user_sub,
@@ -1575,10 +1580,12 @@ mod tests {
             .expect("public owner drains and retires active handles");
         assert!(
             session
-                .execute(of_model::storage::StorageRequest::Write {
-                    path: "denied.txt".into(),
-                    content: b"deny".to_vec()
-                })
+                .execute(
+                    of_model::storage::contract::request::StorageRequest::Write {
+                        path: "denied.txt".into(),
+                        content: b"deny".to_vec()
+                    }
+                )
                 .await
                 .is_err(),
             "issued domain session must not continue after retirement"
@@ -1658,7 +1665,7 @@ mod tests {
     async fn manages_multiple_resources_per_namespace_and_blocks_deleted_opens() {
         let root = env::temp_dir().join(format!("storage-resource-runtime-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let application_id = of_model::idp::model::Id::now_v7();
+        let application_id = of_model::id::Id::now_v7();
         let namespace = Namespace {
             user_sub: "user",
             application_id,

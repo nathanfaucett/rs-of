@@ -1,11 +1,11 @@
-use std::{io, sync::Arc};
+use std::{io, sync::{Arc}};
 
-use iroh::{EndpointAddr, EndpointId, address_lookup::MemoryLookup};
+use iroh::{EndpointAddr, EndpointId, address_lookup::{MemoryLookup}};
 use iroh_chain::Server;
-use of_model::contract::SelectedResource;
+use of_model::contract::replication::SelectedResource;
 use serde::{Deserialize, Serialize};
 
-use crate::{IdpClient, LocalReplicationAuthorizer, authorize_storage_token};
+use crate::{idp_client::{IdpClient}, local_replication_authorizer::{LocalReplicationAuthorizer}, router::{storage_authorization::{authorize_storage_token}}};
 use crate::database_protocol::{DatabaseProtocolHandler, FrameAuthorizer, descriptor};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

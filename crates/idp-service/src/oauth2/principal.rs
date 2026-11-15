@@ -1,9 +1,14 @@
 use core::any::Any;
 
-use of_model::idp::{
-    contract::EntityType,
-    model::{Client, Id, Key, User},
-};
+use of_model::idp::contract::entity_type::EntityType;
+
+use of_model::idp::model::client::Client;
+
+use of_model::id::Id;
+
+use of_model::idp::model::key::Key;
+
+use of_model::idp::model::user::User;
 
 pub trait Principal: Send + Sync {
     fn get_entity_id(&self) -> Id;

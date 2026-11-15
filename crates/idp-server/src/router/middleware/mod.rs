@@ -1,5 +1,5 @@
-mod authorization;
-mod identity_administration;
+pub mod authorization;
+pub mod identity_administration;
 pub(crate) use identity_administration::{
     infrastructure_client, require_identity_permission, require_identity_permission_for_audience,
 };

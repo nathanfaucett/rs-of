@@ -26,7 +26,7 @@ pub mod sync_selection;
 
 pub mod server;
 
-mod id;
+pub mod id;
 pub use id::Id;
 
 pub mod node_join;

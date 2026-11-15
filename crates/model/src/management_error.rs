@@ -4,7 +4,8 @@ use alloc::{
 };
 use core::error::Error;
 
-use crate::idp::contract::{ErrorCode, ErrorResponse};
+use crate::idp::contract::error_code::ErrorCode;
+use crate::idp::contract::error_response::ErrorResponse;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManagementError {

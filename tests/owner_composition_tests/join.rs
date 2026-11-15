@@ -8,18 +8,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use server_common::{IndependentCreateIntent, LocalTls};
 use device_service::DeviceIdentity;
 use device_service::HostedControlPlane;
-use of_model::idp::{
-    contract::{ClientProfile, ClientType, GrantType, IdentityAction, TokenEndpointAuthMethod},
-    model::Id,
-};
 use idp_service::{
     oauth2::NodeSignerBinding,
     setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret},
 };
+use of_model::idp::{
+    contract::{ClientProfile, ClientType, GrantType, IdentityAction, TokenEndpointAuthMethod},
+    model::Id,
+};
 use reqwest::{Client, StatusCode};
+use server_common::{IndependentCreateIntent, LocalTls};
 use tokio_util::sync::CancellationToken;
 
 use crate::owner_composition_tests::create::{setup, setup_code, start, wait, wait_public};
@@ -427,7 +427,8 @@ async fn source_tokens(http: &Client, source: &ExistingSource) -> (String, Strin
         .await
         .expect("ordinary existing source login");
     assert_eq!(response.status(), StatusCode::OK);
-    let token: of_model::contract::TokenResponse = response.json().await.expect("ordinary User token");
+    let token: of_model::contract::TokenResponse =
+        response.json().await.expect("ordinary User token");
     let device = http
         .post(format!("{}/oauth2/token", source.idp))
         .form(&[
@@ -472,7 +473,8 @@ async fn source_tokens(http: &Client, source: &ExistingSource) -> (String, Strin
         .await
         .expect("ordinary Storage exchange");
     assert_eq!(storage.status(), StatusCode::OK);
-    let storage: of_model::contract::TokenResponse = storage.json().await.expect("Storage User token");
+    let storage: of_model::contract::TokenResponse =
+        storage.json().await.expect("Storage User token");
     (device.access_token.0, storage.access_token.0)
 }
 async fn pending_offer(http: &Client, source: &ExistingSource, bearer: &str) -> serde_json::Value {

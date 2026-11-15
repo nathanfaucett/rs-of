@@ -1,14 +1,24 @@
-use chrono::{DateTime, Timelike, Utc};
-use db::{
-    FromRow, FromRowError, Query, QueryColumn, QueryDelete, QueryExpr, QueryExprValue, QueryFrom,
-    QueryInsert, QuerySelect, QueryUpdate, QueryUpdateAssignment, Row, Statement, Uuid, Value,
-};
-use of_model::idp::{
-    model::{Application, Id},
-    replica::{SecurityRow, SecurityTable, allows_token_issuance},
-};
-
-use crate::repo::{ApplicationRepo, RepoError, RepoResult};
+use of_model::id::Id;
+use of_model::idp::model::application::Application;
+use of_model::idp::replica::SecurityRow;
+use of_model::idp::replica::SecurityTable;
+use of_model::idp::replica::allows_token_issuance;
+use ofdb_sql::FromRow;
+use ofdb_sql::FromRowError;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryDelete;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use ofdb_sql::Uuid;
+use ofdb_sql::Value;
 
 const TABLE: &str = "applications";
 const COLUMNS: [&str; 6] = [
@@ -21,12 +31,12 @@ const COLUMNS: [&str; 6] = [
 ];
 
 pub struct DbApplicationRepo {
-    engine: db::Client,
+    engine: ofdb_sql::Client,
 }
 
 impl DbApplicationRepo {
     #[must_use]
-    pub const fn new(engine: db::Client) -> Self {
+    pub const fn new(engine: ofdb_sql::Client) -> Self {
         Self { engine }
     }
 
@@ -188,12 +198,21 @@ struct ApplicationRow {
 impl FromRow for ApplicationRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: db::decode(db::value(row, columns, "id")?, "id")?,
-            name: db::decode(db::value(row, columns, "name")?, "name")?,
-            uri: db::decode(db::value(row, columns, "uri")?, "uri")?,
-            description: db::decode(db::value(row, columns, "description")?, "description")?,
-            created_at: db::decode(db::value(row, columns, "created_at")?, "created_at")?,
-            updated_at: db::decode(db::value(row, columns, "updated_at")?, "updated_at")?,
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            name: ofdb_sql::decode(ofdb_sql::value(row, columns, "name")?, "name")?,
+            uri: ofdb_sql::decode(ofdb_sql::value(row, columns, "uri")?, "uri")?,
+            description: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "description")?,
+                "description",
+            )?,
+            created_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "created_at")?,
+                "created_at",
+            )?,
+            updated_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "updated_at")?,
+                "updated_at",
+            )?,
         })
     }
 }
@@ -244,7 +263,7 @@ fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
         .ok_or_else(|| RepoError::InvalidInput("invalid application timestamp".into()))
 }
 
-fn db_error(error: db::QueryError) -> RepoError {
+fn db_error(error: ofdb_sql::QueryError) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 
@@ -305,7 +324,7 @@ mod tests {
 
     #[tokio::test]
     async fn creates_updates_and_deletes_uuid_applications() {
-        let engine = Arc::new(db::Database::in_memory());
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
         up(&engine).await.unwrap();
         let repo = DbApplicationRepo::new(engine.client());
 

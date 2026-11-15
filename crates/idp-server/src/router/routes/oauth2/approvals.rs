@@ -1,9 +1,11 @@
 use axum::{Json, extract::State};
 use of_model::idp::contract::{
-    ApproveForUserRequest, ErrorResponse, IsAllowedForUserRequest, IsAllowedForUserResponse,
+    approve_for_user_request::ApproveForUserRequest, error_response::ErrorResponse,
+    is_allowed_for_user_request::IsAllowedForUserRequest,
+    is_allowed_for_user_response::IsAllowedForUserResponse,
 };
 
-use crate::router::{RouterState, middleware::StandardAuthorization};
+use crate::router::{middleware::authorization::StandardAuthorization, state::RouterState};
 
 #[utoipa::path(
     post,

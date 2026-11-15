@@ -1,16 +1,20 @@
 use std::{io, path::Path, sync::Arc, time::Instant};
 
-use setup::{
-    IndependentCreateCommand, IndependentCreateControl, IndependentCreateIntent,
-    IndependentOwnerPublic, IndependentSetupHost,
-};
-use of_model::idp::model::Id;
 use idp_service::setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret};
+use of_model::id::Id;
 use serde::{Deserialize, Serialize};
+use setup::{
+    independent_create::{IndependentCreateCommand, IndependentCreateControl},
+    independent_operation::{IndependentCreateIntent, IndependentOwnerPublic},
+    independent_setup::IndependentSetupHost,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{AppConfig, DeviceClient, IdpClient, RouterState, StorageRuntime};
+use crate::{
+    config::app_config::AppConfig, device_client::DeviceClient, idp_client::IdpClient,
+    router::state::RouterState, runtime::StorageRuntime,
+};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -189,7 +193,8 @@ fn observe(
     )
     .map_err(io::Error::other)?
     .with_http_client(control.http_client());
-    let policy = crate::LocalReplicationAuthorizer::from_device_client(device);
+    let policy =
+        crate::local_replication_authorizer::LocalReplicationAuthorizer::from_device_client(device);
     control.set_readiness(move |control| {
         let (config, intent, record, expected, secrets, policy) = (
             config.clone(),
@@ -273,7 +278,7 @@ fn build(
         .ok_or_else(|| io::Error::other("retained Management endpoint missing"))?
         .parse::<iroh::EndpointId>()
         .map_err(io::Error::other)?;
-    crate::build_http_runtime(
+    crate::runtime::build_http_runtime(
         RouterState::new(&intent.storage, endpoint.to_string())
             .with_idp_client(idp)
             .with_device_client(device),

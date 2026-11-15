@@ -1,12 +1,18 @@
 use std::io;
 
-use of_model::idp::{
-    contract::{
-        ApplicationRegistration, ClientProfile, ClientRegistration, ClientType, GrantType,
-        TokenEndpointAuthMethod,
-    },
-    model::Id,
-};
+use of_model::idp::contract::application_registration::ApplicationRegistration;
+
+use of_model::idp::contract::client_profile::ClientProfile;
+
+use of_model::idp::contract::client_registration::ClientRegistration;
+
+use of_model::idp::contract::client_type::ClientType;
+
+use of_model::idp::contract::grant_type::GrantType;
+
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
+
+use of_model::id::Id;
 use serde::{Deserialize, Serialize};
 
 use crate::repo::RawKeyringRepo;

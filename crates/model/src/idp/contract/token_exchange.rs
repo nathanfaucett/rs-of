@@ -6,7 +6,7 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::contract::TokenType;
+use crate::contract::token_type::TokenType;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

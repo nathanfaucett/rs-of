@@ -1,7 +1,11 @@
-pub use of_model::server::storage::resources::{
-    CreateResourceRequest, DatabaseDetailResponse, EnsureDatabaseRequest, FileSystemDetailResponse,
-    FileSystemResourceResponse, SyncConnectRequest, SyncSessionResponse, SyncStatus,
-};
+use of_model::server::storage::resources::CreateResourceRequest;
+use of_model::server::storage::resources::DatabaseDetailResponse;
+use of_model::server::storage::resources::EnsureDatabaseRequest;
+use of_model::server::storage::resources::FileSystemDetailResponse;
+use of_model::server::storage::resources::FileSystemResourceResponse;
+use of_model::server::storage::resources::SyncConnectRequest;
+use of_model::server::storage::resources::SyncSessionResponse;
+use of_model::storage::sync::SyncStatus;
 use std::sync::Arc;
 
 use axum::{
@@ -10,25 +14,30 @@ use axum::{
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     routing::{get, post},
 };
+use file_system::resource::FileSystemId;
+use file_system::resource::FileSystemResource;
 use iroh::EndpointId;
-use of_model::idp::model::Id;
-use storage_service::{
-    DatabaseId, DatabaseResource, FileSystemId, FileSystemResource, ScopedFileSystemRuntime,
-};
+use of_model::id::Id;
+use of_model::storage::database_resource::DatabaseId;
+use of_model::storage::database_resource::DatabaseResource;
+use storage_service::scoped_file_system::ScopedFileSystemRuntime;
 
-use crate::{
-    RouterState, StorageAuthorization, authorize_storage_token, scoped_file_system_socket_router,
+use crate::router::{
+    state::RouterState,
+    storage_authorization::{
+        StorageAuthorization, authorize_storage_token, scoped_file_system_socket_router,
+    },
 };
 
 #[path = "residency.rs"]
-pub(super) mod residency;
+pub mod residency;
 #[path = "sql.rs"]
-pub(super) mod sql;
+pub mod sql;
 
 #[derive(Clone)]
 pub(super) struct ResourceState {
     pub router: RouterState,
-    pub databases: Option<Arc<storage_service::DatabaseRuntime>>,
+    pub databases: Option<Arc<storage_service::database_runtime::DatabaseRuntime>>,
     pub file_systems: Option<Arc<ScopedFileSystemRuntime<EndpointId>>>,
 }
 
@@ -38,7 +47,7 @@ struct StorageNamespace {
     application_id: Id,
 }
 
-impl of_model::storage::StorageNamespace for StorageNamespace {
+impl of_model::storage::namespace::StorageNamespace for StorageNamespace {
     fn user_sub(&self) -> &str {
         &self.user_sub
     }
@@ -94,7 +103,7 @@ pub(super) async fn ensure_database(
 
 pub fn resource_router(
     router: RouterState,
-    databases: Option<Arc<storage_service::DatabaseRuntime>>,
+    databases: Option<Arc<storage_service::database_runtime::DatabaseRuntime>>,
     file_systems: Option<Arc<ScopedFileSystemRuntime<EndpointId>>>,
 ) -> Router {
     let state = ResourceState {
@@ -155,8 +164,12 @@ async fn authorization(
     authorize_storage_token(idp_client, token)
         .await
         .map_err(|error| match error {
-            crate::StorageAuthorizationError::InvalidToken => StatusCode::UNAUTHORIZED,
-            crate::StorageAuthorizationError::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            crate::router::storage_authorization::StorageAuthorizationError::InvalidToken => {
+                StatusCode::UNAUTHORIZED
+            }
+            crate::router::storage_authorization::StorageAuthorizationError::ServiceUnavailable => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
         })
 }
 
@@ -502,24 +515,28 @@ pub(super) async fn delete_file_system(
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::Write,
-        net::TcpListener,
-        thread,
-    };
+    use std::{io::Write, net::TcpListener, thread};
 
     use axum::{
         body::Body,
         http::{Method, Request, StatusCode, header::AUTHORIZATION},
     };
     use of_model::contract::{
-        AuthorizationDetail, PrincipalType, StandardClaims, StorageAuthorizationAction,
-        StorageAuthorizationDetail, TokenType, TokenUse,
+        authorization_details::{
+            AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail,
+        },
+        principal_type::PrincipalType,
+        standard_claims::StandardClaims,
+        token_type::TokenType,
+        token_use::TokenUse,
     };
-    use of_model::idp::contract::IntrospectionResponse;
+    use of_model::idp::contract::introspection_response::IntrospectionResponse;
     use tower::ServiceExt;
 
-    use crate::{IdpClient, RouterState, resource_router};
+    use crate::{
+        idp_client::IdpClient,
+        router::{resources::resource_router, state::RouterState},
+    };
 
     fn router() -> axum::Router {
         resource_router(
@@ -805,7 +822,7 @@ pub(super) async fn sync_connect(
         resource_id: request.resource_id,
         source_device: scope.application_id.into(),
         target_device: request.target_device,
-        status: SyncStatus::Connecting,
+        status: of_model::storage::sync::SyncStatus::Connecting,
         bytes_sent: 0,
         bytes_received: 0,
     };

@@ -12,20 +12,18 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn local_runtime_accepts_shared_and_owner_databases_without_setup_or_mesh() {
     for injected in [true, false] {
-        let root = std::env::temp_dir().join(format!(
-            "storage-local-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("storage-local-{}", of_model::id::Id::now_v7()));
         let shared: Option<Arc<dyn Database>> = if injected {
             Some(Arc::new(
-                embedded_db::MemoryDatabase::new()
+                embedded_db::database::MemoryDatabase::new()
                     .await
                     .expect("shared schema"),
             ))
         } else {
             None
         };
-        let runtime = storage_server::build_local_runtime(
+        let runtime = storage_server::runtime::build_local_runtime(
             &root,
             1355,
             "http://127.0.0.1:1355/idp",

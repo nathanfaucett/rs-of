@@ -1,22 +1,20 @@
-use std::{
-    any::Any,
-    io,
-    panic::AssertUnwindSafe,
-    sync::{Arc, Mutex},
-};
+use std::{io, any::{Any}, panic::{AssertUnwindSafe}, sync::{Arc, Mutex}};
 
-use db::{Database, SqlTranslator};
+use ofdb_sql::Database;
+
+use ofdb_sql::SqlTranslator;
 use futures_util::FutureExt;
-use of_model::idp::{
-    contract::{
-        IdpSignerRecord, JwkPublic, JwkPublicParameters, JwsAlgorithm, KeyUse, ReplicaMembership,
-    },
-    model::Id,
-};
-use idp_service::replica::DbReplicaSignerRepo;
+use of_model::idp::contract::idp_signer::IdpSignerRecord;
+use of_model::idp::contract::jwk_public::JwkPublic;
+use of_model::idp::contract::jwk_public_parameters::JwkPublicParameters;
+use of_model::idp::contract::jws_algorithm::JwsAlgorithm;
+use of_model::idp::contract::key_use::KeyUse;
+use of_model::idp::contract::idp_signer::ReplicaMembership;
+use of_model::id::Id;
+use idp_service::replica::replica_signer_repo::DbReplicaSignerRepo;
 
 const INSTALLATION: &str = "https://installation.example";
-pub(super) async fn sql(database: &Database, statement: &str) -> Vec<db::QueryResult> {
+pub(super) async fn sql(database: &Database, statement: &str) -> Vec<ofdb_sql::QueryResult> {
     database
         .client()
         .translate_and_execute(statement, &SqlTranslator)
