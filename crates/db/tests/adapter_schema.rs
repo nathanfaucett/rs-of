@@ -28,7 +28,16 @@ async fn embedded_adapter_initializes_all_owner_tables() {
         .await
         .expect("embedded adapter");
     let client = adapter.client();
-    for table in ["users", "clients", "sync_selections"] {
+    for table in [
+        "users",
+        "clients",
+        "sync_selections",
+        "devices",
+        "namespaces",
+        "resources",
+        "databases",
+        "filesystems",
+    ] {
         client
             .execute_sql(&format!("SELECT * FROM {table} LIMIT 0"), None)
             .await
@@ -94,11 +103,11 @@ async fn cross_owner_transaction_commit_and_rollback() {
     .await
     .expect("insert user");
     txn.execute_sql(
-        "INSERT INTO clients (id, application_id, client_id) VALUES (CAST('00000000-0000-7000-8000-000000000002' AS UUID), CAST('00000000-0000-7000-8000-000000000003' AS UUID), 'test-client')",
+        "INSERT INTO devices (id, owner_subject) VALUES (CAST('00000000-0000-7000-8000-000000000002' AS UUID), 'owner')",
         None,
     )
     .await
-    .expect("insert client");
+    .expect("insert device");
     txn.commit().await.expect("commit cross-owner");
 
     let mut txn = client.transaction().await.expect("txn");
