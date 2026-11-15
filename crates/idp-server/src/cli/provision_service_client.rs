@@ -486,7 +486,7 @@ mod tests {
                         let credentials_path = root.join("credentials.json");
                         let engine =
                             crate::cli::provision_service_client::run::Arc::new(crate::cli::provision_service_client::run::Database::open(&database_path).expect("open test database"));
-                        of_model::idp::replica::up(&engine)
+                        of_model::idp::ofdb::up(&engine)
                             .await
                             .expect("initialize current IdP schema");
                         let applications = crate::cli::provision_service_client::run::DbApplicationRepo::new(engine.client());
@@ -622,7 +622,7 @@ mod tests {
             crate::cli::provision_service_client::run::Database::open(root.join("idp.redb"))
                 .expect("open test database"),
         );
-        of_model::idp::replica::up(&engine)
+        of_model::idp::ofdb::up(&engine)
             .await
             .expect("initialize current IdP schema");
         let applications =
@@ -698,10 +698,10 @@ mod tests {
             crate::cli::provision_service_client::run::Database::open(root.join("devices.redb"))
                 .expect("open local policy store"),
         );
-        of_model::idp::replica::up(&policy_engine)
+        of_model::idp::ofdb::up(&policy_engine)
             .await
             .expect("initialize local policy schema");
-        device_service::replica::schema::up(&policy_engine)
+        device_service::ofdb::schema::up(&policy_engine)
             .await
             .expect("initialize local device schema");
         let endpoint_id = endpoint.id().to_string();
@@ -713,7 +713,7 @@ mod tests {
         let public_jwk = key_service
             .prepare_node_signer(&local_signer)
             .expect("prepare independent local Node signer");
-        idp_service::replica::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
+        idp_service::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
             .enroll(
                 &of_model::idp::contract::idp_signer::ReplicaMembership {
                     installation_id: issuer.into(),
@@ -830,10 +830,10 @@ mod tests {
             .await
             .expect("persist live authorization code");
         let policy = management_service::service::ManagementService::new(
-            management_service::replica::permission_repo::DbPermissionRepo::new(
+            management_service::ofdb::permission_repo::DbPermissionRepo::new(
                 policy_engine.client(),
             ),
-            management_service::replica::role_repo::DbRoleRepo::new(policy_engine.client()),
+            management_service::ofdb::role_repo::DbRoleRepo::new(policy_engine.client()),
         );
         let listener =
             crate::cli::provision_service_client::run::tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -1515,7 +1515,7 @@ mod tests {
                         let engine = crate::cli::provision_service_client::run::Arc::new(
                             crate::cli::provision_service_client::run::Database::open(&database_path).expect("open test database"),
                         );
-                        of_model::idp::replica::up(&engine)
+                        of_model::idp::ofdb::up(&engine)
                             .await
                             .expect("initialize current IdP schema");
 
@@ -1681,7 +1681,7 @@ mod tests {
                         let public_jwk = key_service
                             .prepare_node_signer(&local_signer)
                             .expect("prepare local Node signer");
-                        idp_service::replica::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
+                        idp_service::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
                             .enroll(
                                 &of_model::idp::contract::idp_signer::ReplicaMembership {
                                     installation_id: "https://idp.example.test".into(),

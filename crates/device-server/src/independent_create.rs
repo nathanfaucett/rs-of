@@ -3,8 +3,8 @@ use std::{io, path::Path, sync::Arc, time::Instant};
 use device_service::device_identity::DeviceIdentity;
 use device_service::device_repo::DeviceRepo;
 use device_service::hosted_control_plane::HostedControlPlane;
-use device_service::replica::device_repo::DbDeviceRepo;
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use device_service::ofdb::device_repo::DbDeviceRepo;
+use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
 use idp_service::setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret};
 use management_service::service::INITIAL_ADMINISTRATOR_ACTIONS;
 use of_model::id::Id;
@@ -574,10 +574,10 @@ async fn provision(
         .collect::<Vec<_>>();
     let identity_client = identity_client(config, control, &command.intent).await?;
     management_service::service::ManagementService::new(
-        management_service::replica::permission_repo::DbPermissionRepo::new(
+        management_service::ofdb::permission_repo::DbPermissionRepo::new(
             identity_client.clone(),
         ),
-        management_service::replica::role_repo::DbRoleRepo::new(identity_client),
+        management_service::ofdb::role_repo::DbRoleRepo::new(identity_client),
     )
     .provision_initial_administrator(user, seed.role, &permissions)
     .await
@@ -641,7 +641,7 @@ async fn identity_client(
             loop {
                 if let Ok(client) = ofdb_sql::Client::connect_unix(path).await {
                     let client = client.with_deadline(std::time::Duration::from_secs(10));
-                    of_model::idp::replica::validate_identity(&client)
+                    of_model::idp::ofdb::validate_identity(&client)
                         .await
                         .map_err(io::Error::other)?;
                     return Ok(client);

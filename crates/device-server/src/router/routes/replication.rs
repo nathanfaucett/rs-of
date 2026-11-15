@@ -230,11 +230,11 @@ mod tests {
     #[cfg(feature = "cli")]
     use device_service::hosted_control_plane::HostedControlPlane;
     #[cfg(feature = "cli")]
-    use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+    use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
     #[cfg(feature = "cli")]
-    use management_service::replica::permission_repo::DbPermissionRepo;
+    use management_service::ofdb::permission_repo::DbPermissionRepo;
     #[cfg(feature = "cli")]
-    use management_service::replica::role_repo::DbRoleRepo;
+    use management_service::ofdb::role_repo::DbRoleRepo;
     #[cfg(feature = "cli")]
     use management_service::service::ManagementService;
     use of_model::contract::{
@@ -267,7 +267,7 @@ mod tests {
             http::{Request, StatusCode},
             routing::{get, post},
         };
-        use device_service::replica::schema::up;
+        use device_service::ofdb::schema::up;
         use of_model::contract::replication::SelectedResourcesResponse;
         use of_model::device::selection_policy::SelectionPolicy;
         use tower::ServiceExt;
@@ -353,7 +353,7 @@ mod tests {
                     .with_idp_service_client("device-client", "device-secret", "idp-api")
                     .expect("authenticated IdP relationship")
                     .with_local_devices(Arc::new(
-                        device_service::replica::device_repo::DbDeviceRepo::new(
+                        device_service::ofdb::device_repo::DbDeviceRepo::new(
                             engine.clone().client(),
                         ),
                     )),

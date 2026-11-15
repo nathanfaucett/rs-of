@@ -62,7 +62,7 @@ device-server = { path = "../../../crates/device-server", default-features = fal
 idp-server = { path = "../../../crates/idp-server", default-features = false }
 management-server = { path = "../../../crates/management-server", default-features = false }
 of-model = { path = "../../../crates/model", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
 ] }
 server-common = { path = "../../../crates/server-common", default-features = false }

@@ -5,8 +5,8 @@ use axum::{
     extract::{Path, Query, State},
 };
 use device_service::hosted_control_plane::HostedControlPlane;
-use management_service::replica::permission_repo::DbPermissionRepo;
-use management_service::replica::role_repo::DbRoleRepo;
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
 use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::error_code::ErrorCode;
@@ -16,7 +16,7 @@ use of_model::idp::contract::permission_evaluation::IdentityResource;
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
 use of_model::idp::contract::permission_evaluation::PermissionSubject;
 use of_model::idp::contract::permission_evaluation::PermissionTarget;
-use of_model::idp::replica::up;
+use of_model::idp::ofdb::up;
 
 use crate::router::{
     middleware::management_authorization::ManagementAuthorization,

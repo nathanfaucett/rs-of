@@ -19,16 +19,7 @@ std = [
     "base64/std",
     "uuid/std",
 ]
-replica = [
-    "std",
-    "dep:btree-redb",
-    "dep:include_dir",
-    "dep:ofdb-sql",
-    "ofdb-sql/in-memory",
-    "ofdb-sql/macros",
-    "ofdb-sql/redb",
-    "ofdb-sql/sql",
-]
+ofdb = ["std"]
 utoipa = ["dep:utoipa", "std"]
 axum = ["dep:axum"]
 wasm = ["dep:tsify", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
@@ -37,11 +28,6 @@ wasm = ["dep:tsify", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
 # Internal
 key = { path = "../key", default-features = false, features = [] }
 
-# Database
-btree-redb = { package = "ofdb-btree-redb", path = "../../../ofdb/crates/btree-redb", default-features = false, optional = true }
-ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, optional = true }
-include_dir = { version = "0.7", default-features = false, features = [
-], optional = true }
 
 # Cryptography
 bip32 = { version = "0.5", default-features = false, features = [] }

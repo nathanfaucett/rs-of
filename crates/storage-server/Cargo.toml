@@ -32,9 +32,12 @@ completions = ["cli?/completions"]
 
 [dependencies]
 # Shared SQL stream framing
-idp-db = { path = "../db", default-features = false, features = ["network"] }
+db = { package = "of-db", path = "../db", default-features = false, features = [
+    "native",
+    "network",
+] }
 device-service = { path = "../device-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }
@@ -50,7 +53,6 @@ cli = { path = "../cli", default-features = false, features = [
 ], optional = true }
 
 # Internal
-embedded-db = { path = "../embedded-db", default-features = false }
 of-device-client = { path = "../device-client", default-features = false }
 of-idp-client = { path = "../idp-client", default-features = false }
 server-common = { path = "../server-common", default-features = false, features = [

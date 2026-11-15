@@ -24,7 +24,7 @@ use of_model::idp::contract::revocation_request::RevocationRequest;
 use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 use of_model::idp::contract::token_request::TokenRequest;
 use of_model::idp::model::client::Client;
-use of_model::idp::replica::up;
+use of_model::idp::ofdb::up;
 use ofdb_sql::Query;
 use ofdb_sql::QueryColumn;
 use ofdb_sql::QueryFrom;
@@ -144,7 +144,7 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         revoked_at: None,
         expires_at: None,
     };
-    crate::replica::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
+    crate::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
         .enroll(&member, &signer)
         .await
         .expect("approve local node signer");
@@ -924,7 +924,7 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             .as_ref()
             .expect("binding survives reopen");
         assert_eq!(binding.key_id, expected_signer);
-        let peers = crate::replica::replica_signer_repo::DbReplicaSignerRepo::new(engine.client());
+        let peers = crate::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(engine.client());
         let signers = peers
             .trusted_signers(&config.issuer, chrono::Utc::now().timestamp())
             .await

@@ -515,7 +515,7 @@ mod tests {
     #[tokio::test]
     async fn projections_match_query_columns_and_validate_record_types() {
         let engine = alloc::sync::Arc::new(ofdb_sql::Database::in_memory());
-        of_model::idp::replica::up(&engine)
+        of_model::idp::ofdb::up(&engine)
             .await
             .expect("initialize actual schema");
         let public = serde_json::json!({"kid": of_model::id::Id::now_v7(), "use": "sig", "alg": "ES256K", "kty": "Ec", "crv": "secp256k1",

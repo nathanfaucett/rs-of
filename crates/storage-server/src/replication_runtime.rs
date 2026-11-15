@@ -100,7 +100,7 @@ impl StorageReplicationRuntime {
         cancellation_token: CancellationToken,
     ) -> Self {
         let lifetime = cancellation_token.child_token();
-        let admission = crate::replication_admission::ReplicationAdmission::new(lifetime.clone());
+        let admission = crate::ofdbtion_admission::ReplicationAdmission::new(lifetime.clone());
         admission.fence();
         let mut database = DatabaseProtocolHandler::new(
             server.clone(),

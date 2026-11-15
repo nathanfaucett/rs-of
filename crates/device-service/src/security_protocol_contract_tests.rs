@@ -10,11 +10,11 @@ use crate::{security_policy::SecurityContext, security_protocol::SecurityProtoco
 #[tokio::test]
 async fn owner_rejects_unreviewed_public_schema() {
     let idp = Arc::new(Database::in_memory());
-    of_model::idp::replica::up(&idp)
+    of_model::idp::ofdb::up(&idp)
         .await
         .expect("identity schema");
     let devices = Arc::new(Database::in_memory());
-    crate::replica::schema::up(&devices)
+    crate::ofdb::schema::up(&devices)
         .await
         .expect("Device schema");
     let server =

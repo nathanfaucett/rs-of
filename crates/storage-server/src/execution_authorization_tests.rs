@@ -10,15 +10,15 @@ use std::{
 use ofdb_sql::Database;
 
 use device_service::device_repo::DeviceRepo;
-use device_service::replica::device_repo::DbDeviceRepo;
+use device_service::ofdb::device_repo::DbDeviceRepo;
 use file_system::FileResponse;
 use idp_service::{
     password_config::PasswordConfig, replica::user_repo::DbUserRepo, repo::user_repo::UserRepo,
 };
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
 use management_service::local_permissions::LocalPermissions;
-use management_service::replica::permission_repo::DbPermissionRepo;
-use management_service::replica::role_repo::DbRoleRepo;
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
 use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
@@ -66,9 +66,9 @@ async fn queued_write_fixture(in_flight: bool) {
         std::fs::create_dir_all(&root).expect("create local stores");
         let idp = Arc::new(Database::open(root.join("idp.redb")).expect("open IdP"));
         let management = Arc::new(Database::open(root.join("management.redb")).expect("open Management"));
-        of_model::idp::replica::up(&idp).await.expect("IdP schema");
-        device_service::replica::schema::up(&management).await.expect("Device schema");
-        of_model::idp::replica::up(&management).await.expect("Management policy schema");
+        of_model::idp::ofdb::up(&idp).await.expect("IdP schema");
+        device_service::ofdb::schema::up(&management).await.expect("Device schema");
+        of_model::idp::ofdb::up(&management).await.expect("Management policy schema");
         let actor = Id::now_v7();
         let member = Id::now_v7();
         let role = Id::now_v7();

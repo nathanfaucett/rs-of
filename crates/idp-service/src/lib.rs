@@ -6,9 +6,8 @@ extern crate alloc;
 extern crate self as idp_service;
 
 pub mod oauth2;
-mod password_config;
-#[cfg(feature = "replica")]
-pub mod replica;
+#[cfg(feature = "ofdb")]
+pub mod ofdb;
 pub mod repo;
 pub mod security_sync;
 #[cfg(feature = "std")]

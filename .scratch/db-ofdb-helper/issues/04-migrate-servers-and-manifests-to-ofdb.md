@@ -1,12 +1,23 @@
-# 04: Migrate servers, workspace and app manifests to `ofdb`
+**Status:** resolved
 
-**What to build:** Move all remaining call sites in the server binaries, the workspace root manifest, and the app manifests to the `ofdb` names: imports, module paths, and feature flags (`replica` -> `ofdb` on `of-model`, `db`, and the service crates). After this ticket no production code references the SQL-layer `replica` name directly (only ticket 01 aliases remain).
+- [x] Server binaries and app code use `ofdb` module paths and features
+- [x] Workspace dev-dependency feature lists use `ofdb`
+- [x] Whole workspace compiles; tests pass
+- [x] Replication contract and replica-signer routes are unchanged
 
-**Blocked by:** 02 (Migrate `of-model` to `ofdb`), 03 (Migrate the service crates to `ofdb`)
+## Answer
 
-**Status:** ready-for-agent
+Updated feature lists in all server crate manifests (`device-server`, `idp-server`,
+`management-server`, `storage-server`, `unified-server`), workspace root
+`dev-dependencies` (`of-model`, `db`, `device-service`, `management-service`,
+`idp-service`), and app manifest (`apps/app/src-tauri`): `replica` → `ofdb`.
 
-- [ ] Server binaries and app code use `ofdb` module paths and features
-- [ ] Workspace dev-dependency feature lists use `ofdb`
-- [ ] Whole workspace compiles; tests pass
-- [ ] Replication contract and replica-signer routes are unchanged
+Batch-replaced import paths in server source files:
+
+- `of_model::replica` → `of_model::ofdb`
+- `of_model::idp::replica` → `of_model::idp::ofdb`
+- `device_service::replica` → `device_service::ofdb`
+- `idp_service::replica` → `idp_service::ofdb`
+- `management_service::replica` → `management_service::ofdb`
+
+Workspace lib check passes. Replication/sync terminology untouched.

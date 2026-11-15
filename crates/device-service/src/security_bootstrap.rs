@@ -1,5 +1,5 @@
 use db::database_transport::DatabaseTransport;
-use idp_service::replica::local_identity::LocalIdentity;
+use idp_service::ofdb::local_identity::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use of_model::id::Id;
 use std::{future::Future, io, sync::Arc};
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::device_repo::DeviceRepo;
 use crate::node_join_owner::{NodeJoinOwner, NodeJoinStage};
-use crate::replica::device_repo::DbDeviceRepo;
+use crate::ofdb::device_repo::DbDeviceRepo;
 use crate::security_candidates::JoinCandidate;
 use of_model::node_join::NodeJoinApproval;
 

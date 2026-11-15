@@ -10,7 +10,7 @@ use ofdb_sql::Row;
 
 use ofdb_sql::SqlTranslator;
 
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
 use of_model::device::selection_policy::SelectionPolicy;
 use of_model::id::Id;
 use ofdb_sql::Value;
@@ -82,7 +82,7 @@ pub async fn open_local_device_database(directory: &Path) -> io::Result<Arc<Data
     fs::create_dir_all(directory)?;
     let engine =
         Arc::new(Database::open(directory.join("devices.redb")).map_err(io::Error::other)?);
-    device_service::replica::schema::up(&engine)
+    device_service::ofdb::schema::up(&engine)
         .await
         .map_err(io::Error::other)?;
     Ok(engine)

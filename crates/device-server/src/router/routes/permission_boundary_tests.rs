@@ -5,16 +5,16 @@ use axum::{
     extract::{Path, State},
 };
 use device_service::hosted_control_plane::HostedControlPlane;
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
-use management_service::replica::permission_repo::DbPermissionRepo;
-use management_service::replica::role_repo::DbRoleRepo;
+use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
 use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::error_code::ErrorCode;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 async fn up(engine: &ofdb_sql::Database) -> Result<(), ofdb_sql::QueryError> {
-    of_model::idp::replica::up(engine).await?;
-    device_service::replica::schema::up(engine).await
+    of_model::idp::ofdb::up(engine).await?;
+    device_service::ofdb::schema::up(engine).await
 }
 
 use crate::router::{middleware::device_authorization::DeviceAuthorization, state::RouterState};
@@ -74,7 +74,7 @@ async fn restriction_api_updates_exact_device_with_separate_read_and_update_gran
             .with_idp_service_client("lookup", "secret", "idp-services")
             .expect("scoped lookup")
             .with_local_devices(Arc::new(
-                device_service::replica::device_repo::DbDeviceRepo::new(engine.clone().client()),
+                device_service::ofdb::device_repo::DbDeviceRepo::new(engine.clone().client()),
             )),
     );
     state

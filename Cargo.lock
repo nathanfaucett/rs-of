@@ -1624,15 +1624,14 @@ dependencies = [
  "config",
  "device-service",
  "dotenvy",
- "embedded-db",
  "env_logger",
  "http",
- "idp-db",
  "idp-service",
  "iroh",
  "iroh-chain",
  "log",
  "management-service",
+ "of-db",
  "of-idp-client",
  "of-model",
  "ofdb-sql",
@@ -1658,12 +1657,12 @@ dependencies = [
  "chrono",
  "futures-util",
  "getrandom 0.3.4",
- "idp-db",
  "idp-service",
  "iroh",
  "iroh-chain",
  "log",
  "management-service",
+ "of-db",
  "of-device-client",
  "of-idp-client",
  "of-model",
@@ -1947,18 +1946,6 @@ name = "embed_plist"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ef6b89e5b37196644d8796de5268852ff179b44e96276cf4290264843743bb7"
-
-[[package]]
-name = "embedded-db"
-version = "0.1.0"
-dependencies = [
- "idp-db",
- "of-model",
- "ofdb-btree-redb",
- "ofdb-sql",
- "tempfile",
- "tokio",
-]
 
 [[package]]
 name = "embedded-io"
@@ -3202,17 +3189,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "idp-db"
-version = "0.1.0"
-dependencies = [
- "iroh",
- "ofdb-sql",
- "serde",
- "tokio",
- "url",
-]
-
-[[package]]
 name = "idp-server"
 version = "0.1.0"
 dependencies = [
@@ -3224,10 +3200,8 @@ dependencies = [
  "config",
  "device-service",
  "dotenvy",
- "embedded-db",
  "env_logger",
  "http",
- "idp-db",
  "idp-service",
  "iroh",
  "iroh-chain",
@@ -3235,6 +3209,7 @@ dependencies = [
  "keyring-core",
  "log",
  "management-service",
+ "of-db",
  "of-device-client",
  "of-idp-client",
  "of-management-client",
@@ -3265,11 +3240,11 @@ dependencies = [
  "chrono",
  "futures",
  "getrandom 0.3.4",
- "idp-db",
  "k256",
  "key",
  "keyring-core",
  "log",
+ "of-db",
  "of-model",
  "ofdb-btree-redb",
  "ofdb-kv",
@@ -3292,7 +3267,6 @@ dependencies = [
  "device-service",
  "futures-util",
  "http",
- "idp-db",
  "idp-server",
  "idp-service",
  "iroh",
@@ -3301,6 +3275,7 @@ dependencies = [
  "log",
  "management-server",
  "management-service",
+ "of-db",
  "of-device-client",
  "of-idp-client",
  "of-management-client",
@@ -3322,25 +3297,6 @@ dependencies = [
  "tokio-util",
  "tower",
  "unified-server",
-]
-
-[[package]]
-name = "include_dir"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "923d117408f1e49d914f1a379a309cffe4f18c05cf4e3d12e613a15fc81bd0dd"
-dependencies = [
- "include_dir_macros",
-]
-
-[[package]]
-name = "include_dir_macros"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cab85a7ed0bd5f0e76d93846e0147172bed2e2d3f859bcc33a8d9699cad1a75"
-dependencies = [
- "proc-macro2",
- "quote",
 ]
 
 [[package]]
@@ -4059,11 +4015,10 @@ dependencies = [
  "config",
  "device-service",
  "dotenvy",
- "embedded-db",
  "http",
- "idp-db",
  "log",
  "management-service",
+ "of-db",
  "of-model",
  "ofdb-sql",
  "reqwest 0.12.28",
@@ -4082,7 +4037,7 @@ name = "management-service"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "idp-db",
+ "of-db",
  "of-model",
  "ofdb-sql",
  "serde",
@@ -4962,6 +4917,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "of-db"
+version = "0.1.0"
+dependencies = [
+ "iroh",
+ "of-model",
+ "ofdb-btree-redb",
+ "ofdb-sql",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "of-device-client"
 version = "0.1.0"
 dependencies = [
@@ -5012,9 +4982,7 @@ dependencies = [
  "build-time",
  "chrono",
  "futures",
- "include_dir",
  "key",
- "ofdb-btree-redb",
  "ofdb-sql",
  "serde",
  "serde-wasm-bindgen",
@@ -5177,7 +5145,6 @@ dependencies = [
  "ofdb-sql-engine-indexeddb",
  "ofdb-sql-engine-redb",
  "ofdb-sql-history",
- "ofdb-sql-macros",
  "ofdb-sql-query",
  "ofdb-sql-schema",
  "ofdb-sql-server",
@@ -5283,15 +5250,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "uuid",
-]
-
-[[package]]
-name = "ofdb-sql-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro-crate 3.5.0",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -7316,18 +7274,17 @@ dependencies = [
  "crc32fast",
  "device-service",
  "dotenvy",
- "embedded-db",
  "env_logger",
  "file-system",
  "futures",
  "futures-util",
  "http",
- "idp-db",
  "idp-service",
  "iroh",
  "key",
  "log",
  "management-service",
+ "of-db",
  "of-device-client",
  "of-idp-client",
  "of-model",
@@ -7353,8 +7310,8 @@ dependencies = [
 name = "storage-service"
 version = "0.1.0"
 dependencies = [
- "embedded-db",
  "file-system",
+ "of-db",
  "of-model",
  "ofdb-kv",
  "ofdb-sql",
@@ -8652,10 +8609,10 @@ dependencies = [
  "cli",
  "device-server",
  "device-service",
- "embedded-db",
  "env_logger",
  "idp-server",
  "management-server",
+ "of-db",
  "of-model",
  "rcgen",
  "reqwest 0.12.28",

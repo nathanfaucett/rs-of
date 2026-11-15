@@ -11,7 +11,7 @@ use device_service::device_repo::DeviceRepo;
 use device_service::hosted_control_plane::HostedControlPlane;
 use device_service::hosted_join::JoinFuture;
 use device_service::hosted_join::NodeJoinIdentity;
-use device_service::replica::device_repo::DbDeviceRepo;
+use device_service::ofdb::device_repo::DbDeviceRepo;
 use iroh_chain::{PairingOffer, Server};
 use of_model::id::Id;
 use of_model::node_join::NodeJoinApproval;
@@ -299,7 +299,7 @@ impl NodeJoinSource {
             ));
         }
         log::debug!(target: "setup_timeout", "seam=approval phase=policy_begin elapsed_ms={}", started.elapsed().as_millis());
-        let policies = device_service::replica::selection_policy::DbSelectionPolicyRepo::new(
+        let policies = device_service::ofdb::selection_policy::DbSelectionPolicyRepo::new(
             self.device.clone().client(),
         );
         if policies

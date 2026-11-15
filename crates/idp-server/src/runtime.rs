@@ -3,9 +3,9 @@ use std::{io, sync::Arc, time::Duration};
 use axum::Router;
 use device_service::device_identity::DeviceIdentity;
 use device_service::hosted_control_plane::HostedControlPlane;
+use device_service::ofdb::device_repo::DbDeviceRepo;
 use device_service::pairing_acceptance::PairingAcceptanceController;
 use device_service::pairing_acceptance::TimedPairingAcceptanceController;
-use device_service::replica::device_repo::DbDeviceRepo;
 use idp_service::{
     oauth2::service::OAuth2Service,
     replica::{
@@ -146,17 +146,15 @@ pub async fn build_local_router(
     data_dir: &std::path::Path,
     base: &str,
     origin: &str,
-    db: Option<Arc<dyn of_model::db::Database>>,
+    db: Option<Arc<ofdb_sql::Database>>,
     users: &[(String, String)],
 ) -> io::Result<Router> {
     std::fs::create_dir_all(data_dir)?;
     let directory = std::fs::canonicalize(data_dir)?;
     let data_dir = directory.as_path();
-    let database = embedded_db::local::local_database(data_dir, "idp", db)?;
+    let database = db::local_database(data_dir, db).await?;
     let engine = database.client();
-    let storage = database
-        .local_storage()
-        .ok_or_else(|| io::Error::other("local IdP requires shared embedded storage"))?;
+    let storage = database.storage();
 
     let mut config = AppConfig {
         data_dir: data_dir.to_string_lossy().into_owned(),
@@ -252,17 +250,13 @@ pub async fn identity_client(config: &AppConfig) -> io::Result<ofdb_sql::Client>
             ));
         }
         let client = remote.connect().await?;
-        of_model::idp::replica::validate_identity(&client)
+        db::ofdb::validators::validate_identity(&client)
             .await
             .map_err(io::Error::other)?;
         return Ok(client);
     }
     std::fs::create_dir_all(&config.data_dir)?;
-    let database = Database::open(std::path::Path::new(&config.data_dir).join("idp.redb"))
-        .map_err(io::Error::other)?;
-    of_model::idp::replica::up(&database)
-        .await
-        .map_err(io::Error::other)?;
+    let database = db::local_database(&std::path::Path::new(&config.data_dir)).await?;
     Ok(database.client())
 }
 
@@ -620,8 +614,7 @@ mod tests {
         let root = fixture.root.clone();
         drop(fixture);
         let engine = Arc::new(
-            ofdb_sql::Database::open(root.join("idp.redb"))
-                .expect("stopped owner reopen"),
+            ofdb_sql::Database::open(root.join("idp.redb")).expect("stopped owner reopen"),
         );
         let reopened = crate::runtime::build_oauth_runtime(&config, engine.client())
             .await
@@ -633,9 +626,8 @@ mod tests {
         drop(engine);
         let mut invalid = config;
         invalid.oauth2.local_signer.as_mut().expect("signer").key_id = of_model::id::Id::now_v7();
-        let engine = Arc::new(
-            ofdb_sql::Database::open(root.join("idp.redb")).expect("existing owner"),
-        );
+        let engine =
+            Arc::new(ofdb_sql::Database::open(root.join("idp.redb")).expect("existing owner"));
         assert!(
             crate::runtime::build_oauth_runtime(&invalid, engine.client())
                 .await

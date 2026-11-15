@@ -45,26 +45,26 @@ cli = { path = "../cli", default-features = false, optional = true }
 dotenvy = { version = "0.15", default-features = false, optional = true }
 
 # Internal
-embedded-db = { path = "../embedded-db", default-features = false }
 server-common = { path = "../server-common", default-features = false }
 
-db = { package = "idp-db", path = "../db", default-features = false, features = [
-    "replica",
+db = { package = "of-db", path = "../db", default-features = false, features = [
+    "native",
+    "ofdb",
     "remote",
 ] }
 device-service = { path = "../device-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }
 of-model = { path = "../model", default-features = false, features = [
     "axum",
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }
 management-service = { path = "../management-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }

@@ -16,10 +16,10 @@ name = "idp_service"
 default = ["std"]
 
 headless = ["key/headless"]
-replica = [
+ofdb = [
     "std",
-    "db/replica",
-    "of-model/replica",
+    "db/ofdb",
+    "of-model/ofdb",
     "dep:tokio",
     "dep:ofdb-kv",
     "dep:ofdb-sql",
@@ -39,7 +39,7 @@ std = [
 
 [dependencies]
 # Internal
-db = { package = "idp-db", path = "../db", default-features = false, features = [
+db = { package = "of-db", path = "../db", default-features = false, features = [
 ] }
 
 bip32 = { version = "0.5", default-features = false, features = [] }

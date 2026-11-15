@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use axum::{body::Body, http::Request};
 use device_service::hosted_control_plane::HostedControlPlane;
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
-use management_service::replica::permission_repo::DbPermissionRepo;
-use management_service::replica::role_repo::DbRoleRepo;
+use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
 use management_service::service::ManagementService;
 use of_model::id::Id;
 use serde_json::Value;

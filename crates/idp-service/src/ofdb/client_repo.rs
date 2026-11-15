@@ -1,0 +1,1437 @@
+use std::sync::Arc;
+
+use chrono::{DateTime, Timelike, Utc};
+use of_model::id::Id;
+use of_model::idp::contract::client_profile::ClientProfile;
+use of_model::idp::contract::client_registration::ClientRegistration;
+use of_model::idp::contract::client_type::ClientType;
+use of_model::idp::contract::entity_type::EntityType;
+use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
+use of_model::idp::model::client::Client;
+use of_model::idp::ofdb::SecurityRow;
+use of_model::idp::ofdb::SecurityTable;
+use of_model::idp::ofdb::allows_token_issuance;
+use ofdb_sql::FromRow;
+use ofdb_sql::FromRowError;
+use ofdb_sql::Query;
+use ofdb_sql::QueryColumn;
+use ofdb_sql::QueryDelete;
+use ofdb_sql::QueryExpr;
+use ofdb_sql::QueryExprValue;
+use ofdb_sql::QueryFrom;
+use ofdb_sql::QueryInsert;
+use ofdb_sql::QuerySelect;
+use ofdb_sql::QueryUpdate;
+use ofdb_sql::QueryUpdateAssignment;
+use ofdb_sql::Row;
+use ofdb_sql::Statement;
+use crate::{
+    password_config::PasswordConfig,
+    replica::key_repo::DbKeyRepo,
+    repo::{ClientRepo, KeyService, PrivateKeyRepo, RepoError, RepoResult},
+    util::encrypt_password,
+};
+
+const TABLE: &str = "clients";
+const COLUMNS: [&str; 25] = [
+    "id",
+    "application_id",
+    "client_id",
+    "credential_id",
+    "client_id_issued_at",
+    "client_secret_expires_at",
+    "client_name",
+    "client_uri",
+    "redirect_uris",
+    "client_type",
+    "profile",
+    "token_endpoint_auth_method",
+    "allowed_grant_types",
+    "response_types",
+    "allowed_scopes",
+    "allowed_audiences",
+    "logo_uri",
+    "contacts",
+    "terms_of_service_uri",
+    "policy_uri",
+    "software_statement",
+    "software_id",
+    "software_version",
+    "created_at",
+    "updated_at",
+];
+
+pub struct DbClientRepo<P = crate::repo::PrivateKeyKeyringRepo>
+where
+    P: PrivateKeyRepo + Send + Sync,
+{
+    engine: ofdb_sql::Client,
+    key_service: Arc<KeyService<DbKeyRepo, P>>,
+}
+
+impl<P> DbClientRepo<P>
+where
+    P: PrivateKeyRepo + Send + Sync,
+{
+    #[must_use]
+    pub const fn new(
+        engine: ofdb_sql::Client,
+        key_service: Arc<KeyService<DbKeyRepo, P>>,
+    ) -> Self {
+        Self {
+            engine,
+            key_service,
+        }
+    }
+
+    pub async fn create_client_with_capture(
+        &self,
+        registration: ClientRegistration,
+        allow_application_creation: bool,
+        capture: impl FnOnce(
+            &of_model::idp::model::key::Key,
+            &[bip32::DerivationPath],
+        ) -> RepoResult<()>
+        + Send,
+    ) -> RepoResult<Client> {
+        let client_id = registration
+            .client_id
+            .clone()
+            .ok_or_else(|| RepoError::InvalidInput("client_id is required".into()))?;
+        let client_secret = match registration.client_type {
+            ClientType::Confidential => registration
+                .client_secret
+                .clone()
+                .filter(|secret| !secret.trim().is_empty())
+                .ok_or_else(|| {
+                    RepoError::InvalidInput(
+                        "client_secret is required for confidential client key material".into(),
+                    )
+                })?,
+            ClientType::Public => String::new(),
+        };
+        let client_secret_hash = if registration.client_type == ClientType::Confidential {
+            encrypt_password(&PasswordConfig::default(), &client_secret)
+                .map_err(|error| RepoError::Other(error.into()))?
+        } else {
+            String::new()
+        };
+        let application_id = self
+            .application_id(&registration, allow_application_creation)
+            .await?;
+        let now = Utc::now()
+            .with_nanosecond(0)
+            .expect("zero nanoseconds is valid");
+        let client = Client {
+            id: Id::now_v7(),
+            application_id,
+            client_id,
+            client_secret_hash,
+            client_id_issued_at: registration
+                .client_id_issued_at
+                .map(timestamp)
+                .transpose()?,
+            client_secret_expires_at: registration
+                .client_secret_expires_at
+                .map(timestamp)
+                .transpose()?,
+            client_name: registration.client_name,
+            client_uri: registration
+                .client_uri
+                .unwrap_or_else(|| registration.application.uri.clone()),
+            redirect_uris: registration.redirect_uris,
+            client_type: registration.client_type,
+            profile: registration.profile,
+            token_endpoint_auth_method: registration.token_endpoint_auth_method,
+            allowed_grant_types: registration.allowed_grant_types,
+            response_types: registration.response_types,
+            allowed_scopes: registration.allowed_scopes,
+            allowed_audiences: registration.allowed_audiences,
+            logo_uri: registration.logo_uri,
+            contacts: registration.contacts,
+            terms_of_service_uri: registration.terms_of_service_uri,
+            policy_uri: registration.policy_uri,
+            software_statement: registration.software_statement,
+            software_id: registration.software_id,
+            software_version: registration.software_version,
+            created_at: now,
+            updated_at: now,
+        };
+        let revision = Id::now_v7();
+        let mut metadata = ClientRow::from(&client);
+        metadata.credential_id = Some(revision);
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        transaction
+            .execute(vec![
+                Statement::Query(Query::Insert(QueryInsert {
+                    table: TABLE.into(),
+                    row: metadata.into(),
+                    returning: None,
+                })),
+                Statement::Query(local_credential_insert(&client, revision)),
+            ])
+            .await
+            .map_err(db_error)?;
+        transaction.commit().await.map_err(db_error)?;
+
+        self.key_service
+            .create_initial_root_with_capture(
+                EntityType::Client,
+                client.id,
+                client.client_name.clone(),
+                capture,
+            )
+            .await?;
+        Ok(client)
+    }
+
+    async fn registrations(
+        transaction: &mut Transaction,
+        predicate: Option<QueryExpr>,
+    ) -> RepoResult<Vec<(Client, Option<Id>)>> {
+        let revoked_at = QueryExpr::Value(QueryExprValue::Column(column("revoked_at")));
+        let active = QueryExpr::Or(
+            Box::new(QueryExpr::IsNull(Box::new(revoked_at.clone()))),
+            Box::new(QueryExpr::GreaterThan(
+                Box::new(revoked_at),
+                Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Integer(
+                    Utc::now().timestamp(),
+                )))),
+            )),
+        );
+        let predicate = Some(match predicate {
+            Some(predicate) => QueryExpr::And(Box::new(predicate), Box::new(active)),
+            None => active,
+        });
+        let mut results = transaction
+            .execute(vec![Statement::Query(select(predicate))])
+            .await
+            .map_err(db_error)?;
+        let clients = results
+            .pop()
+            .ok_or_else(|| RepoError::InvalidInput("missing client query result".into()))?
+            .rows_as::<ClientRow>()
+            .map_err(row_error)?
+            .into_iter()
+            .map(|row| {
+                let revision = row.credential_id;
+                Client::try_from(row).map(|client| (client, revision))
+            })
+            .collect::<RepoResult<Vec<_>>>()?;
+        Ok(clients)
+    }
+
+    async fn clients(
+        transaction: &mut Transaction,
+        predicate: Option<QueryExpr>,
+    ) -> RepoResult<Vec<Client>> {
+        let mut clients = Self::registrations(transaction, predicate).await?;
+        for (client, revision) in &mut clients {
+            let key = Row::new(vec![Value::Uuid(client.id)]);
+            if !transaction
+                .row_conflicts("local_client_credentials", &key)
+                .await
+                .map_err(db_error)?
+                .is_empty()
+            {
+                return Err(RepoError::InvalidInput(
+                    "conflicted local client credential".into(),
+                ));
+            }
+            let result = transaction
+                .execute(vec![Statement::Query(local_credential_select(client.id))])
+                .await
+                .map_err(db_error)?;
+            if let Some(row) = result[0]
+                .rows
+                .first()
+                .filter(|row| row.values[1] == revision.map_or(Value::Null, Value::Uuid))
+            {
+                client.client_secret_hash =
+                    ofdb_sql::decode(&row.values[0], "secret_hash").map_err(row_error)?;
+            }
+        }
+        Ok(clients.into_iter().map(|(client, _)| client).collect())
+    }
+
+    async fn find(&self, predicate: QueryExpr) -> RepoResult<Option<Client>> {
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let result = async {
+            let client = Self::clients(&mut transaction, Some(predicate))
+                .await?
+                .into_iter()
+                .next();
+            if let Some(client) = client.as_ref() {
+                Self::ensure_clear_in(&mut transaction, client.id).await?;
+            }
+            Ok(client)
+        }
+        .await;
+        let rollback = transaction.rollback().await.map_err(db_error);
+        result.and_then(|client| rollback.map(|()| client))
+    }
+
+    async fn ensure_clear_in(transaction: &mut Transaction, id: Id) -> RepoResult<()> {
+        if transaction
+            .row_conflicts(TABLE, &Row::new(vec![Value::Uuid(id)]))
+            .await
+            .map_err(db_error)?
+            .is_empty()
+        {
+            Ok(())
+        } else {
+            Err(RepoError::InvalidInput("conflicted client".into()))
+        }
+    }
+
+    async fn ensure_clear(&self, id: Id) -> RepoResult<()> {
+        if allows_token_issuance(&self.engine, &[SecurityRow::new(SecurityTable::Client, id)])
+            .await
+            .map_err(db_error)?
+        {
+            Ok(())
+        } else {
+            Err(RepoError::InvalidInput("conflicted client".into()))
+        }
+    }
+
+    async fn application_id(
+        &self,
+        registration: &ClientRegistration,
+        allow_creation: bool,
+    ) -> RepoResult<Id> {
+        let mut results = self
+            .engine
+            .execute(vec![Statement::Query(Query::Select(QuerySelect {
+                from: QueryFrom {
+                    table: "applications".into(),
+                    joins: vec![],
+                },
+                projection: vec![QueryColumn::new("applications".into(), "id".into())],
+                distinct: false,
+                predicate: Some(equals_in(
+                    "applications",
+                    "uri",
+                    Value::Text(registration.application.uri.clone()),
+                )),
+                aggregates: vec![],
+                text_concats: vec![],
+                group_by: vec![],
+                order_by: vec![],
+                limit: None,
+                offset: None,
+                having: None,
+            }))])
+            .await
+            .map_err(db_error)?;
+        let rows = results
+            .pop()
+            .ok_or_else(|| RepoError::InvalidInput("missing application query result".into()))?
+            .rows_as::<ApplicationIdRow>()
+            .map_err(row_error)?;
+        if let Some(row) = rows.into_iter().next() {
+            return Ok(row.id);
+        }
+        if !allow_creation {
+            return Err(RepoError::InvalidInput(
+                "registered Application is missing".into(),
+            ));
+        }
+
+        let now = Utc::now()
+            .with_nanosecond(0)
+            .expect("zero nanoseconds is valid");
+        let id = Id::now_v7();
+        self.engine
+            .execute(vec![Statement::Query(Query::Insert(QueryInsert {
+                table: "applications".into(),
+                row: Row::new(vec![
+                    Value::Uuid(id),
+                    Value::Text(
+                        registration
+                            .application
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| registration.client_name.clone()),
+                    ),
+                    Value::Text(registration.application.uri.clone()),
+                    registration
+                        .application
+                        .description
+                        .clone()
+                        .map_or(Value::Null, Value::Text),
+                    Value::Integer(now.timestamp()),
+                    Value::Integer(now.timestamp()),
+                ]),
+                returning: None,
+            }))])
+            .await
+            .map_err(db_error)?;
+        Ok(id)
+    }
+}
+
+impl<P> ClientRepo for DbClientRepo<P>
+where
+    P: PrivateKeyRepo + Send + Sync,
+{
+    async fn find_client_by_id(&self, id: Id) -> RepoResult<Option<Client>> {
+        self.find(equals("id", Value::Uuid(id))).await
+    }
+
+    async fn find_client_by_client_id(&self, client_id: &str) -> RepoResult<Option<Client>> {
+        self.find(equals("client_id", Value::Text(client_id.into())))
+            .await
+    }
+
+    async fn find_client_registration(&self, client_id: &str) -> RepoResult<Option<Client>> {
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let result = async {
+            let client = Self::registrations(
+                &mut transaction,
+                Some(equals("client_id", Value::Text(client_id.into()))),
+            )
+            .await?
+            .into_iter()
+            .next()
+            .map(|(client, _)| client);
+            if let Some(client) = client.as_ref() {
+                Self::ensure_clear_in(&mut transaction, client.id).await?;
+            }
+            Ok(client)
+        }
+        .await;
+        let rollback = transaction.rollback().await.map_err(db_error);
+        result.and_then(|client| rollback.map(|()| client))
+    }
+
+    async fn list_clients(&self, offset: u32, limit: u32) -> RepoResult<Vec<Client>> {
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let result = async {
+            let clients = Self::clients(&mut transaction, None)
+                .await?
+                .into_iter()
+                .skip(offset as usize)
+                .take(limit as usize)
+                .collect::<Vec<_>>();
+            for client in &clients {
+                Self::ensure_clear_in(&mut transaction, client.id).await?;
+            }
+            Ok(clients)
+        }
+        .await;
+        let rollback = transaction.rollback().await.map_err(db_error);
+        result.and_then(|clients| rollback.map(|()| clients))
+    }
+
+    fn create_client(
+        &self,
+        registration: ClientRegistration,
+    ) -> impl Future<Output = RepoResult<Client>> {
+        self.create_client_with_capture(registration, true, |_, _| Ok(()))
+    }
+
+    fn create_client_in_existing_application(
+        &self,
+        registration: ClientRegistration,
+    ) -> impl Future<Output = RepoResult<Client>> {
+        self.create_client_with_capture(registration, false, |_, _| Ok(()))
+    }
+
+    async fn update_client(&self, client: Client) -> RepoResult<Client> {
+        self.ensure_clear(client.id).await?;
+        let updated_at = Utc::now()
+            .with_nanosecond(0)
+            .expect("zero nanoseconds is valid");
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        for table in [TABLE, "local_client_credentials"] {
+            if !transaction
+                .row_conflicts(table, &Row::new(vec![Value::Uuid(client.id)]))
+                .await
+                .map_err(db_error)?
+                .is_empty()
+            {
+                return Err(RepoError::InvalidInput(
+                    "conflicted client credential update".into(),
+                ));
+            }
+        }
+        let existing = transaction
+            .execute(vec![Statement::Query(local_credential_select(client.id))])
+            .await
+            .map_err(db_error)?;
+        let current = transaction
+            .execute(vec![Statement::Query(select(Some(equals(
+                "id",
+                Value::Uuid(client.id),
+            ))))])
+            .await
+            .map_err(db_error)?;
+        let mut metadata = ClientRow::from(&client);
+        let current_revision = current[0]
+            .rows_as::<ClientRow>()
+            .map_err(row_error)?
+            .first()
+            .and_then(|row| row.credential_id);
+        let revision = if let Some(local) = existing[0].rows.first().filter(|row| {
+            row.values[0] == Value::Text(client.client_secret_hash.clone())
+                && row.values[1] == current_revision.map_or(Value::Null, Value::Uuid)
+        }) {
+            ofdb_sql::decode(&local.values[1], "credential_id").map_err(row_error)?
+        } else {
+            Id::now_v7()
+        };
+        metadata.credential_id = Some(revision);
+        let credential = if existing[0].rows.is_empty() {
+            local_credential_insert(&client, revision)
+        } else {
+            Query::Update(QueryUpdate {
+                from: QueryFrom {
+                    table: "local_client_credentials".into(),
+                    joins: vec![],
+                },
+                assignments: vec![
+                    QueryUpdateAssignment {
+                        column: QueryColumn::new(
+                            "local_client_credentials".into(),
+                            "secret_hash".into(),
+                        ),
+                        value: QueryExprValue::Value(Value::Text(
+                            client.client_secret_hash.clone(),
+                        )),
+                    },
+                    QueryUpdateAssignment {
+                        column: QueryColumn::new(
+                            "local_client_credentials".into(),
+                            "credential_id".into(),
+                        ),
+                        value: QueryExprValue::Value(Value::Uuid(revision)),
+                    },
+                ],
+                predicate: Some(equals_in(
+                    "local_client_credentials",
+                    "client_id",
+                    Value::Uuid(client.id),
+                )),
+                returning: None,
+            })
+        };
+        transaction
+            .execute(vec![
+                Statement::Query(Query::Update(QueryUpdate {
+                    from: from(),
+                    assignments: metadata.assignments(updated_at.timestamp()),
+                    predicate: Some(equals("id", Value::Uuid(client.id))),
+                    returning: None,
+                })),
+                Statement::Query(credential),
+            ])
+            .await
+            .map_err(db_error)?;
+        transaction.commit().await.map_err(db_error)?;
+        Ok(Client {
+            updated_at,
+            ..client
+        })
+    }
+
+    async fn delete_client_by_client_id(&self, client_id: &str) -> RepoResult<()> {
+        let client = self
+            .find_client_by_client_id(client_id)
+            .await?
+            .ok_or_else(|| RepoError::InvalidInput("client not found".into()))?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        transaction
+            .execute(vec![
+                Statement::Query(Query::Delete(QueryDelete {
+                    from: from(),
+                    predicate: Some(equals("id", Value::Uuid(client.id))),
+                    returning: None,
+                })),
+                Statement::Query(local_credential_delete(client.id)),
+            ])
+            .await
+            .map_err(db_error)?;
+        transaction.commit().await.map_err(db_error)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct ApplicationIdRow {
+    id: Uuid,
+}
+
+impl FromRow for ApplicationIdRow {
+    fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
+        Ok(Self {
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct ClientRow {
+    id: Uuid,
+    application_id: Uuid,
+    client_id: String,
+    credential_id: Option<Uuid>,
+    client_id_issued_at: Option<i64>,
+    client_secret_expires_at: Option<i64>,
+    client_name: String,
+    client_uri: String,
+    redirect_uris: String,
+    client_type: i64,
+    profile: i64,
+    token_endpoint_auth_method: i64,
+    allowed_grant_types: String,
+    response_types: String,
+    allowed_scopes: String,
+    allowed_audiences: String,
+    logo_uri: Option<String>,
+    contacts: String,
+    terms_of_service_uri: Option<String>,
+    policy_uri: Option<String>,
+    software_statement: Option<String>,
+    software_id: Option<String>,
+    software_version: Option<String>,
+    created_at: i64,
+    updated_at: i64,
+}
+
+impl FromRow for ClientRow {
+    fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
+        Ok(Self {
+            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
+            application_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "application_id")?,
+                "application_id",
+            )?,
+            client_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "client_id")?, "client_id")?,
+            credential_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "credential_id")?,
+                "credential_id",
+            )?,
+            client_id_issued_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "client_id_issued_at")?,
+                "client_id_issued_at",
+            )?,
+            client_secret_expires_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "client_secret_expires_at")?,
+                "client_secret_expires_at",
+            )?,
+            client_name: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "client_name")?,
+                "client_name",
+            )?,
+            client_uri: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "client_uri")?,
+                "client_uri",
+            )?,
+            redirect_uris: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "redirect_uris")?,
+                "redirect_uris",
+            )?,
+            client_type: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "client_type")?,
+                "client_type",
+            )?,
+            profile: ofdb_sql::decode(ofdb_sql::value(row, columns, "profile")?, "profile")?,
+            token_endpoint_auth_method: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "token_endpoint_auth_method")?,
+                "token_endpoint_auth_method",
+            )?,
+            allowed_grant_types: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "allowed_grant_types")?,
+                "allowed_grant_types",
+            )?,
+            response_types: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "response_types")?,
+                "response_types",
+            )?,
+            allowed_scopes: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "allowed_scopes")?,
+                "allowed_scopes",
+            )?,
+            allowed_audiences: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "allowed_audiences")?,
+                "allowed_audiences",
+            )?,
+            logo_uri: ofdb_sql::decode(ofdb_sql::value(row, columns, "logo_uri")?, "logo_uri")?,
+            contacts: ofdb_sql::decode(ofdb_sql::value(row, columns, "contacts")?, "contacts")?,
+            terms_of_service_uri: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "terms_of_service_uri")?,
+                "terms_of_service_uri",
+            )?,
+            policy_uri: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "policy_uri")?,
+                "policy_uri",
+            )?,
+            software_statement: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "software_statement")?,
+                "software_statement",
+            )?,
+            software_id: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "software_id")?,
+                "software_id",
+            )?,
+            software_version: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "software_version")?,
+                "software_version",
+            )?,
+            created_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "created_at")?,
+                "created_at",
+            )?,
+            updated_at: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "updated_at")?,
+                "updated_at",
+            )?,
+        })
+    }
+}
+
+impl TryFrom<ClientRow> for Client {
+    type Error = RepoError;
+
+    fn try_from(row: ClientRow) -> RepoResult<Self> {
+        Ok(Self {
+            id: row.id,
+            application_id: row.application_id,
+            client_id: row.client_id,
+            client_secret_hash: String::new(),
+            client_id_issued_at: row.client_id_issued_at.map(timestamp).transpose()?,
+            client_secret_expires_at: row.client_secret_expires_at.map(timestamp).transpose()?,
+            client_name: row.client_name,
+            client_uri: row.client_uri,
+            redirect_uris: json(&row.redirect_uris)?,
+            client_type: client_type(row.client_type)?,
+            profile: profile(row.profile)?,
+            token_endpoint_auth_method: token_endpoint_auth_method(row.token_endpoint_auth_method)?,
+            allowed_grant_types: json(&row.allowed_grant_types)?,
+            response_types: json(&row.response_types)?,
+            allowed_scopes: json(&row.allowed_scopes)?,
+            allowed_audiences: json(&row.allowed_audiences)?,
+            logo_uri: row.logo_uri,
+            contacts: json(&row.contacts)?,
+            terms_of_service_uri: row.terms_of_service_uri,
+            policy_uri: row.policy_uri,
+            software_statement: row.software_statement,
+            software_id: row.software_id,
+            software_version: row.software_version,
+            created_at: timestamp(row.created_at)?,
+            updated_at: timestamp(row.updated_at)?,
+        })
+    }
+}
+
+impl From<&Client> for ClientRow {
+    fn from(client: &Client) -> Self {
+        Self {
+            id: client.id,
+            application_id: client.application_id,
+            client_id: client.client_id.clone(),
+            credential_id: None,
+            client_id_issued_at: client.client_id_issued_at.map(|value| value.timestamp()),
+            client_secret_expires_at: client
+                .client_secret_expires_at
+                .map(|value| value.timestamp()),
+            client_name: client.client_name.clone(),
+            client_uri: client.client_uri.clone(),
+            redirect_uris: json_string(&client.redirect_uris),
+            client_type: client.client_type as i64,
+            profile: client.profile as i64,
+            token_endpoint_auth_method: client.token_endpoint_auth_method as i64,
+            allowed_grant_types: json_string(&client.allowed_grant_types),
+            response_types: json_string(&client.response_types),
+            allowed_scopes: json_string(&client.allowed_scopes),
+            allowed_audiences: json_string(&client.allowed_audiences),
+            logo_uri: client.logo_uri.clone(),
+            contacts: json_string(&client.contacts),
+            terms_of_service_uri: client.terms_of_service_uri.clone(),
+            policy_uri: client.policy_uri.clone(),
+            software_statement: client.software_statement.clone(),
+            software_id: client.software_id.clone(),
+            software_version: client.software_version.clone(),
+            created_at: client.created_at.timestamp(),
+            updated_at: client.updated_at.timestamp(),
+        }
+    }
+}
+
+impl ClientRow {
+    fn assignments(self, updated_at: i64) -> Vec<QueryUpdateAssignment> {
+        vec![
+            assignment("application_id", Value::Uuid(self.application_id)),
+            assignment(
+                "credential_id",
+                self.credential_id.map_or(Value::Null, Value::Uuid),
+            ),
+            assignment(
+                "client_id_issued_at",
+                self.client_id_issued_at.map_or(Value::Null, Value::Integer),
+            ),
+            assignment(
+                "client_secret_expires_at",
+                self.client_secret_expires_at
+                    .map_or(Value::Null, Value::Integer),
+            ),
+            assignment("client_name", Value::Text(self.client_name)),
+            assignment("client_uri", Value::Text(self.client_uri)),
+            assignment("redirect_uris", Value::Text(self.redirect_uris)),
+            assignment("client_type", Value::Integer(self.client_type)),
+            assignment("profile", Value::Integer(self.profile)),
+            assignment(
+                "token_endpoint_auth_method",
+                Value::Integer(self.token_endpoint_auth_method),
+            ),
+            assignment("allowed_grant_types", Value::Text(self.allowed_grant_types)),
+            assignment("response_types", Value::Text(self.response_types)),
+            assignment("allowed_scopes", Value::Text(self.allowed_scopes)),
+            assignment("allowed_audiences", Value::Text(self.allowed_audiences)),
+            assignment("logo_uri", self.logo_uri.map_or(Value::Null, Value::Text)),
+            assignment("contacts", Value::Text(self.contacts)),
+            assignment(
+                "terms_of_service_uri",
+                self.terms_of_service_uri.map_or(Value::Null, Value::Text),
+            ),
+            assignment(
+                "policy_uri",
+                self.policy_uri.map_or(Value::Null, Value::Text),
+            ),
+            assignment(
+                "software_statement",
+                self.software_statement.map_or(Value::Null, Value::Text),
+            ),
+            assignment(
+                "software_id",
+                self.software_id.map_or(Value::Null, Value::Text),
+            ),
+            assignment(
+                "software_version",
+                self.software_version.map_or(Value::Null, Value::Text),
+            ),
+            assignment("updated_at", Value::Integer(updated_at)),
+        ]
+    }
+}
+
+impl From<ClientRow> for Row {
+    fn from(row: ClientRow) -> Self {
+        Row::new(vec![
+            Value::Uuid(row.id),
+            Value::Uuid(row.application_id),
+            Value::Text(row.client_id),
+            row.credential_id.map_or(Value::Null, Value::Uuid),
+            row.client_id_issued_at.map_or(Value::Null, Value::Integer),
+            row.client_secret_expires_at
+                .map_or(Value::Null, Value::Integer),
+            Value::Text(row.client_name),
+            Value::Text(row.client_uri),
+            Value::Text(row.redirect_uris),
+            Value::Integer(row.client_type),
+            Value::Integer(row.profile),
+            Value::Integer(row.token_endpoint_auth_method),
+            Value::Text(row.allowed_grant_types),
+            Value::Text(row.response_types),
+            Value::Text(row.allowed_scopes),
+            Value::Text(row.allowed_audiences),
+            row.logo_uri.map_or(Value::Null, Value::Text),
+            Value::Text(row.contacts),
+            row.terms_of_service_uri.map_or(Value::Null, Value::Text),
+            row.policy_uri.map_or(Value::Null, Value::Text),
+            row.software_statement.map_or(Value::Null, Value::Text),
+            row.software_id.map_or(Value::Null, Value::Text),
+            row.software_version.map_or(Value::Null, Value::Text),
+            Value::Null,
+            Value::Integer(row.created_at),
+            Value::Integer(row.updated_at),
+        ])
+    }
+}
+
+fn local_credential_insert(client: &Client, revision: Uuid) -> Query {
+    Query::Insert(QueryInsert {
+        table: "local_client_credentials".into(),
+        row: Row::new(vec![
+            Value::Uuid(client.id),
+            Value::Uuid(revision),
+            Value::Text(client.client_secret_hash.clone()),
+        ]),
+        returning: None,
+    })
+}
+
+fn local_credential_select(id: Id) -> Query {
+    Query::Select(QuerySelect {
+        from: QueryFrom {
+            table: "local_client_credentials".into(),
+            joins: vec![],
+        },
+        projection: ["secret_hash", "credential_id"]
+            .into_iter()
+            .map(|name| QueryColumn::new("local_client_credentials".into(), name.into()))
+            .collect(),
+        distinct: false,
+        predicate: Some(equals_in(
+            "local_client_credentials",
+            "client_id",
+            Value::Uuid(id),
+        )),
+        aggregates: vec![],
+        text_concats: vec![],
+        group_by: vec![],
+        order_by: vec![],
+        limit: None,
+        offset: None,
+        having: None,
+    })
+}
+
+fn local_credential_delete(id: Id) -> Query {
+    Query::Delete(QueryDelete {
+        from: QueryFrom {
+            table: "local_client_credentials".into(),
+            joins: vec![],
+        },
+        predicate: Some(equals_in(
+            "local_client_credentials",
+            "client_id",
+            Value::Uuid(id),
+        )),
+        returning: None,
+    })
+}
+
+fn json<T: serde::de::DeserializeOwned>(value: &str) -> RepoResult<T> {
+    serde_json::from_str(value).map_err(RepoError::other)
+}
+fn json_string<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_string(value).expect("client fields are serializable")
+}
+fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
+    DateTime::from_timestamp(value, 0)
+        .ok_or_else(|| RepoError::InvalidInput("invalid client timestamp".into()))
+}
+fn client_type(value: i64) -> RepoResult<ClientType> {
+    match value {
+        0 => Ok(ClientType::Confidential),
+        1 => Ok(ClientType::Public),
+        _ => Err(RepoError::InvalidInput("invalid client type".into())),
+    }
+}
+fn profile(value: i64) -> RepoResult<ClientProfile> {
+    match value {
+        0 => Ok(ClientProfile::Web),
+        1 => Ok(ClientProfile::UserAgentBased),
+        2 => Ok(ClientProfile::Native),
+        _ => Err(RepoError::InvalidInput("invalid client profile".into())),
+    }
+}
+fn token_endpoint_auth_method(value: i64) -> RepoResult<TokenEndpointAuthMethod> {
+    match value {
+        0 => Ok(TokenEndpointAuthMethod::ClientSecretBasic),
+        1 => Ok(TokenEndpointAuthMethod::ClientSecretPost),
+        2 => Ok(TokenEndpointAuthMethod::PrivateKeyJwt),
+        3 => Ok(TokenEndpointAuthMethod::ClientSecretJwt),
+        4 => Ok(TokenEndpointAuthMethod::None),
+        _ => Err(RepoError::InvalidInput(
+            "invalid client token endpoint auth method".into(),
+        )),
+    }
+}
+fn db_error(error: ofdb_sql::QueryError) -> RepoError {
+    RepoError::InvalidInput(error.to_string())
+}
+fn row_error(error: FromRowError) -> RepoError {
+    RepoError::InvalidInput(error.to_string())
+}
+fn from() -> QueryFrom {
+    QueryFrom {
+        table: TABLE.into(),
+        joins: vec![],
+    }
+}
+fn column(column: &str) -> QueryColumn {
+    QueryColumn::new(TABLE.into(), column.into())
+}
+fn equals(column_name: &str, value: Value) -> QueryExpr {
+    equals_in(TABLE, column_name, value)
+}
+fn equals_in(table: &str, column_name: &str, value: Value) -> QueryExpr {
+    QueryExpr::Equals(
+        Box::new(QueryExpr::Value(QueryExprValue::Column(QueryColumn::new(
+            table.into(),
+            column_name.into(),
+        )))),
+        Box::new(QueryExpr::Value(QueryExprValue::Value(value))),
+    )
+}
+fn assignment(column_name: &str, value: Value) -> QueryUpdateAssignment {
+    QueryUpdateAssignment {
+        column: column(column_name),
+        value: QueryExprValue::Value(value),
+    }
+}
+fn select(predicate: Option<QueryExpr>) -> Query {
+    Query::Select(QuerySelect {
+        from: from(),
+        projection: COLUMNS.into_iter().map(column).collect(),
+        distinct: false,
+        predicate,
+        aggregates: vec![],
+        text_concats: vec![],
+        group_by: vec![],
+        order_by: vec![],
+        limit: None,
+        offset: None,
+        having: None,
+    })
+}
+
+#[cfg(test)]
+use ofdb_sql::Database;
+
+#[cfg(all(test, unix))]
+#[path = "client_observation_tests.rs"]
+mod observation_tests;
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
+
+    use of_model::idp::{
+        contract::{
+            application_registration::ApplicationRegistration, client_profile::ClientProfile,
+            grant_type::GrantType, response_type::ResponseType,
+        },
+        replica::up,
+    };
+
+    use crate::{
+        oauth2::{config::OAuth2Config, service::OAuth2Service},
+        replica::{
+            application_repo::DbApplicationRepo,
+            oauth2_authorization_code_repo::DbOAuth2AuthorizationCodeRepo,
+            oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo,
+            oauth2_user_consent_repo::DbOAuth2UserConsentRepo, user_repo::DbUserRepo,
+        },
+        repo::key_repo::KeyRepo,
+        util::verify_password,
+    };
+
+    use super::*;
+
+    #[derive(Default)]
+    pub(super) struct TestPrivateKeyRepo(
+        Mutex<HashMap<(String, String), key::derived_key::DerivedKey>>,
+    );
+    impl PrivateKeyRepo for TestPrivateKeyRepo {
+        fn load(
+            &self,
+            namespace: &str,
+            path: &bip32::DerivationPath,
+        ) -> RepoResult<Option<key::derived_key::DerivedKey>> {
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .get(&(namespace.into(), path.to_string()))
+                .cloned())
+        }
+        fn store(&self, namespace: &str, key: &key::derived_key::DerivedKey) -> RepoResult<()> {
+            self.0
+                .lock()
+                .unwrap()
+                .insert((namespace.into(), key.to_string()), key.clone());
+            Ok(())
+        }
+        fn delete(&self, namespace: &str, path: &bip32::DerivationPath) -> RepoResult<()> {
+            self.0
+                .lock()
+                .unwrap()
+                .remove(&(namespace.into(), path.to_string()));
+            Ok(())
+        }
+    }
+
+    fn registration(client_type: ClientType, client_secret: Option<&str>) -> ClientRegistration {
+        ClientRegistration {
+            application: ApplicationRegistration {
+                name: Some("App".into()),
+                uri: "https://app.example".into(),
+                description: None,
+            },
+            client_id: Some(format!("{client_type}-client")),
+            client_secret: client_secret.map(str::to_owned),
+            client_id_issued_at: None,
+            client_secret_expires_at: None,
+            client_name: "Client".into(),
+            client_uri: None,
+            logo_uri: None,
+            contacts: vec![],
+            terms_of_service_uri: None,
+            policy_uri: None,
+            client_type,
+            profile: ClientProfile::Web,
+            redirect_uris: vec!["https://app.example/callback".into()],
+            allowed_grant_types: vec![GrantType::AuthorizationCode],
+            response_types: vec![ResponseType::Code],
+            allowed_scopes: vec!["openid".into()],
+            allowed_audiences: vec!["https://storage.example".into()],
+            token_endpoint_auth_method: match client_type {
+                ClientType::Public => TokenEndpointAuthMethod::None,
+                ClientType::Confidential => TokenEndpointAuthMethod::ClientSecretPost,
+            },
+            software_statement: None,
+            software_id: None,
+            software_version: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn client_verifier_is_local_durable_and_missing_verifier_denies() {
+        let path = std::env::temp_dir().join(format!("local-client-{}.redb", Id::now_v7()));
+        let id;
+        {
+            let database = Arc::new(Database::open(&path).expect("open local identity"));
+            up(&database).await.expect("initialize fresh schema");
+            let keys = Arc::new(KeyService::new(
+                DbKeyRepo::new(database.client()),
+                TestPrivateKeyRepo::default(),
+                "local-client",
+            ));
+            let repo = DbClientRepo::new(database.client(), keys);
+            id = repo
+                .create_client(registration(ClientType::Confidential, Some("local-secret")))
+                .await
+                .expect("create confidential client")
+                .id;
+        }
+        {
+            let database = Arc::new(Database::open(&path).expect("reopen identity offline"));
+            let keys = Arc::new(KeyService::new(
+                DbKeyRepo::new(database.client()),
+                TestPrivateKeyRepo::default(),
+                "local-client",
+            ));
+            let repo = DbClientRepo::new(database.client(), keys);
+            let client = repo
+                .find_client_by_id(id)
+                .await
+                .expect("read local client")
+                .expect("client metadata exists");
+            assert!(
+                verify_password("local-secret", &client.client_secret_hash)
+                    .expect("local verifier persisted")
+            );
+            database
+                .client()
+                .translate_and_execute(
+                    &format!(
+                        "UPDATE clients SET credential_id = CAST('{}' AS UUID)",
+                        Id::now_v7()
+                    ),
+                    &ofdb_sql::SqlTranslator,
+                )
+                .await
+                .expect("learn a public credential rotation");
+            let rotated = repo
+                .find_client_by_id(id)
+                .await
+                .expect("read learned rotation")
+                .expect("metadata exists");
+            assert!(
+                rotated.client_secret_hash.is_empty(),
+                "stale local verifier cannot authenticate after learned rotation"
+            );
+            database
+                .client()
+                .translate_and_execute(
+                    "DELETE FROM local_client_credentials",
+                    &ofdb_sql::SqlTranslator,
+                )
+                .await
+                .expect("simulate identity without local verifier");
+            let client = repo
+                .find_client_by_id(id)
+                .await
+                .expect("metadata remains readable")
+                .expect("client metadata exists");
+            assert!(client.client_secret_hash.is_empty());
+            assert!(
+                !verify_password("local-secret", &client.client_secret_hash)
+                    .expect("missing local verifier denies")
+            );
+        }
+        std::fs::remove_file(path).expect("remove client fixture");
+    }
+
+    #[tokio::test]
+    async fn failed_local_verifier_write_rolls_back_client_registration() {
+        let database = Arc::new(Database::in_memory());
+        up(&database).await.expect("initialize fresh schema");
+        database
+            .client()
+            .translate_and_execute(
+                "DROP TABLE local_client_credentials",
+                &ofdb_sql::SqlTranslator,
+            )
+            .await
+            .expect("make local credential storage unavailable");
+        let keys = Arc::new(KeyService::new(
+            DbKeyRepo::new(database.client()),
+            TestPrivateKeyRepo::default(),
+            "local-client",
+        ));
+        let repo = DbClientRepo::new(database.client(), keys);
+        assert!(
+            repo.create_client(registration(ClientType::Confidential, Some("local-secret")))
+                .await
+                .is_err()
+        );
+        let rows = database
+            .client()
+            .translate_and_execute("SELECT id FROM clients", &ofdb_sql::SqlTranslator)
+            .await
+            .expect("registration rollback");
+        assert!(rows[0].rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn client_secrets_are_disclosed_only_on_creation_and_rotation() {
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
+        up(&engine).await.expect("initialize current IdP schema");
+        let key_service = Arc::new(KeyService::new(
+            DbKeyRepo::new(engine.client()),
+            TestPrivateKeyRepo::default(),
+            "test",
+        ));
+        let service = OAuth2Service::new(
+            DbApplicationRepo::new(engine.client()),
+            DbClientRepo::new(engine.client(), Arc::clone(&key_service)),
+            DbOAuth2AuthorizationCodeRepo::new(engine.client()),
+            DbOAuth2RefreshTokenRepo::new(engine.client()),
+            DbUserRepo::new(engine.client(), PasswordConfig::default()),
+            DbOAuth2UserConsentRepo::new(engine.client()),
+            key_service,
+            OAuth2Config::default(),
+        );
+        let created = service
+            .register_client(registration(
+                ClientType::Confidential,
+                Some("initial-secret"),
+            ))
+            .await
+            .expect("register confidential client");
+        let client_id = created.client_id.as_deref().expect("created client has ID");
+        assert_eq!(created.client_secret.as_deref(), Some("initial-secret"));
+        let public = service
+            .client_repo
+            .find_client_registration(client_id)
+            .await
+            .expect("live registration metadata")
+            .expect("registered Client");
+        assert_eq!(public.client_id, client_id);
+        assert!(
+            public.client_secret_hash.is_empty(),
+            "bearer validation reads no local secret verifier"
+        );
+        assert_eq!(
+            service
+                .get_client(client_id)
+                .await
+                .expect("get client")
+                .client_secret,
+            None
+        );
+        assert!(
+            service
+                .list_clients(0, 10)
+                .await
+                .expect("list clients")
+                .iter()
+                .all(|client| client.client_secret.is_none())
+        );
+        let rotated = service
+            .update_client(
+                client_id,
+                registration(ClientType::Confidential, Some("rotated-secret")),
+            )
+            .await
+            .expect("rotate client secret");
+        assert_eq!(rotated.client_secret.as_deref(), Some("rotated-secret"));
+        let stored = service
+            .client_repo
+            .find_client_by_client_id(client_id)
+            .await
+            .expect("read rotated client")
+            .expect("client exists");
+        assert!(
+            verify_password("rotated-secret", &stored.client_secret_hash)
+                .expect("stored verifier is valid")
+        );
+        assert!(
+            !verify_password("initial-secret", &stored.client_secret_hash)
+                .expect("stored verifier is valid")
+        );
+        assert!(
+            serde_json::to_value(&stored)
+                .expect("serialize client")
+                .get("client_secret_hash")
+                .is_none()
+        );
+        let updated = service
+            .update_client(client_id, registration(ClientType::Confidential, None))
+            .await
+            .expect("update client without rotating secret");
+        assert_eq!(updated.client_secret, None);
+        let unchanged = service
+            .client_repo
+            .find_client_by_client_id(client_id)
+            .await
+            .expect("read updated client")
+            .expect("client exists");
+        assert_eq!(unchanged.client_secret_hash, stored.client_secret_hash);
+        let public = engine
+            .client()
+            .translate_and_execute("SELECT * FROM clients", &ofdb_sql::SqlTranslator)
+            .await
+            .expect("query syncable client rows")
+            .remove(0);
+        assert!(
+            public
+                .columns
+                .iter()
+                .all(|column| column.name != "client_secret_hash")
+        );
+        assert!(public.rows.iter().all(|row| {
+            !row.values
+                .contains(&Value::Text(stored.client_secret_hash.clone()))
+        }));
+    }
+
+    #[tokio::test]
+    async fn initial_capture_denial_prevents_all_private_writes() {
+        let engine = Arc::new(Database::in_memory());
+        up(&engine).await.expect("fresh schema");
+        let keys = Arc::new(KeyService::new(
+            DbKeyRepo::new(engine.client()),
+            TestPrivateKeyRepo::default(),
+            "capture-test",
+        ));
+        let repo = DbClientRepo::new(engine.client(), Arc::clone(&keys));
+        for (client_type, secret) in [
+            (ClientType::Public, None),
+            (ClientType::Confidential, Some("secret")),
+        ] {
+            let mut captured = None;
+            repo.create_client_with_capture(
+                registration(client_type, secret),
+                true,
+                |key, paths| {
+                    assert!(
+                        keys.private_key_repo()
+                            .0
+                            .lock()
+                            .expect("secret map")
+                            .is_empty()
+                    );
+                    assert_eq!(
+                        paths.first(),
+                        Some(&key.derivation_path().expect("actual key path"))
+                    );
+                    assert_eq!(paths.last(), Some(&bip32::DerivationPath::default()));
+                    assert!(
+                        paths
+                            .windows(2)
+                            .all(|pair| pair[0].parent().as_ref() == Some(&pair[1]))
+                    );
+                    captured = Some(key.entity_id);
+                    Err(RepoError::InvalidInput("durable capture denied".into()))
+                },
+            )
+            .await
+            .expect_err("owner cannot bypass capture failure");
+            let client = repo
+                .find_client_by_client_id(&format!("{client_type}-client"))
+                .await
+                .expect("owner row")
+                .expect("committed actual Client");
+            assert_eq!(captured, Some(client.id));
+            assert!(
+                keys.private_key_repo()
+                    .0
+                    .lock()
+                    .expect("secret map")
+                    .is_empty()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn creates_public_and_confidential_clients_with_metadata_roots_only() {
+        let engine = Arc::new(ofdb_sql::Database::in_memory());
+        up(&engine).await.unwrap();
+        let key_service = Arc::new(KeyService::new(
+            DbKeyRepo::new(engine.client()),
+            TestPrivateKeyRepo::default(),
+            "test",
+        ));
+        let repo = DbClientRepo::new(engine.client(), Arc::clone(&key_service));
+        for (client_type, secret) in [
+            (ClientType::Public, None),
+            (ClientType::Confidential, Some("secret")),
+        ] {
+            let client = repo
+                .create_client(registration(client_type, secret))
+                .await
+                .unwrap();
+            if let Some(secret) = secret {
+                assert_ne!(client.client_secret_hash, secret);
+                assert!(
+                    crate::util::verify_password(secret, &client.client_secret_hash)
+                        .expect("stored verifier is valid")
+                );
+                assert!(
+                    !crate::util::verify_password("wrong-secret", &client.client_secret_hash)
+                        .expect("stored verifier is valid")
+                );
+            } else {
+                assert!(client.client_secret_hash.is_empty());
+            }
+            let response: ClientRegistration = client.clone().into();
+            assert_eq!(response.client_secret, None);
+            assert_eq!(
+                repo.find_client_by_client_id(&client.client_id)
+                    .await
+                    .unwrap(),
+                Some(client.clone())
+            );
+            assert_eq!(
+                repo.find_client_by_id(client.id).await.unwrap(),
+                Some(client.clone())
+            );
+            let root = key_service
+                .key_repo()
+                .find_active_entity_root_key(EntityType::Client, client.id)
+                .await
+                .expect("read Principal root")
+                .expect("Client has a metadata root");
+            assert_eq!(root.entity_id, client.id);
+            assert!(root.parent_id.is_none());
+            assert!(root.public_jwk.is_none());
+            assert!(
+                key_service
+                    .private_key_repo()
+                    .0
+                    .lock()
+                    .expect("private store")
+                    .is_empty()
+            );
+        }
+    }
+}

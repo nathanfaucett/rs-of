@@ -309,11 +309,11 @@ mod tests {
         assert_eq!(SecurityHistory::IdentityPolicy.name(), "policy-identity");
         assert_eq!(SecurityHistory::Devices.name(), "policy-devices");
         let idp = Database::in_memory();
-        of_model::idp::replica::up(&idp)
+        of_model::idp::ofdb::up(&idp)
             .await
             .expect("identity schema");
         let devices = Database::in_memory();
-        crate::replica::schema::up(&devices)
+        crate::ofdb::schema::up(&devices)
             .await
             .expect("Device schema");
         for history in [SecurityHistory::Idp, SecurityHistory::IdentityPolicy] {
@@ -429,11 +429,11 @@ mod tests {
     #[tokio::test]
     async fn current_owner_binding_and_context_permissions_are_rechecked() {
         let idp = Arc::new(Database::in_memory());
-        of_model::idp::replica::up(&idp)
+        of_model::idp::ofdb::up(&idp)
             .await
             .expect("identity schema");
         let devices = Arc::new(Database::in_memory());
-        crate::replica::schema::up(&devices)
+        crate::ofdb::schema::up(&devices)
             .await
             .expect("Device schema");
         let actor = Id::now_v7();

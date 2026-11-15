@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
 use axum::Router;
+use db::local_database;
 use device_service::hosted_control_plane::HostedControlPlane;
-use device_service::replica::device_repo::DbDeviceRepo;
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
-use management_service::replica::permission_repo::DbPermissionRepo;
-use management_service::replica::role_repo::DbRoleRepo;
+use device_service::ofdb::device_repo::DbDeviceRepo;
+use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
 use management_service::service::ManagementService;
 use of_model::contract::replication::SelectedResource;
 use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
 use of_model::device::selection_policy::OwnerPolicyObservation;
 use of_model::id::Id;
 use ofdb_sql::Client;
+use ofdb_sql::Database as SqlDatabase;
 
 use crate::router::{openapi_router::openapi_router, state::RouterState};
 
@@ -65,10 +67,11 @@ pub async fn build_local_router(
     data_dir: &std::path::Path,
     _port: u16,
     idp_base: &str,
-    db: Option<Arc<dyn of_model::db::Database>>,
+    db: Option<Arc<SqlDatabase>>,
     http_client: Option<reqwest::Client>,
 ) -> std::io::Result<Router> {
-    let client = embedded_db::local::local_client(data_dir, "device", db)?;
+    let database = local_database(data_dir, db).await?;
+    let client = database.client();
     let storage_base = format!("{}/storage", idp_base.trim_end_matches("/idp"));
     let control = HostedControlPlane::new_with_services(idp_base, &storage_base, idp_base)
         .and_then(|control| {
@@ -129,8 +132,8 @@ pub async fn build_router(
 #[cfg(test)]
 mod tests {
     use super::replication_policy_from_repo;
-    use device_service::replica::schema::up;
-    use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+    use device_service::ofdb::schema::up;
+    use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
     use of_model::contract::replication::SelectedResource;
     use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
     use of_model::device::selection_policy::SelectionPolicy;

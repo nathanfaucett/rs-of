@@ -158,7 +158,7 @@ async fn approve_independent_signer(engine: &Arc<TestEngine>, service: &mut Test
         revoked_at: None,
         expires_at: None,
     };
-    crate::replica::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
+    crate::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
         .enroll(&member, &signer)
         .await
         .expect("approve public signer fixture");

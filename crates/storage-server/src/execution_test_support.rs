@@ -2,8 +2,8 @@ use std::{path::PathBuf, sync::Arc};
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use device_service::device_repo::DeviceRepo;
-use device_service::replica::device_repo::DbDeviceRepo;
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use device_service::ofdb::device_repo::DbDeviceRepo;
+use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
 use idp_service::{
     password_config::PasswordConfig,
     replica::{replica_signer_repo::DbReplicaSignerRepo, user_repo::DbUserRepo},
@@ -201,8 +201,8 @@ impl DomainNode {
         let idp = Arc::new(Database::open(root.join("idp.redb")).expect("IdP store"));
         let management =
             Arc::new(Database::open(root.join("management.redb")).expect("Management store"));
-        of_model::idp::replica::up(&idp).await.expect("IdP schema");
-        device_service::replica::schema::up(&management)
+        of_model::idp::ofdb::up(&idp).await.expect("IdP schema");
+        device_service::ofdb::schema::up(&management)
             .await
             .expect("Management schema");
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)")).await;

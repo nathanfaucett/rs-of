@@ -804,7 +804,7 @@ mod tests {
             application_id: of_model::id::Id::now_v7(),
         };
         let root = env::temp_dir().join(format!("shared-filesystem-{}", namespace.application_id));
-        let database = embedded_db::database::EmbeddedDatabase::open(&root)
+        let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("host");
         let runtime =
@@ -837,7 +837,7 @@ mod tests {
         drop(filesystem);
         drop(runtime);
         drop(database);
-        let database = embedded_db::database::EmbeddedDatabase::open(&root)
+        let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("restart host");
         let runtime =
@@ -886,7 +886,7 @@ mod tests {
         drop(filesystem);
         drop(runtime);
         drop(database);
-        let database = embedded_db::database::EmbeddedDatabase::open(&root)
+        let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("restart retired host");
         let runtime =
@@ -929,7 +929,7 @@ mod tests {
         drop(fresh);
         drop(runtime);
         drop(database);
-        let database = embedded_db::database::EmbeddedDatabase::open(&root)
+        let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("restart reselected host");
         let runtime =

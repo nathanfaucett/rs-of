@@ -15,13 +15,13 @@ name = "management_service"
 [features]
 default = ["std"]
 utoipa = ["std", "of-model/utoipa", "dep:utoipa", "dep:utoipa-gen"]
-replica = ["std", "dep:db", "dep:ofdb-sql", "of-model/replica"]
+ofdb = ["std", "dep:db", "dep:ofdb-sql", "of-model/ofdb"]
 std = ["of-model/std"]
 
 [dependencies]
 # Internal
 of-model = { path = "../model", default-features = false, features = [] }
-db = { package = "idp-db", path = "../db", default-features = false, optional = true }
+db = { package = "of-db", path = "../db", default-features = false, optional = true }
 ofdb-sql = { path = "../../../ofdb/crates/sql", default-features = false, optional = true, features = [
     "redb",
     "sql",
