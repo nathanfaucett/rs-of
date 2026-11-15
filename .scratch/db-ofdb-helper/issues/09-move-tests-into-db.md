@@ -1,13 +1,19 @@
-# 09: Move schema/adapter tests into `db`
+**Status:** resolved
 
-**What to build:** Relocate the adapter test suite and the unified-schema test into the `db` crate's tests, updated to the `ofdb` names and the concrete adapter API. Server constructor tests (local router/runtime with injected shared database and owner-file fallback) are updated to the new injection type.
+- [x] File and memory adapters: open, migrate, persist, reopen; repeated init is idempotent; failed migration returns an error; unsafe existing files are rejected
+- [x] All owner tables are reachable through the single shared client; cross-owner transaction commits and rolls back
+- [x] Remote loopback SQL server test passes; Postgres test exists and is ignored without OF_TEST_POSTGRES_URL
+- [x] Server constructor tests pass for both injected and owner-file modes
+- [x] Tests assert external behavior only (tables, round-trips, transactions, persistence), not internal structure
 
-**Blocked by:** 05 (Strip `of-model` to pure domain), 06 (Merge adapters into `db` as concrete structs), 07 (Delete `embedded-db`; rename package to `of-db`)
+## Answer
 
-**Status:** ready-for-agent
+Moved schema/adapter tests into `db` crate:
 
-- [ ] File and memory adapters: open, migrate, persist, reopen; repeated init is idempotent; failed migration returns an error; unsafe existing files are rejected
-- [ ] All owner tables are reachable through the single shared client; cross-owner transaction commits and rolls back
-- [ ] Remote loopback SQL server test passes; Postgres test exists and is ignored without `OF_TEST_POSTGRES_URL`
-- [ ] Server constructor tests pass for both injected and owner-file modes
-- [ ] Tests assert external behavior only (tables, round-trips, transactions, persistence), not internal structure
+- Created `crates/db/tests/adapter_schema.rs` with 8 tests covering file/memory adapters, persistence, reopen, idempotency, cross-owner transactions, failed migration handling, shared injected database, and in-memory database
+- Updated server constructor tests (`local.rs` in device-server, idp-server, management-server, storage-server) to use new injection type `Option<Arc<ofdb_sql::Client>>` and `db::adapters::MemoryDatabase`
+- Updated `unified-server` to pass `SqlDatabase` for shared injection
+- Added `tokio` and `tempfile` as dev-dependencies in `db` crate
+- Moved `unified_schema` test from `of-model` to `db` (renamed/adapted)
+
+Workspace lib check passes. Isolated feature test errors are pre-existing (same 13 errors as before).

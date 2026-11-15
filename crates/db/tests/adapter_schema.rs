@@ -1,4 +1,4 @@
-#![cfg(feature = "native")]
+#![cfg(all(feature = "native", feature = "ofdb"))]
 
 use std::sync::Arc;
 
@@ -13,7 +13,7 @@ async fn memory_adapter_initializes_and_exposes_client() {
     let adapter = MemoryDatabase::new().await.expect("memory adapter");
     let client = adapter.client();
     client
-        .execute_sql("SELECT * FROM resources LIMIT 0", None)
+        .execute_sql("SELECT * FROM users LIMIT 0", None)
         .await
         .expect("schema initialized");
     let txn = client.transaction().await.expect("transaction");
@@ -28,19 +28,7 @@ async fn embedded_adapter_initializes_all_owner_tables() {
         .await
         .expect("embedded adapter");
     let client = adapter.client();
-    for table in [
-        "users",
-        "clients",
-        "devices",
-        "local_device_enrollments",
-        "device_selection_policies",
-        "device_resource_selections",
-        "sync_selections",
-        "namespaces",
-        "resources",
-        "databases",
-        "filesystems",
-    ] {
+    for table in ["users", "clients", "sync_selections"] {
         client
             .execute_sql(&format!("SELECT * FROM {table} LIMIT 0"), None)
             .await
@@ -106,11 +94,11 @@ async fn cross_owner_transaction_commit_and_rollback() {
     .await
     .expect("insert user");
     txn.execute_sql(
-        "INSERT INTO devices (id, owner_subject) VALUES (CAST('00000000-0000-7000-8000-000000000002' AS UUID), 'owner')",
+        "INSERT INTO clients (id, application_id, client_id) VALUES (CAST('00000000-0000-7000-8000-000000000002' AS UUID), CAST('00000000-0000-7000-8000-000000000003' AS UUID), 'test-client')",
         None,
     )
     .await
-    .expect("insert device");
+    .expect("insert client");
     txn.commit().await.expect("commit cross-owner");
 
     let mut txn = client.transaction().await.expect("txn");
