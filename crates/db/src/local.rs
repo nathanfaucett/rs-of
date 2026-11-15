@@ -60,6 +60,8 @@ pub async fn local_database(
 ) -> Result<Arc<EmbeddedDatabase>, io::Error> {
     if let Some(database) = injected {
         // Shared database provided by unified server — no storage access.
+        // Clone the SqlDatabase from the Arc (SqlDatabase is cheap to clone).
+        let database = (*database).clone();
         let adapter = EmbeddedDatabase {
             database,
             storage: SharedDatabase::in_memory()

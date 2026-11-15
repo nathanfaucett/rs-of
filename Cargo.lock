@@ -4925,6 +4925,7 @@ dependencies = [
  "ofdb-btree-redb",
  "ofdb-sql",
  "serde",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "url",

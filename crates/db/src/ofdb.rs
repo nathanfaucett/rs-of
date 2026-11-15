@@ -155,11 +155,14 @@ mod tests {
     use super::up;
     #[cfg(feature = "ofdb")]
     use ofdb_sql::Client;
+    #[cfg(feature = "ofdb")]
+    use ofdb_sql::Database as SqlDatabase;
 
     #[cfg(feature = "ofdb")]
     #[tokio::test]
     async fn migration_applies_idempotently() {
-        let client = Client::open_in_memory().await.expect("in-memory client");
+        let database = SqlDatabase::in_memory();
+        let client = database.client();
         up(&client).await.expect("first migration");
         up(&client).await.expect("second migration (idempotent)");
     }
