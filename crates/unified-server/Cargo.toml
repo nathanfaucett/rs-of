@@ -106,12 +106,12 @@ tower-http = { version = "0.7", default-features = false, features = ["cors"] }
 [dev-dependencies]
 # Contract export
 device-service = { path = "../device-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }
 of-model = { path = "../model", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
 ] }
 server-common = { path = "../server-common", default-features = false }

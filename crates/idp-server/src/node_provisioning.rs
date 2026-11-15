@@ -306,7 +306,7 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             })?;
         validate_metadata_root(&initial, entity, id)?;
         let paths =
-            KeyService::<idp_service::replica::key_repo::DbKeyRepo, P>::private_paths(&initial)
+            KeyService::<idp_service::ofdb::key_repo::DbKeyRepo, P>::private_paths(&initial)
                 .map_err(io::Error::other)?;
         if reference["paths"] != json!(paths.iter().map(ToString::to_string).collect::<Vec<_>>()) {
             return Err(invalid(

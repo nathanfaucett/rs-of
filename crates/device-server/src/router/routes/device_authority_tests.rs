@@ -10,13 +10,13 @@ use axum::{
 };
 use device_service::device_repo::DeviceRepo;
 use device_service::hosted_control_plane::HostedControlPlane;
-use device_service::replica::device_repo::DbDeviceRepo;
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use device_service::ofdb::device_repo::DbDeviceRepo;
+use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
 use of_model::device::selection_policy::SelectionPolicy;
 use ofdb_sql::Database;
 
-use management_service::replica::permission_repo::DbPermissionRepo;
-use management_service::replica::role_repo::DbRoleRepo;
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
 use management_service::service::ManagementService;
 use of_model::contract::{
     principal_type::PrincipalType, standard_claims::StandardClaims, token_type::TokenType,
@@ -40,11 +40,11 @@ struct Fixture {
 impl Fixture {
     async fn new() -> Self {
         let identity = Arc::new(Database::in_memory());
-        of_model::idp::replica::up(&identity)
+        of_model::idp::ofdb::up(&identity)
             .await
             .expect("identity policy schema");
         let database = Arc::new(Database::in_memory());
-        device_service::replica::schema::up(&database)
+        device_service::ofdb::schema::up(&database)
             .await
             .expect("Management schema");
         let owner = Id::now_v7();

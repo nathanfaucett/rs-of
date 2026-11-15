@@ -31,7 +31,7 @@ use crate::config::app_config::AppConfig;
 pub async fn open_local_identity_database(directory: &Path) -> io::Result<Arc<Database>> {
     fs::create_dir_all(directory)?;
     let engine = Arc::new(Database::open(directory.join("idp.redb")).map_err(io::Error::other)?);
-    of_model::idp::replica::up(&engine)
+    of_model::idp::ofdb::up(&engine)
         .await
         .map_err(io::Error::other)?;
     Ok(engine)
@@ -280,7 +280,7 @@ mod tests {
             let database = crate::provisioning::open_local_identity_database(&root)
                 .await
                 .expect("initialize or reopen identity owner");
-            of_model::idp::replica::validate_identity(&database.client())
+            of_model::idp::ofdb::validate_identity(&database.client())
                 .await
                 .expect("initialized identity schema");
         }

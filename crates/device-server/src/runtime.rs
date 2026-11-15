@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use axum::Router;
 use device_service::hosted_control_plane::HostedControlPlane;
-use device_service::replica::device_repo::DbDeviceRepo;
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
-use management_service::replica::permission_repo::DbPermissionRepo;
-use management_service::replica::role_repo::DbRoleRepo;
+use device_service::ofdb::device_repo::DbDeviceRepo;
+use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
 use management_service::service::ManagementService;
 use of_model::contract::replication::SelectedResource;
 use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
@@ -129,8 +129,8 @@ pub async fn build_router(
 #[cfg(test)]
 mod tests {
     use super::replication_policy_from_repo;
-    use device_service::replica::schema::up;
-    use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+    use device_service::ofdb::schema::up;
+    use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
     use of_model::contract::replication::SelectedResource;
     use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
     use of_model::device::selection_policy::SelectionPolicy;

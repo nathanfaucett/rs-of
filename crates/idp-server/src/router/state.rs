@@ -3,7 +3,7 @@ use std::sync::Arc;
 use device_service::device_identity::DeviceIdentity;
 use device_service::hosted_control_plane::HostedControlPlane;
 use device_service::pairing_acceptance::PairingAcceptanceControllerSlot;
-use device_service::replica::device_repo::DbDeviceRepo;
+use device_service::ofdb::device_repo::DbDeviceRepo;
 use idp_service::{
     oauth2::service::OAuth2Service,
     replica::{

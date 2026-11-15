@@ -145,7 +145,7 @@ idp-server = { path = "crates/idp-server", default-features = false, features = 
     "cli",
 ] }
 idp-service = { path = "crates/idp-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
 ] }
 management-server = { path = "crates/management-server", default-features = false, features = [
@@ -185,7 +185,7 @@ rustls = { version = "0.23", default-features = false, features = [
     "tls12",
 ] }
 of-model = { path = "crates/model", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
 ] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = [
@@ -201,10 +201,10 @@ axum = { version = "0.8", default-features = false, features = [
     "tokio",
 ] }
 db = { package = "idp-db", path = "crates/db", default-features = false, features = [
-    "replica",
+    "ofdb",
 ] }
 device-service = { path = "crates/device-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }
@@ -214,7 +214,7 @@ iroh = { version = "1.4", default-features = false, features = ["tls-ring"] }
 iroh-chain = { path = "../ofnet/crates/iroh-chain", default-features = false }
 log = { version = "0.4", default-features = false, features = ["std"] }
 management-service = { path = "crates/management-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
 ] }
 

@@ -34,7 +34,7 @@ completions = ["cli?/completions"]
 # Shared SQL stream framing
 idp-db = { path = "../db", default-features = false, features = ["network"] }
 device-service = { path = "../device-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }

@@ -190,7 +190,7 @@ async fn trusted_device_identity(
 
 fn devices(
     state: &RouterState,
-) -> Result<std::sync::Arc<device_service::replica::device_repo::DbDeviceRepo>, ErrorResponse> {
+) -> Result<std::sync::Arc<device_service::ofdb::device_repo::DbDeviceRepo>, ErrorResponse> {
     state
         .control_plane
         .device_repo()

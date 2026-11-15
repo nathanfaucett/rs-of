@@ -53,7 +53,7 @@ pub(crate) struct DatabaseProtocolHandler {
     databases: Arc<DatabaseRuntime>,
     staging_directory: PathBuf,
     sessions: Arc<crate::database_sessions::DatabaseSessions>,
-    pub(crate) admission: crate::replication_admission::ReplicationAdmission,
+    pub(crate) admission: crate::ofdbtion_admission::ReplicationAdmission,
     cancellation_token: CancellationToken,
 }
 
@@ -71,7 +71,7 @@ impl DatabaseProtocolHandler {
             databases,
             staging_directory,
             sessions: Arc::default(),
-            admission: crate::replication_admission::ReplicationAdmission::new(
+            admission: crate::ofdbtion_admission::ReplicationAdmission::new(
                 cancellation_token.clone(),
             ),
             cancellation_token,

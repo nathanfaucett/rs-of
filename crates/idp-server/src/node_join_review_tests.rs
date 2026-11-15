@@ -11,8 +11,8 @@ use idp_service::{
 };
 use iroh::{SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
-use management_service::replica::permission_repo::DbPermissionRepo;
-use management_service::replica::role_repo::DbRoleRepo;
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
 use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID;
@@ -348,7 +348,7 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
             .expect("offline Management owner reopen"),
     );
     let reopened =
-        device_service::replica::device_repo::DbDeviceRepo::new(management.clone().client())
+        device_service::ofdb::device_repo::DbDeviceRepo::new(management.clone().client())
             .find_approved_by_public_key(&request.endpoint_id)
             .await
             .expect("reopened Device admission")

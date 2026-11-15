@@ -36,7 +36,7 @@ completions = ["cli?/completions", "dep:clap_complete"]
 btree-redb = { package = "ofdb-btree-redb", path = "../../../ofdb/crates/btree-redb", default-features = false }
 of-device-client = { path = "../device-client", default-features = false }
 device-service = { path = "../device-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }
@@ -66,25 +66,25 @@ server-common = { path = "../server-common", default-features = false, features 
 ] }
 setup = { workspace = true, optional = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
-    "replica",
+    "ofdb",
     "remote",
     "server",
 ] }
 of-model = { path = "../model", default-features = false, features = [
     "axum",
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }
 idp-service = { path = "../idp-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
 ] }
 iroh-chain = { path = "../../../ofnet/crates/iroh-chain", default-features = false, features = [
 ] }
 key = { path = "../key", default-features = false, features = ["std"] }
 management-service = { path = "../management-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }

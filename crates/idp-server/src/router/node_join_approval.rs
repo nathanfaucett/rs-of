@@ -9,7 +9,7 @@ use ofdb_sql::SqlTranslator;
 use ofdb_sql::Transaction;
 
 use device_service::device_repo::DeviceRepo;
-use idp_service::replica::replica_signer_repo::DbReplicaSignerRepo;
+use idp_service::ofdb::replica_signer_repo::DbReplicaSignerRepo;
 use iroh_chain::{MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer};
 use of_model::id::Id;
 use of_model::idp::contract::idp_signer::IdpSignerRecord;

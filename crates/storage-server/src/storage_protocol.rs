@@ -25,7 +25,7 @@ pub(crate) struct StorageProtocolHandler {
     server: Server,
     authorizer: LocalReplicationAuthorizer,
     file_systems: Arc<ScopedFileSystemRuntime<EndpointId>>,
-    pub(crate) admission: crate::replication_admission::ReplicationAdmission,
+    pub(crate) admission: crate::ofdbtion_admission::ReplicationAdmission,
     cancellation_token: CancellationToken,
 }
 
@@ -40,7 +40,7 @@ impl StorageProtocolHandler {
             server,
             authorizer,
             file_systems,
-            admission: crate::replication_admission::ReplicationAdmission::new(
+            admission: crate::ofdbtion_admission::ReplicationAdmission::new(
                 cancellation_token.clone(),
             ),
             cancellation_token,

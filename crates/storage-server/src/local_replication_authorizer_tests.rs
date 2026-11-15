@@ -3,8 +3,8 @@ use std::sync::Arc;
 use ofdb_sql::Database;
 
 use device_service::device_repo::DeviceRepo;
-use device_service::replica::device_repo::DbDeviceRepo;
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use device_service::ofdb::device_repo::DbDeviceRepo;
+use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
 use idp_service::{
     password_config::PasswordConfig, replica::user_repo::DbUserRepo, repo::user_repo::UserRepo,
 };
@@ -31,8 +31,8 @@ async fn native_selection_fixture(select: bool) {
     let idp = Arc::new(Database::open(root.join("idp.redb")).expect("IdP store"));
     let management =
         Arc::new(Database::open(root.join("management.redb")).expect("Management store"));
-    of_model::idp::replica::up(&idp).await.expect("IdP schema");
-    device_service::replica::schema::up(&management)
+    of_model::idp::ofdb::up(&idp).await.expect("IdP schema");
+    device_service::ofdb::schema::up(&management)
         .await
         .expect("Management schema");
     let owner = Id::now_v7();

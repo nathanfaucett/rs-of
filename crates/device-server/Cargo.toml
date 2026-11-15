@@ -34,12 +34,12 @@ completions = ["cli?/completions"]
 
 [dependencies]
 management-service = { path = "../management-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }
 device-service = { path = "../device-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }
@@ -63,19 +63,19 @@ server-common = { path = "../server-common", default-features = false, features 
 ] }
 setup = { workspace = true, optional = true }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
-    "replica",
+    "ofdb",
     "remote",
     "server",
 ] }
 of-model = { path = "../model", default-features = false, features = [
     "axum",
-    "replica",
+    "ofdb",
     "std",
     "utoipa",
 ] }
 
 idp-service = { path = "../idp-service", default-features = false, features = [
-    "replica",
+    "ofdb",
     "std",
 ] }
 

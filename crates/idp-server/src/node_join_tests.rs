@@ -425,13 +425,13 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         ofdb_sql::Database::open(root.join("management/management.redb"))
             .expect("native Management owner"),
     );
-    of_model::idp::replica::up(&management)
+    of_model::idp::ofdb::up(&management)
         .await
         .expect("identity policy schema");
-    device_service::replica::schema::up(&management)
+    device_service::ofdb::schema::up(&management)
         .await
         .expect("device schema");
-    device_service::replica::device_repo::DbDeviceRepo::new(management.clone().client())
+    device_service::ofdb::device_repo::DbDeviceRepo::new(management.clone().client())
         .enroll_approved_exact(
             peer_binding.member_id,
             owner,
@@ -456,7 +456,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         engine.clone(),
         Arc::new(provisioner.oauth2),
         Some(Arc::new(
-            device_service::replica::device_repo::DbDeviceRepo::new(management.clone().client()),
+            device_service::ofdb::device_repo::DbDeviceRepo::new(management.clone().client()),
         )),
         Arc::new(
             device_service::device_identity::identity_from_server(&server, secret)
@@ -532,8 +532,8 @@ pub(crate) async fn user_token(fixture: &ApprovalFixture, audience: &str) -> Str
 #[tokio::test]
 async fn node_join_requires_both_permissions_and_retries_after_disconnected_reply() {
     use device_service::device_repo::DeviceRepo;
-    use management_service::replica::permission_repo::DbPermissionRepo;
-    use management_service::replica::role_repo::DbRoleRepo;
+    use management_service::ofdb::permission_repo::DbPermissionRepo;
+    use management_service::ofdb::role_repo::DbRoleRepo;
     use management_service::service::ManagementService;
     let fixture = approval_fixture().await;
     let peer_router = fixture

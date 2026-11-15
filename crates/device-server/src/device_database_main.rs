@@ -35,7 +35,7 @@ async fn main() -> io::Result<()> {
         }
     };
     let database = ofdb_sql::Database::open(&args.database).map_err(io::Error::other)?;
-    device_service::replica::schema::up(&database)
+    device_service::ofdb::schema::up(&database)
         .await
         .map_err(io::Error::other)?;
     database

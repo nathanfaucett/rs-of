@@ -129,7 +129,7 @@ fn retain_private_attempt(
     root: &of_model::idp::model::key::Key,
 ) {
     let paths = idp_service::repo::key_service::KeyService::<
-        idp_service::replica::key_repo::DbKeyRepo,
+        idp_service::ofdb::key_repo::DbKeyRepo,
         Secrets,
     >::private_paths(root)
     .expect("canonical attempted paths");

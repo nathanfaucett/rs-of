@@ -64,7 +64,7 @@ pub async fn identity_client(
     config.validate_identity_connection()?;
     if let Some(remote) = &config.identity_database {
         let client = remote.connect().await?;
-        of_model::idp::replica::validate_identity(&client)
+        of_model::idp::ofdb::validate_identity(&client)
             .await
             .map_err(io::Error::other)?;
         return Ok(client);
@@ -82,7 +82,7 @@ pub async fn identity_client(
             .await
             .map_err(io::Error::other)?
             .with_deadline(deadline);
-            of_model::idp::replica::validate_identity(&client)
+            of_model::idp::ofdb::validate_identity(&client)
                 .await
                 .map_err(io::Error::other)?;
             Ok(client)
@@ -174,7 +174,7 @@ mod tests {
         let engine = Arc::new(
             ofdb_sql::Database::open(root.join("owner.redb")).expect("owner database"),
         );
-        of_model::idp::replica::up(&engine)
+        of_model::idp::ofdb::up(&engine)
             .await
             .expect("identity schema");
         let (stop, stopped) = tokio::sync::oneshot::channel();
@@ -203,7 +203,7 @@ mod tests {
         let client = crate::provisioning::identity_client(&config)
             .await
             .expect("explicit socket identity connection");
-        of_model::idp::replica::validate_identity(&client)
+        of_model::idp::ofdb::validate_identity(&client)
             .await
             .expect("same identity schema");
         assert!(
@@ -374,7 +374,7 @@ mod initial_administrator_tests {
         };
         {
             let engine = Arc::new(Database::open(&path).expect("owner database"));
-            of_model::idp::replica::up(&engine)
+            of_model::idp::ofdb::up(&engine)
                 .await
                 .expect("identity schema");
             grant

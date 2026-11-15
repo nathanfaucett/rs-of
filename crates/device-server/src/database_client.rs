@@ -16,7 +16,7 @@ pub async fn device_client(config: &AppConfig) -> io::Result<Client> {
             ));
         }
         let client = remote.connect().await?;
-        device_service::replica::schema::validate_device(&client)
+        device_service::ofdb::schema::validate_device(&client)
             .await
             .map_err(io::Error::other)?;
         Ok(client)
@@ -36,13 +36,13 @@ pub async fn identity_client(config: &AppConfig) -> io::Result<Client> {
             ));
         }
         let client = remote.connect().await?;
-        of_model::idp::replica::validate_identity(&client)
+        of_model::idp::ofdb::validate_identity(&client)
             .await
             .map_err(io::Error::other)?;
         Ok(client)
     } else {
         let owner = crate::provisioning::open_identity_database(config)?;
-        of_model::idp::replica::validate_identity(&owner.client())
+        of_model::idp::ofdb::validate_identity(&owner.client())
             .await
             .map_err(io::Error::other)?;
         Ok(owner.client())

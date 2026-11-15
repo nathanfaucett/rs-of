@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use device_service::hosted_control_plane::HostedControlPlane;
-use device_service::replica::device_repo::DbDeviceRepo;
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use device_service::ofdb::device_repo::DbDeviceRepo;
+use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
 use of_model::contract::replication::{
     OwnerCopyCleanup, SelectedResource, SelectedResourcesResponse,
 };
