@@ -17,11 +17,9 @@ postgres = ["db/postgres"]
 # Internal
 btree-redb = { package = "ofdb-btree-redb", path = "../../../ofdb/crates/btree-redb", default-features = false }
 db = { package = "idp-db", path = "../db", default-features = false, features = [
-    "replica",
+    "ofdb",
 ] }
-of-model = { path = "../model", default-features = false, features = [
-    "replica",
-] }
+of-model = { path = "../model", default-features = false, features = ["ofdb"] }
 ofdb-sql = { package = "ofdb-sql", path = "../../../ofdb/crates/sql", default-features = false, features = [
     "sql",
 ] }

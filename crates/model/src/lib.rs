@@ -3,18 +3,11 @@
 extern crate alloc;
 pub mod config;
 pub mod contract;
-#[cfg(feature = "ofdb")]
-pub mod db;
 pub mod device;
-#[cfg(feature = "ofdb")]
-pub mod error;
 pub mod idp;
 pub mod json_vec;
 pub mod management;
-#[cfg(feature = "ofdb")]
 pub mod ofdb;
-#[cfg(feature = "replica")]
-pub use ofdb as replica;
 pub mod space_delimited;
 pub mod storage;
 

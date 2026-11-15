@@ -6,7 +6,3 @@ extern crate alloc;
 
 pub mod contract;
 pub mod model;
-#[cfg(feature = "ofdb")]
-pub mod ofdb;
-#[cfg(feature = "replica")]
-pub use ofdb as replica;

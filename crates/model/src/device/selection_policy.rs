@@ -33,38 +33,6 @@ pub enum OwnerPolicyObservation {
     },
 }
 
-#[cfg(feature = "ofdb")]
-use ofdb_sql::{FromRow, FromRowError, Row};
-
-#[cfg(feature = "ofdb")]
-impl FromRow for SelectionPolicy {
-    fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
-        Ok(Self {
-            device_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "device_id")?, "device_id")?,
-            owner_subject: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "owner_subject")?,
-                "owner_subject",
-            )?,
-            application_id: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "application_id")?,
-                "application_id",
-            )?,
-            selected_kind: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "selected_kind")?,
-                "selected_kind",
-            )?,
-            selected_id: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "selected_id")?,
-                "selected_id",
-            )?,
-            admin_allowed: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "admin_allowed")?,
-                "admin_allowed",
-            )?,
-        })
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResourceSelection {
     pub id: Uuid,
@@ -74,31 +42,4 @@ pub struct ResourceSelection {
     pub selected_kind: String,
     pub selected_id: Uuid,
     pub selected: bool,
-}
-
-#[cfg(feature = "ofdb")]
-impl FromRow for ResourceSelection {
-    fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
-        Ok(Self {
-            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
-            device_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "device_id")?, "device_id")?,
-            owner_subject: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "owner_subject")?,
-                "owner_subject",
-            )?,
-            application_id: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "application_id")?,
-                "application_id",
-            )?,
-            selected_kind: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "selected_kind")?,
-                "selected_kind",
-            )?,
-            selected_id: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "selected_id")?,
-                "selected_id",
-            )?,
-            selected: ofdb_sql::decode(ofdb_sql::value(row, columns, "selected")?, "selected")?,
-        })
-    }
 }
