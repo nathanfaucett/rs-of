@@ -36,13 +36,13 @@ mod tests {
     use crate::ofdb::DbPermissionRepo;
     use crate::ofdb::DbRoleRepo;
     use crate::service::ManagementService;
+    use db::ofdb::up;
     use of_model::id::Id;
     use of_model::idp::contract::permission_evaluation::IdentityAction;
     use of_model::idp::contract::permission_evaluation::IdentityResource;
     use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
     use of_model::idp::contract::permission_evaluation::PermissionSubject;
     use of_model::idp::contract::permission_evaluation::PermissionTarget;
-    use db::ofdb::up;
     use ofdb_sql::Database;
     use std::sync::Arc;
 

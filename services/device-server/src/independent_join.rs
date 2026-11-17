@@ -1,5 +1,4 @@
 #[cfg(feature = "independent")]
-
 use std::{
     collections::BTreeMap,
     io,
@@ -36,9 +35,9 @@ use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
 use of_model::idp::contract::permission_evaluation::PermissionSubject;
 use of_model::idp::contract::permission_evaluation::PermissionTarget;
 use ofdb_sql::Database;
+use server_common::LocalTls;
 use server_common::SecurityAddon;
 use setup::IndependentPeer;
-use server_common::LocalTls;
 use tokio::{sync::Mutex, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 

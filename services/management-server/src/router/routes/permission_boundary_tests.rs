@@ -4,6 +4,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
+use db::ofdb::up;
 use device_service::hosted_control_plane::HostedControlPlane;
 use management_service::ofdb::permission_repo::DbPermissionRepo;
 use management_service::ofdb::role_repo::DbRoleRepo;
@@ -16,7 +17,6 @@ use of_model::idp::contract::permission_evaluation::IdentityResource;
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
 use of_model::idp::contract::permission_evaluation::PermissionSubject;
 use of_model::idp::contract::permission_evaluation::PermissionTarget;
-use db::ofdb::up;
 
 use crate::router::{
     middleware::management_authorization::ManagementAuthorization,

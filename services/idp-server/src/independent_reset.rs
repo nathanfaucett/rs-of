@@ -1,5 +1,4 @@
 #[cfg(feature = "independent")]
-
 use std::{fs, io, path::Path, sync::Arc};
 
 use device_service::independent_join::IndependentJoinApproval;

@@ -3922,6 +3922,7 @@ dependencies = [
  "chrono",
  "of-db",
  "of-model",
+ "ofdb-kv",
  "ofdb-sql",
  "serde",
  "thiserror 2.0.21",

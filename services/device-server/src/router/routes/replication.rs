@@ -232,11 +232,11 @@ mod tests {
     #[cfg(feature = "cli")]
     use device_service::ofdb::DbSelectionPolicyRepo;
     #[cfg(feature = "cli")]
+    use management_service::ManagementService;
+    #[cfg(feature = "cli")]
     use management_service::ofdb::DbPermissionRepo;
     #[cfg(feature = "cli")]
     use management_service::ofdb::DbRoleRepo;
-    #[cfg(feature = "cli")]
-    use management_service::ManagementService;
     use of_model::contract::{
         principal_type::PrincipalType,
         replication::{MANAGEMENT_REPLICATION_ADMIT_SCOPE, MANAGEMENT_REPLICATION_READ_SCOPE},
@@ -352,11 +352,9 @@ mod tests {
                     .expect("control plane")
                     .with_idp_service_client("device-client", "device-secret", "idp-api")
                     .expect("authenticated IdP relationship")
-                    .with_local_devices(Arc::new(
-                        device_service::ofdb::DbDeviceRepo::new(
-                            engine.clone().client(),
-                        ),
-                    )),
+                    .with_local_devices(Arc::new(device_service::ofdb::DbDeviceRepo::new(
+                        engine.clone().client(),
+                    ))),
             ),
             "storage-api",
         );

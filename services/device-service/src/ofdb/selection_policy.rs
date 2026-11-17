@@ -143,13 +143,13 @@ impl DbSelectionPolicyRepo {
                 distinct: false,
                 predicate: Some(resource_equals("id", Value::Uuid(id))),
                 aggregates: vec![],
-        group_by: vec![],
-        order_by: vec![],
+                group_by: vec![],
+                order_by: vec![],
                 text_concats: vec![],
-                
+
                 limit: None,
                 offset: None,
-        having: None,
+                having: None,
             }))])
             .await
             .map_err(db_error)?;
@@ -256,13 +256,13 @@ impl DbSelectionPolicyRepo {
                 distinct: false,
                 predicate: Some(resource_equals("id", Value::Uuid(id))),
                 aggregates: vec![],
-        group_by: vec![],
-        order_by: vec![],
+                group_by: vec![],
+                order_by: vec![],
                 text_concats: vec![],
-                
+
                 limit: None,
                 offset: None,
-        having: None,
+                having: None,
             }))])
             .await
             .map_err(db_error)?;
@@ -282,13 +282,13 @@ impl DbSelectionPolicyRepo {
                 distinct: false,
                 predicate: Some(equals("device_id", Value::Uuid(device_id))),
                 aggregates: vec![],
-        group_by: vec![],
-        order_by: vec![],
+                group_by: vec![],
+                order_by: vec![],
                 text_concats: vec![],
-                
+
                 limit: None,
                 offset: None,
-        having: None,
+                having: None,
             }))])
             .await
             .map_err(db_error)?;
@@ -725,13 +725,13 @@ impl DbSelectionPolicyRepo {
                         )))),
                     )),
                     aggregates: vec![],
-        group_by: vec![],
-        order_by: vec![],
+                    group_by: vec![],
+                    order_by: vec![],
                     text_concats: vec![],
-                    
+
                     limit: None,
                     offset: None,
-        having: None,
+                    having: None,
                 }))])
                 .await
                 .map_err(db_error)?;

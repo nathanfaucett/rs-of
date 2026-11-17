@@ -1,4 +1,9 @@
 #![forbid(unsafe_code)]
+
+// Shorter namespace aliases for use within this crate
+pub use of_model as model;
+pub use ofdb_sql as db_sql;
+
 #[cfg(feature = "cli")]
 pub mod cli;
 mod config;

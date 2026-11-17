@@ -1,6 +1,12 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, recursion_limit = "256")]
 
+// Shorter namespace aliases for use within this crate
+pub use device_service as device;
+pub use of_model as model;
+pub use ofdb_kv as db_kv;
+pub use ofdb_sql as db_sql;
+
 #[cfg(feature = "cli")]
 pub mod cli;
 mod config;

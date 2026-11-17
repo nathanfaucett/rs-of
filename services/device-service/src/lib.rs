@@ -3,6 +3,14 @@
 
 extern crate alloc;
 
+// Shorter namespace aliases for use within this crate
+#[cfg(feature = "std")]
+pub use of_model as model;
+#[cfg(feature = "ofdb")]
+pub use ofdb_kv as db_kv;
+#[cfg(feature = "ofdb")]
+pub use ofdb_sql as db_sql;
+
 pub use of_model::device::contract::DeviceState;
 pub use of_model::device::contract::{
     ApprovedDeviceEndpoints, DeviceApprovalRequest, DeviceEndpointIdentity, DeviceEnrollment,

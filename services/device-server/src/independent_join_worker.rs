@@ -1,5 +1,4 @@
 #[cfg(feature = "independent")]
-
 use super::{Record, build, observe, open_existing, public, verify};
 use std::{io, path::Path, sync::Arc, time::Instant};
 

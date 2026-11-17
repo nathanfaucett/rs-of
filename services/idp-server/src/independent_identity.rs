@@ -1,5 +1,4 @@
 #[cfg(feature = "independent")]
-
 use std::{io, path::PathBuf, sync::Arc};
 
 use ofdb_sql::Database;

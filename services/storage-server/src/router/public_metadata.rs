@@ -54,10 +54,7 @@ mod tests {
                     assert!(value["version"].is_string());
                     assert!(value["build"].is_string());
                 } else {
-                    assert_eq!(
-                        value,
-                        server_common::canonical_openapi("storage", base, "")
-                    );
+                    assert_eq!(value, server_common::canonical_openapi("storage", base, ""));
                     assert!(value["paths"]["/databases"].is_object());
                     assert!(value["paths"]["/filesystems"].is_object());
                     assert!(value["paths"]["/"].is_object());

@@ -330,12 +330,11 @@ mod tests {
             "remote-device-startup-{}",
             of_model::id::Id::now_v7()
         ));
-        let config: crate::AppConfig =
-            serde_json::from_value(serde_json::json!({
-                "data_dir": root,
-                "device_database": {"endpoint": "http://127.0.0.1:1", "deadline_ms": 100}
-            }))
-            .expect("remote startup configuration");
+        let config: crate::AppConfig = serde_json::from_value(serde_json::json!({
+            "data_dir": root,
+            "device_database": {"endpoint": "http://127.0.0.1:1", "deadline_ms": 100}
+        }))
+        .expect("remote startup configuration");
         assert!(
             crate::provisioning::open_device_database(&config)
                 .await

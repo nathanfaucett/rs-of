@@ -110,7 +110,8 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
         &device_base,
         Some(Arc::new(shared_db.database.clone())),
         Some(http_client),
-    ).await?;
+    )
+    .await?;
     let app_origin: axum::http::HeaderValue = origin
         .origin()
         .ascii_serialization()

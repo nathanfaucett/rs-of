@@ -5,8 +5,8 @@ use of_model::idp::contract::{
 };
 use ofdb_sql::QueryError;
 use ofdb_sql::SqlTranslator;
-use ofdb_sql::Value;
 use ofdb_sql::Transaction;
+use ofdb_sql::Value;
 
 use crate::repo::{RepoError, RepoResult};
 
@@ -550,11 +550,8 @@ mod tests {
         (membership, signer)
     }
 
-    async fn public_trust_fixture() -> (
-        Arc<ofdb_sql::Database>,
-        ReplicaMembership,
-        IdpSignerRecord,
-    ) {
+    async fn public_trust_fixture() -> (Arc<ofdb_sql::Database>, ReplicaMembership, IdpSignerRecord)
+    {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
         replica::up(&engine.client())
             .await
@@ -1134,7 +1131,9 @@ mod tests {
     #[tokio::test]
     async fn caller_transaction_controls_enrollment_commit_and_rollback() {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
-        replica::up(&engine.client()).await.expect("initialize IdP schema");
+        replica::up(&engine.client())
+            .await
+            .expect("initialize IdP schema");
         let repo = DbReplicaSignerRepo::new(engine.client());
         let (membership, signer) = records();
         let mut transaction = engine
@@ -1180,7 +1179,9 @@ mod tests {
     #[tokio::test]
     async fn enrollment_is_persistent_idempotent_and_rejects_conflicts() {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
-        replica::up(&engine.client()).await.expect("initialize IdP schema");
+        replica::up(&engine.client())
+            .await
+            .expect("initialize IdP schema");
         let repo = DbReplicaSignerRepo::new(engine.client());
         let (membership, signer) = records();
 

@@ -5,6 +5,14 @@ extern crate alloc;
 
 extern crate self as idp_service;
 
+// Shorter namespace aliases for use within this crate
+#[cfg(feature = "std")]
+pub use of_model as model;
+#[cfg(feature = "ofdb")]
+pub use ofdb_kv as db_kv;
+#[cfg(feature = "ofdb")]
+pub use ofdb_sql as db_sql;
+
 pub mod oauth2;
 #[cfg(feature = "ofdb")]
 pub mod ofdb;

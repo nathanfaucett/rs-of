@@ -299,9 +299,8 @@ impl NodeJoinSource {
             ));
         }
         log::debug!(target: "setup_timeout", "seam=approval phase=policy_begin elapsed_ms={}", started.elapsed().as_millis());
-        let policies = device_service::ofdb::DbSelectionPolicyRepo::new(
-            self.device.clone().client(),
-        );
+        let policies =
+            device_service::ofdb::DbSelectionPolicyRepo::new(self.device.clone().client());
         if policies
             .get(identity.id, &identity.owner_subject, Id::nil())
             .await

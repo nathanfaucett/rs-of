@@ -93,7 +93,9 @@ impl ReplicationAdmission {
                 res = peers.changed() => res,
                 res = &mut work => return Some(res),
             };
-            if result.is_err() || !server.peers().contains(peer) { return None; }
+            if result.is_err() || !server.peers().contains(peer) {
+                return None;
+            }
         }
     }
 }

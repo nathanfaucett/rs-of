@@ -3,9 +3,9 @@ use std::sync::Arc;
 use axum::{body::Body, http::Request};
 use device_service::HostedControlPlane;
 use device_service::ofdb::DbSelectionPolicyRepo;
+use management_service::ManagementService;
 use management_service::ofdb::DbPermissionRepo;
 use management_service::ofdb::DbRoleRepo;
-use management_service::ManagementService;
 use of_model::id::Id;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -23,8 +23,7 @@ async fn document() -> Value {
     let root = std::env::temp_dir().join(format!("device-openapi-{}", Id::now_v7()));
     std::fs::create_dir_all(&root).expect("create isolated schema export directory");
     let engine = Arc::new(
-        ofdb_sql::Database::open(root.join("devices.redb"))
-            .expect("open isolated engine"),
+        ofdb_sql::Database::open(root.join("devices.redb")).expect("open isolated engine"),
     );
     let state = RouterState::new(
         "https://device.example/device",

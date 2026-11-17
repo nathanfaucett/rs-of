@@ -5,9 +5,9 @@ use db::local_database;
 use device_service::HostedControlPlane;
 use device_service::ofdb::DbDeviceRepo;
 use device_service::ofdb::DbSelectionPolicyRepo;
+use management_service::ManagementService;
 use management_service::ofdb::DbPermissionRepo;
 use management_service::ofdb::DbRoleRepo;
-use management_service::ManagementService;
 use of_model::contract::replication::SelectedResource;
 use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
 use of_model::device::selection_policy::OwnerPolicyObservation;
@@ -132,8 +132,8 @@ pub async fn build_router(
 #[cfg(test)]
 mod tests {
     use super::replication_policy_from_repo;
-    use device_service::ofdb::up;
     use device_service::ofdb::DbSelectionPolicyRepo;
+    use device_service::ofdb::up;
     use of_model::contract::replication::SelectedResource;
     use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity;
     use of_model::device::selection_policy::SelectionPolicy;

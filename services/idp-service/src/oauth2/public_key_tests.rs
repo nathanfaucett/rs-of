@@ -446,8 +446,7 @@ async fn public_keys_survive_native_reopen_without_secret_store() {
     let path = std::env::temp_dir().join(format!("of-public-key-{}.redb", Id::now_v7()));
     let entity_id = Id::now_v7();
     let (id, public, token) = {
-        let engine =
-            Arc::new(ofdb_sql::Database::open(&path).expect("open temporary database"));
+        let engine = Arc::new(ofdb_sql::Database::open(&path).expect("open temporary database"));
         up(&engine).await.expect("initialize current schema");
         let keys = KeyService::new(
             DbKeyRepo::new(engine.client()),
@@ -476,8 +475,7 @@ async fn public_keys_survive_native_reopen_without_secret_store() {
     };
     {
         let engine = Arc::new(
-            ofdb_sql::Database::open(&path)
-                .expect("reopen database without private store"),
+            ofdb_sql::Database::open(&path).expect("reopen database without private store"),
         );
         let repo = DbKeyRepo::new(engine.client());
         let key = repo

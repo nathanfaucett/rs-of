@@ -1,3 +1,9 @@
+// Shorter namespace aliases for use within this crate
+pub use file_system as fs;
+pub use of_model as model;
+pub use ofdb_kv as db_kv;
+pub use ofdb_sql as db_sql;
+
 pub mod database_catalog;
 pub mod database_runtime;
 mod local_copy;

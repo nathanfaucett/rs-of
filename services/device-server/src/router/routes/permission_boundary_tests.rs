@@ -6,9 +6,9 @@ use axum::{
 };
 use device_service::HostedControlPlane;
 use device_service::ofdb::DbSelectionPolicyRepo;
+use management_service::ManagementService;
 use management_service::ofdb::DbPermissionRepo;
 use management_service::ofdb::DbRoleRepo;
-use management_service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::error_code::ErrorCode;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
@@ -73,9 +73,9 @@ async fn restriction_api_updates_exact_device_with_separate_read_and_update_gran
             .expect("control plane")
             .with_idp_service_client("lookup", "secret", "idp-services")
             .expect("scoped lookup")
-            .with_local_devices(Arc::new(
-                device_service::ofdb::DbDeviceRepo::new(engine.clone().client()),
-            )),
+            .with_local_devices(Arc::new(device_service::ofdb::DbDeviceRepo::new(
+                engine.clone().client(),
+            ))),
     );
     state
         .selection_policies

@@ -1,10 +1,10 @@
 use chrono::{DateTime, Timelike, Utc};
-use of_model::id::Id;
-use of_model::idp::contract::code_challenge_method::CodeChallengeMethod;
-use of_model::idp::model::oauth2_authorization_code::OAuth2AuthorizationCode;
 use db::ofdb::validators::SecurityRow;
 use db::ofdb::validators::SecurityTable;
 use db::ofdb::validators::allows_token_issuance;
+use of_model::id::Id;
+use of_model::idp::contract::code_challenge_method::CodeChallengeMethod;
+use of_model::idp::model::oauth2_authorization_code::OAuth2AuthorizationCode;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
 use ofdb_sql::Query;
@@ -456,9 +456,10 @@ mod tests {
     async fn code_consumption_survives_database_reopen_and_denies_replay() {
         let path = std::env::temp_dir().join(format!("local-code-{}.redb", Id::now_v7()));
         let code = {
-            let engine =
-                Arc::new(ofdb_sql::Database::open(&path).expect("open code store"));
-            up(&engine.client()).await.expect("initialize local code store");
+            let engine = Arc::new(ofdb_sql::Database::open(&path).expect("open code store"));
+            up(&engine.client())
+                .await
+                .expect("initialize local code store");
             let repo = DbOAuth2AuthorizationCodeRepo::new(engine.client());
             let code = repo
                 .create_authorization_code(
@@ -480,9 +481,8 @@ mod tests {
             code
         };
         {
-            let engine = Arc::new(
-                ofdb_sql::Database::open(&path).expect("reopen local code store"),
-            );
+            let engine =
+                Arc::new(ofdb_sql::Database::open(&path).expect("reopen local code store"));
             let repo = DbOAuth2AuthorizationCodeRepo::new(engine.client());
             assert!(
                 repo.find_authorization_code_by_code(&code.code)

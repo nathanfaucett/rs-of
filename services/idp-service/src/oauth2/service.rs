@@ -65,7 +65,10 @@ use crate::{
         principal::{ClientPrincipal, Principal, UserPrincipal},
     },
     password_config::PasswordConfig,
-    repo::{ApplicationRepo, ClientRepo, KeyRepo, KeyService, OAuth2AuthorizationCodeRepo, OAuth2RefreshToken, OAuth2RefreshTokenRepo, OAuth2UserConsentRepo, UserRepo},
+    repo::{
+        ApplicationRepo, ClientRepo, KeyRepo, KeyService, OAuth2AuthorizationCodeRepo,
+        OAuth2RefreshToken, OAuth2RefreshTokenRepo, OAuth2UserConsentRepo, UserRepo,
+    },
     util::{encrypt_password, generate_random_string, verify_password},
 };
 

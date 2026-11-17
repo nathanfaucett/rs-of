@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use device_service::HostedControlPlane;
 use device_service::ofdb::DbSelectionPolicyRepo;
+use management_service::ManagementService;
 use management_service::ofdb::DbPermissionRepo;
 use management_service::ofdb::DbRoleRepo;
-use management_service::ManagementService;
 
 type DbPermission = DbPermissionRepo;
 type DbRole = DbRoleRepo;

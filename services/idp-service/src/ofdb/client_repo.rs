@@ -1098,7 +1098,9 @@ mod tests {
         let id;
         {
             let database = Arc::new(Database::open(&path).expect("open local identity"));
-            up(&database.client()).await.expect("initialize fresh schema");
+            up(&database.client())
+                .await
+                .expect("initialize fresh schema");
             let keys = Arc::new(KeyService::new(
                 DbKeyRepo::new(database.client()),
                 TestPrivateKeyRepo::default(),
@@ -1173,7 +1175,9 @@ mod tests {
     #[tokio::test]
     async fn failed_local_verifier_write_rolls_back_client_registration() {
         let database = Arc::new(Database::in_memory());
-        up(&database.client()).await.expect("initialize fresh schema");
+        up(&database.client())
+            .await
+            .expect("initialize fresh schema");
         database
             .client()
             .translate_and_execute(
@@ -1204,7 +1208,9 @@ mod tests {
     #[tokio::test]
     async fn client_secrets_are_disclosed_only_on_creation_and_rotation() {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
-        up(&engine.client()).await.expect("initialize current IdP schema");
+        up(&engine.client())
+            .await
+            .expect("initialize current IdP schema");
         let key_service = Arc::new(KeyService::new(
             DbKeyRepo::new(engine.client()),
             TestPrivateKeyRepo::default(),

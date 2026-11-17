@@ -1,6 +1,15 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 extern crate alloc;
+
+// Shorter namespace aliases for use within this crate
+#[cfg(feature = "std")]
+pub use of_model as model;
+#[cfg(all(feature = "ofdb", feature = "redb"))]
+pub use ofdb_kv as db_kv;
+#[cfg(feature = "ofdb")]
+pub use ofdb_sql as db_sql;
+
 #[cfg(feature = "ofdb")]
 mod local_permissions;
 #[cfg(feature = "ofdb")]

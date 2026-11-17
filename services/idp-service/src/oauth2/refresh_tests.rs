@@ -5,6 +5,7 @@ use std::{
 
 use base64::{Engine as Base64Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use bip32::DerivationPath;
+use db::ofdb::up;
 use key::derived_key::DerivedKey;
 use of_model::contract::{
     refresh_token::RefreshToken, standard_claims::StandardClaims, token_response::TokenResponse,
@@ -24,7 +25,6 @@ use of_model::idp::contract::revocation_request::RevocationRequest;
 use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 use of_model::idp::contract::token_request::TokenRequest;
 use of_model::idp::model::client::Client;
-use db::ofdb::up;
 use ofdb_sql::Query;
 use ofdb_sql::QueryColumn;
 use ofdb_sql::QueryFrom;
@@ -873,8 +873,7 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
         .expect("prepared binding")
         .key_id;
     {
-        let engine =
-            Arc::new(ofdb_sql::Database::open(&path).expect("persist Node identity"));
+        let engine = Arc::new(ofdb_sql::Database::open(&path).expect("persist Node identity"));
         up(&engine).await.expect("initialize local trust schema");
         for table in [
             "applications",
@@ -914,8 +913,7 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
     drop(source);
     let mut replacement = None;
     for reopen in 0..2 {
-        let engine =
-            Arc::new(ofdb_sql::Database::open(&path).expect("reopen offline Node"));
+        let engine = Arc::new(ofdb_sql::Database::open(&path).expect("reopen offline Node"));
         let config: OAuth2Config =
             serde_json::from_slice(&std::fs::read(&config_path).expect("read binding config"))
                 .expect("restore persisted Node binding");

@@ -1,10 +1,10 @@
 use chrono::{DateTime, Timelike, Utc};
-use of_model::id::Id;
-use of_model::idp::model::permission::Permission;
-use of_model::idp::model::role::Role;
 use db::ofdb::validators::SecurityRow;
 use db::ofdb::validators::SecurityTable;
 use db::ofdb::validators::allows_authorization;
+use of_model::id::Id;
+use of_model::idp::model::permission::Permission;
+use of_model::idp::model::role::Role;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
 use ofdb_sql::Query;

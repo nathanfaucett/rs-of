@@ -1,5 +1,4 @@
 #[cfg(feature = "independent")]
-
 use std::{io, path::Path};
 
 use setup::IndependentPeer;

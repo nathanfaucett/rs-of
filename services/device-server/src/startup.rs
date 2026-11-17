@@ -1,5 +1,4 @@
 #[cfg(feature = "independent")]
-
 use std::{io, net::SocketAddr, path::Path};
 
 use setup::IndependentSetupHost;

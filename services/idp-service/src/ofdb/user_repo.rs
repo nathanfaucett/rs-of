@@ -1,11 +1,11 @@
 use chrono::{DateTime, Timelike, Utc};
+use db::ofdb::validators::allows_authentication;
 use of_model::id::Id;
 use of_model::idp::contract::sex::Sex;
 use of_model::idp::model::user::User;
 use of_model::idp::model::user_email::UserEmail;
 use of_model::idp::model::user_password::UserPassword;
 use of_model::idp::model::user_phone_number::UserPhoneNumber;
-use db::ofdb::validators::allows_authentication;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
 use ofdb_sql::Query;
@@ -1221,7 +1221,9 @@ mod tests {
     #[tokio::test]
     async fn deletes_user_by_id() {
         let database = Arc::new(Database::in_memory());
-        up(&database.client()).await.expect("initialize user schema");
+        up(&database.client())
+            .await
+            .expect("initialize user schema");
         let repo = DbUserRepo::new(database.client(), PasswordConfig::default());
         let user = repo
             .create_user_with_password("alice", "password")

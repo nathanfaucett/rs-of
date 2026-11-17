@@ -173,6 +173,11 @@ impl<P: PrivateKeyRepo + Send + Sync> device_service::node_join_owner::NodeJoinO
         &self,
         _binding: &NodeSignerBinding,
     ) -> Pin<Box<dyn Future<Output = io::Result<JwkPublic>> + Send>> {
-        Box::pin(async { Err(io::Error::new(io::ErrorKind::Unsupported, "verify_node_signer not implemented")) })
+        Box::pin(async {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "verify_node_signer not implemented",
+            ))
+        })
     }
 }

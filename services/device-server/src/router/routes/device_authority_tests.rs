@@ -15,9 +15,9 @@ use device_service::ofdb::DbSelectionPolicyRepo;
 use of_model::device::selection_policy::SelectionPolicy;
 use ofdb_sql::Database;
 
+use management_service::ManagementService;
 use management_service::ofdb::DbPermissionRepo;
 use management_service::ofdb::DbRoleRepo;
-use management_service::ManagementService;
 use of_model::contract::{
     principal_type::PrincipalType, standard_claims::StandardClaims, token_type::TokenType,
     token_use::TokenUse,
