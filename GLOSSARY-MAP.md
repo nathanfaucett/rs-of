@@ -3,23 +3,18 @@
 ## Shared domain
 
 - [Backend deployment boundaries](docs/backend-deployments.md): local composition, retained independent setup dependencies, and legacy data handling.
-- [Shared control-plane deployment](docs/control-plane.md): identity/Device owners, injected and remote clients, default local independent socket setup, scoped policy history, reset boundaries, and qualification limits.
-- [Public persistence and protocol integration](docs/public-persistence.md): owner facade contracts, shared-router adapters, authenticated scoped security history, local credential separation, and qualification boundaries.
 - [Shared terms](GLOSSARY.md): Installation, User, Application, Principal, Device, and setup lifecycle.
 - [System design](docs/design.md): equal offline-first Nodes, local authorization, ownership boundaries, and synchronization requirements.
-- [Setup workers and onboarding](docs/setup-workers.md): durable Create/Join ownership, current readiness, default naming, advanced connections and deferred Device preferences.
-- [System API contracts](docs/api.md): owner routes, prefix composition, setup/readiness, and safe client generation.
-- [System security](docs/security.md): actor/subject/signer/endpoint distinctions, local trust, secret separation, and acceptance limits.
 - [Networking composition](docs/design.md#networking-composition-and-trust): `iroh-chain` reuse, local membership, and source interfaces; [Endpoint Mesh glossary](GLOSSARY.md#endpoint-mesh-ofnet) defines Endpoint, Peer, Mesh, Broadcast, Direct Message, and Byte Stream.
-- [Offline-first Nodes spec](.scratch/offline-first-nodes/spec.md), [tickets and migration coverage](.scratch/offline-first-nodes/map.md), and [Node operations](docs/operations.md).
+- [Offline-first Nodes spec](.scratch/offline-first-nodes/spec.md), [tickets and migration coverage](.scratch/offline-first-nodes/map.md).
 
 ## Contexts
 
 | Context    | Glossary                                                 | Design and contracts                                                                                                                                                                                                           |
 | ---------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| IdP        | [Identity Provider](services/idp-service/GLOSSARY.md)    | [Design](services/idp-service/docs/design.md), [local security](services/idp-service/docs/local-security.md), [owner API](docs/api.md#owner-contracts)                                                                         |
-| Management | [Management](services/management-service/GLOSSARY.md)    | [Service ownership](docs/design.md#service-ownership), [owner API](docs/api.md#owner-contracts), [selection and admission](services/storage-service/docs/design.md#device-ownership-and-resource-selection)                    |
-| Device     | [Device](services/device-service/GLOSSARY.md)            | [Service ownership](docs/design.md#service-ownership), [owner API](docs/api.md#owner-contracts)                                                                                                                                |
+| IdP        | [Identity Provider](services/idp-service/GLOSSARY.md)    | [Design](services/idp-service/docs/design.md), [local security](services/idp-service/docs/local-security.md)                                                                                                                   |
+| Management | [Management](services/management-service/GLOSSARY.md)    | [Service ownership](docs/design.md#service-ownership), [selection and admission](services/storage-service/docs/design.md#device-ownership-and-resource-selection)                                                              |
+| Device     | [Device](services/device-service/GLOSSARY.md)            | [Service ownership](docs/design.md#service-ownership)                                                                                                                                                                          |
 | Storage    | [Storage](services/storage-service/GLOSSARY.md)          | [Design](services/storage-service/docs/design.md), [Sync Architecture](services/storage-service/docs/sync-architecture.md), [API](services/storage-service/docs/api.md), [security](services/storage-service/docs/security.md) |
 | ofdb       | [Database (ofdb)](GLOSSARY.md#database-ofdb)             | [ofdb-sql crate](db/sql/README.md), [ofdb-kv crate](db/kv/README.md), [browser support](db/docs/browser.md)                                                                                                                    |
 | ofnet      | [Endpoint Mesh (ofnet)](GLOSSARY.md#endpoint-mesh-ofnet) | [iroh-chain crate](net/iroh-chain/README.md), [WASM bindings](net/iroh-chain-wasm/README.md), [TypeScript SDK](packages/net/README.md)                                                                                         |
