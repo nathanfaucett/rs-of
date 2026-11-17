@@ -1,0 +1,62 @@
+[package]
+name = "storage-service"
+edition = "2024"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Internal
+file-system = { path = "../../fs/file-system", default-features = false, features = [
+] }
+of-model = { path = "../model", default-features = false, features = ["std"] }
+ofdb-kv = { path = "../../db/kv", default-features = false, features = [
+    "redb",
+    "sync",
+] }
+ofdb-sql = { package = "ofdb-sql", path = "../../db/sql", default-features = false, features = [
+    "redb",
+    "sql",
+] }
+
+# Serialization
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+    "std",
+] }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+
+# OpenAPI
+utoipa = { version = "5.5", default-features = false, features = ["macros"] }
+
+# Async
+tokio = { version = "1.53", default-features = false, features = [
+    "net",
+    "rt",
+    "sync",
+    "time",
+] }
+
+# Utilities
+uuid = { version = "1.29", default-features = false, features = [
+    "std",
+    "v5",
+    "v7",
+] }
+
+[dev-dependencies]
+# Shared host fixture
+db = { package = "of-db", path = "../db", default-features = false, features = [
+    "native",
+] }
+
+# Async
+tokio = { version = "1.52", default-features = false, features = [
+    "rt",
+    "macros",
+] }
+
+[lints]
+workspace = true

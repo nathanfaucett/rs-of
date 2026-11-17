@@ -11,4 +11,13 @@
 **/esm/
 **/types/
 **/*.tsbuildinfo
+**/target/
+**/pkg/
+**/test-results/
+**/artifacts/
+**/dist/
+**/.svelte-kit/
 storage-data.setup-host/
+
+!packages/sql-wasm/pkg
+!packages/fs-wasm/pkg

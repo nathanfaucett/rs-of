@@ -1,0 +1,7 @@
+{
+  "capabilities": {
+    "alwaysMatch": {
+      "timeouts": { "script": 180000 }
+    }
+  }
+}

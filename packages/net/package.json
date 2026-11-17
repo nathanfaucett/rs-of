@@ -1,0 +1,35 @@
+{
+  "name": "@ofsdk/net",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript wrapper for ofnet WASM (mesh networking in the browser)",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./esm/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "pnpm run build:wasm && pnpm run build:ts",
+    "build:wasm": "cd ../../net/iroh-chain-wasm && wasm-pack build --target web --out-dir ../../packages/net/pkg --release",
+    "build:ts": "tsc -p tsconfig.json",
+    "clean": "rm -rf esm types pkg tsconfig.tsbuildinfo",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format .",
+    "format:fix": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.3",
+    "typescript": "^5.9.3",
+    "wasm-pack": "^0.15.0"
+  },
+  "files": [
+    "esm",
+    "types",
+    "pkg"
+  ]
+}

@@ -1,0 +1,59 @@
+[package]
+name = "management-service"
+version = "0.1.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Role, permission, and assignment service over the identity database"
+
+[lib]
+name = "management_service"
+
+[features]
+default = ["std"]
+utoipa = ["std", "of-model/utoipa", "dep:utoipa", "dep:utoipa-gen"]
+ofdb = ["std", "dep:db", "dep:ofdb-sql", "of-model/ofdb"]
+std = ["of-model/std"]
+
+[dependencies]
+# Internal
+of-model = { path = "../model", default-features = false, features = [] }
+db = { package = "of-db", path = "../db", default-features = false, features = ["ofdb"], optional = true }
+ofdb-sql = { path = "../../db/sql", default-features = false, optional = true, features = [
+    "redb",
+    "sql",
+] }
+
+# Error handling
+thiserror = { version = "2.0", default-features = false }
+
+# Serialization
+serde = { version = "1.0", default-features = false }
+
+# Time
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# OpenAPI
+utoipa = { version = "5.5", default-features = false, features = [
+    "macros",
+    "uuid",
+], optional = true }
+utoipa-gen = { version = "5.5", default-features = false, features = [
+    "uuid",
+], optional = true }
+
+[dev-dependencies]
+# Internal
+of-model = { path = "../model", default-features = false, features = ["std"] }
+
+# Async
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "rt",
+] }
+
+[lints]
+workspace = true

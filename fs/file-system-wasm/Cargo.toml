@@ -1,0 +1,33 @@
+[package]
+name = "file-system-wasm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Browser (WASM) TypeScript-facing API for file-system"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "file_system_wasm"
+
+[features]
+default = ["browser"]
+browser = ["file-system/browser"]
+
+[dependencies]
+# Internal
+file-system = { version = "0.1", path = "../file-system", package = "file-system", default-features = false, features = [
+    "browser",
+] }
+
+# WASM
+console_error_panic_hook = { version = "0.1", default-features = false }
+wasm-bindgen = { version = "0.2", default-features = false, features = ["std"] }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lints]
+workspace = true

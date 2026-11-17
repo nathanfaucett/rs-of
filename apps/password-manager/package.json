@@ -53,7 +53,7 @@
         "@ofsdk/idp-client": "workspace:*",
         "@ofsdk/management-client": "workspace:*",
         "@ofsdk/oidc-client": "workspace:*",
-        "@ofsdk/sql": "link:../../../ofdb/packages/sql",
+        "@ofsdk/sql": "workspace:*",
         "@ofsdk/svelte-headless": "workspace:*",
         "@ofsdk/sync-sdk": "workspace:*",
         "@tanstack/db": "~0.15.2",

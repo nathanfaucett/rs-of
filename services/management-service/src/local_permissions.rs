@@ -1,0 +1,109 @@
+use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+use ofdb_sql::Client;
+
+use of_model::management_error::ManagementResult;
+
+use crate::service::ManagementService;
+
+use crate::ofdb::DbPermissionRepo;
+
+use crate::ofdb::DbRoleRepo;
+
+#[derive(Clone)]
+pub struct LocalPermissions {
+    engine: Client,
+}
+
+impl LocalPermissions {
+    #[must_use]
+    pub fn new(engine: Client) -> Self {
+        Self { engine }
+    }
+
+    pub async fn evaluate(&self, request: &PermissionEvaluationRequest) -> ManagementResult<bool> {
+        ManagementService::new(
+            DbPermissionRepo::new(self.engine.clone()),
+            DbRoleRepo::new(self.engine.clone()),
+        )
+        .evaluate_permission(request)
+        .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::local_permissions::LocalPermissions;
+    use crate::ofdb::DbPermissionRepo;
+    use crate::ofdb::DbRoleRepo;
+    use crate::service::ManagementService;
+    use of_model::id::Id;
+    use of_model::idp::contract::permission_evaluation::IdentityAction;
+    use of_model::idp::contract::permission_evaluation::IdentityResource;
+    use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
+    use of_model::idp::contract::permission_evaluation::PermissionSubject;
+    use of_model::idp::contract::permission_evaluation::PermissionTarget;
+    use db::ofdb::up;
+    use ofdb_sql::Database;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn local_policy_survives_reopen_and_denies_wrong_actor_action_and_target() {
+        let path = std::env::temp_dir().join(format!("local-policy-{}.redb", Id::now_v7()));
+        let user = Id::now_v7();
+        let mut request = PermissionEvaluationRequest {
+            request_id: Id::now_v7(),
+            subject: PermissionSubject::User { id: user },
+            action: IdentityAction::DevicePairingRead,
+            target: PermissionTarget::Installation {
+                resource: IdentityResource::DevicePairing,
+            },
+        };
+        {
+            let engine = Arc::new(Database::open(&path).expect("open local policy"));
+            up(&engine).await.expect("initialize policy only");
+            let local = LocalPermissions::new(engine.client());
+            assert!(!local.evaluate(&request).await.expect("missing grants deny"));
+            ManagementService::new(
+                DbPermissionRepo::new(engine.client()),
+                DbRoleRepo::new(engine.client()),
+            )
+            .provision_initial_administrator(
+                user,
+                Id::now_v7(),
+                &[
+                    (Id::now_v7(), IdentityAction::DevicePairingRead),
+                    (Id::now_v7(), IdentityAction::DevicePairingUpdate),
+                ],
+            )
+            .await
+            .expect("explicit local grants");
+            assert!(
+                local
+                    .evaluate(&request)
+                    .await
+                    .expect("local permission allows")
+            );
+        }
+        {
+            let engine = Arc::new(Database::open(&path).expect("reopen offline policy"));
+            let local = LocalPermissions::new(engine.client());
+            assert!(
+                local
+                    .evaluate(&request)
+                    .await
+                    .expect("persisted permission without any network")
+            );
+            request.subject = PermissionSubject::User { id: Id::now_v7() };
+            assert!(!local.evaluate(&request).await.expect("wrong actor denies"));
+            request.subject = PermissionSubject::User { id: user };
+            request.action = IdentityAction::ClientsRead;
+            assert!(
+                !local
+                    .evaluate(&request)
+                    .await
+                    .expect("wrong action/target denies")
+            );
+        }
+        std::fs::remove_file(path).expect("remove policy fixture");
+    }
+}

@@ -26,7 +26,7 @@ completions = ["unified-server/completions"]
 
 [dependencies]
 # Internal
-unified-server = { path = "./crates/unified-server", default-features = false, optional = true }
+unified-server = { path = "./services/unified-server", default-features = false, optional = true }
 
 # Async
 tokio = { version = "1.52", default-features = false, features = [
@@ -36,32 +36,72 @@ tokio = { version = "1.52", default-features = false, features = [
 
 [workspace]
 members = [
-    "crates/idp-client",
-    "crates/management-client",
-    "crates/device-client",
-    "crates/storage-client",
-    "crates/storage-api-client",
-    "crates/db",
-    "crates/cli",
-    "crates/server-common",
-    "crates/key",
-    "crates/management-server",
-    "crates/management-service",
-    "crates/device-service",
-    "crates/device-server",
-    "crates/model",
-    "crates/idp-server",
-    "crates/idp-service",
-    "crates/storage-server",
-    "crates/storage-service",
-    "crates/unified-server",
-    "crates/tauri-plugin-fetch-api",
-    "apps/app/src-tauri",
+    "services/idp-client",
+    "services/management-client",
+    "services/device-client",
+    "services/storage-client",
+    "services/storage-api-client",
+    "services/db",
+    "services/cli",
+    "services/server-common",
+    "services/key",
+    "services/management-server",
+    "services/management-service",
+    "services/device-service",
+    "services/device-server",
+    "services/model",
+    "services/idp-server",
+    "services/idp-service",
+    "services/storage-server",
+    "services/storage-service",
+    "services/unified-server",
+    "services/tauri-plugin-fetch-api",
+    # "apps/app/src-tauri",  # Tauri app with independent setup - build separately
+    "db/btree",
+    "db/btree-automerge",
+    "db/btree-indexeddb",
+    "db/btree-redb",
+    "db/kv",
+    "db/kv-client",
+    "db/kv-client-cli",
+    "db/kv-proto",
+    "db/kv-server",
+    "db/kv-server-cli",
+    "db/kv-store",
+    "db/platform",
+    "db/sql",
+    "db/sql-client",
+    "db/sql-client-cli",
+    "db/sql-engine",
+    "db/sql-engine-automerge",
+    "db/sql-engine-indexeddb",
+    "db/sql-engine-redb",
+    "db/sql-history",
+    "db/sql-macros",
+    "db/sql-proto",
+    "db/sql-protocol",
+    "db/sql-query",
+    "db/sql-schema",
+    "db/sql-server",
+    "db/sql-server-cli",
+    "db/sql-test",
+    "db/sql-translator",
+    "db/sync",
+    "db/value",
+    "fs/file-system",
+    "fs/file-system-wasm",
+    "net/iroh-chain",
+    "net/iroh-chain-wasm",
 ]
+exclude = ["db/wasm"]
 
 
 [workspace.dependencies]
-setup = { path = "crates/setup", default-features = false }
+setup = { path = "services/setup", default-features = false }
+js-sys = { version = "0.3", default-features = false }
+wasm-bindgen = { version = "0.2", default-features = false }
+wasm-bindgen-futures = { version = "0.4", default-features = false }
+uuid = { version = "1.29", default-features = false, features = ["v7", "js"] }
 
 [workspace.package]
 version = "0.1.0"
@@ -134,33 +174,33 @@ strip = true
 
 [dev-dependencies]
 # System-test service entry points
-server-common = { path = "crates/server-common", default-features = false, features = [
+server-common = { path = "services/server-common", default-features = false, features = [
     "test-support",
 ] }
-device-server = { path = "crates/device-server", default-features = false, features = [
+device-server = { path = "services/device-server", default-features = false, features = [
     "cli",
 ] }
-idp-server = { path = "crates/idp-server", default-features = false, features = [
+idp-server = { path = "services/idp-server", default-features = false, features = [
     "cli",
 ] }
-idp-service = { path = "crates/idp-service", default-features = false, features = [
+idp-service = { path = "services/idp-service", default-features = false, features = [
     "ofdb",
     "std",
 ] }
-management-server = { path = "crates/management-server", default-features = false, features = [
+management-server = { path = "services/management-server", default-features = false, features = [
     "cli",
 ] }
-storage-server = { path = "crates/storage-server", default-features = false, features = [
+storage-server = { path = "services/storage-server", default-features = false, features = [
     "cli",
     "network",
 ] }
 
 # Generated public clients
-of-device-client = { path = "crates/device-client", default-features = false }
-of-idp-client = { path = "crates/idp-client", default-features = false }
-of-management-client = { path = "crates/management-client", default-features = false }
-of-storage-client = { path = "crates/storage-client", default-features = false }
-of-storage-api-client = { path = "crates/storage-api-client", default-features = false }
+of-device-client = { path = "services/device-client", default-features = false }
+of-idp-client = { path = "services/idp-client", default-features = false }
+of-management-client = { path = "services/management-client", default-features = false }
+of-storage-client = { path = "services/storage-client", default-features = false }
+of-storage-api-client = { path = "services/storage-api-client", default-features = false }
 
 # Isolated fixtures
 keyring-core = { version = "1.0", default-features = false }
@@ -183,7 +223,7 @@ rustls = { version = "0.23", default-features = false, features = [
     "std",
     "tls12",
 ] }
-of-model = { path = "crates/model", default-features = false, features = [
+of-model = { path = "services/model", default-features = false, features = [
     "ofdb",
     "std",
 ] }
@@ -199,10 +239,10 @@ axum = { version = "0.8", default-features = false, features = [
     "http2",
     "tokio",
 ] }
-db = { package = "of-db", path = "crates/db", default-features = false, features = [
+db = { package = "of-db", path = "services/db", default-features = false, features = [
     "ofdb",
 ] }
-device-service = { path = "crates/device-service", default-features = false, features = [
+device-service = { path = "services/device-service", default-features = false, features = [
     "ofdb",
     "std",
     "utoipa",
@@ -210,14 +250,14 @@ device-service = { path = "crates/device-service", default-features = false, fea
 http = { version = "1.4", default-features = false }
 
 iroh = { version = "1.4", default-features = false, features = ["tls-ring"] }
-iroh-chain = { path = "../ofnet/crates/iroh-chain", default-features = false }
+iroh-chain = { path = "net/iroh-chain", default-features = false }
 log = { version = "0.4", default-features = false, features = ["std"] }
-management-service = { path = "crates/management-service", default-features = false, features = [
+management-service = { path = "services/management-service", default-features = false, features = [
     "ofdb",
     "std",
 ] }
 
-ofdb-sql = { path = "../ofdb/crates/sql", default-features = false, features = [
+ofdb-sql = { path = "db/sql", default-features = false, features = [
     "native-stage",
 ] }
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }
@@ -225,7 +265,7 @@ serde = { version = "1.0", default-features = false, features = [
     "derive",
     "std",
 ] }
-storage-service = { path = "crates/storage-service", default-features = false }
+storage-service = { path = "services/storage-service", default-features = false }
 tokio-util = { version = "0.7", default-features = false }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 

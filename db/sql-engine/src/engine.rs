@@ -1,0 +1,536 @@
+use alloc::boxed::Box;
+#[cfg(not(feature = "std"))]
+use alloc::{
+    string::{String, ToString},
+    sync::Arc,
+    vec,
+    vec::Vec,
+};
+use schema::{IndexSchema, TableSchema};
+use value::{FromRow, Row, Value};
+
+#[cfg(feature = "std")]
+use std::sync::Arc;
+
+use platform::{MaybeSend, MaybeSync};
+
+use btree::{ChangeEvent, ChangeSignal, StorageKey};
+use thiserror::Error;
+
+use query::{QueryParams, QueryResult, Statement, TranslateError, Translator};
+
+use crate::{
+    DocumentChangeId, Uuid,
+    codec::RowCodec,
+    document::RowReconciler,
+    executor::{
+        execute_in_transaction, execute_statement, resolve_row as resolve_conflicted_row,
+        row_conflict_values as conflicted_row_values, row_conflicts as conflicted_row_columns,
+        row_conflicts_batch as conflicted_rows_columns,
+    },
+    index::lookup as index_lookup,
+    kernel::{Kernel, KernelTransaction},
+    schema::{CatalogSnapshot, index_schema},
+};
+
+#[derive(Error, Debug)]
+pub enum EngineError {
+    #[error("Translate error: {0}")]
+    TranslateError(#[from] TranslateError),
+
+    #[error("Unsupported query shape for MVP executor: {0}")]
+    Unsupported(&'static str),
+
+    #[error("Invalid query: {0}")]
+    InvalidQuery(&'static str),
+
+    #[error("Read limit exceeded")]
+    LimitExceeded,
+
+    #[error("Sync dependency is unavailable")]
+    SyncDependencyUnavailable,
+
+    #[error("Error: {0}")]
+    Custom(String),
+}
+
+impl EngineError {
+    pub fn custom<T>(error: T) -> Self
+    where
+        T: ToString,
+    {
+        Self::Custom(error.to_string())
+    }
+}
+
+pub type EngineResult<T> = Result<T, EngineError>;
+
+pub type TimestampProvider = fn() -> uuid::Timestamp;
+
+pub type SchemaObservation = (
+    Vec<TableSchema>,
+    Vec<IndexSchema>,
+    Vec<(&'static str, uuid::Uuid, Row)>,
+);
+
+#[cfg(feature = "std")]
+fn default_timestamp_provider() -> uuid::Timestamp {
+    uuid::Timestamp::now(uuid::NoContext)
+}
+
+pub struct Engine<K, R> {
+    pub(crate) kernel: Arc<K>,
+    pub(crate) reconciler: Arc<R>,
+    pub(crate) timestamp_provider: TimestampProvider,
+    #[cfg(feature = "std")]
+    pub(crate) change_signal: ChangeSignal,
+}
+
+impl<K, R> Clone for Engine<K, R> {
+    fn clone(&self) -> Self {
+        Self {
+            kernel: self.kernel.clone(),
+            #[cfg(feature = "std")]
+            change_signal: self.change_signal.clone(),
+            reconciler: self.reconciler.clone(),
+            timestamp_provider: self.timestamp_provider,
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K, R> From<(K, R)> for Engine<K, R> {
+    fn from((kernel, reconciler): (K, R)) -> Self {
+        Self {
+            kernel: Arc::new(kernel),
+            reconciler: Arc::new(reconciler),
+            #[cfg(feature = "std")]
+            change_signal: ChangeSignal::default(),
+            timestamp_provider: default_timestamp_provider,
+        }
+    }
+}
+
+impl<K, R> Engine<K, R> {
+    #[cfg(feature = "std")]
+    pub fn new(kernel: K, reconciler: R) -> Self {
+        Self::from((kernel, reconciler))
+    }
+
+    pub fn with_timestamp_provider(
+        kernel: K,
+        reconciler: R,
+        timestamp_provider: TimestampProvider,
+    ) -> Self {
+        Self {
+            kernel: Arc::new(kernel),
+            reconciler: Arc::new(reconciler),
+            #[cfg(feature = "std")]
+            change_signal: ChangeSignal::default(),
+            timestamp_provider,
+        }
+    }
+}
+
+pub struct EngineTransaction<K, R>
+where
+    K: Kernel,
+    R: RowCodec<K::Transaction> + MaybeSend + MaybeSync,
+{
+    engine: Engine<K, R>,
+    transaction: Option<K::Transaction>,
+    changes: Vec<crate::Change>,
+    catalog: Option<CatalogSnapshot>,
+    failed: bool,
+}
+
+impl<K, R> EngineTransaction<K, R>
+where
+    K: Kernel,
+    R: RowCodec<K::Transaction> + MaybeSend + MaybeSync,
+{
+    pub fn set_read_limits(&mut self, entries: usize, bytes: usize) -> EngineResult<()> {
+        if self.failed {
+            return Err(EngineError::InvalidQuery("Transaction is aborted"));
+        }
+        self.transaction
+            .as_mut()
+            .ok_or(EngineError::InvalidQuery("Transaction is closed"))?
+            .set_read_limits(entries, bytes)
+    }
+
+    /// Uses the same user primary-key tuple as [`Engine::row_conflicts`].
+    pub async fn row_conflicts(&mut self, table: &str, key: &Row) -> EngineResult<Vec<String>> {
+        if self.failed {
+            return Err(EngineError::InvalidQuery("Transaction is aborted"));
+        }
+        let transaction = self
+            .transaction
+            .as_ref()
+            .ok_or(EngineError::InvalidQuery("Transaction is closed"))?;
+        conflicted_row_columns(
+            transaction,
+            self.engine.reconciler.as_ref(),
+            table,
+            key,
+            &mut self.catalog,
+        )
+        .await
+    }
+
+    /// Uses user primary-key values in table-column order, as in [`Engine::row_conflicts`].
+    pub async fn row_conflict_values(
+        &self,
+        table: &str,
+        key: &Row,
+    ) -> EngineResult<Vec<(String, Vec<Value>)>> {
+        if self.failed {
+            return Err(EngineError::InvalidQuery("Transaction is aborted"));
+        }
+        let transaction = self
+            .transaction
+            .as_ref()
+            .ok_or(EngineError::InvalidQuery("Transaction is closed"))?;
+        conflicted_row_values(transaction, self.engine.reconciler.as_ref(), table, key).await
+    }
+
+    pub async fn execute(&mut self, statements: Vec<Statement>) -> EngineResult<Vec<QueryResult>> {
+        if self.failed {
+            return Err(EngineError::InvalidQuery("Transaction is aborted"));
+        }
+        let transaction = self
+            .transaction
+            .as_mut()
+            .ok_or(EngineError::InvalidQuery("Transaction is closed"))?;
+        let result = Box::pin(execute_in_transaction(
+            &self.engine,
+            transaction,
+            statements,
+            &mut self.changes,
+            &mut self.catalog,
+        ))
+        .await;
+        // Codec adapters may erase storage error categories; the transaction owns budget exhaustion.
+        let result = if transaction.read_limit_exceeded() {
+            Err(EngineError::LimitExceeded)
+        } else {
+            result
+        };
+        match result {
+            Ok(results) => Ok(results),
+            Err(error) => {
+                self.failed = true;
+                Err(error)
+            }
+        }
+    }
+
+    pub async fn translate_and_execute<T>(
+        &mut self,
+        query: &str,
+        translator: &T,
+    ) -> EngineResult<Vec<QueryResult>>
+    where
+        T: Translator,
+    {
+        let statements = translator.translate(query).await?;
+        self.execute(statements).await
+    }
+
+    pub async fn translate_and_execute_with_params<T>(
+        &mut self,
+        query: &str,
+        params: Option<&QueryParams>,
+        translator: &T,
+    ) -> EngineResult<Vec<QueryResult>>
+    where
+        T: Translator,
+    {
+        let statements = translator.translate_with_params(query, params).await?;
+        self.execute(statements).await
+    }
+
+    pub async fn commit(mut self) -> EngineResult<()> {
+        let transaction = self
+            .transaction
+            .take()
+            .ok_or(EngineError::InvalidQuery("Transaction is closed"))?;
+        if self.failed {
+            transaction.rollback().await?;
+            return Err(EngineError::InvalidQuery(
+                "Cannot commit an aborted transaction",
+            ));
+        }
+
+        // Emit ChangeEvents for push-based sync
+        #[cfg(feature = "std")]
+        {
+            let mut events = Vec::new();
+            for change in &self.changes {
+                let crate::ChangeKey::Row { table, row } = &change.key;
+                if let Some(blob) = &change.value {
+                    let storage_key = StorageKey {
+                        table: table.clone(),
+                        key: row.as_bytes().to_vec(),
+                    };
+                    events.push(ChangeEvent {
+                        key: storage_key,
+                        blob: blob.clone(),
+                        generation: 0, // TODO: use proper generation
+                    });
+                }
+            }
+            if !events.is_empty() {
+                self.engine.change_signal.committed_with_events(events);
+            }
+        }
+
+        transaction.commit().await
+    }
+
+    pub async fn rollback(mut self) -> EngineResult<()> {
+        let transaction = self
+            .transaction
+            .take()
+            .ok_or(EngineError::InvalidQuery("Transaction is closed"))?;
+        transaction.rollback().await
+    }
+}
+
+impl<K, R> Engine<K, R>
+where
+    K: Kernel,
+    R: RowCodec<K::Transaction> + MaybeSend + MaybeSync,
+{
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn subscribe_changes(&self) -> Option<btree::ChangeSubscription> {
+        self.kernel.subscribe_changes()
+    }
+
+    pub async fn transaction(&self) -> EngineResult<EngineTransaction<K, R>> {
+        Ok(EngineTransaction {
+            engine: self.clone(),
+            transaction: Some(self.kernel.transaction().await?),
+            changes: Vec::new(),
+            catalog: None,
+            failed: false,
+        })
+    }
+
+    /// Observes schemas and raw catalog states in one fresh read transaction.
+    /// Tables retain input order and duplicates. `None` discovers live winning index
+    /// definitions belonging to the requested tables; `Some` inspects only the named
+    /// indices, in input order, and rejects missing indices.
+    /// Raw states include tombstones so callers can validate catalog history membership.
+    pub async fn observe_schema(
+        &self,
+        tables: &[&str],
+        indices: Option<&[&str]>,
+    ) -> EngineResult<SchemaObservation> {
+        let transaction = self.kernel.transaction().await?;
+        let result =
+            crate::schema::observe_schema(&transaction, self.reconciler.as_ref(), tables, indices)
+                .await;
+        transaction.rollback().await?;
+        result
+    }
+
+    pub async fn index_schema(&self, name: &str) -> EngineResult<IndexSchema> {
+        let transaction = self.kernel.transaction().await?;
+        let schema = index_schema(&transaction, self.reconciler.as_ref(), name, None).await?;
+        transaction.rollback().await?;
+        schema
+            .map(|(_, schema)| schema)
+            .ok_or(EngineError::InvalidQuery("Index not found"))
+    }
+
+    pub async fn index_lookup(&self, name: &str, values: &Row) -> EngineResult<Option<Row>> {
+        let transaction = self.kernel.transaction().await?;
+        let row = index_lookup(&transaction, self.reconciler.as_ref(), name, values).await?;
+        transaction.rollback().await?;
+        Ok(row.map(|(_, row)| row))
+    }
+
+    pub async fn table_schema(&self, name: &str) -> EngineResult<TableSchema> {
+        let transaction = self.kernel.transaction().await?;
+        let schema =
+            crate::executor::table_schema(&transaction, self.reconciler.as_ref(), name).await?;
+        transaction.rollback().await?;
+        Ok(schema)
+    }
+
+    pub async fn create_table(&self, table_schema: TableSchema) -> EngineResult<()> {
+        self.execute(vec![Statement::DataDefinition(
+            query::DataDefinition::CreateTable {
+                schema: table_schema,
+                if_not_exists: false,
+            },
+        )])
+        .await?;
+        Ok(())
+    }
+
+    pub async fn drop_table(&self, table_name: &str) -> EngineResult<()> {
+        self.execute(vec![Statement::DataDefinition(
+            query::DataDefinition::DropTable {
+                table_name: String::from(table_name),
+                if_exists: false,
+            },
+        )])
+        .await?;
+        Ok(())
+    }
+
+    pub async fn translate_and_execute_with_params<T>(
+        &self,
+        query: &str,
+        params: Option<&QueryParams>,
+        translator: &T,
+    ) -> EngineResult<Vec<QueryResult>>
+    where
+        T: Translator,
+    {
+        let statements = translator.translate_with_params(query, params).await?;
+        self.execute(statements).await
+    }
+
+    pub async fn translate_and_execute<T>(
+        &self,
+        query: &str,
+        translator: &T,
+    ) -> EngineResult<Vec<QueryResult>>
+    where
+        T: Translator,
+    {
+        let statements = translator.translate(query).await?;
+        self.execute(statements).await
+    }
+
+    pub async fn translate_and_select<T, U>(
+        &self,
+        query: &str,
+        translator: &T,
+    ) -> EngineResult<Vec<U>>
+    where
+        T: Translator,
+        U: FromRow,
+    {
+        let mut results = self.translate_and_execute(query, translator).await?;
+        if results.len() != 1 {
+            return Err(EngineError::InvalidQuery("Expected one query result"));
+        }
+        results
+            .pop()
+            .expect("result length was checked")
+            .rows_as()
+            .map_err(EngineError::custom)
+    }
+
+    pub async fn execute(&self, statements: Vec<Statement>) -> EngineResult<Vec<QueryResult>> {
+        execute_statement(self, statements).await
+    }
+
+    /// Apply an inbound change from push-based sync.
+    /// This is used by the push-sync protocol to apply remote changes.
+    #[cfg(feature = "std")]
+    pub async fn apply_inbound_change(
+        &self,
+        table: &str,
+        row: Uuid,
+        change_id: &DocumentChangeId,
+        payload: &[u8],
+    ) -> EngineResult<()>
+    where
+        K: Kernel,
+        R: RowReconciler<K::Transaction> + MaybeSend + MaybeSync,
+    {
+        let mut transaction = self.kernel.transaction().await?;
+        let result = self
+            .reconciler
+            .apply_change(&mut transaction, table, row, change_id, payload)
+            .await;
+        match result {
+            Ok(()) => transaction.commit().await,
+            Err(e) => {
+                transaction.rollback().await?;
+                Err(e)
+            }
+        }
+    }
+
+    /// Keys contain user primary-key values in table-column order, independent of index order.
+    /// Missing keys return no conflicts; internal row identities are not accepted as natural keys.
+    pub async fn row_conflicts(&self, table_name: &str, key: &Row) -> EngineResult<Vec<String>> {
+        let transaction = self.kernel.transaction().await?;
+        let result = conflicted_row_columns(
+            &transaction,
+            self.reconciler.as_ref(),
+            table_name,
+            key,
+            &mut None,
+        )
+        .await?;
+        transaction.rollback().await?;
+        Ok(result)
+    }
+
+    /// Inspects keys in input order using one fresh snapshot.
+    /// Empty input is a no-op; the first error aborts inspection without partial results.
+    pub async fn row_conflicts_batch(
+        &self,
+        table_name: &str,
+        keys: &[Row],
+    ) -> EngineResult<Vec<Vec<String>>> {
+        let transaction = self.kernel.transaction().await?;
+        let result = conflicted_rows_columns(
+            &transaction,
+            self.reconciler.as_ref(),
+            table_name,
+            keys,
+            &mut None,
+        )
+        .await?;
+        transaction.rollback().await?;
+        Ok(result)
+    }
+
+    /// Uses user primary-key values in table-column order, as in [`Engine::row_conflicts`].
+    pub async fn row_conflict_values(
+        &self,
+        table_name: &str,
+        key: &Row,
+    ) -> EngineResult<Vec<(String, Vec<Value>)>> {
+        let transaction = self.kernel.transaction().await?;
+        let result =
+            conflicted_row_values(&transaction, self.reconciler.as_ref(), table_name, key).await?;
+        transaction.rollback().await?;
+        Ok(result)
+    }
+
+    /// Resolves a row by its user primary-key values in table-column order.
+    pub async fn resolve_row(
+        &self,
+        table_name: &str,
+        key: &Row,
+        values: Vec<(String, Value)>,
+    ) -> EngineResult<()> {
+        let mut transaction = self.kernel.transaction().await?;
+        let result = resolve_conflicted_row(
+            &mut transaction,
+            self.reconciler.as_ref(),
+            self.timestamp_provider,
+            table_name,
+            key,
+            values,
+        )
+        .await;
+        match result {
+            Ok(()) => transaction.commit().await,
+            Err(error) => {
+                transaction.rollback().await?;
+                Err(error)
+            }
+        }
+    }
+}

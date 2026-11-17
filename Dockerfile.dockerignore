@@ -1,14 +1,5 @@
-# This Dockerfile uses the workspace parent, not of/, as its context.
-**
-!of/
-!of/**
-!ofdb/
-!ofdb/**
-!offs/
-!offs/**
-!ofnet/
-!ofnet/**
-
+# This Dockerfile uses of/ as its context.
+# Exclude private state and build artifacts
 **/.git
 **/.worktrees
 **/.scratch

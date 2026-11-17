@@ -104,15 +104,29 @@ The application chooses a stable logical key and explicitly requests provisionin
 
 ```ts
 const storage = sdk.storage();
-const database = await storage.ensureDatabase({ creationKey: "app-chosen-key", name: "Example" });
-await storage.executeSql(database.id, {
-  statements: [
-    { sql: "CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, content TEXT NOT NULL)", params: [] },
-  ],
-}, ["write"]);
-const snapshot = await storage.executeSql(database.id, {
-  statements: [{ sql: "SELECT id, content FROM records", params: [] }],
-}, ["read"]);
+const database = await storage.ensureDatabase({
+  creationKey: "app-chosen-key",
+  name: "Example",
+});
+await storage.executeSql(
+  database.id,
+  {
+    statements: [
+      {
+        sql: "CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, content TEXT NOT NULL)",
+        params: [],
+      },
+    ],
+  },
+  ["write"],
+);
+const snapshot = await storage.executeSql(
+  database.id,
+  {
+    statements: [{ sql: "SELECT id, content FROM records", params: [] }],
+  },
+  ["read"],
+);
 ```
 
 `executeSql(id, request, actions, signal?)` requires explicit exchange actions;
@@ -132,7 +146,7 @@ retaining provider bodies. Only an explicit different key creates a replacement.
 The unkeyed `createDatabase(name?, signal?)` intentionally allocates a fresh identity
 on every successful invocation and is not an ensure/retry primitive.
 
-See the [Storage SQL contract](../../crates/storage-service/docs/api.md#explicit-application-sql-contract)
+See the [Storage SQL contract](../../services/storage-service/docs/api.md#explicit-application-sql-contract)
 for identity derivation, offline-Node limits, wire values, request/result bounds and
 atomic rollback. The app owns default selection, schema/version transactions and
 collection lifecycle. The SDK owns none of those policies and selects no Devices.

@@ -1,0 +1,128 @@
+[package]
+name = "file-system"
+version = "0.1.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Local-first, eventually consistent file system primitives"
+
+[lib]
+name = "file_system"
+
+[features]
+default = []
+browser = [
+    "dep:js-sys",
+    "dep:serde-wasm-bindgen",
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "dep:web-sys",
+]
+
+[dependencies]
+# Internal
+ofdb-platform = { version = "0.1", path = "../../db/platform", default-features = false }
+
+# Async
+futures-core = { version = "0.3", default-features = false, features = [
+    "alloc",
+] }
+futures-util = { version = "0.3", default-features = false, features = [
+    "alloc",
+] }
+
+# Async runtime
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "sync",
+] }
+
+# Serialization
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+    "std",
+] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+
+# Utilities
+bytes = { version = "1.11", default-features = false, features = [
+    "serde",
+    "std",
+] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Staged-content cleanup from synchronous Drop
+futures = { version = "0.3", default-features = false, features = [
+    "executor",
+    "std",
+] }
+
+# Internal
+ofdb-kv = { version = "0.1", path = "../../db/kv", default-features = false, features = [
+    "redb",
+    "sync",
+] }
+
+# Utilities
+uuid = { version = "1.29", default-features = false, features = [
+    "serde",
+    "std",
+    "v7",
+] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+# Browser capabilities
+js-sys = { version = "0.3", default-features = false, features = [
+    "std",
+], optional = true }
+serde-wasm-bindgen = { version = "0.6", default-features = false, optional = true }
+wasm-bindgen = { version = "0.2", default-features = false, features = [
+    "std",
+], optional = true }
+wasm-bindgen-futures = { version = "0.4", default-features = false, features = [
+    "std",
+], optional = true }
+web-sys = { version = "0.3", default-features = false, features = [
+    "Blob",
+    "FileSystemDirectoryHandle",
+    "FileSystemFileHandle",
+    "FileSystemGetDirectoryOptions",
+    "FileSystemGetFileOptions",
+    "FileSystemGetFileOptions",
+    "FileSystemWritableFileStream",
+], optional = true }
+
+# Internal
+ofdb-kv = { version = "0.1", path = "../../db/kv", default-features = false, features = [
+    "indexeddb",
+    "sync",
+] }
+
+# Utilities
+uuid = { version = "1.29", default-features = false, features = [
+    "serde",
+    "std",
+    "v7",
+    "js",
+] }
+
+[dev-dependencies]
+# Storage
+redb = { version = "4.3", default-features = false, features = ["std"] }
+
+# Async
+futures-util = { version = "0.3", default-features = false, features = [
+    "alloc",
+] }
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "rt",
+    "time",
+] }
+
+[lints]
+workspace = true

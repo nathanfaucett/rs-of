@@ -23,7 +23,7 @@ import {
 
 /**
  * Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2).
- * should match fields from crates/model/src/contract/error_response.rs
+ * should match fields from services/model/src/contract/error_response.rs
  * @export
  * @interface ErrorResponse
  */
@@ -54,7 +54,10 @@ export function ErrorResponseFromJSON(json: any): ErrorResponse {
   return ErrorResponseFromJSONTyped(json, false);
 }
 
-export function ErrorResponseFromJSONTyped(json: any, ignoreDiscriminator: boolean): ErrorResponse {
+export function ErrorResponseFromJSONTyped(
+  json: any,
+  ignoreDiscriminator: boolean,
+): ErrorResponse {
   if (json == null) {
     return json;
   }
@@ -81,7 +84,7 @@ export function ErrorResponseToJSON(json: any): ErrorResponse {
 
 export function ErrorResponseToJSONTyped(
   value?: ErrorResponse | null,
-  ignoreDiscriminator: boolean = false
+  ignoreDiscriminator: boolean = false,
 ): any {
   if (value == null) {
     return value;

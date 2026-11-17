@@ -1,13 +1,10 @@
 FROM rust:1.99-trixie AS builder
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends pkg-config libdbus-1-dev \
+    && apt-get install -y --no-install-recommends pkg-config libdbus-1-dev protobuf-compiler libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY of/ /workspace/of/
-COPY ofdb/ /workspace/ofdb/
-COPY offs/ /workspace/offs/
-COPY ofnet/ /workspace/ofnet/
+COPY . /workspace/of/
 WORKDIR /workspace/of
 RUN cargo build --locked --release -p unified-server --features cli --bin unified-server
 

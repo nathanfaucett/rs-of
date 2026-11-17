@@ -1,0 +1,111 @@
+[package]
+name = "management-server"
+version = "0.1.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Management role, permission, and assignment API"
+
+[lib]
+name = "management_server"
+
+[[bin]]
+name = "management-server"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+independent = [
+    "server-common/independent",
+    "device-service/independent",
+    "dep:setup",
+]
+cli = ["independent", "dep:clap", "dep:cli", "dep:dotenvy", "dep:tokio-util"]
+
+[dependencies]
+# Internal
+ofdb-sql = { path = "../../db/sql", default-features = false, features = [
+    "redb",
+    "sql",
+] }
+
+# Async
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+] }
+tokio-util = { version = "0.7", default-features = false, optional = true }
+
+# CLI
+clap = { version = "4.6", default-features = false, features = [
+    "std",
+    "derive",
+    "help",
+], optional = true }
+cli = { path = "../cli", default-features = false, features = [
+    "std",
+], optional = true }
+dotenvy = { version = "0.15", default-features = false, optional = true }
+setup = { workspace = true, optional = true }
+
+# Internal
+server-common = { path = "../server-common", default-features = false, features = [
+    "independent",
+] }
+
+db = { package = "of-db", path = "../db", default-features = false, features = [
+    "native",
+    "ofdb",
+    "remote",
+] }
+device-service = { path = "../device-service", default-features = false, features = [
+    "ofdb",
+    "std",
+    "utoipa",
+] }
+of-model = { path = "../model", default-features = false, features = [
+    "axum",
+    "ofdb",
+    "std",
+    "utoipa",
+] }
+management-service = { path = "../management-service", default-features = false, features = [
+    "ofdb",
+    "std",
+    "utoipa",
+] }
+
+# Configuration
+config = { version = "0.15", default-features = false, features = ["yaml"] }
+
+# Logging
+log = { version = "0.4", default-features = false, features = ["std"] }
+
+# Serialization
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+    "std",
+] }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+
+# Web
+reqwest = { version = "0.12", default-features = false }
+axum = { version = "0.8", default-features = false, features = [
+    "http1",
+    "http2",
+    "query",
+    "json",
+    "tokio",
+    "macros",
+] }
+http = { version = "1.4", default-features = false }
+uuid = { version = "1.29", default-features = false, features = [
+    "serde",
+    "v7",
+] }
+utoipa = { version = "5.5", default-features = false, features = ["macros"] }
+utoipa-axum = { version = "0.2", default-features = false }

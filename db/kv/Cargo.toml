@@ -1,0 +1,191 @@
+[package]
+name = "ofdb-kv"
+description = "Embedded and remote key-value database facade"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "ofdb_kv"
+
+[features]
+default = []
+std = []
+remote = [
+    "dep:platform",
+    "std",
+    "dep:kv-proto",
+    "dep:tonic",
+    "dep:tokio",
+    "tokio/net",
+    "tokio/sync",
+    "dep:tokio-stream",
+    "dep:tower",
+    "dep:hyper-util",
+]
+in-memory = [
+    "dep:platform",
+    "std",
+    "dep:btree",
+    "btree/in-memory",
+    "dep:kv-store",
+    "dep:uuid",
+]
+indexeddb = [
+    "dep:platform",
+    "std",
+    "dep:btree",
+    "dep:btree-indexeddb",
+    "dep:kv-store",
+    "dep:uuid",
+    "dep:automerge",
+    "value/wasm",
+]
+redb = [
+    "dep:platform",
+    "std",
+    "dep:btree",
+    "dep:btree-redb",
+    "dep:kv-store",
+    "dep:uuid",
+    "dep:redb",
+]
+server = ["remote", "dep:kv-server"]
+sync = [
+    "dep:postcard",
+    "dep:serde",
+    "dep:platform",
+    "std",
+    "dep:btree",
+    "dep:sync",
+    "sync/std",
+    "dep:kv-store",
+    "dep:uuid",
+]
+wasm = [
+    "dep:postcard",
+    "dep:serde",
+    "dep:platform",
+    "std",
+    "dep:btree",
+    "dep:sync",
+    "sync/wasm",
+    "dep:kv-store",
+    "dep:uuid",
+]
+
+[dependencies]
+# Platform execution
+platform = { version = "0.1", path = "../platform", package = "ofdb-platform", default-features = false, features = [
+    "time",
+], optional = true }
+
+# Internal dependencies
+btree = { version = "0.1", path = "../btree", package = "ofdb-btree", default-features = false, features = [
+    "std",
+    "changes",
+], optional = true }
+btree-indexeddb = { version = "0.1", path = "../btree-indexeddb", package = "ofdb-btree-indexeddb", default-features = false, features = [
+], optional = true }
+btree-redb = { version = "0.1", path = "../btree-redb", package = "ofdb-btree-redb", default-features = false, features = [
+], optional = true }
+kv-proto = { version = "0.1", path = "../kv-proto", package = "ofdb-kv-proto", default-features = false, features = [
+], optional = true }
+kv-server = { version = "0.1", path = "../kv-server", package = "ofdb-kv-server", default-features = false, features = [
+], optional = true }
+kv-store = { version = "0.1", path = "../kv-store", package = "ofdb-kv-store", default-features = false, features = [
+], optional = true }
+sync = { version = "0.1", path = "../sync", package = "ofdb-sync", default-features = false, features = [
+], optional = true }
+value = { version = "0.1", path = "../value", package = "ofdb-value", default-features = false, features = [
+    "serde_json",
+] }
+
+# External dependencies
+automerge = { version = "0.10", default-features = false, optional = true }
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+hyper-util = { version = "0.1", default-features = false, features = [
+    "tokio",
+], optional = true }
+redb = { version = "4.3", default-features = false, features = [
+    "uuid",
+], optional = true }
+serde = { version = "1.0", default-features = false, features = ["alloc", "derive"], optional = true }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+tokio = { version = "1.0", default-features = false, features = [
+    "time",
+], optional = true }
+tokio-stream = { version = "0.1", default-features = false, features = [
+    "net",
+], optional = true }
+tonic = { version = "0.14", default-features = false, features = [
+    "transport",
+    "channel",
+    "codegen",
+    "tls-ring",
+], optional = true }
+tower = { version = "0.5", default-features = false, features = [
+    "util",
+], optional = true }
+uuid = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Internal test dependencies
+btree-redb = { version = "0.1", path = "../btree-redb", package = "ofdb-btree-redb", default-features = false, features = [
+] }
+futures = { version = "0.3", default-features = false, features = [
+    "executor",
+    "std",
+] }
+kv-client = { version = "0.1", path = "../kv-client", package = "ofdb-kv-client", default-features = false, features = [
+    "unix",
+] }
+kv-server = { version = "0.1", path = "../kv-server", package = "ofdb-kv-server", default-features = false, features = [
+] }
+redb = { version = "4.3", default-features = false, features = ["uuid"] }
+tempfile = { version = "3.27", default-features = false, features = [] }
+tokio = { version = "1.0", default-features = false, features = [
+    "macros",
+    "net",
+    "rt-multi-thread",
+    "sync",
+    "test-util",
+    "time",
+] }
+
+[[test]]
+name = "embedded_client"
+required-features = ["in-memory"]
+
+[[test]]
+name = "embedded_redb_client"
+required-features = ["redb"]
+
+[[test]]
+name = "local_kv"
+required-features = ["in-memory", "redb"]
+
+[[test]]
+name = "remote_kv"
+required-features = ["remote", "in-memory", "redb", "server"]
+
+[[test]]
+name = "remote_facade_transaction"
+required-features = ["remote", "in-memory", "server"]
+
+[dependencies.postcard]
+version = "1.1"
+default-features = false
+features = ["alloc"]
+optional = true
+
+[dev-dependencies.futures-channel]
+version = "0.3"
+default-features = false
+features = ["sink"]
+
+[lints]
+workspace = true

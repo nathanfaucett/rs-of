@@ -1,0 +1,47 @@
+[package]
+name = "ofdb-btree-redb"
+description = "Redb storage adapter for ofdb-btree"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+name = "btree_redb"
+
+[features]
+wasm = []
+default = []
+
+[dependencies]
+# internal dependencies
+btree = { version = "0.1", path = "../btree", package = "ofdb-btree", default-features = false, features = [
+    "changes",
+] }
+
+# External dependencies
+async-lock = { version = "3.4", default-features = false, features = ["std"] }
+async-stream = { version = "0.3", default-features = false, features = [] }
+dashmap = { version = "6.2", default-features = false, features = [] }
+futures = { version = "0.3", default-features = false, features = [
+    "std",
+    "executor",
+] }
+redb = { version = "4.3", default-features = false, features = ["uuid"] }
+serde = { version = "1.0", default-features = false, features = ["std"] }
+tempfile = { version = "3.27", default-features = false, features = [] }
+thiserror = { version = "2.0", default-features = false, features = ["std"] }
+
+uuid = { version = "1.29", default-features = false, features = [
+    "v7",
+    "serde",
+    "std",
+] }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

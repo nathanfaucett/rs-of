@@ -1,0 +1,114 @@
+[package]
+name = "idp-service"
+version = "0.1.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "OIDC / OAuth 2.x service implementation"
+
+[lib]
+name = "idp_service"
+
+[features]
+default = ["std"]
+
+headless = ["key/headless"]
+ofdb = [
+    "std",
+    "db/ofdb",
+    "of-model/ofdb",
+    "dep:tokio",
+    "dep:ofdb-kv",
+    "dep:ofdb-sql",
+]
+replica = ["ofdb"]
+std = [
+    "bip32/std",
+    "key/std",
+    "of-model/std",
+
+    "chrono/std",
+    "chrono/serde",
+    "base64/std",
+    "getrandom/std",
+    "serde/std",
+    "serde_json/std",
+]
+
+[dependencies]
+# Internal
+db = { package = "of-db", path = "../db", default-features = false, features = [
+] }
+
+bip32 = { version = "0.5", default-features = false, features = [] }
+btree-redb = { package = "ofdb-btree-redb", path = "../../db/btree-redb", default-features = false }
+key = { path = "../key", default-features = false, features = ["secure-store"] }
+of-model = { path = "../model", default-features = false, features = ["std"] }
+
+# Local private storage
+ofdb-kv = { path = "../../db/kv", default-features = false, features = [
+    "redb",
+], optional = true }
+ofdb-sql = { path = "../../db/sql", default-features = false, optional = true, features = [
+    "redb",
+    "sql",
+] }
+
+# Cryptography
+k256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+sha2 = { version = "0.10", default-features = false, features = [] }
+
+# Encoding
+base64 = { version = "0.22", default-features = false, features = [] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+
+# Random
+getrandom = { version = "0.3", default-features = false, features = [] }
+
+# Utilities
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "serde",
+] }
+rust-argon2 = { version = "3.0", default-features = false }
+
+thiserror = { version = "2.0", default-features = false, features = [] }
+
+# Logging
+log = { version = "0.4", default-features = false, features = [] }
+
+# Keyring
+keyring-core = { version = "1.0", default-features = false, features = [] }
+
+# Async
+[dependencies.tokio]
+version = "1.53"
+default-features = false
+features = ["rt"]
+optional = true
+
+[dev-dependencies]
+# Native SQL observation controls
+futures = { version = "0.3", default-features = false, features = ["std"] }
+ofdb-sql = { path = "../../db/sql", default-features = false, features = [
+    "redb",
+    "remote",
+    "server",
+    "sql",
+] }
+
+# Existing test dependencies
+of-model = { path = "../model", default-features = false, features = ["std"] }
+tokio = { version = "1.4", default-features = false, features = [
+    "macros",
+    "rt",
+    "sync",
+    "time",
+] }
+
+[lints]
+workspace = true

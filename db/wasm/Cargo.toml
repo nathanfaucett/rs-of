@@ -1,0 +1,50 @@
+[package]
+name = "ofdb-wasm"
+version = "0.1.0"
+edition = "2024"
+authors = ["nathanfaucett@gmail.com"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/aicacia/rs-oauth"
+description = "Browser (WASM) TypeScript-facing API for ofdb"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "ofdb_wasm"
+
+[features]
+default = ["indexeddb"]
+indexeddb = ["ofdb-kv/indexeddb", "ofdb-sql/indexeddb"]
+sync = ["ofdb-kv/wasm", "ofdb-sql/wasm", "indexeddb"]
+
+[dependencies]
+# Internal
+ofdb-kv = { version = "0.1", path = "../kv", package = "ofdb-kv", default-features = false }
+ofdb-sql = { version = "0.1", path = "../sql", package = "ofdb-sql", default-features = false, features = [
+    "sql",
+] }
+ofdb-value = { version = "0.1", path = "../value", package = "ofdb-value", default-features = false, features = [
+    "serde_json",
+] }
+ofdb-btree = { version = "0.1", path = "../btree", package = "ofdb-btree", default-features = false, features = [
+    "std",
+] }
+ofdb-sync = { version = "0.1", path = "../sync", package = "ofdb-sync", default-features = false, features = [
+    "wasm",
+    "std",
+] }
+
+# WASM
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+console_error_panic_hook = { version = "0.1", default-features = false }
+js-sys = { version = "0.3", default-features = false }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+wasm-bindgen = { version = "0.2", default-features = false }
+wasm-bindgen-futures = { version = "0.4", default-features = false }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = { version = "0.3", default-features = false }
+
+[profile.release]
+panic = "unwind"

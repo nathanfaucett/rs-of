@@ -1,16 +1,18 @@
-from pathlib import Path
 import json
 import subprocess
-import tempfile
 import sys
+import tempfile
+from pathlib import Path
 
 package = Path(__file__).resolve().parents[1]
-server = (package / "../../crates/storage-server/src/sync.rs").resolve()
+server = (package / "../../services/storage-server/src/sync.rs").resolve()
 source = server.read_text()
-protocol = source[source.index("pub const MAX_FRAME_PAYLOAD"):source.index("pub enum SyncAuthError")]
+protocol = source[
+    source.index("pub const MAX_FRAME_PAYLOAD") : source.index("pub enum SyncAuthError")
+]
 # Keep the actual server types and codec, without its authentication code.
-protocol = protocol[:protocol.rfind("#[derive")]
-main = r'''
+protocol = protocol[: protocol.rfind("#[derive")]
+main = r"""
 fn main() {
     let identity = StoreIdentity {
         store_id: Uuid::from_bytes([0x11; 16]),
@@ -48,11 +50,11 @@ fn main() {
     emit("largeOwner", SyncMessage::OwnerMessage {protocol_id: ProtocolId::OfdbSqlV7, payload: vec![7; 7]});
     emit("owner", SyncMessage::OwnerMessage {protocol_id: ProtocolId::OfdbSqlV7, payload: vec![7, 8, 9]});
 }
-'''
+"""
 with tempfile.TemporaryDirectory(prefix="of-sync-wire-") as directory:
     root = Path(directory)
     (root / "src").mkdir()
-    (root / "Cargo.toml").write_text('''[package]
+    (root / "Cargo.toml").write_text("""[package]
 name = "of-sync-wire-fixtures"
 version = "0.1.0"
 edition = "2024"
@@ -61,9 +63,24 @@ serde = { version = "1.0", default-features = false, features = ["derive", "std"
 uuid = { version = "1.0", default-features = false, features = ["serde"] }
 postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 crc32fast = { version = "1.0", default-features = false }
-''')
-    (root / "src/main.rs").write_text("use serde::{Deserialize, Serialize};\nuse uuid::Uuid;\nuse crc32fast::Hasher;\n" + protocol + main)
-    result = subprocess.run(["cargo", "run", "--quiet", "--offline", "--manifest-path", str(root / "Cargo.toml")], capture_output=True, text=True)
+""")
+    (root / "src/main.rs").write_text(
+        "use serde::{Deserialize, Serialize};\nuse uuid::Uuid;\nuse crc32fast::Hasher;\n"
+        + protocol
+        + main
+    )
+    result = subprocess.run(
+        [
+            "cargo",
+            "run",
+            "--quiet",
+            "--offline",
+            "--manifest-path",
+            str(root / "Cargo.toml"),
+        ],
+        capture_output=True,
+        text=True,
+    )
     if result.returncode:
         raise SystemExit(result.stderr)
     fixtures = dict(line.split() for line in result.stdout.splitlines())
@@ -71,6 +88,8 @@ crc32fast = { version = "1.0", default-features = false }
     destination = package / "src/wire-fixtures.json"
     if "--check" in sys.argv:
         if destination.read_text() != output:
-            raise SystemExit("Server wire fixtures changed; run pnpm fixtures and review compatibility")
+            raise SystemExit(
+                "Server wire fixtures changed; run pnpm fixtures and review compatibility"
+            )
     else:
         destination.write_text(output)

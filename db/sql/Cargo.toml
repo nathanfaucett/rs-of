@@ -1,0 +1,166 @@
+[package]
+name = "ofdb-sql"
+description = "Embedded and remote SQL database facade"
+version.workspace = true
+publish = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+std = ["value/std", "uuid/std", "engine?/std"]
+macros = ["dep:macros"]
+sql = ["dep:sql-translator", "sql-translator/std", "dep:sha2"]
+sync = [
+    "dep:platform",
+    "dep:sync",
+    "sync/std",
+    "dep:engine",
+    "dep:engine-automerge",
+    "dep:automerge",
+    "dep:btree",
+    "std",
+    "in-memory",
+]
+wasm = [
+    "dep:platform",
+    "dep:sync",
+    "sync/wasm",
+    "dep:engine",
+    "dep:engine-automerge",
+    "dep:automerge",
+    "dep:btree",
+    "std",
+    "in-memory",
+]
+redb = [
+    "dep:platform",
+    "dep:engine",
+    "dep:engine-redb",
+    "history?/shared-stage",
+    "dep:engine-automerge",
+    "std",
+]
+indexeddb = [
+    "dep:platform",
+    "dep:engine",
+    "dep:engine-indexeddb",
+    "dep:engine-automerge",
+    "std",
+]
+in-memory = ["dep:platform", "engine/in-memory", "dep:engine-automerge", "std"]
+postgres = ["dep:platform", "dep:tokio-postgres", "dep:serde_json", "dep:tokio", "tokio/rt", "value/serde_json", "std"]
+remote = ["dep:platform", "dep:client", "client/unix", "dep:tokio", "std"]
+server = ["dep:sql-server", "std"]
+native-stage = ["validated-history"]
+validated-history = ["sync", "dep:history"]
+
+[lib]
+name = "ofdb_sql"
+
+[dependencies]
+# Platform execution
+platform = { version = "0.1", path = "../platform", package = "ofdb-platform", default-features = false, features = [
+    "time",
+], optional = true }
+
+# Internal SQL dependencies
+client = { version = "0.1", package = "ofdb-sql-client", path = "../sql-client", default-features = false, features = [
+], optional = true }
+engine = { version = "0.1", package = "ofdb-sql-engine", path = "../sql-engine", default-features = false, features = [
+], optional = true }
+engine-automerge = { version = "0.1", package = "ofdb-sql-engine-automerge", path = "../sql-engine-automerge", default-features = false, features = [
+], optional = true }
+engine-redb = { version = "0.1", package = "ofdb-sql-engine-redb", path = "../sql-engine-redb", default-features = false, features = [
+], optional = true }
+macros = { version = "0.1", package = "ofdb-sql-macros", path = "../sql-macros", default-features = false, features = [
+], optional = true }
+query = { version = "0.1", package = "ofdb-sql-query", path = "../sql-query", default-features = false, features = [
+] }
+schema = { version = "0.1", package = "ofdb-sql-schema", path = "../sql-schema", default-features = false, features = [
+] }
+sql-translator = { version = "0.1", package = "ofdb-sql-translator", path = "../sql-translator", default-features = false, features = [
+], optional = true }
+sync = { version = "0.1", package = "ofdb-sync", path = "../sync", default-features = false, features = [
+], optional = true }
+value = { version = "0.1", package = "ofdb-value", path = "../value", default-features = false, features = [
+] }
+sql-server = { version = "0.1", package = "ofdb-sql-server", path = "../sql-server", default-features = false, features = [
+], optional = true }
+
+# PostgreSQL
+serde_json = { version = "1.0", default-features = false, features = ["std"], optional = true }
+tokio-postgres = { version = "0.7", default-features = false, features = ["runtime", "with-uuid-1", "with-serde_json-1"], optional = true }
+
+# External dependencies
+automerge = { version = "0.12", default-features = false, optional = true }
+btree = { version = "0.1", package = "ofdb-btree", path = "../btree", default-features = false, features = [
+    "std",
+], optional = true }
+sha2 = { version = "0.10", default-features = false, optional = true }
+tokio = { version = "1.0", default-features = false, features = [
+    "time",
+], optional = true }
+uuid = { version = "1.29", default-features = false, features = [] }
+
+[dev-dependencies]
+# Internal test dependencies
+btree = { version = "0.1", package = "ofdb-btree", path = "../btree", default-features = false, features = [
+    "std",
+    "in-memory",
+] }
+btree-redb = { version = "0.1", package = "ofdb-btree-redb", path = "../btree-redb", default-features = false, features = [
+] }
+
+protocol = { version = "0.1", package = "ofdb-sql-protocol", path = "../sql-protocol", default-features = false }
+redb = { version = "4.3", default-features = false, features = ["uuid"] }
+sql-server = { version = "0.1", package = "ofdb-sql-server", path = "../sql-server", default-features = false, features = [
+] }
+tokio = { version = "1.0", default-features = false, features = [
+    "macros",
+    "net",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }
+
+ofdb-test = { version = "0.1", package = "ofdb-sql-test", path = "../sql-test", default-features = false, features = [
+] }
+futures = { version = "0.3", default-features = false, features = [
+    "async-await",
+    "executor",
+    "std",
+] }
+tempfile = { version = "3.27", default-features = false, features = [] }
+
+[[test]]
+name = "remote"
+required-features = ["remote", "sql", "redb", "in-memory", "server"]
+
+
+[[example]]
+name = "in_memory"
+required-features = ["sql", "in-memory"]
+
+[[example]]
+name = "redb_automerge"
+required-features = ["sql", "redb"]
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+# Browser persistence
+engine-indexeddb = { version = "0.1", path = "../sql-engine-indexeddb", package = "ofdb-sql-engine-indexeddb", default-features = false, optional = true }
+
+# Scoped, staged security-history exchange
+[dependencies.history]
+package = "ofdb-sql-history"
+version = "0.1"
+path = "../sql-history"
+default-features = false
+features = ["native-stage"]
+optional = true
+
+[lints]
+workspace = true

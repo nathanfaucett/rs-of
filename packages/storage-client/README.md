@@ -31,7 +31,7 @@ are generated from `openapi/storage.json`, alongside the Rust Storage owner clie
 Tagged integers are decimal strings, preserving i64 values beyond JS safe integers;
 serialized records can use text. A batch succeeds completely or fails without a
 partial snapshot. Timeouts/cancellation after sending do not prove rollback.
-See the [exact server contract](../../crates/storage-service/docs/api.md#explicit-application-sql-contract)
+See the [exact server contract](../../services/storage-service/docs/api.md#explicit-application-sql-contract)
 and [SDK SQL usage](../sdk/README.md#explicit-sql-capability).
 
 ## Synchronization
@@ -42,4 +42,4 @@ Database synchronization (SQL mesh sync) uses a **separate WebSocket protocol** 
 - `@ofsdk/sql` WASM — the owner sync engine (`Database::synchronize_checked`)
 - A `SyncTransport` adapter bridging the two (not yet implemented)
 
-See [Storage Sync Architecture](../../crates/storage-service/docs/sync-architecture.md) for the complete integration picture. The `@ofsdk/app` SyncPanel provides capability probing and device selection only; it does not perform data transfer.
+See [Storage Sync Architecture](../../services/storage-service/docs/sync-architecture.md) for the complete integration picture. The `@ofsdk/app` SyncPanel provides capability probing and device selection only; it does not perform data transfer.

@@ -1,0 +1,280 @@
+# ofdb-sql
+
+The SQL facade provides an embedded control handle, `Database`, and a query and transaction `Client` for embedded or remote access. Enable only the features needed by your application.
+
+- `in-memory` or `redb` enables a native embedded database backend; `in-memory` also runs in browsers.
+- `indexeddb` enables browser persistence on `wasm32-unknown-unknown` with async `Database::open_indexeddb(name)`.
+- `remote` enables the remote gRPC client and connection constructors.
+- `postgres` enables `Client::connect_postgres(connection_string)` on a native Tokio runtime. It is independent of `remote`.
+- `sql` enables SQL-text translation. Typed statements do not require it.
+- `sync` enables one-shot sessions and the continuous change-driven lifecycle. Transport and peer authorization remain caller-owned.
+- `server` enables SQL request serving through `Database::serve_tcp` and, on Unix, `Database::serve_unix`.
+- `native-stage` enables optional native sync staging; `sync` already provides memory and caller-defined staging. `Client::transaction()` starts an explicit SQL transaction for embedded and remote clients; transactions are not exposed on `Database`.
+
+Default features are empty. Remote-only builds do not include a local SQL engine or sync implementation. Neither handle has a default request deadline. `Client::with_deadline(Duration)` applies to embedded and remote queries. A configured native embedded deadline requires a Tokio runtime with time enabled; browser deadlines use platform timers; an untimed embedded query does not require one. A timeout does not prove rollback or guarantee interruption of blocking storage work.
+
+`serve_tcp` and `serve_unix` borrow the embedded database and serve a shared engine clone. The caller owns the database handle and shutdown future. The serving future owns the bound listener until shutdown. The caller owns Unix socket path cleanup. Sync is a separate explicit operation. An interrupted session can leave already-applied batches committed; run sync again to reconcile. SQL transactions use `Client::transaction()` for embedded and remote access. A remote transaction holds one server-side engine transaction across calls; dropping its handle rolls it back. Each execute batch is atomic within the transaction. Commit applies the transaction as one engine operation; rollback discards it. Remote calls do not share a transaction unless they use the same transaction handle.
+
+## PostgreSQL query backend
+
+Enable `postgres` and add `sql` for SQL-text translation. The backend compiles the
+shared statements to PostgreSQL SQL with quoted identifiers and bound values.
+It does not send requests to an ofdb service or create a local engine. Supported
+values are UUID, boolean, signed integer, floating point, text, binary, JSON,
+and null. PostgreSQL-specific types, including NUMERIC results from BIGINT sums,
+return `Unsupported` rather than silently narrowing values. Existing SQL-parser
+limits still apply; typed statements can express more than SQL-text translation.
+
+Each transaction uses a dedicated serializable PostgreSQL connection. Dropping
+it closes the connection and rolls back uncommitted work. A failed statement,
+translation, or cancelled execution prevents later commit. Each client batch is
+one transaction. Serialization failures require caller-owned retries. CRDT
+conflict reads validate keys and return empty results; conflict resolution and
+native read limits return `Unsupported`. This backend has no sync or host handle.
+
+Connection settings require explicit `sslmode=disable`. The current driver has no
+TLS support; use a private Unix socket or trusted TLS tunnel. Set `connect_timeout`
+in the settings and `Client::with_deadline` for operation deadlines. A lost commit
+response can have an unknown durable outcome. Connection construction does not
+apply an application schema.
+
+Run the live test against a disposable PostgreSQL database:
+
+```sh
+OF_TEST_POSTGRES_URL='host=127.0.0.1 dbname=of_test user=of sslmode=disable connect_timeout=5' \
+  cargo test -p ofdb-sql --no-default-features --features postgres,sql --test postgres -- --include-ignored
+```
+
+The test creates a table inside rollback-only transactions and checks value
+conversion, failed commits, translation failures, and rollback on drop.
+
+## Explicit application migrations
+
+With `sql`, embedded and remote Query Handles use the same Rust runner:
+
+```rust,ignore
+use ofdb_sql::Migration;
+
+let migrations = [
+    Migration::new(1, "create entries", "CREATE TABLE entries (id UUID PRIMARY KEY, text TEXT)"),
+    Migration::new(2, "add label", "ALTER TABLE entries ADD COLUMN label TEXT DEFAULT 'untitled'"),
+];
+let result = client.migrate(&migrations).await?;
+assert_eq!(result.current_version, 2);
+// result.applied_versions contains only versions committed by this call.
+```
+
+Call this before queries that need the new schema. `Database` construction and
+open never run migrations. Supply the complete list each time, in ascending
+version order, with unique strictly increasing `u32` versions and nonempty SQL
+batches. Applied SQL is immutable:
+SHA-256 fingerprints cover the exact UTF-8 text, including whitespace.
+The complete list is translated before any mutation. Empty, comment-only, and
+semicolon-only batches, invalid SQL, duplicate versions, gaps, and out-of-order
+versions fail during `Plan`, even when the invalid entry is after pending work.
+
+The runner owns the ordinary SQL table `_ofdb_migrations`, with columns
+`id UUID PRIMARY KEY`, `version INTEGER`, `description TEXT`,
+`fingerprint BLOB` (raw SHA-256), and `execution_time INTEGER` (milliseconds).
+Do not change this table or its records in application code or
+migration SQL.
+History is read in each decision transaction. The runner rejects incompatible
+history rather than resetting it or inferring completion from application tables.
+An empty list returns version zero without creating metadata on an unmigrated
+store; it cannot accept unknown applied versions. Before pending SQL runs, the
+runner validates the metadata columns, types, defaults, primary key, and every
+stored version and fingerprint. Wrong table shapes, malformed records, duplicate
+or missing versions, changed SQL, and history newer than the supplied list fail
+during `History`. Rejection preserves application schema, data, and history; it
+never repairs metadata or treats a shorter list as a downgrade.
+
+Each pending migration commits its schema changes, data changes, and completion
+record in one transaction. Metadata creation belongs to the first such transaction.
+A failed batch or history insert rolls back that migration and stops later work;
+earlier successful migrations stay committed. An already-current call returns an
+empty `applied_versions` list without changing history.
+
+`MigrationError` identifies the phase and, when known, the version. Its `source`
+retains the structured query error; Display and Debug omit SQL and values. Do not
+log underlying source messages when SQL or data can contain secrets. Any failed
+commit has an unknown durable outcome (`commit_outcome_unknown()`); it is not
+proof of rollback. There are no automatic retries. A later explicit call must
+supply the complete unchanged list and will read history again. Existing Client
+and transaction deadlines apply per operation, not to the whole migration list.
+
+Concurrent calls use the backend's existing serialization or stale-revision
+rejection. A competing call either sees completed history or returns an error;
+there is no migration lock or automatic conflict retry. Storage errors remain
+structured query errors, not classifications inferred from message text.
+
+After an error, do not execute the failed SQL directly or remove history. When
+ready to try again, explicitly call `client.migrate(&migrations).await` with the
+same complete list. The new decision transaction checks committed history and
+skips completed transformations, including a commit whose response was lost.
+Inspect `current_version` and `applied_versions` on success. A failed invocation
+returns an error, not a partial result; it can still have earlier committed
+versions. A later successful result lists only that later call's applied versions.
+
+A pre-commit error has `commit_outcome_unknown() == false`. This does not undo
+earlier successful versions. Once commit is attempted, any error, including a
+conflict or deadline, has an unknown outcome at this API boundary. A timeout does
+not cancel remote work or prove rollback. Uncommitted handles are rolled back or
+dropped; a remote server cleans up when it observes stream closure. An issued
+IndexedDB commit remains observed independently of the waiting caller.
+
+Only existing engine SQL is supported. `ALTER TABLE` supports `ADD COLUMN`, not
+rename, drop-column, type changes, or automatic table rebuilds. There are no
+callbacks, down migrations, automatic opening upgrades, or physical storage-format
+upgrades. Replication and sync policy are outside this operation.
+
+## Continuous synchronization
+
+With `sync`, `Database::sync_changes()` returns `std::io::Result<ChangeSubscription>` for SQL memory, Redb and browser IndexedDB backends. This opaque type belongs to the sync API: it exposes no Tokio receiver or revision bookkeeping. Obtain it before starting reconciliation, then await `changes.run(synchronize)`, where the callback implements `FnMut() -> Future<Output = Result<(), E>>` and supplies an authorized sync session. The sync library owns the initial pass, change coalescing, race-free rescheduling for commits during a pass, and retry of failed work without waiting for another commit. Retry backoff starts at 100 ms, doubles to a 30-second cap, and resets on success. The callback reports/logs its errors and must return `Err` when delivery is still pending, including unavailable peers.
+
+### Selected per-peer sessions
+
+SQL wire **v7** is incompatible with earlier versions. Both peers use selected negotiation and compare the union of their invalidations; either All forces broad discovery. `Database::synchronize_selected_checked` uses memory staging; `synchronize_selected_with_stage_factory_checked` accepts caller staging. Selection is not authorization: these APIs require whole-database admission. Restricted history/value/candidate policies use the existing table-scoped validated APIs.
+
+```rust,ignore
+let mut peer_changes = database.sync_changes()?; // fresh peer => broad
+let work = peer_changes.select(); // before any reconciliation reads
+let invalidations = match &work {
+    Some(work) => database.sync_invalidations(work).await?,
+    None => Vec::new(), // still reconcile on a remote wakeup
+};
+database.synchronize_selected_checked(
+    &mut transport, &config, role, &invalidations,
+    || core::future::ready(Ok(())), // use real caller admission/cancellation
+).await?;
+if let Some(work) = work {
+    assert!(peer_changes.acknowledge(work));
+}
+```
+
+Keep an independent, unmerged subscription per database/peer; recreate it on reconnect/restart or peer changes. Select before reads; acknowledge only after that work is included in a successful pass. Errors/cancellation leave work retryable; discard failed transports. Re-select before waiting: later commits remain pending even if observed during the pass. `changed()` consumes wakeups, not selected work. Fresh/cloned consumers, gaps, overflow and unknown writes require All; table invalidation permits a table scan and catalog/dependency changes require broad discovery.
+
+The shared signal retains 128 commits, each capped at 128 physical invalidations / 16 KiB of identity bytes; oversized batches become All. Selected tokens can combine retained commits. This bounds notification retention, not document history or session memory. The facade re-exports `ChangeWork` and `SqlInvalidation`; map tokens only against their corresponding database.
+
+The engine owns `RowReconciler` history/state capabilities; SQL sync owns protocol units and orchestration. Transaction-consistent native summaries avoid snapshot serialization for discovery. Exact-row work avoids unrelated row-ID scans. Ordinary metadata-free rows send missing native changes; bootstrap, metadata mismatches and dependency recovery send state plus metadata and merge concurrent history. Complete-row/catalog apply, scoped validation, derived indexes and caller checks remain enforced. Sessions are not globally frozen or atomic. SQL frames/apply batches are limited to 1 MiB; `max_session_bytes` defaults to 64 MiB and transports must bound reads before buffering.
+
+**Local notifications cannot observe remote-only commits.** Callers provide authorized remote wakeups/receive delivery or explicitly invoke both sides, including empty local selections. If remote pending work cannot be supplied reliably, request All. Incoming apply then wakes local fan-out; known history settles without echo. No automatic bidirectional realtime delivery or durable peer cursor is promised.
+
+SQL and KV re-export the **same** `ChangeSubscription`. Use `sql.sync_changes()?.merge(kv.sync_changes()?)` and one **broad** callback that exchanges SQL and KV to avoid duplicate runners. Merged subscriptions are not suitable for selective logical mapping. `changed().await -> std::io::Result<()>` remains available for admission invalidation, not for implementing another sync scheduler. Cloning creates an independent consumer requiring initial broad reconciliation.
+
+The library starts no runner automatically. Native callers poll `run` on a Tokio runtime with time enabled; browser callers use platform timers without a Tokio runtime; dropping its future cancels the current callback or retry timer. A caller can select the runner against its shutdown/admission future, and create a fresh runner when its authorized peer scope changes. The runner also stops when all subscribed backends close, including retirement; `changed` returns `BrokenPipe` after closure and pending invalidations. A subscription alone does not retain storage, though its callback can. Existing clients can keep storage alive after `Database` is dropped.
+
+The committed signal covers backend clones, hosted queries, explicit transactions, conflict resolution and incoming sync. Read-only commits, identical byte writes, failed/rolled-back transactions and replayed sync are silent. Touched-key tracking suppresses net byte no-ops, including index rebuilds; a successful table drop is conservatively dirty even if recreated in the same transaction, without scanning/copying the dropped table. Visible row equality does not imply equal replicated history. Notifications are process-local coalesced invalidations, not a durable log, and do not monitor writes outside the shared backend.
+
+```rust,ignore
+let database = ofdb_sql::Database::in_memory();
+let client = database.client();
+client
+    .execute_sql("CREATE TABLE items (id UUID PRIMARY KEY)", None)
+    .await?;
+
+let mut transaction = client.transaction().await?;
+transaction
+    .execute_sql(
+        "INSERT INTO items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID))",
+        None,
+    )
+    .await?;
+transaction.commit().await?;
+
+let remote = ofdb_sql::Client::connect("http://127.0.0.1:50051").await?;
+remote.execute_sql("SELECT id FROM items", None).await?;
+
+// With the `server` feature, serve the same embedded database while retaining
+// the handle for sync. Queries and transactions use the Client.
+database
+    .serve_tcp(address, shutdown_signal())
+    .await?;
+```
+
+## Browser SQL persistence
+
+See the [browser quickstarts and support limits](../../docs/browser.md) for explicit
+transactions, typed statements, stack configuration and caller-owned sync, and the
+[release validation matrix](../../docs/browser-validation.md) for measured costs.
+Chrome/Firefox Window and Dedicated Worker are validated.
+
+Enable `indexeddb` for typed statements, and add `sql` only for SQL-text translation:
+
+```toml
+[dependencies]
+ofdb-sql = { version = "0.1", default-features = false, features = ["indexeddb", "sql"] }
+```
+
+```rust,ignore
+let database = ofdb_sql::Database::open_indexeddb("application").await?;
+let client = database.client();
+client.execute_sql("CREATE TABLE IF NOT EXISTS people (name TEXT PRIMARY KEY)", None).await?;
+client.execute_sql("INSERT INTO people VALUES ('Ada')", None).await?;
+```
+
+The existing engine and Automerge Row Reconciler execute all statements; IndexedDB
+only persists bytes. Catalogs, rows, Tombstones, constraints and derived indexes
+commit together in one database-wide native transaction. Logical DDL changes data,
+not the physical IndexedDB schema. SQL names use `ofdb:sql:<name>`; KV has a
+separate namespace (`ofdb:kv:<name>`). Failed/unsupported opens return errors, never volatile storage.
+
+Explicit transactions own a consistent snapshot plus staged writes across browser
+event-loop awaits. Commit rejects a stale mutating snapshot without replaying it;
+SQL currently categorizes storage conflicts/commit failures as `ErrorKind::Storage`,
+retaining the backend detail in the error message. Rollback/drop discard staging;
+a failed SQL statement aborts its explicit transaction. Commit success means native
+IndexedDB completion. Canceling an issued commit does not prove rollback; the shared
+adapter continues observing completion independently of the query future.
+
+Snapshot loading is O(database size) memory/I/O and ordered reconstruction adds
+O(N log N) work, retaining two Rust copies plus transient browser data. This is not
+selective physical I/O. Names are origin-scoped; private-mode restrictions, quota,
+eviction and user-cleared site data apply. Native completion does not promise
+filesystem-equivalent durability or protection from eviction/power loss. See the
+[byte adapter](../btree-indexeddb/README.md) for format/lifecycle details.
+
+Window and Dedicated Worker tests run in Chrome and Firefox without a Tokio
+runtime, native networking or Redb. Consumers must provision the documented
+[Wasm stack budget](../../tests/browser/README.md#stack-budget) (the harness uses
+16 MiB). No default-stack guarantee is claimed.
+
+### Browser checked synchronization
+
+Add `sync` to `indexeddb` to use the existing checked broad, selected and fixed-schema
+scoped APIs, including historical-value and complete-candidate validation. The SQL
+wire protocol remains v7; native snapshots, incremental changes, UUID identities,
+Tombstones and catalog formats are unchanged. Natural and composite primary keys
+remain immutable and distinct from internal row identities; only a single UUID
+primary key supplies that identity.
+
+Sessions reuse bounded memory staging (`SessionConfig::max_session_bytes`, default
+64 MiB) and existing checked atomic apply. File stage types and stage-directory
+methods are native-only, even if `native-stage` is enabled for a browser build.
+Transports, peer selection, per-apply authorization/cancellation and remote wakeups
+remain caller-owned. An error or canceled session may leave earlier complete
+batches committed; discard its transport and reconcile again with a fresh session.
+The complete catalog is one atomic apply; data batches retain their existing
+atomicity, history checks and derived-index maintenance.
+
+`sync_changes()` includes shared clients, explicit transactions, conflict Resolution
+and incoming replication. Issued persistence completion publishes independently
+of the caller future, including query deadline expiry or session cancellation.
+Failed, rolled-back, read-only and net byte no-op commits remain silent. Keep one
+independent subscription per peer; select before reads and acknowledge only after
+successful reconciliation. Initial work, lagged history and overflow require All.
+
+These notifications do not observe independent opens, other tabs/workers or
+remote-only edits. Supply remote wakeups or periodically request All for broad
+recovery; revision checks still prevent stale writes across independent opens.
+Selected logical work does not make IndexedDB I/O selective: each engine transaction
+still materializes the entire physical database snapshot. Bounded sync staging is
+not a bound on that O(database-size) snapshot cost.
+
+`sync_changes().run(synchronize)` uses browser timers without a Tokio runtime and
+accepts local callback futures. The caller owns and polls the runner; dropping it
+cancels its callback or retry wait. Retry starts at 100 ms, doubles to 30 seconds
+and resets after success. SQL and KV share the same subscription type and can
+merge for one broad-session callback, not selective logical mapping. No task,
+transport, peer selection or authorization is started automatically. See the
+[browser harness](../../tests/browser/README.md#continuous-synchronization) for
+real Window/Worker lifecycle tests.

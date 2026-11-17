@@ -1,0 +1,39 @@
+[package]
+name = "ofdb-kv-proto"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "KV Proto"
+
+[lib]
+path = "src/lib.rs"
+name = "kv_proto"
+
+[dependencies]
+# Internal dependencies
+value = { version = "0.1", path = "../value", package = "ofdb-value", default-features = false, features = [
+] }
+
+# Value validation
+uuid = { version = "1.29", default-features = false, features = [] }
+
+# gRPC
+prost = { version = "0.14", default-features = false, features = ["derive"] }
+tonic = { version = "0.14", default-features = false, features = ["codegen"] }
+tonic-prost = { version = "0.14", default-features = false }
+
+[build-dependencies]
+tonic-prost-build = { version = "0.14", default-features = false }
+
+[package.metadata.cargo-machete]
+ignored = ["prost", "tonic-prost"]
+
+[features]
+default = ["file-descriptor-set"]
+file-descriptor-set = []
+
+[lints]
+workspace = true

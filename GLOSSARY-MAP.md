@@ -3,30 +3,30 @@
 ## Shared domain
 
 - [Backend deployment boundaries](docs/backend-deployments.md): local composition, retained independent setup dependencies, and legacy data handling.
-
 - [Shared control-plane deployment](docs/control-plane.md): identity/Device owners, injected and remote clients, default local independent socket setup, scoped policy history, reset boundaries, and qualification limits.
-
 - [Public persistence and protocol integration](docs/public-persistence.md): owner facade contracts, shared-router adapters, authenticated scoped security history, local credential separation, and qualification boundaries.
-
 - [Shared terms](GLOSSARY.md): Installation, User, Application, Principal, Device, and setup lifecycle.
 - [System design](docs/design.md): equal offline-first Nodes, local authorization, ownership boundaries, and synchronization requirements.
 - [Setup workers and onboarding](docs/setup-workers.md): durable Create/Join ownership, current readiness, default naming, advanced connections and deferred Device preferences.
 - [System API contracts](docs/api.md): owner routes, prefix composition, setup/readiness, and safe client generation.
 - [System security](docs/security.md): actor/subject/signer/endpoint distinctions, local trust, secret separation, and acceptance limits.
-- [Networking composition](docs/design.md#networking-composition-and-trust): `ofnet`/`iroh-chain` reuse, local membership, and source interfaces; [ofnet Endpoint Mesh glossary](../ofnet/GLOSSARY.md) defines Endpoint, Peer, Mesh, Broadcast, Direct Message, and Byte Stream.
+- [Networking composition](docs/design.md#networking-composition-and-trust): `iroh-chain` reuse, local membership, and source interfaces; [Endpoint Mesh glossary](GLOSSARY.md#endpoint-mesh-ofnet) defines Endpoint, Peer, Mesh, Broadcast, Direct Message, and Byte Stream.
 - [Offline-first Nodes spec](.scratch/offline-first-nodes/spec.md), [tickets and migration coverage](.scratch/offline-first-nodes/map.md), and [Node operations](docs/operations.md).
 
 ## Contexts
 
-| Context    | Glossary                                            | Design and contracts                                                                                                                                                                                                   |
-| ---------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| IdP        | [Identity Provider](crates/idp-service/GLOSSARY.md) | [Design](crates/idp-service/docs/design.md), [local security](crates/idp-service/docs/local-security.md), [owner API](docs/api.md#owner-contracts)                                                                     |
-| Management | [Management](crates/management-service/GLOSSARY.md) | [Service ownership](docs/design.md#service-ownership), [owner API](docs/api.md#owner-contracts), [selection and admission](crates/storage-service/docs/design.md#device-ownership-and-resource-selection)              |
-| Device     | [Device](crates/device-service/GLOSSARY.md)         | [Service ownership](docs/design.md#service-ownership), [owner API](docs/api.md#owner-contracts)                                                                                                                        |
-| Storage    | [Storage](crates/storage-service/GLOSSARY.md)       | [Design](crates/storage-service/docs/design.md), [Sync Architecture](crates/storage-service/docs/sync-architecture.md), [API](crates/storage-service/docs/api.md), [security](crates/storage-service/docs/security.md) |
+| Context    | Glossary                                                 | Design and contracts                                                                                                                                                                                                           |
+| ---------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| IdP        | [Identity Provider](services/idp-service/GLOSSARY.md)    | [Design](services/idp-service/docs/design.md), [local security](services/idp-service/docs/local-security.md), [owner API](docs/api.md#owner-contracts)                                                                         |
+| Management | [Management](services/management-service/GLOSSARY.md)    | [Service ownership](docs/design.md#service-ownership), [owner API](docs/api.md#owner-contracts), [selection and admission](services/storage-service/docs/design.md#device-ownership-and-resource-selection)                    |
+| Device     | [Device](services/device-service/GLOSSARY.md)            | [Service ownership](docs/design.md#service-ownership), [owner API](docs/api.md#owner-contracts)                                                                                                                                |
+| Storage    | [Storage](services/storage-service/GLOSSARY.md)          | [Design](services/storage-service/docs/design.md), [Sync Architecture](services/storage-service/docs/sync-architecture.md), [API](services/storage-service/docs/api.md), [security](services/storage-service/docs/security.md) |
+| ofdb       | [Database (ofdb)](GLOSSARY.md#database-ofdb)             | [ofdb-sql crate](db/sql/README.md), [ofdb-kv crate](db/kv/README.md), [browser support](db/docs/browser.md)                                                                                                                    |
+| ofnet      | [Endpoint Mesh (ofnet)](GLOSSARY.md#endpoint-mesh-ofnet) | [iroh-chain crate](net/iroh-chain/README.md), [WASM bindings](net/iroh-chain-wasm/README.md), [TypeScript SDK](packages/net/README.md)                                                                                         |
+| offs       | [File System (offs)](GLOSSARY.md#file-system-offs)       | [file-system crate](fs/file-system/README.md)                                                                                                                                                                                  |
 
 Each context covers its related model, service, server, and client packages.
-Definitions belong in the relevant `GLOSSARY.md`. Current design, contracts, and operational guidance belong in stable topic files such as `docs/design.md`, `docs/api.md`, `docs/security.md`, or `docs/operations.md`, not numbered decision records. System-wide topics live in `docs/`; context-specific topics live in `crates/<context>-service/docs/`. Create topic files only when needed, update them in place, and link them here.
+Definitions belong in the relevant `GLOSSARY.md`. Current design, contracts, and operational guidance belong in stable topic files such as `docs/design.md`, `docs/api.md`, `docs/security.md`, or `docs/operations.md`, not numbered decision records. System-wide topics live in `docs/`; context-specific topics live in `services/<context>-service/docs/`. Create topic files only when needed, update them in place, and link them here.
 
 ## Relationships
 
@@ -34,7 +34,7 @@ Definitions belong in the relevant `GLOSSARY.md`. Current design, contracts, and
 - IdP owns Users, credentials, Applications, OAuth Clients and token-signing identity/trust, not Devices or endpoint authority. Private signers remain local; locally atomic grant consumption does not promise global single use during partitions.
 - Management owns roles, permissions, and assignments in the identity domain. It does not own Device or User lifecycle.
 - Device owns Devices, endpoint-ID bindings, User ownership, approval/enrollment, transfer/revocation, restrictions, selections, and replication policy. It consumes IdP identity and Management permissions through owner interfaces. Transport endpoints need Device approval and exact policy, not their own IdP token signer.
-- Storage owns domain catalogs, namespaces, resource lifecycle, and authorization. `ofdb` owns SQL/KV persistence/sync/staging/batching/cleanup through public `ofdb-sql`/`ofdb-kv`; `offs` owns filesystem persistence/sync, not transport. `ofnet`/`iroh-chain` owns reusable endpoint/mesh/pairing mechanics, allowlist enforcement, and generic connections/routing. `of` owns Installation/Device endpoint trust binding, local authorization, and protocol-specific adapters wiring `ofdb`/`offs`.
+- Storage owns domain catalogs, namespaces, resource lifecycle, and authorization. `ofdb` owns SQL/KV persistence/sync/staging/batching/cleanup through public `ofdb-sql`/`ofdb-kv`; `offs` owns filesystem persistence/sync, not transport. `iroh-chain` owns reusable endpoint/mesh/pairing mechanics, allowlist enforcement, and generic connections/routing. `of` owns Installation/Device endpoint trust binding, local authorization, and protocol-specific adapters wiring `ofdb`/`offs`.
 - A Unified Host composes the four contexts without merging domain ownership. Local development shares a database and seeds test identities without Installation Setup or mesh membership. Independent Nodes retain owner-local setup; joining uses a trusted reachable peer. Completed Nodes are intended to work offline and after restart. Revocation takes effect when learned, including before subsequent operations on existing connections. Endpoint allowlisting is not resource authorization, pairing is not general access, and mesh messages do not imply transparent multihop database/filesystem streams.
 
 Read shared docs and every context relevant to the work. State conflicts with existing definitions and design contracts rather than silently overriding them.

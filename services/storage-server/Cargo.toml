@@ -1,0 +1,162 @@
+[package]
+name = "storage-server"
+version = "0.1.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Local first storage server"
+
+[lib]
+name = "storage_server"
+
+[[bin]]
+name = "storage-server"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli", "completions"]
+independent = [
+    "network",
+    "dep:setup",
+    "server-common/independent",
+    "device-service/independent",
+]
+cli = ["network", "dep:dotenvy", "dep:clap", "dep:cli", "dep:env_logger"]
+network = ["dep:tokio", "dep:tokio-util", "dep:futures"]
+sync = ["network", "dep:futures-util", "dep:crc32fast"]
+completions = ["cli/completions", "clap_complete"]
+utoipa = ["device-service/utoipa", "of-model/utoipa"]
+
+[dependencies]
+# Shared SQL stream framing
+db = { package = "of-db", path = "../db", default-features = false, features = [
+    "native",
+    "network",
+] }
+device-service = { path = "../device-service", default-features = false, features = [
+    "ofdb",
+    "std",
+    "utoipa",
+] }
+# CLI
+dotenvy = { version = "0.15", default-features = false, features = [
+], optional = true }
+clap = { version = "4.6", default-features = false, features = [
+    "std",
+    "derive",
+    "help",
+], optional = true }
+clap_complete = { version = "4.6", default-features = false, features = [
+], optional = true }
+cli = { path = "../cli", default-features = false, features = [
+    "std",
+], optional = true }
+
+# Internal
+of-device-client = { path = "../device-client", default-features = false }
+of-idp-client = { path = "../idp-client", default-features = false }
+server-common = { path = "../server-common", default-features = false, features = [
+] }
+setup = { workspace = true, optional = true }
+file-system = { path = "../../fs/file-system", default-features = false, features = [
+] }
+of-model = { path = "../model", default-features = false, features = [
+    "axum",
+    "std",
+    "utoipa",
+] }
+idp-service = { path = "../idp-service", default-features = false, features = [
+    "std",
+] }
+management-service = { path = "../management-service", default-features = false, features = [
+    "std",
+] }
+key = { path = "../key", default-features = false, features = ["std"] }
+
+
+ofdb-kv = { path = "../../db/kv", default-features = false, features = [
+    "redb",
+    "sync",
+] }
+ofdb-sql = { package = "ofdb-sql", path = "../../db/sql", default-features = false, features = [
+    "redb",
+    "native-stage",
+] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls-native-roots",
+] }
+
+storage-service = { path = "../storage-service", default-features = false, features = [
+] }
+
+# Serialization
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+    "std",
+] }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+
+# Utilities
+bytes = { version = "1.11", default-features = false, features = ["std"] }
+config = { version = "0.15", features = ["yaml"], default-features = false }
+uuid = { version = "1.29", default-features = false, features = [
+    "std",
+    "v4",
+    "v7",
+    "serde",
+] }
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+], optional = true }
+tokio-util = { version = "0.7", default-features = false, features = [
+], optional = true }
+tokio-stream = { version = "0.1", default-features = false, optional = true }
+futures = { version = "0.3", default-features = false, features = [
+    "std",
+], optional = true }
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+    "std",
+], optional = true }
+crc32fast = { version = "1.5", default-features = false, optional = true }
+log = { version = "0.4", default-features = false, features = ["std"] }
+env_logger = { version = "0.10", default-features = false, optional = true }
+ofdb-sync = { package = "ofdb-sync", path = "../../db/sync", default-features = false, features = [
+    "std",
+] }
+btree-redb = { package = "ofdb-btree-redb", path = "../../db/btree-redb", default-features = false }
+
+# Web
+axum = { version = "0.8", default-features = false, features = [
+    "http1",
+    "http2",
+    "form",
+    "query",
+    "json",
+    "ws",
+    "tokio",
+    "macros",
+] }
+tower-http = { version = "0.7", features = [
+    "cors",
+    "trace",
+    "compression-gzip",
+], default-features = false }
+http = { version = "1.4", default-features = false }
+iroh = { version = "1.4", default-features = false, features = ["tls-ring"] }
+iroh-chain = { path = "../../net/iroh-chain", default-features = false }
+tower = { version = "0.5", default-features = false }
+utoipa = { version = "5.5", default-features = false, features = [
+    "macros",
+    "uuid",
+    "chrono",
+] }
+utoipa-axum = { version = "0.2", default-features = false, features = [] }

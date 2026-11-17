@@ -1,0 +1,12 @@
+/node_modules/
+/coverage/
+/docs/
+/types/
+/browser/
+/esm/
+/.nyc_output/
+/npm-debug.log
+/*.tsbuildinfo
+/test-results/
+/playwright-report/
+/artifacts/

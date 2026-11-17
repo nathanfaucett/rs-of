@@ -1,0 +1,394 @@
+use std::{
+    io,
+    net::{IpAddr, SocketAddr},
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
+
+use server_common::{bind_addr, public_base_url, serve};
+
+use clap::Parser;
+use clap_complete::Shell;
+use cli::{CliArgs, run_completions, shutdown_signal};
+use env_logger::Env;
+
+use tokio::{select, spawn, time::sleep};
+use tokio_util::sync::CancellationToken;
+use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
+
+#[cfg(not(unix))]
+use crate::AppConfig;
+use crate::{
+    DeviceClient, IdpClient, ManagementClient, RouterState, build_http_runtime, build_runtime,
+};
+
+#[derive(clap::Parser, Debug)]
+enum StorageCommand {
+    #[cfg(unix)]
+    #[command(
+        about = "LOCAL destructive reset of the selected independent Storage config. Stop its host first. Deletes local data and exact protected secrets; requires explicit OS CA trust removal with native consent. Does not revoke remote membership or reset the app."
+    )]
+    ResetIndependent {
+        #[arg(
+            long,
+            required = true,
+            help = "Explicitly remove this host's OS CA trust; retain evidence on denial/failure"
+        )]
+        remove_os_trust: bool,
+    },
+    Serve {
+        #[arg(long, short = 'p')]
+        port: Option<u16>,
+        #[arg(long, short = 'H')]
+        host: Option<IpAddr>,
+    },
+    #[cfg(feature = "completions")]
+    Completions { shell: Shell },
+}
+
+pub async fn run() -> io::Result<()> {
+    match dotenvy::dotenv() {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("failed to load .env file: {}", e);
+        }
+    }
+
+    let args = CliArgs::<StorageCommand>::parse();
+
+    let cancellation_token = CancellationToken::new();
+
+    #[cfg(unix)]
+    let mut app_config = Arc::new(crate::startup::load_config(Path::new(&args.config))?);
+    #[cfg(not(unix))]
+    let mut app_config = Arc::new(match AppConfig::try_from(Path::new(&args.config)) {
+        Ok(app_config) => app_config,
+        Err(e) => {
+            eprintln!("failed to load config {:?}: {}", args.config, e);
+            AppConfig::default()
+        }
+    });
+
+    // Check for public base URL (set by portless via PORTLESS_URL or manually via PUBLIC_BASE_URL)
+    let has_public_base = public_base_url().is_some();
+    let portless_port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok());
+    if has_public_base {
+        let base_url = public_base_url().expect("public base URL must be set");
+        let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
+        config.api_public_uri = format!("{}/storage", base_url.trim_end_matches('/'));
+        config.server.host = IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
+        if let Some(port) = portless_port {
+            config.server.port = port;
+        }
+        app_config = Arc::new(config);
+    } else if let Some(port) = portless_port {
+        let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
+        config.server.port = port;
+        app_config = Arc::new(config);
+    }
+
+    #[cfg(unix)]
+    if !has_public_base && matches!(args.command, None | Some(StorageCommand::Serve { .. })) {
+        let (host, port) = match args.command.as_ref() {
+            Some(StorageCommand::Serve { host, port }) => (*host, *port),
+            _ => (None, None),
+        };
+        let configured_host = app_config.server.host;
+        let setup_host = host.unwrap_or_else(|| {
+            if configured_host.is_unspecified() {
+                std::net::Ipv4Addr::LOCALHOST.into()
+            } else {
+                configured_host
+            }
+        });
+        let address = SocketAddr::new(setup_host, port.unwrap_or(app_config.server.port));
+        if let Some(setup) = crate::prepare_setup(&app_config, address)? {
+            let shutdown = shutdown_signal(cancellation_token.clone());
+            let serving = crate::serve_independent_create(
+                app_config.clone(),
+                setup,
+                cancellation_token.clone(),
+            );
+            tokio::pin!(shutdown, serving);
+            return tokio::select! {
+                result = &mut serving => result,
+                () = &mut shutdown => serving.await,
+            };
+        }
+    }
+
+    env_logger::Builder::from_env(
+        Env::default().default_filter_or(format!("{},automerge=warn", app_config.log_level)),
+    )
+    .init();
+
+    let mut router_state = if app_config.idp_api_base_uri.trim().is_empty() {
+        RouterState::new(
+            &app_config.api_public_uri,
+            &app_config.device_endpoint_id.clone().unwrap_or_default(),
+        )
+    } else {
+        let client_id = app_config
+            .idp_oauth_client_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "STORAGE_IDP_OAUTH_CLIENT_ID is required when STORAGE_IDP_API_BASE_URI is configured",
+                )
+            })?;
+        let client_secret = app_config
+            .idp_oauth_client_secret
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "STORAGE_IDP_OAUTH_CLIENT_SECRET is required when STORAGE_IDP_API_BASE_URI is configured",
+                )
+            })?;
+        let issuer = app_config
+            .idp_issuer_uri
+            .trim()
+            .strip_suffix('/')
+            .unwrap_or(app_config.idp_issuer_uri.trim());
+        if issuer.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "STORAGE_IDP_ISSUER_URI is required when STORAGE_IDP_API_BASE_URI is configured",
+            ));
+        }
+        let audience = app_config
+            .idp_service_audience
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "STORAGE_IDP_SERVICE_AUDIENCE is required when STORAGE_IDP_API_BASE_URI is configured",
+                )
+            })?;
+        let idp_client = IdpClient::new(
+            &app_config.idp_api_base_uri,
+            client_id,
+            client_secret,
+            issuer,
+            audience,
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        RouterState::new(
+            &app_config.api_public_uri,
+            &app_config.device_endpoint_id.clone().unwrap_or_default(),
+        )
+        .with_idp_client(idp_client)
+    };
+    if !app_config.device_api_base_uri.trim().is_empty() {
+        let client_id = app_config
+            .device_oauth_client_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "STORAGE_MANAGEMENT_OAUTH_CLIENT_ID is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+            ))?;
+        let client_secret = app_config
+            .device_oauth_client_secret
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "STORAGE_MANAGEMENT_OAUTH_CLIENT_SECRET is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+            ))?;
+        let audience = app_config
+            .device_service_audience
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "STORAGE_MANAGEMENT_SERVICE_AUDIENCE is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+            ))?;
+        let idp_api_base_uri = app_config
+            .idp_api_base_uri
+            .trim()
+            .strip_suffix('/')
+            .unwrap_or(app_config.idp_api_base_uri.trim());
+        if idp_api_base_uri.is_empty() || app_config.idp_issuer_uri.trim().is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "STORAGE_IDP_API_BASE_URI and STORAGE_IDP_ISSUER_URI are required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+            ));
+        }
+        let device_client = DeviceClient::new(
+            &app_config.device_api_base_uri,
+            idp_api_base_uri,
+            client_id,
+            client_secret,
+            &app_config.idp_issuer_uri,
+            audience,
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        router_state = router_state.with_device_client(device_client);
+    }
+
+    // Create ManagementClient if configured
+    if !app_config.management_api_base_uri.trim().is_empty() {
+        let client_id = app_config
+            .management_oauth_client_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "STORAGE_MANAGEMENT_OAUTH_CLIENT_ID is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+            ))?;
+        let client_secret = app_config
+            .management_oauth_client_secret
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "STORAGE_MANAGEMENT_OAUTH_CLIENT_SECRET is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+            ))?;
+        let _audience = app_config
+            .management_service_audience
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "STORAGE_MANAGEMENT_SERVICE_AUDIENCE is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+            ))?;
+        let idp_api_base_uri = app_config
+            .idp_api_base_uri
+            .trim()
+            .strip_suffix('/')
+            .unwrap_or(app_config.idp_api_base_uri.trim());
+        if idp_api_base_uri.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "STORAGE_IDP_API_BASE_URI is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+            ));
+        }
+        let management_client = ManagementClient::new(
+            &app_config.management_api_base_uri,
+            idp_api_base_uri,
+            client_id,
+            client_secret,
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        router_state = router_state.with_management_client(management_client);
+    }
+
+    let prefix = app_config.server.prefix();
+    let mut storage_runtime = if router_state.device_client.is_some() {
+        let endpoint = app_config.device_endpoint_id.as_deref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput,
+                "STORAGE_MANAGEMENT_ENDPOINT_ID must identify the current Management-approved endpoint; Storage does not create transport identity"))?
+            .parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput,
+                "invalid STORAGE_MANAGEMENT_ENDPOINT_ID"))?;
+        build_http_runtime(
+            router_state,
+            Path::new(&app_config.data_dir),
+            prefix,
+            endpoint,
+            cancellation_token.clone(),
+        )?
+    } else {
+        build_runtime(
+            router_state,
+            Path::new(&app_config.data_dir),
+            prefix,
+            prefix,
+            None,
+            cancellation_token.clone(),
+        )?
+    };
+    let router = storage_runtime
+        .router()
+        .layer(CorsLayer::very_permissive().allow_private_network(true))
+        .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new().gzip(app_config.server.gzip));
+
+    let run_serve = |host: Option<IpAddr>, port: Option<u16>| {
+        let addr = if has_public_base {
+            bind_addr()
+        } else {
+            SocketAddr::from((
+                host.unwrap_or(app_config.server.host),
+                port.unwrap_or(app_config.server.port),
+            ))
+        };
+
+        storage_runtime.start_background_tasks()?;
+        Ok::<_, io::Error>(spawn(serve(router, addr, cancellation_token.clone())))
+    };
+
+    let command_handle = match args.command {
+        #[cfg(unix)]
+        Some(StorageCommand::ResetIndependent { .. }) => {
+            return Err(io::Error::other("reset must run before serving"));
+        }
+        #[cfg(feature = "completions")]
+        Some(StorageCommand::Completions { shell }) => {
+            spawn(async move { run_completions(shell).await })
+        }
+        Some(StorageCommand::Serve { host, port }) => run_serve(host, port)?,
+        None => run_serve(None, None)?,
+    };
+
+    shutdown_signal(cancellation_token).await;
+    if let Err(error) = storage_runtime.shutdown().await {
+        log::warn!("Storage replication runtime shutdown failed: {error}");
+    }
+
+    let shutdown_timeout = Duration::from_secs(10);
+    let mut command_handle = command_handle;
+    select! {
+      res = &mut command_handle => {
+        match res {
+          Ok(Ok(_)) => log::info!("server shutdown complete"),
+          Ok(Err(e)) => log::error!("command error: {}", e),
+          Err(e) => log::error!("join error: {}", e),
+        }
+      }
+      _ = sleep(shutdown_timeout) => {
+        log::warn!("server shutdown timed out after {:?}, aborting serve task", shutdown_timeout);
+        command_handle.abort();
+        sleep(Duration::from_millis(100)).await;
+      }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+    use cli::CliArgs;
+
+    use super::StorageCommand;
+
+    #[cfg(unix)]
+    #[test]
+    fn local_reset_requires_explicit_os_trust_removal() {
+        assert!(
+            CliArgs::<StorageCommand>::try_parse_from(["storage-server", "reset-independent"])
+                .is_err()
+        );
+        CliArgs::<StorageCommand>::try_parse_from([
+            "storage-server",
+            "reset-independent",
+            "--remove-os-trust",
+        ])
+        .expect("explicit local trust removal");
+    }
+
+    #[test]
+    fn independent_startup_accepts_no_config_and_explicit_serve() {
+        CliArgs::<StorageCommand>::try_parse_from(["storage-server"]).expect("default launch");
+        CliArgs::<StorageCommand>::try_parse_from(["storage-server", "serve", "--port", "3002"])
+            .expect("explicit serving launch");
+    }
+}

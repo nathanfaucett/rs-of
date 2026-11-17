@@ -1,0 +1,40 @@
+[package]
+name = "iroh-chain-wasm"
+version = "0.1.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Browser (WASM) TypeScript-facing API for iroh-chain"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Workspace
+iroh-chain = { path = "../iroh-chain", features = ["web"] }
+
+# Iroh
+iroh = { version = "1.4", default-features = false, features = [] }
+noq = { version = "1.2", default-features = false, features = [] }
+
+# Web
+js-sys = { version = "0.3", default-features = false }
+wasm-bindgen = { version = "0.2", default-features = false }
+wasm-bindgen-futures = { version = "0.4", default-features = false }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[dev-dependencies]
+# Web
+futures = { version = "0.3", default-features = false, features = ["std"] }
+gloo-timers = { version = "0.3", default-features = false, features = [
+    "futures",
+] }
+wasm-bindgen-test = { version = "0.3" }
+
+[lints]
+workspace = true

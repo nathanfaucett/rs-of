@@ -1,0 +1,42 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+mod bytes_table;
+
+mod change;
+mod codec;
+mod document;
+mod engine;
+
+mod executor;
+
+#[cfg(feature = "in-memory")]
+mod in_memory;
+mod index;
+mod kernel;
+
+mod row_table;
+mod schema;
+mod state_transfer;
+
+pub use bytes_table::{BytesTable, BytesTableTransaction};
+pub use change::{Change, ChangeKey};
+pub use codec::{RowCatalog, RowCodec};
+pub use document::{
+    DocumentChangeId, DocumentDigest, DocumentSummary, InspectedHistory, RowReconciler,
+    RowStateView, TableStateView,
+};
+pub use engine::{Engine, EngineError, EngineResult, EngineTransaction, TimestampProvider};
+pub use schema::{
+    CatalogTable, ENGINE_INDEX_FIELDS_STORAGE, ENGINE_INDICES_STORAGE, ENGINE_TABLE_FIELDS_STORAGE,
+    ENGINE_TABLES_STORAGE, catalog_table_for_storage, validate_row_id,
+};
+pub use uuid::Uuid;
+
+#[cfg(feature = "in-memory")]
+pub use in_memory::{InMemoryKernel, InMemoryKernelTransaction};
+pub use kernel::{Kernel, KernelTransaction};
+
+pub use row_table::RowTable;
+pub use state_transfer::{MutationSummary, RowMutation};

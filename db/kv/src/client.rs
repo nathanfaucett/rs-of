@@ -1,0 +1,444 @@
+use core::future::Future;
+#[cfg(feature = "remote")]
+use std::path::Path;
+use std::time::Duration;
+
+#[cfg(feature = "remote")]
+use kv_proto::kvdb::{
+    DeleteRequest, GetRequest, ScanAllRequest, ScanPrefixRequest, ScanRequest, SetRequest,
+    kv_service_client::KvServiceClient,
+};
+#[cfg(feature = "remote")]
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
+
+use value::Value;
+
+use crate::Error;
+
+/// A query and transaction client for embedded or remote KV storage.
+///
+/// Transactions keep all operations on one embedded transaction or remote stream. Dropping an
+/// uncommitted remote transaction rolls it back when the server observes stream closure.
+///
+/// It does not expose sync setup:
+/// ```compile_fail
+/// fn no_sync(client: &ofdb_kv::Client) {
+///     let _ = client.synchronize();
+/// }
+///
+/// ```
+/// The KV facade does not export SQL handles:
+/// ```compile_fail
+/// use ofdb_kv::SqlDatabase;
+/// ```
+#[derive(Clone)]
+pub struct Client {
+    backend: Backend,
+    request_deadline: Option<Duration>,
+}
+
+enum Backend {
+    #[cfg(any(
+        feature = "in-memory",
+        feature = "redb",
+        all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+    ))]
+    Embedded(crate::Database),
+    #[cfg(feature = "remote")]
+    Remote(Channel),
+}
+
+impl Clone for Backend {
+    fn clone(&self) -> Self {
+        match self {
+            #[cfg(any(
+                feature = "in-memory",
+                feature = "redb",
+                all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+            ))]
+            Self::Embedded(database) => Self::Embedded(database.clone_shared()),
+            #[cfg(feature = "remote")]
+            Self::Remote(channel) => Self::Remote(channel.clone()),
+        }
+    }
+}
+
+impl core::fmt::Debug for Client {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("Client")
+            .field(
+                "backend",
+                &match &self.backend {
+                    #[cfg(any(
+                        feature = "in-memory",
+                        feature = "redb",
+                        all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+                    ))]
+                    Backend::Embedded(_) => "Embedded",
+                    #[cfg(feature = "remote")]
+                    Backend::Remote(_) => "Remote",
+                },
+            )
+            .field("request_deadline", &self.request_deadline)
+            .finish()
+    }
+}
+
+impl Client {
+    pub async fn transaction(&self) -> Result<crate::Transaction, Error> {
+        self.request(async {
+            #[cfg(all(
+                any(
+                    feature = "in-memory",
+                    feature = "redb",
+                    all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+                ),
+                feature = "remote"
+            ))]
+            {
+                match &self.backend {
+                    Backend::Embedded(database) => {
+                        crate::Transaction::embedded(database, self.request_deadline).await
+                    }
+                    Backend::Remote(channel) => {
+                        crate::Transaction::remote(channel.clone(), self.request_deadline).await
+                    }
+                }
+            }
+            #[cfg(all(
+                any(
+                    feature = "in-memory",
+                    feature = "redb",
+                    all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+                ),
+                not(feature = "remote")
+            ))]
+            {
+                match &self.backend {
+                    Backend::Embedded(database) => {
+                        crate::Transaction::embedded(database, self.request_deadline).await
+                    }
+                }
+            }
+            #[cfg(all(
+                feature = "remote",
+                not(any(
+                    feature = "in-memory",
+                    feature = "redb",
+                    all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+                ))
+            ))]
+            {
+                match &self.backend {
+                    Backend::Remote(channel) => {
+                        crate::Transaction::remote(channel.clone(), self.request_deadline).await
+                    }
+                }
+            }
+        })
+        .await
+    }
+
+    #[cfg(any(
+        feature = "in-memory",
+        feature = "redb",
+        all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+    ))]
+    pub(crate) const fn embedded(database: crate::Database) -> Self {
+        Self {
+            backend: Backend::Embedded(database),
+            request_deadline: None,
+        }
+    }
+
+    /// Sets the budget for each query, transaction creation and transaction operation.
+    /// No deadline is configured by default. Clones copy the setting independently;
+    /// each operation gets a fresh budget, excluding caller idle time and connection setup.
+    /// Browser Wasm uses browser timers without Tokio; native timed queries require
+    /// a Tokio runtime with time enabled. Untimed embedded queries require neither.
+    /// Timeout or cancellation does not prove rollback, undo a completed write or
+    /// guarantee interruption of computation. An issued `IndexedDB` commit is observed
+    /// independently of the caller and may still persist and publish invalidations.
+    #[must_use]
+    pub const fn with_deadline(mut self, deadline: Duration) -> Self {
+        self.request_deadline = Some(deadline);
+        self
+    }
+
+    #[cfg(feature = "remote")]
+    pub async fn connect(uri: impl AsRef<str>) -> Result<Self, Error> {
+        let endpoint = Endpoint::from_shared(uri.as_ref().to_owned())
+            .map_err(|error| Error::Connect(error.to_string()))?;
+        Self::connect_endpoint(endpoint).await
+    }
+
+    #[cfg(feature = "remote")]
+    pub async fn connect_with_ca(
+        uri: impl AsRef<str>,
+        ca_certificate: impl AsRef<[u8]>,
+    ) -> Result<Self, Error> {
+        let endpoint = Endpoint::from_shared(uri.as_ref().to_owned())
+            .map_err(|error| Error::Connect(error.to_string()))?
+            .tls_config(
+                ClientTlsConfig::new().ca_certificate(Certificate::from_pem(ca_certificate)),
+            )
+            .map_err(|error| Error::Connect(error.to_string()))?;
+        Self::connect_endpoint(endpoint).await
+    }
+
+    #[cfg(feature = "remote")]
+    pub async fn connect_with_identity(
+        uri: impl AsRef<str>,
+        ca_certificate: impl AsRef<[u8]>,
+        client_certificate: impl AsRef<[u8]>,
+        client_private_key: impl AsRef<[u8]>,
+    ) -> Result<Self, Error> {
+        let tls = ClientTlsConfig::new()
+            .ca_certificate(Certificate::from_pem(ca_certificate))
+            .identity(Identity::from_pem(client_certificate, client_private_key));
+        let endpoint = Endpoint::from_shared(uri.as_ref().to_owned())
+            .map_err(|error| Error::Connect(error.to_string()))?
+            .tls_config(tls)
+            .map_err(|error| Error::Connect(error.to_string()))?;
+        Self::connect_endpoint(endpoint).await
+    }
+
+    #[cfg(feature = "remote")]
+    async fn connect_endpoint(endpoint: Endpoint) -> Result<Self, Error> {
+        let channel = endpoint
+            .connect()
+            .await
+            .map_err(|error| Error::Connect(error.to_string()))?;
+        Ok(Self {
+            backend: Backend::Remote(channel),
+            request_deadline: None,
+        })
+    }
+
+    #[cfg(all(feature = "remote", unix))]
+    pub async fn connect_unix(path: impl AsRef<Path>) -> Result<Self, Error> {
+        use hyper_util::rt::TokioIo;
+        use tower::service_fn;
+
+        let path = path.as_ref().to_owned();
+        let channel = Endpoint::from_static("http://[::]:50051")
+            .connect_with_connector(service_fn(move |_| {
+                let path = path.clone();
+                async move {
+                    tokio::net::UnixStream::connect(path)
+                        .await
+                        .map(TokioIo::new)
+                }
+            }))
+            .await
+            .map_err(|error| Error::Connect(error.to_string()))?;
+        Ok(Self {
+            backend: Backend::Remote(channel),
+            request_deadline: None,
+        })
+    }
+
+    pub async fn get(&self, key: &str) -> Result<Option<Value>, Error> {
+        self.request(async {
+            match &self.backend {
+                #[cfg(any(
+                    feature = "in-memory",
+                    feature = "redb",
+                    all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+                ))]
+                Backend::Embedded(database) => database.query_get(key).await,
+                #[cfg(feature = "remote")]
+                Backend::Remote(channel) => {
+                    let response = KvServiceClient::new(channel.clone())
+                        .get(GetRequest {
+                            key: key.to_owned(),
+                        })
+                        .await
+                        .map_err(map_status)?;
+                    kv_proto::optional_value(response.into_inner().value).map_err(map_status)
+                }
+            }
+        })
+        .await
+    }
+
+    pub async fn set(
+        &self,
+        key: &str,
+        value: impl Into<Value>,
+        expires_at: Option<i64>,
+    ) -> Result<(), Error> {
+        let value = value.into();
+        self.request(async {
+            match &self.backend {
+                #[cfg(any(
+                    feature = "in-memory",
+                    feature = "redb",
+                    all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+                ))]
+                Backend::Embedded(database) => database.query_set(key, value, expires_at).await,
+                #[cfg(feature = "remote")]
+                Backend::Remote(channel) => {
+                    KvServiceClient::new(channel.clone())
+                        .set(SetRequest {
+                            key: key.to_owned(),
+                            value: Some(kv_proto::value_to_proto(value)),
+                            expires_at,
+                        })
+                        .await
+                        .map_err(map_status)?;
+                    Ok(())
+                }
+            }
+        })
+        .await
+    }
+
+    pub async fn delete(&self, key: &str) -> Result<(), Error> {
+        self.request(async {
+            match &self.backend {
+                #[cfg(any(
+                    feature = "in-memory",
+                    feature = "redb",
+                    all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+                ))]
+                Backend::Embedded(database) => database.query_delete(key).await,
+                #[cfg(feature = "remote")]
+                Backend::Remote(channel) => {
+                    KvServiceClient::new(channel.clone())
+                        .delete(DeleteRequest {
+                            key: key.to_owned(),
+                        })
+                        .await
+                        .map_err(map_status)?;
+                    Ok(())
+                }
+            }
+        })
+        .await
+    }
+
+    pub async fn scan(&self, start: &str, end: &str) -> Result<Vec<(String, Value)>, Error> {
+        self.request(async {
+            match &self.backend {
+                #[cfg(any(
+                    feature = "in-memory",
+                    feature = "redb",
+                    all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+                ))]
+                Backend::Embedded(database) => database.query_scan(start, end).await,
+                #[cfg(feature = "remote")]
+                Backend::Remote(channel) => {
+                    let response = KvServiceClient::new(channel.clone())
+                        .scan(ScanRequest {
+                            start: start.to_owned(),
+                            end: end.to_owned(),
+                        })
+                        .await
+                        .map_err(map_status)?;
+                    kv_proto::scan_entries(response.into_inner().entries).map_err(map_status)
+                }
+            }
+        })
+        .await
+    }
+
+    pub async fn scan_prefix(&self, prefix: &str) -> Result<Vec<(String, Value)>, Error> {
+        self.request(async {
+            match &self.backend {
+                #[cfg(any(
+                    feature = "in-memory",
+                    feature = "redb",
+                    all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+                ))]
+                Backend::Embedded(database) => database.query_scan_prefix(prefix).await,
+                #[cfg(feature = "remote")]
+                Backend::Remote(channel) => {
+                    let response = KvServiceClient::new(channel.clone())
+                        .scan_prefix(ScanPrefixRequest {
+                            prefix: prefix.to_owned(),
+                        })
+                        .await
+                        .map_err(map_status)?;
+                    kv_proto::scan_entries(response.into_inner().entries).map_err(map_status)
+                }
+            }
+        })
+        .await
+    }
+
+    pub async fn scan_all(&self) -> Result<Vec<(String, Value)>, Error> {
+        self.request(async {
+            match &self.backend {
+                #[cfg(any(
+                    feature = "in-memory",
+                    feature = "redb",
+                    all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+                ))]
+                Backend::Embedded(database) => database.query_scan_all().await,
+                #[cfg(feature = "remote")]
+                Backend::Remote(channel) => {
+                    let response = KvServiceClient::new(channel.clone())
+                        .scan_all(ScanAllRequest {})
+                        .await
+                        .map_err(map_status)?;
+                    kv_proto::scan_entries(response.into_inner().entries).map_err(map_status)
+                }
+            }
+        })
+        .await
+    }
+
+    async fn request<T>(
+        &self,
+        request: impl Future<Output = Result<T, Error>>,
+    ) -> Result<T, Error> {
+        match self.request_deadline {
+            Some(deadline) => platform::timeout(deadline, request)
+                .await
+                .map_err(|_| Error::Timeout)?,
+            None => request.await,
+        }
+    }
+}
+
+#[cfg(feature = "remote")]
+pub fn map_status(status: tonic::Status) -> Error {
+    if let Some((kind, message)) = kv_proto::decode_error_details(status.details()) {
+        return Error::Query {
+            kind: kind.into(),
+            message: message.to_owned(),
+        };
+    }
+    match status.code() {
+        tonic::Code::DeadlineExceeded => Error::Timeout,
+        tonic::Code::Unavailable | tonic::Code::Cancelled => {
+            Error::Transport(status.message().to_owned())
+        }
+        _ => Error::Query {
+            kind: crate::ErrorKind::Internal,
+            message: status.message().to_owned(),
+        },
+    }
+}
+
+#[cfg(all(test, feature = "in-memory"))]
+mod tests {
+    use core::future::pending;
+    use std::time::Duration;
+
+    use crate::Error;
+
+    #[tokio::test]
+    async fn deadline_wraps_pending_work_and_is_independent_after_clone() {
+        let database = crate::Database::in_memory();
+        let client = database.client();
+        let timed = client.clone().with_deadline(Duration::ZERO);
+        assert!(matches!(
+            timed.request::<()>(pending::<Result<(), Error>>()).await,
+            Err(Error::Timeout)
+        ));
+        assert_eq!(client.request_deadline, None);
+    }
+}

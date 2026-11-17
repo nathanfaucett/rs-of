@@ -1,0 +1,61 @@
+[package]
+name = "of-db"
+version = "0.1.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "OAuth 2.x database utilities"
+
+[lib]
+name = "db"
+
+[features]
+default = ["native", "ofdb"]
+ofdb = ["dep:ofdb-sql"]
+native = ["ofdb", "dep:btree-redb", "ofdb-sql/redb", "ofdb-sql/in-memory"]
+postgres = ["ofdb", "ofdb-sql/postgres"]
+remote = ["ofdb", "ofdb-sql/remote", "dep:serde", "dep:tokio", "dep:url"]
+network = ["native", "ofdb-sql/validated-history", "dep:iroh"]
+server = ["native", "ofdb-sql/server"]
+
+[dependencies]
+# Configuration
+serde = { version = "1.0", default-features = false, features = [
+    "derive",
+    "std",
+], optional = true }
+tokio = { version = "1.52", default-features = false, features = [
+    "time",
+], optional = true }
+url = { version = "2.5", default-features = false, features = [
+    "std",
+], optional = true }
+
+# Database
+btree-redb = { package = "ofdb-btree-redb", path = "../../db/btree-redb", default-features = false, optional = true }
+ofdb-sql = { package = "ofdb-sql", path = "../../db/sql", default-features = false, features = [
+    "sql",
+], optional = true }
+of-model = { path = "../model", default-features = false, features = ["ofdb"] }
+
+# Error handling
+thiserror = { version = "2.0", default-features = false }
+
+# Stream transport
+iroh = { version = "1.4", default-features = false, features = [
+    "tls-ring",
+], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+    "time",
+] }
+tempfile = { version = "3.27", default-features = false }
+
+[lints]
+workspace = true

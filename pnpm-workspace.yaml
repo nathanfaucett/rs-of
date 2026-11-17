@@ -2,11 +2,10 @@ packages:
   - "apps/*"
   - "packages/*"
   - "packages/**/example"
-  - "crates/iroh-client-wasm"
-  - "crates/tauri-plugin-fetch-api"
+  - "services/tauri-plugin-fetch-api"
 allowBuilds:
-  '@openapitools/openapi-generator-cli': true
+  "@openapitools/openapi-generator-cli": true
   esbuild: true
   wasm-pack: true
 minimumReleaseAgeExclude:
-  - '@aicacia/svelte-forms@0.1.1'
+  - "@aicacia/svelte-forms@0.1.1"

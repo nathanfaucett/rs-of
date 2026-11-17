@@ -1,0 +1,56 @@
+[package]
+name = "ofdb-kv-server-cli"
+description = "Server CLI for ofdb KV store with P2P sync"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "kv-server-cli"
+path = "src/main.rs"
+
+[features]
+default = ["p2p"]
+p2p = ["dep:iroh", "dep:sync", "ofdb-kv/sync"]
+
+[dependencies]
+# Internal dependencies
+ofdb-kv = { version = "0.1", package = "ofdb-kv", path = "../kv", default-features = false, features = [
+    "redb",
+    "server",
+] }
+sync = { version = "0.1", package = "ofdb-sync", path = "../sync", default-features = false, features = [
+    "std",
+    "iroh",
+], optional = true }
+
+# External dependencies
+clap = { version = "4.5", default-features = false, features = [
+    "derive",
+    "std",
+    "help",
+    "usage",
+    "error-context",
+    "env",
+] }
+
+iroh = { version = "1.4", default-features = false, features = [
+    "tls-ring",
+], optional = true }
+
+tokio = { version = "1.0", default-features = false, features = [
+    "rt-multi-thread",
+    "macros",
+    "signal",
+    "sync",
+    "time",
+] }
+
+[dev-dependencies]
+tempfile = { version = "3.27", default-features = false }
+
+[lints]
+workspace = true

@@ -1,0 +1,67 @@
+{
+  "name": "@ofsdk/sql",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "TypeScript wrapper for ofdb SQL over IndexedDB",
+  "keywords": [
+    "ofdb",
+    "sql",
+    "database",
+    "indexeddb",
+    "wasm"
+  ],
+  "author": "Nathan Faucett",
+  "license": "(MIT OR Apache-2.0)",
+  "readmeFilename": "README.md",
+  "module": "./esm/index.js",
+  "main": "./esm/index.js",
+  "types": "./types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./esm/index.js"
+    },
+    "./browser": {
+      "types": "./types/index.d.ts",
+      "default": "./browser/index.js"
+    },
+    "./pkg": {
+      "types": "./pkg/ofdb_wasm.d.ts",
+      "default": "./pkg/ofdb_wasm.js"
+    },
+    "./pkg/*": "./pkg/*",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build:esm": "tsc",
+    "build:browser": "rolldown -c",
+    "build": "pnpm run clean && pnpm run build:esm && pnpm run build:browser",
+    "build:wasm": "node ../../scripts/build-sql-wasm.mjs",
+    "build:all": "pnpm run build:wasm && pnpm run clean && pnpm run build:esm && pnpm run build:browser",
+    "clean": "shx rm -rf esm types browser tsconfig.tsbuildinfo",
+    "test": "playwright test",
+    "test:package": "node browser-tests/package.mjs && SQL_TEST_PAGE=/consumer/index.html playwright test",
+    "check": "tsc --noEmit",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format .",
+    "format:fix": "biome format --write .",
+    "prepublishOnly": "pnpm run build:all"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@playwright/test": "1.49.0",
+    "rolldown": "1.2.16",
+    "shx": "0.4.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "wasm-pack": "0.13.1"
+  },
+  "files": [
+    "esm",
+    "types",
+    "pkg",
+    "browser"
+  ]
+}

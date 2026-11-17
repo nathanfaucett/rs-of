@@ -10,16 +10,16 @@ engine, read a local database, or prove that data was backed up.
 import { SyncClient, type StoreIdentity } from "@ofsdk/sync-client";
 
 export function attachStore(
-    storageApiUrl: string,
-    identity: StoreIdentity,
-    getSyncAccessToken: () => Promise<string>,
-    signal: AbortSignal,
+  storageApiUrl: string,
+  identity: StoreIdentity,
+  getSyncAccessToken: () => Promise<string>,
+  signal: AbortSignal,
 ) {
-    const client = new SyncClient({
-        storageApiUrl,
-        tokenProvider: getSyncAccessToken,
-    });
-    return client.attach({ identity, direction: "Push", signal });
+  const client = new SyncClient({
+    storageApiUrl,
+    tokenProvider: getSyncAccessToken,
+  });
+  return client.attach({ identity, direction: "Push", signal });
 }
 ```
 
@@ -65,7 +65,7 @@ or provide mesh sync. Add the workspace dependency to the app when integrating.
 
 ## Actual server contract and limits
 
-The source of truth is `crates/storage-server/src/sync.rs`, not the existing
+The source of truth is `services/storage-server/src/sync.rs`, not the existing
 Rust `sync-client` or `sync-test-harness`: their message enums differ from the
 server. Frames use version 1, flags 0, little-endian u32 payload length,
 Postcard payload, and little-endian IEEE CRC32 of that payload (not CRC32C).
@@ -112,7 +112,7 @@ changed. Runtime dependencies: none. App integration remains ticket 02.
 
 ## Data-engine work required for ticket 02
 
-1. **SQL owner binding.** `ofdb/crates/sql/src/database.rs` exposes
+1. **SQL owner binding.** `db/sql/src/database.rs` exposes
    `Database::synchronize_checked` (memory staging, including IndexedDB) and
    `synchronize_with_stage_directory_checked` (native staging). The browser
    owner tests in `ofdb/tests/browser/src/sql_sync.rs` open persistent databases
@@ -122,7 +122,7 @@ changed. Runtime dependencies: none. App integration remains ticket 02.
    the database identity, cancellation, and pre-apply checks with the owner.
    Return the owner `SyncResult` only after the full exchange succeeds. Earlier
    atomic applies can remain after a later failure; do not promise rollback.
-2. **Direction contract.** `ofdb/crates/sql-sync/src/session.rs` rejects
+2. **Direction contract.** `db/sync/src/session.rs` rejects
    non-Bidirectional unscoped sessions. Scoped sessions require complementary
    directions (`SendOnly` / `ReceiveOnly`). The WS server currently uses default
    unscoped Bidirectional config regardless of the attach request. Merely mapping
@@ -147,7 +147,7 @@ changed. Runtime dependencies: none. App integration remains ticket 02.
    bridges that do not unwrap the server OwnerMessage envelope.
 5. **Admission and completion.** Obtain a current token with `storage:sync`
    audience through the approved IdP flow. Token exchange uses `resource` as
-   the requested audience in `crates/idp-service/src/oauth2/service.rs`; verify
+   the requested audience in `services/idp-service/src/oauth2/service.rs`; verify
    the app OAuth Client allows exchange. Resolve the server hard-coded `local`
    endpoint against real Device selections. The WS path now rechecks current token and exact Device policy before reads,
    outbound owner messages, and SQL apply. Its hard-coded endpoint lookup is
