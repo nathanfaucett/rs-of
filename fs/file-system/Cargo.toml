@@ -99,7 +99,7 @@ web-sys = { version = "0.3", default-features = false, features = [
 # Internal
 ofdb-kv = { version = "0.1", path = "../../db/kv", default-features = false, features = [
     "indexeddb",
-    "sync",
+    "wasm",
 ] }
 
 # Utilities

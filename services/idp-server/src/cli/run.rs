@@ -28,6 +28,8 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::{config::app_config::AppConfig, runtime::build_oauth_runtime};
+#[cfg(all(unix, feature = "independent"))]
+use crate::{independent_create::serve_independent_create, independent_reset::reset_independent};
 
 #[derive(Parser, Debug)]
 enum IdpCommand {
@@ -74,8 +76,7 @@ pub async fn run() -> io::Result<()> {
     if let Some(IdpCommand::ResetIndependent { remove_os_trust }) = args.command.as_ref() {
         let _ = dotenvy::dotenv();
         let config = crate::startup::load_config(Path::new(&args.config))?;
-        return crate::independent_reset::reset_independent(&config, *remove_os_trust, || Ok(()))
-            .await;
+        return reset_independent(&config, *remove_os_trust, || Ok(())).await;
     }
     #[cfg(not(feature = "independent"))]
     if let Some(IdpCommand::ResetIndependent { .. }) = args.command.as_ref() {
@@ -162,11 +163,8 @@ pub async fn run() -> io::Result<()> {
         #[cfg(feature = "independent")]
         if let Some(setup) = crate::startup::prepare_setup(&app_config, address)? {
             let shutdown = shutdown_signal(cancellation_token.clone());
-            let serving = crate::independent_create::serve_independent_create(
-                app_config.clone(),
-                setup,
-                cancellation_token.clone(),
-            );
+            let serving =
+                serve_independent_create(app_config.clone(), setup, cancellation_token.clone());
             tokio::pin!(shutdown, serving);
             return select! {
                 result = &mut serving => result,

@@ -7,7 +7,7 @@ use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use bip32::DerivationPath;
 use idp_service::{
     oauth2::node_signer::NodeSignerBinding,
-    replica::replica_signer_repo::DbReplicaSignerRepo,
+    replica::DbReplicaSignerRepo,
     repo::{
         appliccation_repo::ApplicationRepo, client_repo::ClientRepo, error::RepoError,
         key_repo::KeyRepo, key_service::KeyService, private_key_repo::PrivateKeyRepo,
@@ -305,9 +305,8 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
                 invalid("captured root metadata is missing or inactive; explicit recovery required")
             })?;
         validate_metadata_root(&initial, entity, id)?;
-        let paths =
-            KeyService::<idp_service::ofdb::key_repo::DbKeyRepo, P>::private_paths(&initial)
-                .map_err(io::Error::other)?;
+        let paths = KeyService::<idp_service::replica::DbKeyRepo, P>::private_paths(&initial)
+            .map_err(io::Error::other)?;
         if reference["paths"] != json!(paths.iter().map(ToString::to_string).collect::<Vec<_>>()) {
             return Err(invalid(
                 "captured root metadata conflicts with retained identity",

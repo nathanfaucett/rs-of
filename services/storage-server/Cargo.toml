@@ -25,7 +25,14 @@ independent = [
     "server-common/independent",
     "device-service/independent",
 ]
-cli = ["network", "dep:dotenvy", "dep:clap", "dep:cli", "dep:env_logger"]
+cli = [
+    "independent",
+    "network",
+    "dep:dotenvy",
+    "dep:clap",
+    "dep:cli",
+    "dep:env_logger",
+]
 network = ["dep:tokio", "dep:tokio-util", "dep:futures"]
 sync = ["network", "dep:futures-util", "dep:crc32fast"]
 completions = ["cli/completions", "clap_complete"]

@@ -19,6 +19,10 @@ mod execution_test_support;
 #[cfg(feature = "network")]
 mod filesystem_transport;
 mod idp_client;
+#[cfg(all(unix, feature = "independent"))]
+mod independent_create;
+#[cfg(all(unix, feature = "independent"))]
+mod independent_reset;
 #[cfg(feature = "network")]
 mod local_replication_authorizer;
 mod management_client;
@@ -31,6 +35,8 @@ mod replication_runtime;
 mod router;
 #[cfg(feature = "network")]
 mod runtime;
+#[cfg(all(unix, feature = "independent"))]
+mod startup;
 #[cfg(feature = "network")]
 mod storage_protocol;
 #[cfg(feature = "sync")]
@@ -47,6 +53,8 @@ pub use data_protocol::DataProtocolHandler;
 pub use db::DatabaseTransport;
 pub use device_client::DeviceClient;
 pub use idp_client::{IdpClient, IdpIntrospectionError};
+#[cfg(all(unix, feature = "independent"))]
+pub use independent_create::serve_independent_create;
 #[cfg(feature = "network")]
 pub use local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
 pub use management_client::ManagementClient;
@@ -63,5 +71,7 @@ pub use router::{
 pub use router::{openapi_document, openapi_router, public_metadata_router};
 #[cfg(feature = "network")]
 pub use runtime::{StorageRuntime, build_http_runtime, build_local_runtime, build_runtime};
+#[cfg(all(unix, feature = "independent"))]
+pub use startup::prepare_setup;
 #[cfg(feature = "sync")]
 pub use sync::{SyncState, sync_router};

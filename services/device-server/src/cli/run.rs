@@ -17,9 +17,7 @@ use tokio::{select, spawn, time::sleep};
 use tokio_util::sync::CancellationToken;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
-#[cfg(not(unix))]
-use crate::AppConfig;
-use crate::runtime::build_router;
+use crate::{AppConfig, runtime::build_local_router};
 
 #[derive(clap::Parser, Debug)]
 enum DeviceCommand {
@@ -78,7 +76,9 @@ pub async fn run() -> io::Result<()> {
 
     // Check for public base URL (set by portless via PORTLESS_URL or manually via PUBLIC_BASE_URL)
     let has_public_base = public_base_url().is_some();
-    let portless_port = std::env::var("PORT").ok().and_then(|p| p.parse::<u16>().ok());
+    let portless_port = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok());
     if has_public_base {
         let base_url = public_base_url().expect("public base URL must be set");
         let mut config = Arc::try_unwrap(app_config).unwrap_or_else(|arc| (*arc).clone());
@@ -129,7 +129,14 @@ pub async fn run() -> io::Result<()> {
     )
     .init();
 
-    let router = build_router(app_config.clone(), cancellation_token.clone())?;
+    let router = build_local_router(
+        Path::new(&app_config.data_dir),
+        app_config.server.port,
+        &app_config.idp_api_base,
+        None,
+        None,
+    )
+    .await?;
     let router = router
         .layer(CorsLayer::very_permissive().allow_private_network(true))
         .layer(TraceLayer::new_for_http())

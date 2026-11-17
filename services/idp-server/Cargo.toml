@@ -29,7 +29,7 @@ independent = [
     "server-common/independent",
     "device-service/independent",
 ]
-cli = ["dep:dotenvy", "dep:clap", "dep:cli"]
+cli = ["independent", "dep:dotenvy", "dep:clap", "dep:cli"]
 completions = ["cli?/completions", "dep:clap_complete"]
 
 [dependencies]
