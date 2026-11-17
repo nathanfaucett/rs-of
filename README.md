@@ -22,7 +22,7 @@ A monorepo for building offline-first applications with OAuth 2.0 / OpenID Conne
 
 ```bash
 # Run unified server (all services in one process)
-cargo run -p unified-server -- local --data-dir .data --port 1355 --origin http://localhost:5173 --no-tls
+just unified --data-dir .data --port 1355 --origin http://localhost:5173 --no-tls
 ```
 
 All four owners use one embedded database at `.data/unified.redb`:
@@ -114,25 +114,24 @@ Each Node shares one `iroh-chain` endpoint/router. Endpoint identity and locally
 
 ```bash
 # Rust workspace
-cargo build --workspace --features ofdb
+just build
 
 # TypeScript packages
-pnpm install --frozen-lockfile
-pnpm sdk:build
+just npm-install
+just sdk-build
 
 # All tests
-cargo test --workspace --features ofdb
-pnpm test
+just test
 ```
 
 ### Code Quality
 
 ```bash
 # Format
-cargo fmt --all --check
+just fmt-check
 
 # Lint
-cargo clippy --workspace --features ofdb -- -D warnings
+just clippy
 
 # CRAP (Complexity, Risk, and Priority)
 just crap
@@ -172,6 +171,15 @@ cargo run -p unified-server -- local --data-dir /var/lib/of --port 443 --origin 
 ### Independent Services
 
 Separate `idp-server`, `device-server`, `storage-server`, `management-server` deployment paths retain their existing configuration. See [configuration](config/README.md) and [operations](docs/operations.md).
+
+Run via portless for local HTTPS:
+
+```bash
+just idp
+just management
+just device
+just storage
+```
 
 ### Docker
 
