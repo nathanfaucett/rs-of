@@ -1,3 +1,4 @@
+#[cfg(feature = "ofdb")]
 use crate::security_policy::SecurityContext;
 use std::io;
 use std::path::PathBuf;

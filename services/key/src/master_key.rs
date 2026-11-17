@@ -1,4 +1,4 @@
-use core::{convert::TryFrom, str::FromStr};
+use core::str::FromStr;
 
 use bip32::{ChildNumber, DerivationPath, XPrv};
 use bip39::Mnemonic;

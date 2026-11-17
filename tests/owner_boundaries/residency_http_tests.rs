@@ -1,9 +1,9 @@
 use std::sync::{Arc, OnceLock};
 
 use device_service::replica::DbSelectionPolicyRepo;
-use device_service::replica::SelectionPolicy;
 use idp_service::repo::ClientRepo;
 use of_model::contract::StorageAuthorizationAction;
+use of_model::device::selection_policy::SelectionPolicy;
 use of_model::idp::contract::{GrantType, TokenEndpointAuthMethod};
 use storage_server::{RouterState, StorageCopyRetirement, openapi_router, resource_router};
 use storage_service::ScopedFileSystemRuntime;
@@ -100,26 +100,26 @@ async fn authorized_whole_filesystem_residency_uses_public_storage_owner() {
             ],
         )
         .await;
-    let config = of_storage_client::apis::configuration::Configuration {
+    let config = of_storage_api_client::apis::configuration::Configuration {
         base_path: format!("{}/storage", fixture.storage_listener.base),
         client: fixture.http.clone(),
         bearer_access_token: Some(token.clone()),
         ..Default::default()
     };
-    of_storage_client::apis::resources_residency_api::put_file_system_residency(
+    of_storage_api_client::apis::resources_residency_api::put_file_system_residency(
         &config,
-        of_storage_client::apis::resources_residency_api::PutFileSystemResidencyParams {
+        of_storage_api_client::apis::resources_residency_api::PutFileSystemResidencyParams {
             filesystem_id: fixture.resource.as_uuid().to_string(),
-            resource_residency: of_storage_client::models::ResourceResidency::new(
-                of_storage_client::models::ResidencyMode::Passthrough,
+            resource_residency: of_storage_api_client::models::ResourceResidency::new(
+                of_storage_api_client::models::ResidencyMode::Passthrough,
             ),
         },
     )
     .await
     .expect("generated public Residency PUT requires 204");
-    let current = of_storage_client::apis::resources_residency_api::get_file_system_residency(
+    let current = of_storage_api_client::apis::resources_residency_api::get_file_system_residency(
         &config,
-        of_storage_client::apis::resources_residency_api::GetFileSystemResidencyParams {
+        of_storage_api_client::apis::resources_residency_api::GetFileSystemResidencyParams {
             filesystem_id: fixture.resource.as_uuid().to_string(),
         },
     )
@@ -127,7 +127,7 @@ async fn authorized_whole_filesystem_residency_uses_public_storage_owner() {
     .expect("generated public Residency GET requires 200");
     assert_eq!(
         current.mode,
-        of_storage_client::models::ResidencyMode::Passthrough
+        of_storage_api_client::models::ResidencyMode::Passthrough
     );
     assert_eq!(
         fixture

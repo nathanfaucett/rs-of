@@ -14,7 +14,7 @@ name = "setup"
 
 [features]
 default = []
-test-support = []
+testing = []
 
 [dependencies]
 # Generated HTTP operations (needed by independent_exchange)

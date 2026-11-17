@@ -3,11 +3,10 @@
 use std::{sync::Arc, time::Duration};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use device_service::device_identity::DeviceIdentity;
-use device_service::device_identity::identity_from_server;
-use device_service::pairing_acceptance::PairingAcceptanceController;
-use device_service::pairing_acceptance::PairingAcceptanceControllerSlot;
-use device_service::pairing_acceptance::TimedPairingAcceptanceController;
+use device_service::{DeviceIdentity, device_identity_from_server};
+use device_service::{
+    PairingAcceptanceController, PairingAcceptanceControllerSlot, TimedPairingAcceptanceController,
+};
 use iroh::{EndpointAddr, SecretKey, Signature, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
 
@@ -19,13 +18,7 @@ async fn shared_endpoint_identity_signs_without_an_idp_signer_or_database() {
             .await
             .expect("bind shared endpoint");
     assert!(device_identity_from_server(&server, SecretKey::generate()).is_err());
-    assert!(
-        crate::device_identity::DeviceIdentity::new(
-            server.endpoint().clone(),
-            SecretKey::generate()
-        )
-        .is_err()
-    );
+    assert!(DeviceIdentity::new(server.endpoint().clone(), SecretKey::generate()).is_err());
     let identity = device_identity_from_server(&server, secret).expect("exact endpoint key");
     assert_eq!(identity.endpoint_id(), server.endpoint().id());
     assert_eq!(identity.endpoint().id(), server.endpoint().id());
@@ -83,11 +76,11 @@ async fn pairing_control_requires_a_bound_controller_and_uses_the_shared_endpoin
     .await
     .expect("bind pairing endpoint");
     server.set_pairing_enabled(false);
-    let slot = crate::pairing_acceptance::PairingAcceptanceControllerSlot::new();
+    let slot = device_service::PairingAcceptanceControllerSlot::new();
     assert!(slot.pairing_accepting().is_err());
     assert!(slot.set_pairing_accepting(true).is_err());
     slot.bind(Arc::new(
-        crate::pairing_acceptance::TimedPairingAcceptanceController::new(
+        device_service::TimedPairingAcceptanceController::new(
             server.clone(),
             Duration::from_secs(1),
         ),

@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      RUSTUP_TOOLCHAIN: 1.99.1
+      RUSTUP_TOOLCHAIN: 1.100
     defaults:
       run:
         working-directory: of
@@ -55,7 +55,7 @@ jobs:
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libdbus-1-dev
       - name: Install Rust
-        run: rustup toolchain install 1.99.1 --profile minimal --target wasm32-unknown-unknown
+        run: rustup toolchain install 1.100 --profile minimal --target wasm32-unknown-unknown
       - name: Install wasm-pack
         run: cargo install wasm-pack --version 0.13.1 --locked
       - uses: actions/cache@v4

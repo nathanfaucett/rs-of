@@ -11,7 +11,7 @@ pub(crate) mod oauth2_authorization_code_repo;
 pub(crate) mod oauth2_refresh_token_repo;
 pub(crate) mod oauth2_user_consent_repo;
 pub(crate) mod replica_signer_repo;
-pub(crate) mod user_repo;
+pub mod user_repo;
 
 pub use application_repo::DbApplicationRepo;
 pub use client_repo::DbClientRepo;

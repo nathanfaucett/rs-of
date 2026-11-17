@@ -1,5 +1,5 @@
 use of_model::contract::StorageAuthorizationAction;
-use of_model::storage::{StorageRequest, StorageResponse};
+use of_model::storage::contract::{StorageRequest, StorageResponse};
 use tokio_util::sync::CancellationToken;
 
 use crate::support::native::{

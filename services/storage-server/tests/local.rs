@@ -7,7 +7,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use db::adapters::MemoryDatabase;
-use ofdb_sql::Client;
+use ofdb_sql::{Client, Database as SqlDatabase};
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -15,9 +15,9 @@ async fn local_runtime_accepts_shared_and_owner_databases_without_setup_or_mesh(
     for injected in [true, false] {
         let root =
             std::env::temp_dir().join(format!("storage-local-{}", of_model::id::Id::now_v7()));
-        let shared: Option<Arc<Client>> = if injected {
+        let shared: Option<Arc<SqlDatabase>> = if injected {
             let adapter = MemoryDatabase::new().await.expect("shared schema");
-            Some(Arc::new(adapter.client()))
+            Some(Arc::new(adapter.database()))
         } else {
             None
         };
@@ -29,6 +29,7 @@ async fn local_runtime_accepts_shared_and_owner_databases_without_setup_or_mesh(
             shared,
             None,
         )
+        .await
         .expect("local runtime");
         let response = runtime
             .router()
@@ -55,7 +56,7 @@ async fn local_runtime_accepts_shared_and_owner_databases_without_setup_or_mesh(
                 .expect("WS route response");
             assert_ne!(response.status(), StatusCode::NOT_FOUND);
         }
-        assert_eq!(root.join("storage.redb").exists(), !injected);
+        assert_eq!(root.join("unified.redb").exists(), !injected);
         assert!(!root.join("storage-local.peer").exists());
         assert!(!root.join("databases").exists());
         assert!(!root.join("filesystems").exists());

@@ -459,8 +459,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
             management.clone().client(),
         ))),
         Arc::new(
-            device_service::DeviceIdentity::identity_from_server(&server, secret)
-                .expect("peer identity"),
+            device_service::device_identity_from_server(&server, secret).expect("peer identity"),
         ),
     )
     .with_local_permissions(management_service::LocalPermissions::new(
@@ -532,8 +531,8 @@ pub(crate) async fn user_token(fixture: &ApprovalFixture, audience: &str) -> Str
 #[tokio::test]
 async fn node_join_requires_both_permissions_and_retries_after_disconnected_reply() {
     use device_service::device_repo::DeviceRepo;
-    use management_service::ofdb::permission_repo::DbPermissionRepo;
-    use management_service::ofdb::role_repo::DbRoleRepo;
+    use management_service::ofdb::DbPermissionRepo;
+    use management_service::ofdb::DbRoleRepo;
     use management_service::service::ManagementService;
     let fixture = approval_fixture().await;
     let peer_router = fixture

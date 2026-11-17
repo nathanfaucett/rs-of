@@ -1,3 +1,4 @@
+#[cfg(feature = "ofdb")]
 use idp_service::security_sync::public_security_tables;
 use of_model::id::Id;
 use of_model::idp::contract::jwk_public::JwkPublic;

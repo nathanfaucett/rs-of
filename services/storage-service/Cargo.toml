@@ -1,11 +1,14 @@
 [package]
 name = "storage-service"
+description = "Authenticated database and filesystem resource APIs"
 edition = "2024"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+keywords = ["storage", "database", "filesystem", "offline-first"]
+categories = ["database", "filesystem"]
 
 [dependencies]
 # Internal

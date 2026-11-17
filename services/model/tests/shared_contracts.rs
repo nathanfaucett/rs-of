@@ -1,7 +1,7 @@
 use of_model::{
     config::ServerConfig,
     server::{device::device_selection::SelectionRequest, storage::sql::SqlRequest},
-    storage::ResourceKind,
+    storage::resource_catalog::ResourceKind,
 };
 
 #[test]

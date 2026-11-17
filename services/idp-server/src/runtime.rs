@@ -424,7 +424,7 @@ impl device_service::hosted_join::NodeJoinIdentity for IdpRuntime {
 
 #[cfg(test)]
 mod tests {
-    use device_service::pairing_acceptance::PairingAcceptanceController;
+    use device_service::PairingAcceptanceController;
 
     use crate::node_join_tests::approval_fixture;
 

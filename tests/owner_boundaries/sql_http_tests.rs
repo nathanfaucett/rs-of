@@ -639,16 +639,16 @@ async fn result_limits_rollback_batches_and_schema_initialization_is_retryable()
 async fn generated_sql_contract_roundtrips_lossless_wire_scalars() {
     let f = Fixture::new(Default::default()).await;
     let token = f.token("storage:databases", vec![Read, Write]).await;
-    let config = of_storage_client::apis::configuration::Configuration {
+    let config = of_storage_api_client::apis::configuration::Configuration {
         base_path: format!("{}/storage", f.storage_listener.base),
         client: f.http.clone(),
         bearer_access_token: Some(token),
         ..Default::default()
     };
-    let resource = of_storage_client::apis::resources_api::ensure_database(
+    let resource = of_storage_api_client::apis::resources_api::ensure_database(
         &config,
-        of_storage_client::apis::resources_api::EnsureDatabaseParams {
-            ensure_database_request: of_storage_client::models::EnsureDatabaseRequest::new(
+        of_storage_api_client::apis::resources_api::EnsureDatabaseParams {
+            ensure_database_request: of_storage_api_client::models::EnsureDatabaseRequest::new(
                 "wire-values".into(),
             ),
         },
@@ -666,9 +666,9 @@ async fn generated_sql_contract_roundtrips_lossless_wire_scalars() {
         {"sql":"INSERT INTO scalars (id, i, b, f, u, bytes, n) VALUES (?, ?, ?, ?, ?, ?, ?)", "params":values},
         {"sql":"SELECT id, i, b, f, u, bytes, n FROM scalars"}
     ]})).expect("generated request accepts scalar union");
-    let result = of_storage_client::apis::resources_sql_api::execute_sql(
+    let result = of_storage_api_client::apis::resources_sql_api::execute_sql(
         &config,
-        of_storage_client::apis::resources_sql_api::ExecuteSqlParams {
+        of_storage_api_client::apis::resources_sql_api::ExecuteSqlParams {
             database_id: resource.id,
             sql_request: request,
         },

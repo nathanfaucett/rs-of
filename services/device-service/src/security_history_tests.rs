@@ -1,3 +1,4 @@
+#[cfg(feature = "ofdb")]
 use std::{
     io,
     path::PathBuf,
@@ -22,13 +23,13 @@ use iroh::{
     protocol::Router,
 };
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::ofdb::permission_repo::DbPermissionRepo;
-use management_service::ofdb::role_repo::DbRoleRepo;
+use management_service::ofdb::{DbPermissionRepo, DbRoleRepo};
 use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 use ofdb_sql::Value;
-use ofdb_sql::{SessionConfig, SyncMessage, SyncRole, SyncTransport};
+use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
+use ofdb_sql_history::SyncMessage;
 use tokio_util::sync::CancellationToken;
 
 use crate::{

@@ -60,7 +60,7 @@ mod tests {
         };
         {
             let engine = Arc::new(Database::open(&path).expect("open local policy"));
-            up(&engine).await.expect("initialize policy only");
+            up(&engine.client()).await.expect("initialize policy only");
             let local = LocalPermissions::new(engine.client());
             assert!(!local.evaluate(&request).await.expect("missing grants deny"));
             ManagementService::new(

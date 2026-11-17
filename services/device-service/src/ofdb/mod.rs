@@ -1,6 +1,6 @@
-mod device_repo;
-mod schema;
-mod selection_policy;
+pub mod device_repo;
+pub mod schema;
+pub mod selection_policy;
 
 pub use device_repo::DbDeviceRepo;
 pub use schema::{up, validate_device};

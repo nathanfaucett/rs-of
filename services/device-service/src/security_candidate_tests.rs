@@ -1,16 +1,31 @@
-use std::{sync::{Arc, atomic::{AtomicBool, Ordering}}, time::{Duration}};
+#[cfg(feature = "ofdb")]
+#[cfg(feature = "ofdb")]
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
+#[cfg(feature = "ofdb")]
 use ofdb_sql::Database;
 
 use ofdb_sql::Row;
 
-use ofdb_sql::Value;
 use of_model::id::Id;
-use ofdb_sql::{SyncKey, SyncMessage, SyncRole, apply_sync_state_batch_for, export_sync_state_for};
+use ofdb_sql::Value;
 use ofdb_sql::{AutomergeRowCodec, Engine, InMemoryKernel, Kernel, KernelTransaction, RowCodec};
+use ofdb_sql::{SyncKey, SyncRole};
+use ofdb_sql_history::{SyncMessage, apply_sync_state_batch_for, export_sync_state_for};
 
 use super::{Pair, Poison, RecoveryAttack, public_jwk, sync_fixture, unvalidated_initiate};
-use crate::{device_repo::{DeviceRepo}, replica::{device_repo::{DbDeviceRepo}}, security_policy::{SecurityContext}, security_protocol::{test_fixtures::{enroll, sql}}};
+use crate::{
+    device_repo::DeviceRepo,
+    replica::DbDeviceRepo,
+    security_policy::SecurityContext,
+    security_protocol::test_fixtures::{enroll, sql},
+};
 
 struct ExtraMember {
     member: Id,

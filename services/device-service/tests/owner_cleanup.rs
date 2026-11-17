@@ -2,8 +2,8 @@
 
 use std::{fs, sync::Arc};
 
-use device_service::replica::schema::up;
-use device_service::replica::selection_policy::DbSelectionPolicyRepo;
+use device_service::replica::DbSelectionPolicyRepo;
+use device_service::replica::up;
 use of_model::device::selection_policy::SelectionPolicy;
 use of_model::id::Id;
 use ofdb_sql::Database;

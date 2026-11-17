@@ -1,3 +1,4 @@
+#[cfg(feature = "ofdb")]
 use std::{
     io::ErrorKind,
     sync::Arc,
@@ -9,13 +10,12 @@ use ofdb_sql::Database;
 use idp_service::{
     oauth2::node_signer::NodeSignerBinding,
     password_config::PasswordConfig,
-    replica::{replica_signer_repo::DbReplicaSignerRepo, user_repo::DbUserRepo},
+    replica::{DbReplicaSignerRepo, DbUserRepo},
     repo::user_repo::UserRepo,
 };
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::ofdb::permission_repo::DbPermissionRepo;
-use management_service::ofdb::role_repo::DbRoleRepo;
+use management_service::ofdb::{DbPermissionRepo, DbRoleRepo};
 use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
@@ -24,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     device_repo::DeviceRepo,
-    replica::device_repo::DbDeviceRepo,
+    replica::DbDeviceRepo,
     security_policy::SecurityContext,
     security_protocol::{
         SecurityProtocol,
@@ -74,7 +74,9 @@ async fn exchange_history() {
     let key_b = Id::now_v7();
     {
         let idp = Arc::new(Database::open(root.join("a-idp.redb")).expect("seed IdP"));
-        db::ofdb::up(&idp.client()).await.expect("fresh secret-free schemas");
+        db::ofdb::up(&idp.client())
+            .await
+            .expect("fresh secret-free schemas");
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'administrator', 'Administrator', 1, 1)")).await;
         let management =
             Arc::new(Database::open(root.join("a-management.redb")).expect("seed Management"));
@@ -160,10 +162,8 @@ async fn exchange_history() {
         created_at: 100,
     };
     use idp_service::repo::oauth2_refresh_token_repo::OAuth2RefreshTokenRepo;
-    let grants_a =
-        idp_service::replica::DbOAuth2RefreshTokenRepo::new(idp_a.client());
-    let grants_b =
-        idp_service::replica::DbOAuth2RefreshTokenRepo::new(idp_b.client());
+    let grants_a = idp_service::replica::DbOAuth2RefreshTokenRepo::new(idp_a.client());
+    let grants_b = idp_service::replica::DbOAuth2RefreshTokenRepo::new(idp_b.client());
     grants_a
         .issue_refresh_token(grant("private-bearer-original"), None)
         .await

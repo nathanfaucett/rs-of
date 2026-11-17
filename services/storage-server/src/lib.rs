@@ -38,9 +38,9 @@ mod provisioning;
 mod replication_admission;
 #[cfg(feature = "network")]
 mod replication_runtime;
-mod router;
+pub mod router;
 #[cfg(feature = "network")]
-mod runtime;
+pub mod runtime;
 #[cfg(all(unix, feature = "independent"))]
 mod startup;
 #[cfg(feature = "network")]

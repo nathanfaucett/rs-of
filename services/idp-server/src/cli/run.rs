@@ -248,7 +248,7 @@ mod tests {
     use clap::Parser;
     use cli::args::CliArgs;
 
-    use crate::cli::run::run::IdpCommand;
+    use crate::cli::run::IdpCommand;
 
     #[cfg(unix)]
     #[test]

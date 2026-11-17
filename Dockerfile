@@ -1,4 +1,4 @@
-FROM rust:1.99-trixie AS builder
+FROM rust:1.100-trixie AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends pkg-config libdbus-1-dev protobuf-compiler libprotobuf-dev \

@@ -7,6 +7,8 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords = ["sql", "database", "offline-first", "crdt", "sync", "relational"]
+categories = ["database", "embedded"]
 rust-version.workspace = true
 
 [features]

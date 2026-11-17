@@ -6,6 +6,8 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords = ["btree", "automerge", "crdt", "sync", "database"]
+categories = ["database", "data-structures", "distributed-systems"]
 rust-version.workspace = true
 
 [lib]

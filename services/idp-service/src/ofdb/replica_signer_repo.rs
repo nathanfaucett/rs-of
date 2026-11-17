@@ -9,6 +9,7 @@ use ofdb_sql::Transaction;
 use ofdb_sql::Value;
 
 use crate::repo::{RepoError, RepoResult};
+use db::ofdb::up;
 
 pub struct DbReplicaSignerRepo {
     engine: ofdb_sql::Client,
@@ -492,6 +493,7 @@ mod tests {
     use std::sync::Arc;
 
     use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
+    use db::ofdb::up;
     use k256::ecdsa::SigningKey;
     use ofdb_sql::SqlTranslator;
     use ofdb_sql::Value;
@@ -553,7 +555,7 @@ mod tests {
     async fn public_trust_fixture() -> (Arc<ofdb_sql::Database>, ReplicaMembership, IdpSignerRecord)
     {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
-        replica::up(&engine.client())
+        up(&engine.client())
             .await
             .expect("initialize public IdP schema");
         let (mut member, mut signer) = records();
@@ -727,7 +729,7 @@ mod tests {
 
     #[tokio::test]
     async fn trusted_signers_without_devices_and_key_repo_preserve_pairs() {
-        use crate::{replica::key_repo::DbKeyRepo, repo::key_repo::KeyRepo};
+        use crate::{replica::DbKeyRepo, repo::key_repo::KeyRepo};
 
         let (engine, member, signer) = public_trust_fixture().await;
         assert!(
@@ -1131,9 +1133,7 @@ mod tests {
     #[tokio::test]
     async fn caller_transaction_controls_enrollment_commit_and_rollback() {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
-        replica::up(&engine.client())
-            .await
-            .expect("initialize IdP schema");
+        up(&engine.client()).await.expect("initialize IdP schema");
         let repo = DbReplicaSignerRepo::new(engine.client());
         let (membership, signer) = records();
         let mut transaction = engine
@@ -1179,9 +1179,7 @@ mod tests {
     #[tokio::test]
     async fn enrollment_is_persistent_idempotent_and_rejects_conflicts() {
         let engine = Arc::new(ofdb_sql::Database::in_memory());
-        replica::up(&engine.client())
-            .await
-            .expect("initialize IdP schema");
+        up(&engine.client()).await.expect("initialize IdP schema");
         let repo = DbReplicaSignerRepo::new(engine.client());
         let (membership, signer) = records();
 

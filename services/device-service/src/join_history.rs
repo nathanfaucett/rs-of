@@ -1,3 +1,4 @@
+#[cfg(all(feature = "ofdb", unix))]
 use std::{
     collections::BTreeMap,
     future::Future,

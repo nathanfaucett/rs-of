@@ -41,10 +41,8 @@ use crate::{
     },
     password_config::PasswordConfig,
     replica::{
-        application_repo::DbApplicationRepo, client_repo::DbClientRepo, key_repo::DbKeyRepo,
-        oauth2_authorization_code_repo::DbOAuth2AuthorizationCodeRepo,
-        oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo,
-        oauth2_user_consent_repo::DbOAuth2UserConsentRepo, user_repo::DbUserRepo,
+        DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
+        DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
     },
     repo::{
         client_repo::ClientRepo,
@@ -101,7 +99,7 @@ type TestService = OAuth2Service<
 
 async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
     let engine = Arc::new(ofdb_sql::Database::in_memory());
-    up(&engine).await.expect("initialize IdP schema");
+    up(&engine.client()).await.expect("initialize IdP schema");
     let keys = Arc::new(KeyService::new(
         DbKeyRepo::new(engine.client()),
         TestPrivateKeyRepo::default(),
@@ -874,7 +872,9 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
         .key_id;
     {
         let engine = Arc::new(ofdb_sql::Database::open(&path).expect("persist Node identity"));
-        up(&engine).await.expect("initialize local trust schema");
+        up(&engine.client())
+            .await
+            .expect("initialize local trust schema");
         for table in [
             "applications",
             "clients",

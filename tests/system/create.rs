@@ -15,7 +15,7 @@ use of_idp_client::{
     },
     models,
 };
-use of_storage_client::{apis::resources_api as storage, models::CreateResourceRequest};
+use of_storage_api_client::{apis::resources_api as storage, models::CreateResourceRequest};
 use serde_json::json;
 
 #[path = "authorization.rs"]
@@ -808,7 +808,7 @@ async fn use_node(node: &mut Node, resource_token: Option<&str>, retained: Optio
         .await;
         node.exchange(&token, "storage:filesystems", "").await
     };
-    let config = of_storage_client::apis::configuration::Configuration {
+    let config = of_storage_api_client::apis::configuration::Configuration {
         client: node.http.clone(),
         base_path: node.storage.clone(),
         bearer_access_token: Some(bearer.clone()),
@@ -843,7 +843,7 @@ async fn use_node(node: &mut Node, resource_token: Option<&str>, retained: Optio
         panic!(
             "authorized resource creation failed: {}",
             match error {
-                of_storage_client::apis::Error::ResponseError(response) =>
+                of_storage_api_client::apis::Error::ResponseError(response) =>
                     format!("HTTP {}", response.status),
                 _ => "transport or typed response decoding".into(),
             }
@@ -867,7 +867,7 @@ async fn use_node(node: &mut Node, resource_token: Option<&str>, retained: Optio
         filesystem::absent(&config, id).await;
     }
     filesystem::qualify(node, &config, &created.id).await;
-    let denied = of_storage_client::apis::configuration::Configuration {
+    let denied = of_storage_api_client::apis::configuration::Configuration {
         bearer_access_token: None,
         ..config
     };
@@ -880,7 +880,7 @@ async fn use_node(node: &mut Node, resource_token: Option<&str>, retained: Optio
     .await
     .expect_err("anonymous resource access must fail");
     assert!(
-        matches!(error, of_storage_client::apis::Error::ResponseError(response) if matches!(response.status.as_u16(), 401 | 403))
+        matches!(error, of_storage_api_client::apis::Error::ResponseError(response) if matches!(response.status.as_u16(), 401 | 403))
     );
     node.alive();
     created.id

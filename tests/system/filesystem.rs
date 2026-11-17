@@ -1,14 +1,14 @@
 use std::{fs, sync::Arc, time::Duration};
 
 use futures_util::{SinkExt, StreamExt};
-use of_model::storage::{StorageRequest, StorageResponse};
+use of_model::storage::contract::{StorageRequest, StorageResponse};
 use rustls::pki_types::{CertificateDer, pem::PemObject};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config, tungstenite::Message,
 };
 
-use of_storage_client::{
+use of_storage_api_client::{
     apis::{
         configuration::Configuration, resources_api as storage,
         resources_residency_api as residency,
@@ -249,7 +249,7 @@ pub(super) async fn absent(config: &Configuration, resource: &str) {
     assert!(
         matches!(storage::get_file_system(config, storage::GetFileSystemParams {
         filesystem_id: resource.into(),
-    }).await, Err(of_storage_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 404),
+    }).await, Err(of_storage_api_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 404),
         "tombstoned resource must not be readable, including after restart"
     );
     assert!(

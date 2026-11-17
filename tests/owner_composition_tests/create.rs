@@ -1066,10 +1066,10 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
     use device_service::DeviceRepo;
     use device_service::replica::DbDeviceRepo;
     use device_service::replica::DbSelectionPolicyRepo;
-    use device_service::replica::SelectionPolicy;
     use management_service::ManagementService;
     use management_service::replica::DbPermissionRepo;
     use management_service::replica::DbRoleRepo;
+    use of_model::device::selection_policy::SelectionPolicy;
     use of_model::idp::contract::IdentityAction;
     let record: serde_json::Value = serde_json::from_slice(
         &fs::read(root.join("device.setup-host/worker.json")).expect("stopped Management evidence"),

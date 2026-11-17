@@ -173,8 +173,7 @@ mod conversion_tests {
 
     #[test]
     fn serde_json_roundtrip_preserves_nested_values_and_rejects_nonfinite_numbers() {
-        let value =
-            serde_json::json!({"escaped\"": ["line\n", 18446744073709551615_u64, true, null]});
+        let value = serde_json::json!({"escaped\"": ["line\n", 18_446_744_073_709_551_615_u64, true, null]});
         assert_eq!(
             serde_json::Value::try_from(JsonValue::from(value.clone())).expect("JSON value"),
             value

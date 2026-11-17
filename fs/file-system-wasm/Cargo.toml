@@ -5,6 +5,8 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords = ["filesystem", "wasm", "browser", "offline-first"]
+categories = ["filesystem", "wasm"]
 description = "Browser (WASM) TypeScript-facing API for file-system"
 publish = false
 

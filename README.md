@@ -106,7 +106,7 @@ Each Node shares one `iroh-chain` endpoint/router. Endpoint identity and locally
 
 ### Prerequisites
 
-- Rust 1.99+ (see `rust-toolchain.toml`)
+- Rust 1.100+ (see `rust-toolchain.toml`)
 - Node.js 20+ (for TypeScript packages)
 - `wasm-pack` for WASM builds
 

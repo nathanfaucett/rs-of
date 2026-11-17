@@ -6,13 +6,12 @@ use ofdb_sql::Database;
 
 use device_service::device_repo::DeviceRepo;
 use idp_service::{
-    oauth2::node_signer::NodeSignerBinding, replica::replica_signer_repo::DbReplicaSignerRepo,
-    repo::user_repo::UserRepo,
+    oauth2::node_signer::NodeSignerBinding, replica::DbReplicaSignerRepo, repo::user_repo::UserRepo,
 };
 use iroh::{SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
-use management_service::ofdb::permission_repo::DbPermissionRepo;
-use management_service::ofdb::role_repo::DbRoleRepo;
+use management_service::ofdb::DbPermissionRepo;
+use management_service::ofdb::DbRoleRepo;
 use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID;

@@ -1,3 +1,4 @@
+#[cfg(feature = "ofdb")]
 use std::io;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};

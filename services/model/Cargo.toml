@@ -5,6 +5,8 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords = ["oauth", "oidc", "identity", "storage", "model", "contracts"]
+categories = ["authentication", "database", "filesystem", "network-programming"]
 rust-version.workspace = true
 description = "Shared owner domain models and contracts"
 

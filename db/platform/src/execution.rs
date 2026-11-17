@@ -1,5 +1,4 @@
-use alloc::boxed::Box;
-use core::{future::Future, pin::Pin};
+use core::pin::Pin;
 
 /// Native work remains transferable between threads; browser work stays local.
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]

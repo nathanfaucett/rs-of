@@ -4,7 +4,7 @@ use of_idp_client::{
     apis::{configuration::Configuration, default_api as idp},
     models,
 };
-use of_storage_client::apis::resources_api as storage;
+use of_storage_api_client::apis::resources_api as storage;
 use serde_json::json;
 
 use super::{Node, device_config, use_node};
@@ -107,7 +107,7 @@ pub async fn denial_scenario() {
         subject_token_type:Some(models::SubjectTokenType::UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken), resource:Some("storage:filesystems".into()),
         authorization_details:Some(r#"[{"type":"storage","actions":["read"]}]"#.into()), ..Default::default()
     }).await.unwrap_or_else(|_| panic!("ordinary read-only resource token")).access_token;
-    let storage_config = of_storage_client::apis::configuration::Configuration {
+    let storage_config = of_storage_api_client::apis::configuration::Configuration {
         client: node.http.clone(),
         base_path: node.storage.clone(),
         bearer_access_token: Some(read_only),
@@ -123,16 +123,16 @@ pub async fn denial_scenario() {
     .unwrap_or_else(|_| panic!("read-only authorized read"));
     assert!(
         matches!(storage::delete_file_system(&storage_config, storage::DeleteFileSystemParams { filesystem_id:resource.clone() }).await,
-        Err(of_storage_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 403),
+        Err(of_storage_api_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 403),
         "read permission cannot delete resource"
     );
-    let wrong_audience = of_storage_client::apis::configuration::Configuration {
+    let wrong_audience = of_storage_api_client::apis::configuration::Configuration {
         bearer_access_token: Some(session.clone()),
         ..storage_config.clone()
     };
     assert!(
         matches!(storage::get_file_system(&wrong_audience, storage::GetFileSystemParams { filesystem_id:resource.clone() }).await,
-        Err(of_storage_client::apis::Error::ResponseError(r)) if matches!(r.status.as_u16(), 401 | 403)),
+        Err(of_storage_api_client::apis::Error::ResponseError(r)) if matches!(r.status.as_u16(), 401 | 403)),
         "IdP audience is not resource authority"
     );
     let database_token = idp::token(&node.config(&node.idp), idp::TokenParams {
@@ -140,13 +140,13 @@ pub async fn denial_scenario() {
         subject_token_type:Some(models::SubjectTokenType::UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken), resource:Some("storage:databases".into()),
         authorization_details:Some(r#"[{"type":"storage","actions":["read"]}]"#.into()), ..Default::default()
     }).await.unwrap_or_else(|_| panic!("ordinary database-kind token")).access_token;
-    let wrong_kind = of_storage_client::apis::configuration::Configuration {
+    let wrong_kind = of_storage_api_client::apis::configuration::Configuration {
         bearer_access_token: Some(database_token),
         ..storage_config.clone()
     };
     assert!(
         matches!(storage::get_file_system(&wrong_kind, storage::GetFileSystemParams { filesystem_id:resource.clone() }).await,
-        Err(of_storage_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 401),
+        Err(of_storage_api_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 401),
         "database authority cannot read filesystem resources"
     );
     let after = storage::get_file_system(
@@ -163,7 +163,7 @@ pub async fn denial_scenario() {
 
 async fn retained_socket_denial(node: &Node, user: &Configuration, session: &str, resource: &str) {
     use futures_util::{SinkExt, StreamExt};
-    use of_model::storage::{StorageRequest, StorageResponse};
+    use of_model::storage::contract::{StorageRequest, StorageResponse};
     use tokio_tungstenite::{connect_async_tls_with_config, tungstenite::Message};
 
     let token = node.exchange(session, "storage:filesystems", "").await;
@@ -262,7 +262,7 @@ async fn retained_socket_denial(node: &Node, user: &Configuration, session: &str
         Err(tokio_tungstenite::tungstenite::Error::Http(response)) if response.status().as_u16() == 401),
         "deleted User cannot reconnect"
     );
-    let storage_config = of_storage_client::apis::configuration::Configuration {
+    let storage_config = of_storage_api_client::apis::configuration::Configuration {
         client: node.http.clone(),
         base_path: node.storage.clone(),
         bearer_access_token: Some(token),
@@ -270,7 +270,7 @@ async fn retained_socket_denial(node: &Node, user: &Configuration, session: &str
     };
     assert!(
         matches!(storage::get_file_system(&storage_config, storage::GetFileSystemParams { filesystem_id:resource.into() }).await,
-        Err(of_storage_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 401),
+        Err(of_storage_api_client::apis::Error::ResponseError(r)) if r.status.as_u16() == 401),
         "deleted User cannot use catalog"
     );
     of_device_client::apis::default_api::health(&device_config(node))

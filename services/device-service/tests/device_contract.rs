@@ -95,12 +95,12 @@ fn device_contracts_export_api_schemas_from_management() {
 #[tokio::test]
 async fn approved_enrollment_preserves_exact_identity_and_denies_replacement_or_revocation() {
     use device_service::device_repo::DeviceRepo;
-    use device_service::replica::device_repo::DbDeviceRepo;
+    use device_service::replica::DbDeviceRepo;
     use of_model::id::Id;
     use std::sync::Arc;
 
     let engine = Arc::new(ofdb_sql::Database::in_memory());
-    device_service::replica::schema::up(&engine)
+    device_service::replica::up(&engine)
         .await
         .expect("Management schema");
     let repo = DbDeviceRepo::new(engine.clone().client());
@@ -161,12 +161,12 @@ async fn approved_enrollment_preserves_exact_identity_and_denies_replacement_or_
 #[tokio::test]
 async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revocation() {
     use device_service::device_repo::DeviceRepo;
-    use device_service::replica::device_repo::DbDeviceRepo;
+    use device_service::replica::DbDeviceRepo;
     use of_model::id::Id;
     use std::sync::Arc;
 
     let engine = Arc::new(ofdb_sql::Database::in_memory());
-    device_service::replica::schema::up(&engine)
+    device_service::replica::up(&engine)
         .await
         .expect("Management schema");
     let repo = DbDeviceRepo::new(engine.clone().client());
@@ -206,12 +206,12 @@ async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revoca
 #[cfg(feature = "ofdb")]
 #[tokio::test]
 async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_visible_binding() {
-    use device_service::replica::device_repo::DbDeviceRepo;
+    use device_service::replica::DbDeviceRepo;
     use of_model::id::Id;
     use std::sync::Arc;
 
     let left = Arc::new(ofdb_sql::Database::in_memory());
-    device_service::replica::schema::up(&left)
+    device_service::replica::up(&left)
         .await
         .expect("Management schema");
     let repo = DbDeviceRepo::new(left.clone().client());

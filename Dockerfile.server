@@ -1,4 +1,4 @@
-ARG RUST_IMAGE=rust:1.99-trixie
+ARG RUST_IMAGE=rust:1.100-trixie
 FROM ${RUST_IMAGE} AS builder
 
 RUN apt-get update \

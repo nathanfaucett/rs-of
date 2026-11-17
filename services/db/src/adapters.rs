@@ -94,6 +94,11 @@ impl MemoryDatabase {
     pub fn storage(&self) -> SharedDatabase {
         self.storage.clone()
     }
+
+    /// Returns the underlying SQL database.
+    pub fn database(&self) -> SqlDatabase {
+        self.database.clone()
+    }
 }
 
 /// Remote ofdb SQL service database (network transport).

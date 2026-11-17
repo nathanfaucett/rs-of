@@ -116,11 +116,12 @@ async fn issue_local_token(
         .verify_node_signer(binding)
         .await
         .expect("local signing material and imported trust");
-    let (header, claims) = idp_service::oauth2::verify_jwt::<of_model::contract::StandardClaims>(
-        &public,
-        token["access_token"].as_str().expect("issued access token"),
-    )
-    .expect("independent local signature");
+    let (header, claims) =
+        idp_service::oauth2::verify_jwt::<of_model::contract::standard_claims::StandardClaims>(
+            &public,
+            token["access_token"].as_str().expect("issued access token"),
+        )
+        .expect("independent local signature");
     assert_eq!(header.kid, binding.key_id.to_string());
     assert_eq!(claims.iss, config.oauth2.issuer);
     assert_ne!(claims.sub, binding.member_id.to_string());

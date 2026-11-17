@@ -5,17 +5,17 @@ use axum::{
     http::{Request, StatusCode},
 };
 use db::adapters::MemoryDatabase;
-use ofdb_sql::Client;
-use tower::ServiceExt;
+use ofdb_sql::{Client, Database as SqlDatabase};
+use tower::util::ServiceExt;
 
 #[tokio::test]
 async fn local_constructor_accepts_shared_and_owner_databases_without_setup() {
     for injected in [true, false] {
         let root =
             std::env::temp_dir().join(format!("management-local-{}", of_model::id::Id::now_v7()));
-        let shared: Option<Arc<Client>> = if injected {
+        let shared: Option<Arc<SqlDatabase>> = if injected {
             let adapter = MemoryDatabase::new().await.expect("shared schema");
-            Some(Arc::new(adapter.client()))
+            Some(Arc::new(adapter.database()))
         } else {
             None
         };
@@ -39,7 +39,7 @@ async fn local_constructor_accepts_shared_and_owner_databases_without_setup() {
             .await
             .expect("health response");
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(root.join("management.redb").exists(), !injected);
+        assert_eq!(root.join("unified.redb").exists(), !injected);
         assert!(!root.join("management.setup-host").exists());
         if root.exists() {
             std::fs::remove_dir_all(root).expect("remove owner data");

@@ -1,3 +1,4 @@
+#[cfg(feature = "ofdb")]
 use crate::security_protocol::bootstrap::BOOTSTRAP_ALPN;
 use iroh::{
     Endpoint, EndpointAddr, EndpointId, SecretKey,

@@ -125,7 +125,7 @@ macro_rules! impl_json_number_for_integer {
     };
 }
 
-impl_json_number_for_integer!(i8, i16, i32, i64, isize, i128);
+impl_json_number_for_integer!(i8, i16, i32, isize, i128);
 
 macro_rules! impl_json_number_for_unsigned_integer {
     ($($t:ty),*) => {
@@ -139,7 +139,7 @@ macro_rules! impl_json_number_for_unsigned_integer {
     };
 }
 
-impl_json_number_for_unsigned_integer!(u8, u16, u32, u64, usize, u128);
+impl_json_number_for_unsigned_integer!(u8, u16, u32, usize, u128);
 
 macro_rules! impl_json_number_for_float {
     ($($t:ty),*) => {
@@ -153,7 +153,25 @@ macro_rules! impl_json_number_for_float {
     };
 }
 
-impl_json_number_for_float!(f32, f64);
+impl_json_number_for_float!(f32);
+
+impl From<f64> for JsonNumber {
+    fn from(value: f64) -> Self {
+        JsonNumber::F64(value)
+    }
+}
+
+impl From<i64> for JsonNumber {
+    fn from(value: i64) -> Self {
+        JsonNumber::I64(value)
+    }
+}
+
+impl From<u64> for JsonNumber {
+    fn from(value: u64) -> Self {
+        JsonNumber::U64(value)
+    }
+}
 
 #[cfg(feature = "serde_json")]
 impl From<serde_json::Number> for JsonNumber {

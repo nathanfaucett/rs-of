@@ -15,7 +15,7 @@ name = "server_common"
 [features]
 default = []
 independent = ["dep:setup"]
-test-support = ["independent", "setup/test-support"]
+testing = ["independent", "setup/testing"]
 
 [dependencies]
 # Internal

@@ -5,6 +5,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords = ["platform", "async", "wasm", "compat"]
+categories = ["asynchronous", "wasm"]
 rust-version.workspace = true
 
 [features]

@@ -1014,10 +1014,8 @@ mod tests {
     use crate::{
         oauth2::{config::OAuth2Config, service::OAuth2Service},
         replica::{
-            application_repo::DbApplicationRepo,
-            oauth2_authorization_code_repo::DbOAuth2AuthorizationCodeRepo,
-            oauth2_refresh_token_repo::DbOAuth2RefreshTokenRepo,
-            oauth2_user_consent_repo::DbOAuth2UserConsentRepo, user_repo::DbUserRepo,
+            DbApplicationRepo, DbOAuth2AuthorizationCodeRepo, DbOAuth2RefreshTokenRepo,
+            DbOAuth2UserConsentRepo, DbUserRepo,
         },
         repo::key_repo::KeyRepo,
         util::verify_password,

@@ -1,9 +1,9 @@
 use super::{
     DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
     DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo, KeyService, OAuth2Config,
-    OAuth2Service, PasswordConfig, TestEngine, TestPrivateKeyRepo, TestService, auth, grant, issue,
-    setup, up,
+    OAuth2Service, PasswordConfig, TestPrivateKeyRepo, TestService, auth, grant, issue, setup, up,
 };
+type TestEngine = ofdb_sql::Database;
 use crate::{
     oauth2::{
         jwt::{decode_jwt, encode_jwt, verify_jwt},

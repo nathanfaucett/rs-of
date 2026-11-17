@@ -1,3 +1,4 @@
+#[cfg(feature = "ofdb")]
 use iroh::EndpointId;
 use iroh_chain::{PairingOffer, Server};
 use of_model::id::Id;

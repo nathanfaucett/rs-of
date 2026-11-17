@@ -2,8 +2,16 @@
 name = "idp-unified"
 description = "Local First OIDC / OAuth 2.x implementation"
 repository = "https://github.com/aicacia/rs-oauth"
-rust-version = "1.99"
+rust-version = "1.100"
 edition = "2024"
+keywords = ["oauth", "oidc", "identity", "offline-first", "unified"]
+categories = [
+    "authentication",
+    "database",
+    "filesystem",
+    "network-programming",
+    "wasm",
+]
 
 [package.version]
 workspace = true
@@ -108,7 +116,7 @@ version = "0.1.0"
 edition = "2024"
 authors = ["nathanfaucett@gmail.com"]
 license = "MIT OR Apache-2.0"
-rust-version = "1.99"
+rust-version = "1.100"
 repository = "https://github.com/aicacia/rs-oauth"
 
 [workspace.lints.rust]
@@ -119,6 +127,7 @@ redundant_lifetimes = "warn"
 trivial_numeric_casts = "warn"
 unsafe_op_in_unsafe_fn = "warn"
 unused_lifetimes = "warn"
+unused_crate_dependencies = "deny"
 
 [workspace.lints.clippy]
 cargo = { level = "warn", priority = -1 }
@@ -175,7 +184,7 @@ strip = true
 [dev-dependencies]
 # System-test service entry points
 server-common = { path = "services/server-common", default-features = false, features = [
-    "test-support",
+    "testing",
 ] }
 device-server = { path = "services/device-server", default-features = false, features = [
     "cli",

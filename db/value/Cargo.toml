@@ -6,6 +6,8 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords = ["value", "json", "database", "type"]
+categories = ["database", "data-structures"]
 rust-version.workspace = true
 
 [lib]

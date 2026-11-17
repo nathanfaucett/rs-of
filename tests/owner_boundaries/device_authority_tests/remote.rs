@@ -18,7 +18,10 @@ use device_service::{
     HostedControlPlane,
     replica::{DbDeviceRepo, DbSelectionPolicyRepo, SelectionPolicy},
 };
-use of_model::contract::{PrincipalType, StandardClaims, TokenType, TokenUse};
+use of_model::contract::principal_type::PrincipalType;
+use of_model::contract::standard_claims::StandardClaims;
+use of_model::contract::token_type::TokenType;
+use of_model::contract::token_use::TokenUse;
 use of_model::idp::{
     contract::{IdentityAction, IntrospectionResponse},
     model::Id,

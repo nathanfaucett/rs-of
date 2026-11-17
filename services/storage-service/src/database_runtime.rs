@@ -623,7 +623,6 @@ mod tests {
 
     #[tokio::test]
     async fn shared_resources_restart_and_retire_without_sidecars_or_host_loss() {
-        use of_model::db::Database as ModelDatabase;
         let root =
             std::env::temp_dir().join(format!("shared-resource-{}", of_model::id::Id::now_v7()));
         let scope = Scope {
@@ -633,11 +632,8 @@ mod tests {
         let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("host database");
-        let runtime = DatabaseRuntime::with_shared(
-            database.local_storage().expect("shared storage"),
-            database.client(),
-        )
-        .expect("runtime");
+        let runtime =
+            DatabaseRuntime::with_shared(database.storage(), database.client()).expect("runtime");
         let (resource, sql) = runtime
             .create(&scope, Some("saved".into()))
             .expect("resource");
@@ -669,11 +665,8 @@ mod tests {
         let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("restart host");
-        let runtime = DatabaseRuntime::with_shared(
-            database.local_storage().expect("storage"),
-            database.client(),
-        )
-        .expect("restart runtime");
+        let runtime = DatabaseRuntime::with_shared(database.storage(), database.client())
+            .expect("restart runtime");
         let sql = runtime
             .open_existing(&scope, resource.id)
             .expect("retained SQL")
@@ -725,11 +718,8 @@ mod tests {
         let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("restart retired host");
-        let runtime = DatabaseRuntime::with_shared(
-            database.local_storage().expect("storage"),
-            database.client(),
-        )
-        .expect("retired runtime");
+        let runtime = DatabaseRuntime::with_shared(database.storage(), database.client())
+            .expect("retired runtime");
         assert!(runtime.open_existing(&scope, resource.id).is_err());
         assert_eq!(
             runtime.list(&scope).expect("retained identity"),

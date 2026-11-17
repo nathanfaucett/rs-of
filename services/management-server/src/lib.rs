@@ -11,7 +11,7 @@ mod config;
 mod independent_reset;
 mod provisioning;
 mod router;
-mod runtime;
+pub mod runtime;
 #[cfg(feature = "cli")]
 pub use cli::run;
 pub use config::AppConfig;

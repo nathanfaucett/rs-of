@@ -1,7 +1,7 @@
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    #[allow(unused_mut)]
+    #[allow(unused_mut, reason = "config is mutated conditionally")]
     let mut config = tonic_prost_build::configure();
 
     #[cfg(feature = "file-descriptor-set")]

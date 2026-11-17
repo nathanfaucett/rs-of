@@ -389,8 +389,8 @@ fetch can be retried in the same realm. No Node polyfills are needed.
 
 ## Rebuild and qualify
 
-Use Rust `1.99.1` with `wasm32-unknown-unknown`, Node `26.5.0`, and pnpm `12.4.1`.
-The build checks Rust `1.99.1` and wasm-pack `0.13.1`; the latter is an exact package
+Use Rust `1.100` with `wasm32-unknown-unknown`, Node `26.5.0`, and pnpm `12.4.1`.
+The build checks Rust `1.100` and wasm-pack `0.13.1`; the latter is an exact package
 dev dependency. `Cargo.lock` pins wasm-bindgen `0.2.130`. `pnpm-lock.yaml` pins JS
 build dependencies. Run from the repository root:
 

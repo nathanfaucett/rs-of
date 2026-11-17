@@ -16,7 +16,10 @@ use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
-use of_model::idp::{contract::IdentityAction, model::Id};
+use of_model::idp::{
+    contract::{IdentityAction, JwkPublic},
+    model::Id,
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::support::identity::{seed_idp, seed_permissions, user_token};
@@ -1172,10 +1175,12 @@ impl device_service::node_join_owner::NodeJoinOwner for InterruptingOwner<'_> {
     async fn check_node_join_local_binding(&self) -> io::Result<()> {
         self.inner.check_node_join_local_binding().await
     }
-    async fn verify_node_signer(
+    fn verify_node_signer(
         &self,
         binding: &NodeSignerBinding,
-    ) -> io::Result<of_model::idp::contract::JwkPublic> {
-        self.inner.verify_node_signer(binding).await
+    ) -> Pin<Box<dyn Future<Output = io::Result<JwkPublic>> + Send>> {
+        let inner = self.inner.clone();
+        let binding = *binding;
+        Box::pin(async move { inner.verify_node_signer(&binding).await })
     }
 }

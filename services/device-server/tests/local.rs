@@ -4,22 +4,19 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use of_model::db::Database;
+use btree_redb::SharedDatabase;
+use ofdb_sql::Database as SqlDatabase;
 use tower::ServiceExt;
 
 #[tokio::test]
 async fn local_constructor_accepts_shared_and_owner_databases_without_setup() {
     for injected in [true, false] {
-        let root = std::env::temp_dir().join(format!(
-            "device-local-{}",
-            of_model::idp::model::Id::now_v7()
-        ));
-        let shared: Option<Arc<dyn Database>> = if injected {
-            Some(Arc::new(
-                embedded_db::MemoryDatabase::new()
-                    .await
-                    .expect("shared schema"),
-            ))
+        let root =
+            std::env::temp_dir().join(format!("device-local-{}", of_model::id::Id::now_v7()));
+        let shared: Option<Arc<SqlDatabase>> = if injected {
+            let storage = SharedDatabase::in_memory().expect("in-memory storage");
+            let database = SqlDatabase::open_shared(&storage, "control").expect("open shared");
+            Some(Arc::new(database))
         } else {
             None
         };
@@ -42,7 +39,7 @@ async fn local_constructor_accepts_shared_and_owner_databases_without_setup() {
             .await
             .expect("health response");
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(root.join("device.redb").exists(), !injected);
+        assert_eq!(root.join("unified.redb").exists(), !injected);
         assert!(!root.join("device.setup-host").exists());
         if root.exists() {
             std::fs::remove_dir_all(root).expect("remove owner data");

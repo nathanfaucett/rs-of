@@ -9,3 +9,10 @@ pub use crate::ofdb::DbDeviceRepo;
 pub use crate::ofdb::DbSelectionPolicyRepo;
 #[cfg(feature = "ofdb")]
 pub use crate::ofdb::{up, validate_device};
+
+#[cfg(feature = "ofdb")]
+pub use crate::ofdb::device_repo;
+#[cfg(feature = "ofdb")]
+pub use crate::ofdb::schema;
+#[cfg(feature = "ofdb")]
+pub use crate::ofdb::selection_policy;

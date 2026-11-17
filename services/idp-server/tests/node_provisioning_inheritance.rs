@@ -15,7 +15,7 @@ use std::{
 };
 
 use bip32::DerivationPath;
-use idp_server::{config::app_config::AppConfig, provisioning::OwnerProvisioner};
+use idp_server::{AppConfig, OwnerProvisioner};
 use idp_service::{
     oauth2::node_signer::NodeSignerBinding,
     repo::{error::RepoResult, private_key_repo::PrivateKeyRepo},
@@ -81,7 +81,7 @@ async fn completed_signer_operation_releases_lock_before_inheriting_child_exec()
     };
     let secrets = Secrets::default();
     let owner = Arc::new(
-        crate::provisioning::OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
+        idp_server::OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
             .await
             .expect("fresh owner"),
     );

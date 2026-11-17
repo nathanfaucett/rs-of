@@ -1,4 +1,6 @@
+#[cfg(feature = "ofdb")]
 use db::DatabaseTransport;
+#[cfg(feature = "ofdb")]
 use idp_service::replica::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use of_model::id::Id;

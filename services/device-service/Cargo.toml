@@ -36,6 +36,8 @@ ofdb = [
 
     "dep:getrandom",
     "dep:ofdb-sql",
+    "dep:ofdb-sql-history",
+    "dep:ofdb-kv",
     "dep:tokio",
     "dep:tokio-tungstenite",
     "dep:tokio-util",
@@ -130,7 +132,13 @@ futures-util = { version = "0.3", default-features = false, features = [
     "std",
 ], optional = true }
 getrandom = { version = "0.3", default-features = false, optional = true }
+ofdb-kv = { path = "../../db/kv", default-features = false, features = [
+    "redb",
+], optional = true }
 ofdb-sql = { path = "../../db/sql", default-features = false, features = [
+    "native-stage",
+], optional = true }
+ofdb-sql-history = { package = "ofdb-sql-history", path = "../../db/sql-history", default-features = false, features = [
     "native-stage",
 ], optional = true }
 tokio = { version = "1.52", default-features = false, features = [
@@ -148,7 +156,13 @@ tokio-util = { version = "0.7", default-features = false, optional = true }
 
 [dev-dependencies]
 of-model = { path = "../model", default-features = false, features = ["std"] }
+ofdb-kv = { path = "../../db/kv", default-features = false, features = [
+    "redb",
+] }
 ofdb-sql = { path = "../../db/sql", default-features = false, features = [] }
+ofdb-sql-history = { package = "ofdb-sql-history", path = "../../db/sql-history", default-features = false, features = [
+    "native-stage",
+] }
 tokio = { version = "1.4", default-features = false, features = [
     "macros",
     "rt",

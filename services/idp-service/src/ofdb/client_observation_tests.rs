@@ -14,7 +14,7 @@ use ofdb_sql::{
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{
-    replica::key_repo::DbKeyRepo,
+    replica::DbKeyRepo,
     repo::{client_repo::ClientRepo, key_service::KeyService},
 };
 

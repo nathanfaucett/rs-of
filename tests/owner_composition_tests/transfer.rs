@@ -13,7 +13,7 @@ use std::{
 
 use db::Database;
 use device_service::replica::DbSelectionPolicyRepo;
-use device_service::replica::SelectionPolicy;
+use of_model::device::selection_policy::SelectionPolicy;
 use of_model::idp::model::Id;
 use tower::ServiceExt;
 

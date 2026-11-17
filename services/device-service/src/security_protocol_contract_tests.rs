@@ -1,3 +1,4 @@
+#[cfg(all(test, feature = "ofdb"))]
 use std::sync::Arc;
 
 use iroh::{SecretKey, endpoint::presets::Minimal};

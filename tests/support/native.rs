@@ -1,3 +1,4 @@
+use file_system::FileSystem;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -24,7 +25,8 @@ use of_model::idp::{
     },
     model::Id,
 };
-use of_model::storage::{StorageRequest, StorageResponse, StorageSession};
+use of_model::storage::contract::{StorageRequest, StorageResponse};
+use of_model::storage::session::StorageSession;
 use storage_service::{DatabaseRuntime, FileSystemId, ScopedFileSystemRuntime};
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -42,7 +44,7 @@ pub(crate) struct StorageNamespace {
     pub(crate) user_sub: String,
     pub(crate) application_id: Id,
 }
-impl of_model::storage::StorageNamespace for StorageNamespace {
+impl of_model::storage::namespace::StorageNamespace for StorageNamespace {
     fn user_sub(&self) -> &str {
         &self.user_sub
     }
@@ -541,7 +543,7 @@ impl Fixture {
             .expect("real authorized WebSocket upgrade")
             .0
     }
-    pub(crate) async fn file(&self) -> Arc<file_system::FileSystem<iroh::EndpointId>> {
+    pub(crate) async fn file(&self) -> Arc<FileSystem<iroh::EndpointId>> {
         self.files
             .open_resource(&self.scope, self.resource)
             .await

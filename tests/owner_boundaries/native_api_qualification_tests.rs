@@ -7,7 +7,7 @@ use of_model::idp::{
     contract::{GrantType, TokenEndpointAuthMethod},
     model::Id,
 };
-use of_model::storage::{StorageRequest, StorageResponse};
+use of_model::storage::contract::{StorageRequest, StorageResponse};
 
 use super::{Fixture, Gate, registration};
 

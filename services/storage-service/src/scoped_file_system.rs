@@ -798,7 +798,6 @@ mod tests {
 
     #[tokio::test]
     async fn shared_filesystems_keep_content_residency_and_retirement_in_the_host_database() {
-        use of_model::db::Database as ModelDatabase;
         let namespace = Namespace {
             user_sub: "local-user",
             application_id: of_model::id::Id::now_v7(),
@@ -808,8 +807,7 @@ mod tests {
             .await
             .expect("host");
         let runtime =
-            ScopedFileSystemRuntime::with_shared(database.local_storage().expect("storage"), 1_u8)
-                .expect("runtime");
+            ScopedFileSystemRuntime::with_shared(database.storage(), 1_u8).expect("runtime");
         let resource = runtime
             .create_resource(&namespace, Some("Documents".into()))
             .await
@@ -840,9 +838,8 @@ mod tests {
         let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("restart host");
-        let runtime =
-            ScopedFileSystemRuntime::with_shared(database.local_storage().expect("storage"), 1_u8)
-                .expect("restart runtime");
+        let runtime = ScopedFileSystemRuntime::with_shared(database.storage(), 1_u8)
+            .expect("restart runtime");
         assert_eq!(
             runtime.list_resources(&namespace).await.expect("catalog"),
             vec![resource.clone(), passthrough.clone()]
@@ -889,9 +886,8 @@ mod tests {
         let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("restart retired host");
-        let runtime =
-            ScopedFileSystemRuntime::with_shared(database.local_storage().expect("storage"), 1_u8)
-                .expect("retired runtime");
+        let runtime = ScopedFileSystemRuntime::with_shared(database.storage(), 1_u8)
+            .expect("retired runtime");
         assert!(
             runtime
                 .open_resource(&namespace, resource.id)
@@ -932,9 +928,8 @@ mod tests {
         let database = db::adapters::EmbeddedDatabase::open(&root)
             .await
             .expect("restart reselected host");
-        let runtime =
-            ScopedFileSystemRuntime::with_shared(database.local_storage().expect("storage"), 1_u8)
-                .expect("reselected runtime");
+        let runtime = ScopedFileSystemRuntime::with_shared(database.storage(), 1_u8)
+            .expect("reselected runtime");
         let fresh = runtime
             .open_resource(&namespace, resource.id)
             .await

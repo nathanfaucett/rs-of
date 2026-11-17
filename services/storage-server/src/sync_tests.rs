@@ -182,13 +182,12 @@ impl Fixture {
             Ok(serde_json::from_value(response).expect("introspection"))
         });
         let databases = Arc::new(if shared {
-            use of_model::db::Database;
-            let database =
-                embedded_db::database::EmbeddedDatabase::open(directory.0.join("server"))
-                    .await
-                    .expect("shared host");
+            use db::adapters::EmbeddedDatabase;
+            let database = EmbeddedDatabase::open(directory.0.join("server"))
+                .await
+                .expect("shared host");
             storage_service::database_runtime::DatabaseRuntime::with_shared(
-                database.local_storage().expect("shared storage"),
+                database.storage(),
                 database.client(),
             )
             .expect("shared runtime")

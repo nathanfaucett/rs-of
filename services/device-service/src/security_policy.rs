@@ -1,3 +1,4 @@
+#[cfg(feature = "ofdb")]
 use std::{io, sync::Arc};
 
 use idp_service::{

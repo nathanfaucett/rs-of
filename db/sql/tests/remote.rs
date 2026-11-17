@@ -243,10 +243,10 @@ async fn sql_mtls_requires_and_accepts_client_identity() {
             .serve_tcp_with_mtls(
                 address,
                 Some((
-                    include_bytes!("../../../test-fixtures/sql-mtls/server.crt").to_vec(),
-                    include_bytes!("../../../test-fixtures/sql-mtls/server.key").to_vec(),
+                    include_bytes!("../../test-fixtures/sql-mtls/server.crt").to_vec(),
+                    include_bytes!("../../test-fixtures/sql-mtls/server.key").to_vec(),
                 )),
-                Some(include_bytes!("../../../test-fixtures/sql-mtls/ca.crt").to_vec()),
+                Some(include_bytes!("../../test-fixtures/sql-mtls/ca.crt").to_vec()),
                 async {
                     let _ = signal.await;
                 },
@@ -258,7 +258,7 @@ async fn sql_mtls_requires_and_accepts_client_identity() {
     let endpoint = format!("https://localhost:{}", address.port());
     let missing_identity_client = Client::connect_with_ca(
         &endpoint,
-        include_bytes!("../../../test-fixtures/sql-mtls/ca.crt"),
+        include_bytes!("../../test-fixtures/sql-mtls/ca.crt"),
     )
     .await
     .expect("TLS channel can be created before the handshake completes");
@@ -272,9 +272,9 @@ async fn sql_mtls_requires_and_accepts_client_identity() {
 
     let client = Client::connect_with_identity(
         &endpoint,
-        include_bytes!("../../../test-fixtures/sql-mtls/ca.crt"),
-        include_bytes!("../../../test-fixtures/sql-mtls/client.crt"),
-        include_bytes!("../../../test-fixtures/sql-mtls/client.key"),
+        include_bytes!("../../test-fixtures/sql-mtls/ca.crt"),
+        include_bytes!("../../test-fixtures/sql-mtls/client.crt"),
+        include_bytes!("../../test-fixtures/sql-mtls/client.key"),
     )
     .await
     .expect("authorized client connects with mTLS");

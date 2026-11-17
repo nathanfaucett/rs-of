@@ -6,6 +6,8 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords = ["kv", "client", "cli", "database"]
+categories = ["command-line-utilities", "database"]
 rust-version.workspace = true
 
 [[bin]]
