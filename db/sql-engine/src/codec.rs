@@ -1,5 +1,5 @@
+#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use core::future::Future;
 
 use platform::{MaybeSend, MaybeSync};
 

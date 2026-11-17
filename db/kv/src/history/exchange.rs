@@ -1,5 +1,4 @@
 use core::{
-    future::Future,
     pin::pin,
     task::{Context, Waker},
 };

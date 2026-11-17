@@ -218,10 +218,9 @@ mod tests {
         let kernel = RedbKernel::new(database.clone());
         block_on(async {
             let mut changes = kernel.subscribe_changes().expect("subscription");
-            #[allow(deprecated)]
-            let initial = changes.select().expect("initial work");
-            #[allow(deprecated)]
-            changes.acknowledge(initial);
+            // Consume initial events using the new events() API
+            let mut events = changes.events();
+            while events.next().await.is_some() {}
             let reader = kernel.transaction().await.expect("read transaction");
             assert_eq!(
                 reader
@@ -251,8 +250,9 @@ mod tests {
                     .is_empty()
             );
             reader.commit().await.expect("commit read-only transaction");
-            #[allow(deprecated)]
-            let _ = changes.select().is_none();
+            // No more events expected
+            let mut events = changes.events();
+            assert!(events.next().await.is_none());
         });
         assert_eq!(
             database

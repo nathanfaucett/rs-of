@@ -5,7 +5,7 @@ use futures::{Stream, TryStreamExt, stream};
 
 use crate::{Database, Snapshot, Table};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ByteBTree {
     database: Database,
     table: String,
@@ -55,6 +55,7 @@ impl BTree<Vec<u8>, Vec<u8>> for ByteBTree {
     }
 }
 
+#[derive(Debug)]
 pub struct Transaction {
     snapshot: Snapshot,
     table: String,

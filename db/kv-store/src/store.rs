@@ -40,6 +40,19 @@ where
     change_signal: ChangeSignal,
 }
 
+impl<B> core::fmt::Debug for KvStore<B>
+where
+    B: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("KvStore")
+            .field("inner", &self.inner)
+            .field("timestamp_provider", &self.timestamp_provider)
+            .field("change_signal", &self.change_signal)
+            .finish()
+    }
+}
+
 impl<B> KvStore<B>
 where
     B: BTree<Vec<u8>, Vec<u8>>,
@@ -103,6 +116,20 @@ where
     timestamp_provider: TimestampProvider,
     change_signal: ChangeSignal,
     modified_keys: BTreeSet<Vec<u8>>,
+}
+
+impl<T> core::fmt::Debug for KvTransaction<T>
+where
+    T: BTreeTransaction<Vec<u8>, Vec<u8>> + core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("KvTransaction")
+            .field("inner", &"AutomergeBTreeTransaction")
+            .field("timestamp_provider", &self.timestamp_provider)
+            .field("change_signal", &self.change_signal)
+            .field("modified_keys", &self.modified_keys)
+            .finish()
+    }
 }
 
 impl<T> KvTransaction<T>

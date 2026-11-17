@@ -1,10 +1,8 @@
 // WASM-specific push synchronization using web-sys timers and futures::select!
 // Does not require tokio runtime.
 
-use crate::protocol::{Config, Error, HelloConfig, Message, SyncResult};
-use crate::transport::SyncTransport;
+use crate::protocol::{Config, Message, PushResult, PushSynchronizeConfig, PushSynchronizeError};
 use btree::{ChangeEvent, StorageKey};
-use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use futures::FutureExt;
@@ -13,71 +11,16 @@ use futures::StreamExt;
 use futures::select;
 use std::collections::HashMap;
 use std::time::Duration;
-use thiserror::Error;
 use wasm_bindgen::prelude::*;
 use web_sys::window;
 
 // Type aliases for WASM compatibility (expected by ofdb-wasm crate)
 pub type PushConfig = Config;
 pub type PushMessage = Message;
-pub type PushResult = SyncResult;
+// PushResult is re-exported from protocol
+// PushSynchronizeConfig is re-exported from protocol
+// PushSynchronizeError is re-exported from protocol
 pub use crate::transport::SyncTransport as PushSyncTransport;
-
-/// Error during push synchronization.
-#[derive(Debug, Error)]
-pub enum PushSynchronizeError<E> {
-    #[error("transport error: {0}")]
-    Transport(E),
-    #[error("protocol error: {0}")]
-    Protocol(Error<E>),
-    #[error("apply error: {0}")]
-    Apply(String),
-    #[error("session timeout")]
-    SessionTimeout,
-    #[error("peer closed")]
-    PeerClosed,
-    #[error("handshake failed: {0}")]
-    HandshakeFailed(String),
-    #[error("generation gap for key {key:?}: have {have}, need {need}")]
-    GenerationGap {
-        key: StorageKey,
-        have: u64,
-        need: u64,
-    },
-}
-
-impl<E> From<Error<E>> for PushSynchronizeError<E> {
-    fn from(e: Error<E>) -> Self {
-        PushSynchronizeError::Protocol(e)
-    }
-}
-
-/// Configuration for push_synchronize.
-#[derive(Debug, Clone)]
-pub struct PushSynchronizeConfig {
-    /// Role in the synchronization (Initiator or Responder).
-    pub role: crate::SyncRole,
-    /// Protocol configuration.
-    pub protocol: PushConfig,
-    /// Maximum time to wait for handshake.
-    pub handshake_timeout: Duration,
-    /// Maximum time between messages before timeout.
-    pub message_timeout: Duration,
-    /// Whether to send DONE after exhausting outbound stream.
-    pub send_done_on_exhaust: bool,
-}
-
-impl Default for PushSynchronizeConfig {
-    fn default() -> Self {
-        Self {
-            role: crate::SyncRole::Initiator,
-            protocol: PushConfig::default(),
-            handshake_timeout: Duration::from_secs(10),
-            message_timeout: Duration::from_secs(30),
-            send_done_on_exhaust: true,
-        }
-    }
-}
 
 /// Timer future using web-sys setTimeout/clearTimeout.
 struct WasmSleep {
@@ -188,6 +131,8 @@ where
     F: FnMut(ChangeEvent) -> Fut,
     Fut: Future<Output = Result<(), String>>,
 {
+    let handshake_timeout = Duration::from_millis(config.handshake_timeout_ms);
+    let message_timeout = Duration::from_millis(config.message_timeout_ms);
     async move {
         let mut result = PushResult::default();
         let mut local_generations: HashMap<StorageKey, u64> = HashMap::new();
@@ -205,7 +150,7 @@ where
             config: config.protocol.clone(),
         });
         // Perform handshake with timeout
-        let handshake_result = wasm_timeout(config.handshake_timeout, async {
+        let handshake_result = wasm_timeout(handshake_timeout, async {
             match config.role {
                 crate::SyncRole::Initiator => {
                     transport
@@ -278,8 +223,7 @@ where
                             let msg = Message::ChangeEvent(event);
                             transport.send(msg).await
                                 .map_err(PushSynchronizeError::Transport)?;
-                            result.events_sent += 1;
-                            result.bytes_sent += 1; // approximate
+                            result.sent += 1;
                         }
                         None => {
                             outbound_exhausted = true;
@@ -298,12 +242,11 @@ where
                     if inbound_closed {
                         futures::future::pending().await
                     } else {
-                        wasm_timeout(config.message_timeout, transport.receive()).await
+                        wasm_timeout(message_timeout, transport.receive()).await
                     }
                 }.fuse() => {
                     match msg {
                         Ok(Ok(message)) => {
-                            result.bytes_received += 1; // approximate
                             match message {
                                 Message::ChangeEvent(event) => {
                                     // Track remote generation
@@ -314,7 +257,7 @@ where
                                     // Apply to local storage
                                     apply_inbound(event).await
                                         .map_err(PushSynchronizeError::Apply)?;
-                                    result.events_received += 1;
+                                    result.received += 1;
 
                                     // Queue acknowledgment
                                     pending_acks.insert(key, generation);
@@ -340,7 +283,6 @@ where
                                     let event = ChangeEvent { key, blob, generation };
                                     apply_inbound(event).await
                                         .map_err(PushSynchronizeError::Apply)?;
-                                    result.snapshots_received += 1;
                                 }
                                 Message::Ack { acknowledgments } => {
                                     // Peer acknowledged our events
@@ -365,7 +307,7 @@ where
                             }
                         }
                         Ok(Err(e)) => {
-                            return Err(PushSynchronizeError::Protocol(Error::Transport(e)));
+                            return Err(PushSynchronizeError::Transport(e));
                         }
                         Err(_) => {
                             return Err(PushSynchronizeError::SessionTimeout);

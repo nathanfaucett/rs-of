@@ -2,17 +2,14 @@
 
 use ofdb_btree::ChangeEvent;
 use ofdb_sync::{
-    PushConfig as OfdbPushConfig, PushResult as OfdbPushResult,
-    PushSyncTransport as OfdbPushSyncTransport, PushSynchronizeConfig as OfdbPushSynchronizeConfig,
+    ChangeSubscription as OfdbChangeSubscription, PushConfig as OfdbPushConfig,
+    PushResult as OfdbPushResult, PushSyncTransport as OfdbPushSyncTransport,
+    PushSynchronizeConfig as OfdbPushSynchronizeConfig,
     PushSynchronizeError as OfdbPushSynchronizeError,
 };
-use serde_json::Value as Json;
-use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-
-use crate::value::{parse_json, write_json};
 
 /// TypeScript interface for the sync transport that JavaScript must implement.
 /// The send method must return a Promise (async).
@@ -58,22 +55,22 @@ impl PushSynchronizeConfig {
 
     #[wasm_bindgen(getter, js_name = "handshakeTimeoutMs")]
     pub fn handshake_timeout_ms(&self) -> u64 {
-        self.inner.handshake_timeout.as_millis() as u64
+        self.inner.handshake_timeout_ms
     }
 
     #[wasm_bindgen(setter, js_name = "handshakeTimeoutMs")]
     pub fn set_handshake_timeout_ms(&mut self, value: u64) {
-        self.inner.handshake_timeout = std::time::Duration::from_millis(value);
+        self.inner.handshake_timeout_ms = value;
     }
 
     #[wasm_bindgen(getter, js_name = "messageTimeoutMs")]
     pub fn message_timeout_ms(&self) -> u64 {
-        self.inner.message_timeout.as_millis() as u64
+        self.inner.message_timeout_ms
     }
 
     #[wasm_bindgen(setter, js_name = "messageTimeoutMs")]
     pub fn set_message_timeout_ms(&mut self, value: u64) {
-        self.inner.message_timeout = std::time::Duration::from_millis(value);
+        self.inner.message_timeout_ms = value;
     }
 
     #[wasm_bindgen(getter, js_name = "sendDoneOnExhaust")]
@@ -179,31 +176,28 @@ impl From<PushConfig> for OfdbPushConfig {
 }
 
 /// Push synchronization result.
+/// Result of push synchronization.
 #[wasm_bindgen]
+#[derive(Clone, Debug, Default)]
 pub struct PushSynchronizeResult {
     inner: OfdbPushResult,
 }
 
 #[wasm_bindgen]
 impl PushSynchronizeResult {
-    #[wasm_bindgen(getter, js_name = "bytesSent")]
-    pub fn bytes_sent(&self) -> usize {
-        self.inner.bytes_sent as usize
+    #[wasm_bindgen(getter, js_name = "sent")]
+    pub fn sent(&self) -> usize {
+        self.inner.sent
     }
 
-    #[wasm_bindgen(getter, js_name = "bytesReceived")]
-    pub fn bytes_received(&self) -> usize {
-        self.inner.bytes_received as usize
+    #[wasm_bindgen(getter, js_name = "received")]
+    pub fn received(&self) -> usize {
+        self.inner.received
     }
 
-    #[wasm_bindgen(getter, js_name = "eventsSent")]
-    pub fn events_sent(&self) -> usize {
-        self.inner.events_sent as usize
-    }
-
-    #[wasm_bindgen(getter, js_name = "eventsReceived")]
-    pub fn events_received(&self) -> usize {
-        self.inner.events_received as usize
+    #[wasm_bindgen(getter, js_name = "conflictsResolved")]
+    pub fn conflicts_resolved(&self) -> usize {
+        self.inner.conflicts_resolved
     }
 }
 
@@ -331,7 +325,9 @@ impl From<PushSynchronizeConfig> for KvSyncConfig {
 impl KvSyncConfig {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self { inner: PushSynchronizeConfig::new() }
+        Self {
+            inner: PushSynchronizeConfig::new(),
+        }
     }
 
     #[wasm_bindgen(getter)]
@@ -414,24 +410,19 @@ impl From<OfdbPushResult> for SqlSyncResult {
 
 #[wasm_bindgen]
 impl SqlSyncResult {
-    #[wasm_bindgen(getter, js_name = "bytesSent")]
-    pub fn bytes_sent(&self) -> usize {
-        self.inner.bytes_sent as usize
+    #[wasm_bindgen(getter, js_name = "sent")]
+    pub fn sent(&self) -> usize {
+        self.inner.sent
     }
 
-    #[wasm_bindgen(getter, js_name = "bytesReceived")]
-    pub fn bytes_received(&self) -> usize {
-        self.inner.bytes_received as usize
+    #[wasm_bindgen(getter, js_name = "received")]
+    pub fn received(&self) -> usize {
+        self.inner.received
     }
 
-    #[wasm_bindgen(getter, js_name = "eventsSent")]
-    pub fn events_sent(&self) -> usize {
-        self.inner.events_sent as usize
-    }
-
-    #[wasm_bindgen(getter, js_name = "eventsReceived")]
-    pub fn events_received(&self) -> usize {
-        self.inner.events_received as usize
+    #[wasm_bindgen(getter, js_name = "conflictsResolved")]
+    pub fn conflicts_resolved(&self) -> usize {
+        self.inner.conflicts_resolved
     }
 }
 
@@ -451,12 +442,16 @@ impl From<OfdbPushSynchronizeConfig> for SqlSessionConfig {
 impl SqlSessionConfig {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self { inner: OfdbPushSynchronizeConfig::default() }
+        Self {
+            inner: OfdbPushSynchronizeConfig::default(),
+        }
     }
 
     #[wasm_bindgen(getter)]
     pub fn protocol(&self) -> PushConfig {
-        PushConfig { inner: self.inner.protocol.clone() }
+        PushConfig {
+            inner: self.inner.protocol.clone(),
+        }
     }
 
     #[wasm_bindgen(setter)]
@@ -466,22 +461,22 @@ impl SqlSessionConfig {
 
     #[wasm_bindgen(getter, js_name = "handshakeTimeoutMs")]
     pub fn handshake_timeout_ms(&self) -> u64 {
-        self.inner.handshake_timeout.as_millis() as u64
+        self.inner.handshake_timeout_ms
     }
 
     #[wasm_bindgen(setter, js_name = "handshakeTimeoutMs")]
     pub fn set_handshake_timeout_ms(&mut self, value: u64) {
-        self.inner.handshake_timeout = std::time::Duration::from_millis(value);
+        self.inner.handshake_timeout_ms = value;
     }
 
     #[wasm_bindgen(getter, js_name = "messageTimeoutMs")]
     pub fn message_timeout_ms(&self) -> u64 {
-        self.inner.message_timeout.as_millis() as u64
+        self.inner.message_timeout_ms
     }
 
     #[wasm_bindgen(setter, js_name = "messageTimeoutMs")]
     pub fn set_message_timeout_ms(&mut self, value: u64) {
-        self.inner.message_timeout = std::time::Duration::from_millis(value);
+        self.inner.message_timeout_ms = value;
     }
 
     #[wasm_bindgen(getter, js_name = "sendDoneOnExhaust")]
@@ -537,17 +532,20 @@ pub struct JsPushSyncTransport {
 /// KV-compatible sync transport.
 #[wasm_bindgen]
 pub struct JsKvSyncTransport {
+    #[allow(dead_code)]
     inner: JsPushSyncTransport,
 }
 
 /// SQL-compatible sync transport.
 #[wasm_bindgen]
 pub struct JsSqlSyncTransport {
+    #[allow(dead_code)]
     inner: JsPushSyncTransport,
 }
 
 #[wasm_bindgen]
 impl JsPushSyncTransport {
+    #[allow(unused)]
     #[wasm_bindgen(constructor)]
     #[wasm_bindgen(typescript_type = "SqlSyncTransport | KvSyncTransport")]
     pub fn new(transport: JsValue) -> Self {
@@ -569,26 +567,35 @@ impl From<JsPushSyncTransport> for JsSqlSyncTransport {
 
 #[wasm_bindgen]
 impl JsKvSyncTransport {
+    #[allow(unused)]
     #[wasm_bindgen(constructor)]
     #[wasm_bindgen(typescript_type = "KvSyncTransport")]
     pub fn new(transport: JsValue) -> Self {
-        Self { inner: JsPushSyncTransport::new(transport) }
+        Self {
+            inner: JsPushSyncTransport::new(transport),
+        }
     }
 }
 
 #[wasm_bindgen]
 impl JsSqlSyncTransport {
+    #[allow(unused)]
     #[wasm_bindgen(constructor)]
     #[wasm_bindgen(typescript_type = "SqlSyncTransport")]
     pub fn new(transport: JsValue) -> Self {
-        Self { inner: JsPushSyncTransport::new(transport) }
+        Self {
+            inner: JsPushSyncTransport::new(transport),
+        }
     }
 }
 
 impl OfdbPushSyncTransport for JsPushSyncTransport {
     type Error = JsPushSyncTransportError;
 
-    fn send(&mut self, msg: ofdb_sync::PushMessage) -> impl Future<Output = Result<(), Self::Error>> {
+    fn send(
+        &mut self,
+        msg: ofdb_sync::PushMessage,
+    ) -> impl Future<Output = Result<(), Self::Error>> {
         let transport = self.inner.clone();
         async move {
             let send_fn = js_sys::Reflect::get(&transport, &"send".into()).map_err(|_| {
@@ -642,8 +649,11 @@ impl OfdbPushSyncTransport for JsPushSyncTransport {
             let mut vec = vec![0u8; array.length() as usize];
             array.copy_to(&mut vec);
 
-            ofdb_sync::decode_message(&vec, &OfdbPushConfig::default())
-                .map_err(|e: ofdb_sync::Error<JsPushSyncTransportError>| JsPushSyncTransportError::new(format!("decode failed: {:?}", e)))
+            ofdb_sync::decode_message(&vec, &OfdbPushConfig::default()).map_err(
+                |e: ofdb_sync::Error<JsPushSyncTransportError>| {
+                    JsPushSyncTransportError::new(format!("decode failed: {:?}", e))
+                },
+            )
         }
     }
 }
@@ -651,7 +661,10 @@ impl OfdbPushSyncTransport for JsPushSyncTransport {
 impl OfdbPushSyncTransport for &mut JsPushSyncTransport {
     type Error = JsPushSyncTransportError;
 
-    fn send(&mut self, msg: ofdb_sync::PushMessage) -> impl Future<Output = Result<(), Self::Error>> {
+    fn send(
+        &mut self,
+        msg: ofdb_sync::PushMessage,
+    ) -> impl Future<Output = Result<(), Self::Error>> {
         (*self).send(msg)
     }
 
@@ -700,12 +713,18 @@ impl From<ChangeEvent> for JsChangeEvent {
 /// Provides a stream of committed changes via `events()`.
 #[wasm_bindgen]
 pub struct KvChangeSubscription {
-    inner: ofdb_btree::ChangeSubscription,
+    inner: OfdbChangeSubscription,
+    /// Cached event from `wait_for_changes` to avoid consuming it.
+    #[allow(dead_code)]
+    cached_event: std::sync::Mutex<Option<JsChangeEvent>>,
 }
 
 impl KvChangeSubscription {
-    pub(crate) fn new(inner: ofdb_btree::ChangeSubscription) -> Self {
-        Self { inner }
+    pub(crate) fn new(inner: OfdbChangeSubscription) -> Self {
+        Self {
+            inner,
+            cached_event: std::sync::Mutex::new(None),
+        }
     }
 }
 
@@ -716,6 +735,12 @@ impl KvChangeSubscription {
     /// Call again after awaiting `wait_for_changes()` to get new events.
     #[cfg(feature = "sync")]
     pub async fn next_event(&mut self) -> Option<JsChangeEvent> {
+        // Return cached event from wait_for_changes if available
+        if let Ok(mut cached) = self.cached_event.lock() {
+            if let Some(event) = cached.take() {
+                return Some(event);
+            }
+        }
         let mut stream = self.inner.events();
         futures_util::StreamExt::next(&mut stream)
             .await
@@ -726,7 +751,17 @@ impl KvChangeSubscription {
     /// Returns `true` if new changes are available, `false` if the subscription is closed.
     #[cfg(feature = "sync")]
     pub async fn wait_for_changes(&mut self) -> bool {
-        self.inner.changed().await.is_ok()
+        let mut stream = self.inner.events();
+        match futures_util::StreamExt::next(&mut stream).await {
+            Some(event) => {
+                // Cache the event for next_event to return
+                if let Ok(mut cached) = self.cached_event.lock() {
+                    *cached = Some(JsChangeEvent::from(event));
+                }
+                true
+            }
+            None => false,
+        }
     }
 
     /// Merge another subscription into this one.
@@ -742,12 +777,18 @@ impl KvChangeSubscription {
 /// Provides a stream of committed changes via `events()`.
 #[wasm_bindgen]
 pub struct SqlChangeSubscription {
-    inner: ofdb_btree::ChangeSubscription,
+    inner: OfdbChangeSubscription,
+    /// Cached event from `wait_for_changes` to avoid consuming it.
+    #[allow(dead_code)]
+    cached_event: std::sync::Mutex<Option<JsChangeEvent>>,
 }
 
 impl SqlChangeSubscription {
-    pub(crate) fn new(inner: ofdb_btree::ChangeSubscription) -> Self {
-        Self { inner }
+    pub(crate) fn new(inner: OfdbChangeSubscription) -> Self {
+        Self {
+            inner,
+            cached_event: std::sync::Mutex::new(None),
+        }
     }
 }
 
@@ -758,6 +799,12 @@ impl SqlChangeSubscription {
     /// Call again after awaiting `wait_for_changes()` to get new events.
     #[cfg(feature = "sync")]
     pub async fn next_event(&mut self) -> Option<JsChangeEvent> {
+        // Return cached event from wait_for_changes if available
+        if let Ok(mut cached) = self.cached_event.lock() {
+            if let Some(event) = cached.take() {
+                return Some(event);
+            }
+        }
         let mut stream = self.inner.events();
         futures_util::StreamExt::next(&mut stream)
             .await
@@ -768,7 +815,17 @@ impl SqlChangeSubscription {
     /// Returns `true` if new changes are available, `false` if the subscription is closed.
     #[cfg(feature = "sync")]
     pub async fn wait_for_changes(&mut self) -> bool {
-        self.inner.changed().await.is_ok()
+        let mut stream = self.inner.events();
+        match futures_util::StreamExt::next(&mut stream).await {
+            Some(event) => {
+                // Cache the event for next_event to return
+                if let Ok(mut cached) = self.cached_event.lock() {
+                    *cached = Some(JsChangeEvent::from(event));
+                }
+                true
+            }
+            None => false,
+        }
     }
 
     /// Merge another subscription into this one.

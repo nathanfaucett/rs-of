@@ -1,12 +1,11 @@
 use std::{
     collections::VecDeque,
-    io,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
 
-use futures::{Stream, StreamExt, future::join_all, stream::FuturesUnordered};
+use futures::{Stream, future::join_all, stream::FuturesUnordered};
 use tokio::sync::watch;
 
 const HISTORY_COMMITS: usize = 128;
@@ -68,6 +67,12 @@ struct History {
 #[derive(Clone)]
 pub struct ChangeSignal {
     history: watch::Sender<History>,
+}
+
+impl core::fmt::Debug for ChangeSignal {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ChangeSignal").finish_non_exhaustive()
+    }
 }
 
 impl Default for ChangeSignal {
@@ -185,8 +190,6 @@ struct Source {
 /// only acknowledge after successful reconciliation. It owns no storage snapshot.
 #[derive(Debug)]
 pub struct ChangeWork {
-    identity: Arc<()>,
-    watermarks: Vec<u64>,
     invalidations: Vec<StorageInvalidation>,
 }
 
@@ -233,94 +236,6 @@ impl ChangeSubscription {
         self
     }
 
-    /// Capture work before opening the reconciliation read snapshot. Commits after selection
-    /// remain pending even if visible in that snapshot. Re-selecting without ack retries work.
-    #[deprecated(since = "0.1.0", note = "use events() stream instead")]
-    #[must_use]
-    pub fn select(&self) -> Option<ChangeWork> {
-        let mut invalidations = Vec::new();
-        let mut watermarks = Vec::new();
-        for source in &self.sources {
-            let history = source.history.borrow();
-            watermarks.push(history.revision);
-            match source.acknowledged {
-                None => invalidations.push(StorageInvalidation::All),
-                Some(ack) if ack < history.revision => {
-                    if history
-                        .batches
-                        .front()
-                        .is_none_or(|(revision, _, _)| ack < revision - 1)
-                    {
-                        invalidations.push(StorageInvalidation::All);
-                    } else {
-                        invalidations.extend(
-                            history
-                                .batches
-                                .iter()
-                                .filter(|(revision, _, _)| *revision > ack)
-                                .flat_map(|(_, batch, _)| batch.iter().cloned()),
-                        );
-                    }
-                }
-                _ => {}
-            }
-        }
-        if invalidations.is_empty() {
-            return None;
-        }
-        if invalidations.contains(&StorageInvalidation::All) {
-            invalidations = vec![StorageInvalidation::All];
-        } else {
-            invalidations.sort_unstable();
-            invalidations.dedup();
-        }
-        Some(ChangeWork {
-            identity: self.identity.clone(),
-            watermarks,
-            invalidations,
-        })
-    }
-
-    /// Rejects tokens from another consumer or a subscription before merge.
-    #[deprecated(since = "0.1.0", note = "use events() stream instead")]
-    pub fn acknowledge(&mut self, work: ChangeWork) -> bool {
-        if !Arc::ptr_eq(&self.identity, &work.identity) {
-            return false;
-        }
-        for (source, revision) in self.sources.iter_mut().zip(work.watermarks) {
-            source.acknowledged = Some(source.acknowledged.unwrap_or(0).max(revision));
-        }
-        true
-    }
-
-    /// Wait for coalesced wakeups. This does not select or acknowledge invalidation.
-    #[deprecated(since = "0.1.0", note = "use events() stream instead")]
-    pub async fn changed(&mut self) -> io::Result<()> {
-        let changed = {
-            let mut waiting = self
-                .sources
-                .iter_mut()
-                .map(|source| source.history.changed())
-                .collect::<FuturesUnordered<_>>();
-            let mut changed = false;
-            while let Some(result) = waiting.next().await {
-                if result.is_ok() {
-                    changed = true;
-                    break;
-                }
-            }
-            changed
-        };
-        if !changed {
-            return Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "database change subscription closed",
-            ));
-        }
-        self.consume();
-        Ok(())
-    }
-
     /// Returns a stream of `ChangeEvent`. No select/acknowledge needed.
     /// Each event is delivered exactly once per subscription.
     pub const fn events(&mut self) -> EventStream<'_> {
@@ -360,6 +275,14 @@ pub struct EventStream<'a> {
     sources: &'a mut Vec<Source>,
     /// Tracks whether this stream has delivered any events in its lifetime.
     delivered_any: bool,
+}
+
+impl<'a> core::fmt::Debug for EventStream<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EventStream")
+            .field("delivered_any", &self.delivered_any)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Stream for EventStream<'_> {

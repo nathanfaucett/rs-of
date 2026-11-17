@@ -12,7 +12,7 @@ const PROTOCOL_VERSION: u8 = 1;
 /// Maximum message size in bytes (1 MiB).
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SyncRole {
     Initiator,
     Responder,
@@ -80,6 +80,63 @@ pub struct SyncResult {
     pub snapshots_received: u64,
     pub bytes_sent: u64,
     pub bytes_received: u64,
+}
+
+/// Configuration for push-based synchronization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushSynchronizeConfig {
+    /// Role in the synchronization (Initiator or Responder).
+    pub role: SyncRole,
+    /// Protocol configuration.
+    pub protocol: Config,
+    /// Maximum time to wait for handshake.
+    pub handshake_timeout_ms: u64,
+    /// Maximum time between messages before timeout.
+    pub message_timeout_ms: u64,
+    /// Whether to send DONE after exhausting outbound stream.
+    pub send_done_on_exhaust: bool,
+}
+
+impl Default for PushSynchronizeConfig {
+    fn default() -> Self {
+        Self {
+            role: SyncRole::Initiator,
+            protocol: Config::default(),
+            handshake_timeout_ms: 10_000,
+            message_timeout_ms: 30_000,
+            send_done_on_exhaust: true,
+        }
+    }
+}
+
+/// Result of push synchronization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PushResult {
+    /// Number of changes sent.
+    pub sent: usize,
+    /// Number of changes received.
+    pub received: usize,
+    /// Number of conflicts resolved.
+    pub conflicts_resolved: usize,
+}
+
+/// Error from push synchronization.
+#[derive(Debug, Clone, Error, Serialize, Deserialize)]
+pub enum PushSynchronizeError<E> {
+    #[error("transport error: {0}")]
+    Transport(E),
+    #[error("protocol error: {0}")]
+    Protocol(String),
+    #[error("apply error: {0}")]
+    Apply(String),
+    #[error("session timeout")]
+    SessionTimeout,
+    #[error("peer closed connection")]
+    PeerClosed,
+    #[error("handshake failed: {0}")]
+    HandshakeFailed(String),
+    #[error("generation gap: local {local}, remote {remote}")]
+    GenerationGap { local: u64, remote: u64 },
 }
 
 /// Sync protocol messages.

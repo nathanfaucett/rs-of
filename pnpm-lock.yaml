@@ -248,6 +248,46 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@types/node@26.1.2)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@27.4.0(supports-color@10.2.2))(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))
 
+  packages/db-example:
+    dependencies:
+      '@ofsdk/kv':
+        specifier: file:../kv
+        version: link:../kv
+      '@ofsdk/sql':
+        specifier: file:../sql
+        version: link:../sql
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.5.3
+        version: 2.6.4
+      '@playwright/test':
+        specifier: 1.49.0
+        version: 1.49.0
+      '@sveltejs/vite-plugin-svelte':
+        specifier: ^7.2.0
+        version: 7.2.0(svelte@5.56.8)(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
+      '@tailwindcss/vite':
+        specifier: ^4.3.3
+        version: 4.3.3(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
+      portless:
+        specifier: ^0.15.4
+        version: 0.15.5
+      svelte:
+        specifier: ^5.56.8
+        version: 5.56.8
+      svelte-check:
+        specifier: ^4.7.4
+        version: 4.7.4(picomatch@4.0.5)(svelte@5.56.8)(typescript@5.9.3)
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^8.2.0
+        version: 8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
+
   packages/device-client:
     dependencies:
       eventemitter3:
@@ -296,46 +336,6 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@types/node@26.6.6)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@27.4.0(supports-color@10.2.2))(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
-
-  packages/example:
-    dependencies:
-      '@ofsdk/kv':
-        specifier: file:../kv
-        version: link:../kv
-      '@ofsdk/sql':
-        specifier: file:../sql
-        version: link:../sql
-    devDependencies:
-      '@biomejs/biome':
-        specifier: ^2.5.3
-        version: 2.5.6
-      '@playwright/test':
-        specifier: 1.49.0
-        version: 1.49.0
-      '@sveltejs/vite-plugin-svelte':
-        specifier: ^7.2.0
-        version: 7.2.0(svelte@5.56.8)(vite@8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
-      '@tailwindcss/vite':
-        specifier: ^4.3.3
-        version: 4.3.3(vite@8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
-      portless:
-        specifier: ^0.15.4
-        version: 0.15.5
-      svelte:
-        specifier: ^5.56.8
-        version: 5.56.8
-      svelte-check:
-        specifier: ^4.7.4
-        version: 4.7.4(picomatch@4.0.5)(svelte@5.56.8)(typescript@5.9.3)
-      tailwindcss:
-        specifier: ^4.3.3
-        version: 4.3.3
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vite:
-        specifier: ^8.2.0
-        version: 8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
 
   packages/file-system:
     devDependencies:
@@ -4422,14 +4422,14 @@ snapshots:
       vite: 8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0)
       vitefu: 1.1.3(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))
 
-  '@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.8)(vite@8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))':
+  '@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.8)(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))':
     dependencies:
       deepmerge: 4.3.1
       magic-string: 0.30.21
       obug: 2.1.4
       svelte: 5.56.8
-      vite: 8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
-      vitefu: 1.1.3(vite@8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
+      vite: 8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
+      vitefu: 1.1.3(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
 
   '@tailwindcss/forms@0.5.11(tailwindcss@4.3.3)':
     dependencies:
@@ -4509,12 +4509,12 @@ snapshots:
       tailwindcss: 4.3.3
       vite: 8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0)
 
-  '@tailwindcss/vite@4.3.3(vite@8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))':
+  '@tailwindcss/vite@4.3.3(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))':
     dependencies:
       '@tailwindcss/node': 4.3.3
       '@tailwindcss/oxide': 4.3.3
       tailwindcss: 4.3.3
-      vite: 8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
+      vite: 8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
 
   '@tanstack/db-ivm@0.2.0(typescript@5.9.3)':
     dependencies:
@@ -6278,19 +6278,6 @@ snapshots:
       jiti: 2.7.0
       yaml: 2.9.0
 
-  vite@8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0):
-    dependencies:
-      lightningcss: 1.33.0
-      picomatch: 4.0.5
-      postcss: 8.5.25
-      rolldown: 1.2.1
-      tinyglobby: 0.2.17
-    optionalDependencies:
-      '@types/node': 26.6.6
-      fsevents: 2.3.3
-      jiti: 2.7.0
-      yaml: 2.9.0
-
   vite@8.3.5(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
@@ -6321,9 +6308,9 @@ snapshots:
     optionalDependencies:
       vite: 8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0)
 
-  vitefu@1.1.3(vite@8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)):
+  vitefu@1.1.3(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)):
     optionalDependencies:
-      vite: 8.2.0(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
+      vite: 8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
 
   vitest@4.1.10(@types/node@26.1.2)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@27.4.0(supports-color@10.2.2))(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0)):
     dependencies:

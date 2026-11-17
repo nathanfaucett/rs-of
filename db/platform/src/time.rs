@@ -1,5 +1,5 @@
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-use core::{future::Future, time::Duration};
+use core::time::Duration;
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub use tokio::time::{sleep, timeout};

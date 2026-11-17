@@ -1,5 +1,4 @@
 use crate::protocol::Message;
-use core::future::Future;
 
 /// Bidirectional transport for synchronization.
 ///

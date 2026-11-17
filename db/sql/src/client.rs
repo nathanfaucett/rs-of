@@ -1,5 +1,4 @@
-use core::future::Future;
-use std::{fmt, time::Duration, vec::Vec};
+use std::{fmt, time::Duration};
 
 #[cfg(feature = "remote")]
 use client::Client as SqlClient;
@@ -81,6 +80,7 @@ impl fmt::Debug for Client {
 /// A SQL transaction created by [`Client::transaction`].
 ///
 /// Dropping an uncommitted remote transaction closes its stream and rolls it back on the server.
+#[derive(Debug)]
 pub struct Transaction {
     backend: TransactionBackend,
     request_deadline: Option<Duration>,
@@ -97,6 +97,23 @@ enum TransactionBackend {
     Remote(tokio::sync::Mutex<client::Transaction>),
     #[cfg(feature = "postgres")]
     Postgres(crate::postgres::PostgresTransaction),
+}
+
+impl core::fmt::Debug for TransactionBackend {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            #[cfg(any(
+                feature = "redb",
+                feature = "in-memory",
+                all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+            ))]
+            Self::Embedded(_) => f.debug_tuple("Embedded").field(&"...").finish(),
+            #[cfg(feature = "remote")]
+            Self::Remote(_) => f.debug_tuple("Remote").field(&"...").finish(),
+            #[cfg(feature = "postgres")]
+            Self::Postgres(_) => f.debug_tuple("Postgres").field(&"...").finish(),
+        }
+    }
 }
 
 impl Transaction {

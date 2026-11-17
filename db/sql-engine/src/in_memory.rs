@@ -1,8 +1,14 @@
+#[cfg(not(feature = "std"))]
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     string::{String, ToString},
     sync::Arc,
     vec::Vec,
+};
+#[cfg(feature = "std")]
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
 };
 
 use platform::MaybeSend;
@@ -18,12 +24,13 @@ use crate::{
 
 type Tables = BTreeMap<String, BTreeMap<Vec<u8>, Vec<u8>>>;
 
+#[derive(Debug)]
 struct State {
     revision: u64,
     tables: Tables,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct InMemoryKernel {
     state: Arc<RwLock<State>>,
     #[cfg(feature = "std")]
@@ -56,6 +63,7 @@ impl Default for InMemoryKernel {
     }
 }
 
+#[derive(Debug)]
 pub struct InMemoryKernelTransaction {
     state: Arc<RwLock<State>>,
     revision: u64,

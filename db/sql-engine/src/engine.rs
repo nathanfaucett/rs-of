@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 #[cfg(not(feature = "std"))]
 use alloc::{
@@ -78,6 +79,7 @@ fn default_timestamp_provider() -> uuid::Timestamp {
     uuid::Timestamp::now(uuid::NoContext)
 }
 
+#[allow(missing_debug_implementations)]
 pub struct Engine<K, R> {
     pub(crate) kernel: Arc<K>,
     pub(crate) reconciler: Arc<R>,
@@ -132,6 +134,7 @@ impl<K, R> Engine<K, R> {
     }
 }
 
+#[allow(missing_debug_implementations)]
 pub struct EngineTransaction<K, R>
 where
     K: Kernel,

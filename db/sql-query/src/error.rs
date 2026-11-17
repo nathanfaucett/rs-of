@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

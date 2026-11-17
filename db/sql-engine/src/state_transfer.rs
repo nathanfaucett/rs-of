@@ -1,4 +1,7 @@
+#[cfg(not(feature = "std"))]
 use alloc::{collections::BTreeSet, string::String, vec::Vec};
+#[cfg(feature = "std")]
+use std::collections::BTreeSet;
 
 use platform::{MaybeSend, MaybeSync};
 

@@ -13,13 +13,19 @@ use crate::platform;
 
 pub type Table = BTreeMap<Vec<u8>, Vec<u8>>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Database {
     handle: Arc<Connection>,
     changes: ChangeSignal,
 }
 
 struct Connection(JsValue);
+
+impl core::fmt::Debug for Connection {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Connection").finish_non_exhaustive()
+    }
+}
 
 // On WASM, Arc is essentially the same as Rc (single-threaded).
 // Using Arc makes the type Send + Sync for use in async contexts that require it.
@@ -94,6 +100,7 @@ impl Database {
 
 /// Rust-owned staging: no native transaction lives across caller awaits.
 /// A single snapshot enlists every logical table and commits them atomically.
+#[derive(Debug)]
 pub struct Snapshot {
     database: Database,
     revision: u64,

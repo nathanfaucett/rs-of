@@ -5,7 +5,7 @@ use btree_indexeddb::{Database, Snapshot};
 use engine::{EngineError, EngineResult, Kernel, KernelTransaction};
 use futures::{Stream, stream};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IndexedDbKernel {
     database: Database,
 }
@@ -19,6 +19,7 @@ impl IndexedDbKernel {
     }
 }
 
+#[derive(Debug)]
 pub struct IndexedDbTransaction {
     snapshot: Snapshot,
 }

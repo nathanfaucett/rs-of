@@ -7,7 +7,7 @@ use btree::InMemoryBTree;
 use kv_store::KvStore;
 
 #[cfg(feature = "sync")]
-use sync::{SyncResult, SyncTransport, SynchronizeConfig};
+use sync::{PushResult, PushSynchronizeConfig, PushSynchronizeError, SyncTransport};
 
 use value::Value;
 
@@ -15,7 +15,7 @@ use crate::Error;
 #[cfg(feature = "sync")]
 use btree::ChangeEvent;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Storage {
     #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
     IndexedDb(KvStore<btree_indexeddb::ByteBTree>),
@@ -25,10 +25,11 @@ pub enum Storage {
     Redb(btree_redb::NativeResource<KvStore<btree_redb::RedbByteBTree>>),
 }
 
+#[derive(Debug)]
 pub struct Database {
     pub(super) storage: Storage,
     #[cfg(feature = "sync")]
-    changes: Option<sync::ChangeSubscription>,
+    changes: Option<btree::ChangeSignal>,
     #[cfg(feature = "sync")]
     storage_table: Option<String>,
 }
@@ -78,12 +79,15 @@ impl Database {
     /// not other tabs/opens. External-write gaps require broad recovery.
     #[cfg(feature = "sync")]
     pub fn sync_changes(&self) -> std::io::Result<sync::ChangeSubscription> {
-        self.changes.clone().ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "committed changes require a persistent database",
-            )
-        })
+        self.changes
+            .clone()
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "committed changes require a persistent database",
+                )
+            })
+            .map(|signal| signal.subscribe().into())
     }
 
     pub(crate) fn clone_shared(&self) -> Self {
@@ -106,7 +110,7 @@ impl Database {
         let tree = btree_indexeddb::ByteBTree::new(database, "ofdb-kv");
         let store = KvStore::new(tree, uuid_timestamp);
         #[cfg(feature = "sync")]
-        let changes = Some(store.change_signal().subscribe());
+        let changes = Some(store.change_signal().clone());
         Ok(Self {
             storage: Storage::IndexedDb(store),
             #[cfg(feature = "sync")]
@@ -120,7 +124,7 @@ impl Database {
     pub fn in_memory() -> Self {
         let store = KvStore::new(InMemoryBTree::new(), uuid_timestamp);
         #[cfg(feature = "sync")]
-        let changes = Some(store.change_signal().subscribe());
+        let changes = Some(store.change_signal().clone());
         Self {
             storage: Storage::Memory(store),
             #[cfg(feature = "sync")]
@@ -142,11 +146,7 @@ impl Database {
         let resource = btree_redb::NativeResource::new_shared(namespace, store)
             .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
         #[cfg(feature = "sync")]
-        let changes = Some(
-            resource
-                .inspect(|store| store.change_signal().subscribe())
-                .map_err(|error| Error::from(btree::BTreeError::custom(error)))?,
-        );
+        let changes = Some(resource.inspect(|store| store.change_signal().clone())?);
         Ok(Self {
             #[cfg(feature = "sync")]
             changes,
@@ -197,7 +197,7 @@ impl Database {
         let tree = btree_redb::RedbByteBTree::new(Arc::new(db), table.clone());
         let store = KvStore::new(tree, uuid_timestamp);
         #[cfg(feature = "sync")]
-        let changes = Some(store.change_signal().subscribe());
+        let changes = Some(store.change_signal().clone());
         Ok(Self {
             #[cfg(feature = "sync")]
             changes,
@@ -434,13 +434,12 @@ impl Database {
     pub async fn synchronize<T: SyncTransport>(
         &self,
         transport: T,
-        config: SynchronizeConfig,
-    ) -> Result<SyncResult, sync::SynchronizeError<T::Error>> {
+        config: PushSynchronizeConfig,
+    ) -> Result<PushResult, PushSynchronizeError<T::Error>> {
         // Get the change subscription for outbound events
-        let mut subscription = self
+        let subscription = self
             .sync_changes()
-            .map_err(|e| sync::SynchronizeError::Apply(e.to_string()))?;
-        let outbound = subscription.events();
+            .map_err(|e| PushSynchronizeError::Apply(e.to_string()))?;
 
         // Clone storage for the closure
         let storage = self.storage.clone();
@@ -483,7 +482,9 @@ impl Database {
             }
         };
 
-        sync::synchronize(transport, outbound, apply_inbound, config).await
+        subscription
+            .push_synchronize(transport, apply_inbound, config)
+            .await
     }
 }
 

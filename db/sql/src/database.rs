@@ -4,7 +4,6 @@
     all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"),
     feature = "sync"
 ))]
-use alloc::boxed::Box;
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
@@ -21,7 +20,7 @@ use query::QueryError;
 use query::{QueryParams, QueryResult, Statement, Translator};
 
 #[cfg(feature = "sync")]
-use sync::{SyncResult, SyncTransport, SynchronizeConfig, SynchronizeError};
+use sync::{ChangeEvent, PushResult, PushSynchronizeConfig, PushSynchronizeError, SyncTransport};
 
 use value::{FromRow, Row, Value};
 
@@ -52,11 +51,9 @@ use engine_redb::RedbKernel;
 ///
 /// Explicit user-row keys accept RFC `UUIDv5` or `UUIDv7`; generated and catalog
 /// identities remain `UUIDv7`. Keys are immutable and tombstoned keys cannot revive.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Database {
     backend: DatabaseBackend,
-    #[cfg(feature = "sync")]
-    changes: Option<sync::ChangeSubscription>,
 }
 
 #[derive(Clone)]
@@ -67,6 +64,19 @@ enum DatabaseBackend {
     File(engine_redb::NativeResource<Engine<RedbKernel, AutomergeRowCodec>>),
     #[cfg(feature = "in-memory")]
     InMemory(Engine<InMemoryKernel, AutomergeRowCodec>),
+}
+
+impl core::fmt::Debug for DatabaseBackend {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
+            Self::IndexedDb(_) => f.debug_tuple("IndexedDb").field(&"...").finish(),
+            #[cfg(feature = "redb")]
+            Self::File(_) => f.debug_tuple("File").field(&"...").finish(),
+            #[cfg(feature = "in-memory")]
+            Self::InMemory(_) => f.debug_tuple("InMemory").field(&"...").finish(),
+        }
+    }
 }
 
 pub enum EmbeddedTransaction {
@@ -311,12 +321,38 @@ impl Database {
     /// Dropping the stream cancels its in-flight work.
     #[cfg(feature = "sync")]
     pub fn sync_changes(&self) -> std::io::Result<sync::ChangeSubscription> {
-        self.changes.clone().ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "backend does not support committed subscriptions",
-            )
-        })
+        match &self.backend {
+            #[cfg(feature = "redb")]
+            DatabaseBackend::File(resource) => {
+                let engine = resource
+                    .read()
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+                engine.subscribe_changes().map(Into::into).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "backend does not support committed subscriptions",
+                    )
+                })
+            }
+            #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
+            DatabaseBackend::IndexedDb(engine) => {
+                engine.subscribe_changes().map(Into::into).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "backend does not support committed subscriptions",
+                    )
+                })
+            }
+            #[cfg(feature = "in-memory")]
+            DatabaseBackend::InMemory(engine) => {
+                engine.subscribe_changes().map(Into::into).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "backend does not support committed subscriptions",
+                    )
+                })
+            }
+        }
     }
 
     /// Interpret selected work before exporting state. Acknowledge only after successful sync.
@@ -356,11 +392,7 @@ impl Database {
             .await
             .map_err(crate::error::from_engine)?;
         let engine = Engine::new(kernel, AutomergeRowCodec::new());
-        #[cfg(feature = "sync")]
-        let changes = engine.subscribe_changes();
         Ok(Self {
-            #[cfg(feature = "sync")]
-            changes: changes.map(Into::into),
             backend: DatabaseBackend::IndexedDb(engine),
         })
     }
@@ -431,12 +463,9 @@ impl Database {
     #[must_use]
     pub fn in_memory() -> Self {
         let kernel = InMemoryKernel::new();
-        #[cfg(feature = "sync")]
-        let changes = kernel.subscribe_changes();
+        let engine = Engine::new(kernel, AutomergeRowCodec::new());
         Self {
-            #[cfg(feature = "sync")]
-            changes: Some(changes),
-            backend: DatabaseBackend::InMemory(Engine::new(kernel, AutomergeRowCodec::new())),
+            backend: DatabaseBackend::InMemory(engine),
         }
     }
 
@@ -696,15 +725,14 @@ impl Database {
     pub async fn synchronize<T: SyncTransport>(
         &self,
         transport: T,
-        config: SynchronizeConfig,
-    ) -> Result<SyncResult, SynchronizeError<T::Error>> {
-        let mut subscription = self
+        config: PushSynchronizeConfig,
+    ) -> Result<PushResult, PushSynchronizeError<T::Error>> {
+        let subscription = self
             .sync_changes()
-            .map_err(|e| SynchronizeError::Apply(e.to_string()))?;
-        let outbound = subscription.events();
+            .map_err(|e| PushSynchronizeError::Apply(e.to_string()))?;
 
         let backend = self.backend.clone();
-        let apply_inbound = move |event: sync::ChangeEvent| {
+        let apply_inbound = move |event: ChangeEvent| {
             let table = event.key.table.clone();
             let key_bytes = event.key.key.clone();
             let blob = event.blob;
@@ -757,14 +785,9 @@ impl Database {
             }
         };
 
-        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-        {
-            sync::synchronize(transport, outbound, apply_inbound, config).await
-        }
-        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-        {
-            sync::synchronize(transport, outbound, apply_inbound, config).await
-        }
+        subscription
+            .push_synchronize(transport, apply_inbound, config)
+            .await
     }
 }
 
@@ -789,6 +812,7 @@ pub enum SyncSelection {
 
 #[cfg(feature = "sync")]
 /// Placeholder for deprecated `SyncStageFactory` API.
+#[derive(Debug)]
 pub struct SyncStageFactory;
 
 #[cfg(feature = "sync")]

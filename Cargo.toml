@@ -121,6 +121,7 @@ repository = "https://github.com/aicacia/rs-oauth"
 
 [workspace.lints.rust]
 ambiguous_negative_literals = "warn"
+deprecated = "deny"
 missing_debug_implementations = "warn"
 redundant_imports = "warn"
 redundant_lifetimes = "warn"

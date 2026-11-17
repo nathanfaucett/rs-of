@@ -1,19 +1,12 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use futures_util::future::FutureExt;
 use ofdb_kv::{encode_value, parse_value};
 use ofdb_sql::{Client, Database, QueryParams, QueryResult, Transaction};
-use ofdb_sync::{
-    PushConfig as OfdbPushConfig, PushResult as OfdbPushResult,
-    PushSyncTransport as OfdbPushSyncTransport, PushSynchronizeConfig as OfdbPushSynchronizeConfig,
-    PushSynchronizeError as OfdbPushSynchronizeError,
-};
 use serde_json::Value as Json;
 use wasm_bindgen::JsError;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::JsFuture;
 
 use crate::value::{parse_json, write_json};
 

@@ -1,5 +1,4 @@
-use core::future::Future;
-
+#[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
 use platform::{MaybeSend, MaybeSync};

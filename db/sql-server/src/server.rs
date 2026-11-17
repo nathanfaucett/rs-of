@@ -1,4 +1,3 @@
-use core::future::Future;
 use std::{error::Error, net::SocketAddr, path::PathBuf};
 
 use protocol::QueryExecutor;

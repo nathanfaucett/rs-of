@@ -1,4 +1,5 @@
 use super::{Database, DatabaseBackend};
+#[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, string::ToString};
 use history::{SessionConfig, SyncError, SyncResult, SyncRole, SyncTransport};
 use value::Value;

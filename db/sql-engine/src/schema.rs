@@ -1,9 +1,12 @@
+#[cfg(not(feature = "std"))]
 use alloc::{
     borrow::Cow,
     collections::BTreeMap,
     string::{String, ToString},
     vec::Vec,
 };
+#[cfg(feature = "std")]
+use std::{borrow::Cow, collections::BTreeMap};
 
 use platform::MaybeSend;
 

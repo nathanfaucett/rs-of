@@ -1,4 +1,3 @@
-use core::future::Future;
 use std::time::Duration;
 
 #[cfg(feature = "remote")]
@@ -20,6 +19,7 @@ use value::Value;
 
 use crate::Error;
 
+#[derive(Debug)]
 pub struct Transaction {
     backend: Backend,
     request_deadline: Option<Duration>,
@@ -48,8 +48,19 @@ enum Backend {
             Box<RedbTransaction>,
         >,
     ),
-    #[cfg(feature = "remote")]
-    Remote(Box<RemoteTransaction>),
+}
+
+impl core::fmt::Debug for Backend {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
+            Self::IndexedDb(_) => f.debug_tuple("IndexedDb").field(&"...").finish(),
+            #[cfg(feature = "in-memory")]
+            Self::Memory(_) => f.debug_tuple("Memory").field(&"...").finish(),
+            #[cfg(feature = "redb")]
+            Self::Redb(_) => f.debug_tuple("Redb").field(&"...").finish(),
+        }
+    }
 }
 
 impl Transaction {

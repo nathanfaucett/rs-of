@@ -1,4 +1,6 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
+#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use core::ops::{Bound, RangeBounds};
 
@@ -10,11 +12,13 @@ use futures::{Stream, StreamExt, pin_mut};
 
 use crate::KernelTransaction;
 
+#[allow(missing_debug_implementations)]
 pub struct BytesTable<'a, T> {
     transaction: &'a T,
     table: String,
 }
 
+#[allow(missing_debug_implementations)]
 pub struct BytesTableTransaction<'a, T> {
     transaction: &'a mut T,
     table: String,

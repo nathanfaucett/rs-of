@@ -1,4 +1,3 @@
-use core::future::Future;
 #[cfg(feature = "remote")]
 use std::path::Path;
 use std::time::Duration;

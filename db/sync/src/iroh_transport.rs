@@ -1,4 +1,3 @@
-use core::future::Future;
 use std::io::{Error, ErrorKind};
 
 use iroh::endpoint::{RecvStream, SendStream};
