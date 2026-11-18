@@ -52,7 +52,6 @@ export async function startBackend({
       String(port),
       "--origin",
       appURL,
-      "--no-tls",
     ],
     {
       cwd: root,

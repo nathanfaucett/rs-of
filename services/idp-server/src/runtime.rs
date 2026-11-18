@@ -136,14 +136,25 @@ pub async fn build_local_router(
     base: &str,
     origin: &str,
     db: Option<Arc<ofdb_sql::Database>>,
+    storage: Option<btree_redb::SharedDatabase>,
     users: &[(String, String)],
 ) -> io::Result<Router> {
     std::fs::create_dir_all(data_dir)?;
     let directory = std::fs::canonicalize(data_dir)?;
     let data_dir = directory.as_path();
-    let database = db::local::local_database(data_dir, db).await?;
-    let engine = database.client();
-    let storage = database.storage();
+    let (engine, storage) = match (db, storage) {
+        (Some(database), Some(storage)) => (database.client(), storage),
+        (None, None) => {
+            let database = db::local::local_database(data_dir, None).await?;
+            (database.client(), database.storage())
+        }
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "shared SQL database and retained storage must be provided together",
+            ));
+        }
+    };
 
     let mut config = AppConfig {
         data_dir: data_dir.to_string_lossy().into_owned(),

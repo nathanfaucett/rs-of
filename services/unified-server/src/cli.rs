@@ -7,7 +7,7 @@ use std::{
 use clap::{Parser, Subcommand};
 use tokio_util::sync::CancellationToken;
 
-use crate::config::{SeedConfig, TlsConfig, UnifiedConfig};
+use crate::config::{SeedConfig, UnifiedConfig};
 use crate::runtime::serve;
 
 #[derive(Parser)]
@@ -29,8 +29,6 @@ enum Command {
         port: u16,
         #[arg(long, default_value = "http://localhost:5173")]
         origin: String,
-        #[arg(long)]
-        no_tls: bool,
         #[arg(
             long,
             help = "JSON file with additional users: {\"users\":[{\"username\":\"test\",\"password\":\"secret\"}]}"
@@ -43,14 +41,13 @@ enum Command {
 
 pub async fn run() -> io::Result<()> {
     let args = Args::parse();
-    let (data_dir, port, origin, no_tls, seed) = match args.command {
+    let (data_dir, port, origin, seed) = match args.command {
         Command::Local {
             data_dir,
             port,
             origin,
-            no_tls,
             seed,
-        } => (data_dir, port, origin, no_tls, seed),
+        } => (data_dir, port, origin, seed),
         #[cfg(feature = "completions")]
         Command::Completions { shell } => {
             use clap::CommandFactory;
@@ -68,15 +65,16 @@ pub async fn run() -> io::Result<()> {
             serde_json::from_slice(&std::fs::read(path)?).map_err(io::Error::other)
         })
         .transpose()?;
+    let public_base_url = server_common::public_base_url();
+    let port = std::env::var("PORT")
+        .ok()
+        .and_then(|port| port.parse::<u16>().ok())
+        .unwrap_or(port);
     let config = UnifiedConfig {
         listen_addr: SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
+        public_base_url,
         data_dir,
         origin,
-        tls: if no_tls {
-            TlsConfig::Disabled
-        } else {
-            TlsConfig::AutoGenerate
-        },
         seed,
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();

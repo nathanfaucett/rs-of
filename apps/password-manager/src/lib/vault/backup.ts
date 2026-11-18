@@ -1,5 +1,6 @@
 import { Client, type Row, Transaction } from "@ofsdk/sql";
 import { VaultRegistry, createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
+import { getSharedClient } from "./storage/migrate-to-shared";
 import * as v from "valibot";
 import { transitionLogin } from "./secrets/legacy-login";
 import { type Secret, SecretSchema } from "./secrets/secret";
@@ -231,14 +232,6 @@ export async function encodeBackup(
   }
 }
 
-async function getSharedClient(): Promise<Client> {
-  const sqlModule = await import("@ofsdk/sql");
-  const schemaModule = await import("./storage/schema");
-  const db = await sqlModule.Database.open("password-manager-v1");
-  const client = db.client();
-  await client.migrate(schemaModule.MIGRATIONS);
-  return client;
-}
 
 export interface BackupRestore {
   readonly id: string;

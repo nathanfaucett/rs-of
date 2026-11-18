@@ -3,20 +3,10 @@ use std::{net::SocketAddr, path::PathBuf};
 #[derive(Clone, Debug)]
 pub struct UnifiedConfig {
     pub listen_addr: SocketAddr,
+    pub public_base_url: Option<String>,
     pub data_dir: PathBuf,
     pub origin: String,
-    pub tls: TlsConfig,
     pub seed: Option<SeedConfig>,
-}
-
-#[derive(Clone, Debug)]
-pub enum TlsConfig {
-    AutoGenerate,
-    Disabled,
-    External {
-        cert_path: PathBuf,
-        key_path: PathBuf,
-    },
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]

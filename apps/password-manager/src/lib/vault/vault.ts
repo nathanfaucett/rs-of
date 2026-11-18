@@ -1,5 +1,5 @@
 import { Client, Transaction, type Row } from "@ofsdk/sql";
-import { migrateToSharedTables, needsMigration, migrateLocalVaultToSync } from "./storage/migrate-to-shared";
+import { getSharedClient, migrateToSharedTables, needsMigration, migrateLocalVaultToSync } from "./storage/migrate-to-shared";
 import * as v from "valibot";
 import { VaultRegistry, createVaultRegistry } from "./storage/VaultRegistry";
 import {
@@ -405,14 +405,6 @@ export async function createVault(
   return VaultHandle.create(key, client, meta, vaultId);
 }
 
-async function getSharedClient(): Promise<Client> {
-  const sqlModule = await import("@ofsdk/sql");
-  const schemaModule = await import("./storage/schema");
-  const db = await sqlModule.Database.open("password-manager-v1");
-  const client = db.client();
-  await client.migrate(schemaModule.MIGRATIONS);
-  return client;
-}
 
 export async function unlockVault(
   password: string,

@@ -23,7 +23,7 @@ if (process.argv[2] === 'local') {
   const args = process.argv.slice(2);
   assert.equal(args[args.indexOf('--data-dir') + 1], process.env.E2E_DATA_DIR);
   assert.equal(args[args.indexOf('--port') + 1], process.env.E2E_PORT);
-  assert.ok(args.includes('--no-tls'));
+  assert.ok(!args.includes('--no-tls'));
   assert.equal(process.env.RUST_MIN_STACK, '67108864');
 }
 fs.writeFileSync(process.env.E2E_DATA_DIR + '/started', String(process.pid));

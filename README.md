@@ -25,20 +25,19 @@ Historical [E2E validation](e2e/runtime-validation.md) is commit-specific eviden
 Prerequisites are defined by `rust-toolchain.toml`, `Cargo.toml`, and `.nvmrc`. Install `just` and pnpm 12.4.1 for the full development workflow.
 
 ```bash
-just unified --data-dir .data --port 1355 \
-  --origin http://localhost:5173 --no-tls
+just unified
 ```
 
-The server binds to loopback and exposes:
+Portless terminates HTTPS and assigns a dynamic internal port. The server binds to loopback and exposes:
 
-- `http://127.0.0.1:1355/idp`
-- `http://127.0.0.1:1355/management`
-- `http://127.0.0.1:1355/device`
-- `http://127.0.0.1:1355/storage`
+- `https://unified.localhost:1355/idp`
+- `https://unified.localhost:1355/management`
+- `https://unified.localhost:1355/device`
+- `https://unified.localhost:1355/storage`
 
 Each owner has a `/health` route. Local mode seeds test identities, including `admin@local.test` / `password`. Do not expose these credentials or the local listener to an untrusted network.
 
-Omit `--no-tls` to retain a self-signed development certificate under the data directory. This mode is not production deployment.
+Direct `cargo run -p unified-server -- local` serves plain HTTP on a fixed loopback port. TLS belongs at Portless, nginx, or a load balancer. Local signer state is bound to the public issuer URL; use a fresh data directory when that URL changes. This mode is not production deployment.
 
 ## Repository map
 

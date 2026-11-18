@@ -14,6 +14,7 @@ async fn local_constructor_opens_its_owner_file_without_setup() {
         "http://127.0.0.1:1355/idp",
         "http://localhost:5173",
         None,
+        None,
         &[],
     )
     .await
@@ -26,6 +27,7 @@ async fn local_constructor_opens_its_owner_file_without_setup() {
         &root,
         "http://127.0.0.1:1355/idp",
         "http://localhost:5173",
+        None,
         None,
         &[],
     )
@@ -46,6 +48,7 @@ async fn local_constructor_seeds_frontends_and_admin_without_setup_and_is_repeat
             "http://127.0.0.1:1355/idp",
             "http://localhost:5173",
             Some(db.clone()),
+            Some(adapter.storage()),
             &[],
         )
         .await

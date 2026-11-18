@@ -9,6 +9,7 @@ import type { VaultHandleLike } from "$lib/vault/types";
 
 type VaultState =
     | { status: "loading" }
+    | { status: "error"; message: string }
     | { status: "locked" }
     | { status: "select-vault"; vaults: VaultIdentity[] }
     | { status: "create-vault" }
@@ -18,6 +19,7 @@ type VaultState =
 
 let vaultState = $state<VaultState>({ status: "loading" });
 let session = 0;
+let selector: Promise<void> | null = null;
 
 function getVaultData() {
     if (vaultState.status === "unlocked") {
@@ -140,9 +142,22 @@ async function lockVault() {
 }
 
 async function showVaultSelector() {
-    vaultState = { status: "loading" };
-    const vaults = await loadVaults();
-    vaultState = { status: "select-vault", vaults };
+    if (selector) return selector;
+    selector = (async () => {
+        vaultState = { status: "loading" };
+        try {
+            const vaults = await loadVaults();
+            vaultState = { status: "select-vault", vaults };
+        } catch (cause) {
+            vaultState = {
+                status: "error",
+                message: cause instanceof Error ? cause.message : "Failed to load vaults.",
+            };
+        } finally {
+            selector = null;
+        }
+    })();
+    return selector;
 }
 
 async function init() {

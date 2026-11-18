@@ -20,10 +20,18 @@ const SHARED_DB_NAME = "password-manager-v1";
  * This replaces SharedDb.getInstance().getClient() for migration purposes.
  */
 export async function getSharedClient(): Promise<Client> {
-  const db = await SqlDatabase.open(SHARED_DB_NAME);
-  const client = db.client();
-  await client.migrate(MIGRATIONS);
-  return client;
+  return navigator.locks.request(`${SHARED_DB_NAME}:migrations`, async () => {
+    const db = await SqlDatabase.open(SHARED_DB_NAME);
+    const client = db.client();
+    try {
+      await client.migrate(MIGRATIONS);
+      return client;
+    } catch (error) {
+      client.close();
+      db.close();
+      throw error;
+    }
+  });
 }
 
 /**
@@ -34,10 +42,7 @@ export async function getSharedClient(): Promise<Client> {
 export async function migrateToSharedTables(): Promise<void> {
   const client = await getSharedClient();
 
-  // 1. Run migrations to create new tables (vaults, lock_settings, secrets, folders)
-  await client.migrate(MIGRATIONS);
-
-  // 2. Check if migration already done
+  // Check if migration already done
   const existing = await client.execute(
     `SELECT id FROM vaults LIMIT 1`,
     () => 1,

@@ -5,13 +5,14 @@
 `unified-server local` composes IdP, Management, Device, and Storage under `/idp`, `/management`, `/device`, and `/storage`. The CLI requires a fixed loopback listener and seeds development identities.
 
 ```bash
-just unified --data-dir .data --port 1355 \
-  --origin http://localhost:5173 --no-tls
+just unified
 ```
+
+The recipe exposes `https://unified.localhost:1355` through Portless. Portless terminates HTTPS and assigns a dynamic internal loopback port. Direct `cargo run -p unified-server -- local` serves plain HTTP on a fixed port. Production TLS belongs at nginx or a load balancer. Local signer state is bound to the public issuer URL; use a fresh data directory when that URL changes.
 
 The current local implementation retains state under the selected data directory and may use one embedded database host. That is an implementation choice, not an architectural requirement for one physical file or public shared-host APIs.
 
-Local mode does not establish Installation membership or qualify production Node setup. It uses seeded test identities and a retained self-signed leaf certificate when TLS is enabled. Private development keys are not encrypted at rest. Stop the server before copying its database for backup.
+Local mode does not establish Installation membership or qualify production Node setup. It uses seeded test identities. Private development keys are not encrypted at rest. Stop the server before copying its database for backup.
 
 Do not expose the listener or seeded credentials to an untrusted network.
 

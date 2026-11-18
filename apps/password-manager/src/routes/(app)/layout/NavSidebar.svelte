@@ -91,21 +91,18 @@ function handleOverlayKeydown(event: KeyboardEvent) {
 	}
 }
 
-$effect(() => {
-	if (!browser) return;
-	const handleResize = () => {
-		if (window.innerWidth >= 1024 && drawerOpen) {
-			closeDrawer();
-		}
-	};
-	window.addEventListener("resize", handleResize);
-	return () => window.removeEventListener("resize", handleResize);
-});
+function handleResize() {
+	if (window.innerWidth >= 1024 && drawerOpen) {
+		closeDrawer();
+	}
+}
 
 onMount(() => {
 	initCollapsed();
 });
 </script>
+
+<svelte:window onresize={handleResize} />
 
 {#snippet vaultIcon()}
 	<Vault class="w-5 h-5" />
@@ -196,7 +193,7 @@ onMount(() => {
 	        {/if}
 
 	        <button
-		class="mx-3 mb-3 flex w-full items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-ink hover:bg-surface-hover rounded-lg transition-colors"
+		class="mx-3 mb-3 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-ink hover:bg-surface-hover rounded-lg transition-colors"
 		onclick={toggleCollapse}
 		aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
 		aria-expanded={!collapsed}

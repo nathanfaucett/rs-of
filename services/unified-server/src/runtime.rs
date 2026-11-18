@@ -1,4 +1,4 @@
-use std::{io, sync::Arc};
+use std::{io, sync::Arc, time::Duration};
 
 use axum::{Router, extract::Request, http::StatusCode, response::IntoResponse};
 use db::adapters::EmbeddedDatabase;
@@ -7,7 +7,6 @@ use tower::ServiceExt;
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::config::UnifiedConfig;
-use crate::tls;
 
 pub fn compose_router(idp: Router, management: Router, device: Router, storage: Router) -> Router {
     Router::new().fallback(move |request: Request| {
@@ -28,6 +27,15 @@ pub fn compose_router(idp: Router, management: Router, device: Router, storage: 
             }
         }
     })
+}
+
+fn base_url(config: &UnifiedConfig) -> String {
+    config
+        .public_base_url
+        .clone()
+        .unwrap_or_else(|| format!("http://{}", config.listen_addr))
+        .trim_end_matches('/')
+        .to_owned()
 }
 
 pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> {
@@ -51,20 +59,19 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
             "origin must be an HTTP origin without a path, credentials, query, or fragment",
         ));
     }
-    tls::load(config)?;
-    let http_client = tls::http_client(config)?;
+    let http_client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(io::Error::other)?;
     let shared_db = Arc::new(
         EmbeddedDatabase::open(&config.data_dir)
             .await
             .map_err(io::Error::other)?,
     );
     let shared_database = shared_db.database.clone();
-    let scheme = if matches!(config.tls, crate::config::TlsConfig::Disabled) {
-        "http"
-    } else {
-        "https"
-    };
-    let base = format!("{scheme}://{}", config.listen_addr);
+    let base = base_url(config);
     let idp_base = format!("{base}/idp");
     let device_base = format!("{base}/device");
     let storage_base = format!("{base}/storage");
@@ -74,6 +81,7 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
         &idp_base,
         &config.origin,
         Some(Arc::new(shared_database.clone())),
+        Some(shared_db.storage.clone()),
         &config
             .seed
             .as_ref()
@@ -137,17 +145,27 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
 pub async fn serve(config: UnifiedConfig, cancellation: CancellationToken) -> io::Result<()> {
     let listener = tokio::net::TcpListener::bind(config.listen_addr).await?;
     let router = compose_local_router(&config).await?;
-    let tls = tls::load(&config)?;
-    match tls {
-        Some(tls) => {
-            axum::serve(tls::TlsListener::new(listener, tls), router)
-                .with_graceful_shutdown(cancellation.cancelled_owned())
-                .await
-        }
-        None => {
-            axum::serve(listener, router)
-                .with_graceful_shutdown(cancellation.cancelled_owned())
-                .await
-        }
+    axum::serve(listener, router)
+        .with_graceful_shutdown(cancellation.cancelled_owned())
+        .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn service_base_uses_public_url_when_proxy_supplies_one() {
+        let mut config = UnifiedConfig {
+            listen_addr: "127.0.0.1:4000".parse().expect("loopback address"),
+            public_base_url: Some("https://unified.localhost:1355/".into()),
+            data_dir: ".data".into(),
+            origin: "http://localhost:5173".into(),
+            seed: None,
+        };
+        assert_eq!(base_url(&config), "https://unified.localhost:1355");
+
+        config.public_base_url = None;
+        assert_eq!(base_url(&config), "http://127.0.0.1:4000");
     }
 }

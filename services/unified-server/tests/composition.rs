@@ -17,63 +17,61 @@ impl Drop for Server {
 }
 
 #[tokio::test]
-async fn fresh_http_server_authenticates_all_clients_and_restarts() {
-    smoke(false).await;
+async fn fresh_server_authenticates_all_clients_and_restarts() {
+    smoke().await;
 }
 
 #[tokio::test]
-async fn fresh_https_server_authenticates_all_clients_and_reuses_tls() {
-    smoke(true).await;
-}
-
-#[tokio::test]
-async fn fresh_server_is_ready_within_three_seconds() {
+async fn portless_server_restarts_with_retained_state() {
     let root = tempfile::tempdir().expect("fresh performance directory");
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("available port");
     let port = listener.local_addr().expect("address").port();
     drop(listener);
-    let started = Instant::now();
-    let mut server = Server(
-        Command::new(env!("CARGO_BIN_EXE_unified-server"))
-            .args(["local", "--data-dir"])
-            .arg(root.path())
-            .args(["--port", &port.to_string(), "--no-tls"])
-            .stdout(Stdio::null())
-            .spawn()
-            .expect("start local server"),
-    );
     let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(Duration::from_millis(100))
         .build()
         .expect("HTTP client");
-    loop {
-        assert!(
-            server.0.try_wait().expect("child status").is_none(),
-            "server exited"
+    for restart in 0..2 {
+        let started = Instant::now();
+        let mut server = Server(
+            Command::new(env!("CARGO_BIN_EXE_unified-server"))
+                .args(["local", "--data-dir"])
+                .arg(root.path())
+                .env("PORT", port.to_string())
+                .env("PORTLESS_URL", format!("http://127.0.0.1:{port}"))
+                .stdout(Stdio::null())
+                .spawn()
+                .expect("start local server"),
         );
-        assert!(
-            started.elapsed() < Duration::from_secs(3),
-            "startup exceeded three seconds"
-        );
-        if client
-            .get(format!("http://127.0.0.1:{port}/idp/health"))
-            .send()
-            .await
-            .is_ok_and(|response| response.status().is_success())
-        {
+        loop {
+            assert!(
+                server.0.try_wait().expect("child status").is_none(),
+                "server exited"
+            );
             assert!(
                 started.elapsed() < Duration::from_secs(3),
                 "startup exceeded three seconds"
             );
-            eprintln!("fresh server ready in {:?}", started.elapsed());
-            break;
+            if client
+                .get(format!("http://127.0.0.1:{port}/idp/health"))
+                .send()
+                .await
+                .is_ok_and(|response| response.status().is_success())
+            {
+                assert!(
+                    started.elapsed() < Duration::from_secs(3),
+                    "startup exceeded three seconds"
+                );
+                eprintln!("server restart {restart} ready in {:?}", started.elapsed());
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
-async fn smoke(tls: bool) {
+async fn smoke() {
     let root = tempfile::tempdir().expect("temporary data directory");
     let seed = tempfile::NamedTempFile::new().expect("optional seed file");
     std::fs::write(
@@ -84,8 +82,7 @@ async fn smoke(tls: bool) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("available port");
     let port = listener.local_addr().expect("address").port();
     drop(listener);
-    let base = format!("{}://127.0.0.1:{port}", if tls { "https" } else { "http" });
-    let mut retained_tls = None;
+    let base = format!("http://127.0.0.1:{port}");
     let mut retained_jwks = None;
     let mut retained_resource = None;
     let mut retained_filesystem = None;
@@ -102,9 +99,7 @@ async fn smoke(tls: bool) {
                 "--origin",
                 "http://localhost:5173",
             ]);
-        if !tls {
-            command.arg("--no-tls").arg("--seed").arg(seed.path());
-        }
+        command.arg("--seed").arg(seed.path());
         let mut server = Server(
             command
                 .stdout(Stdio::null())
@@ -120,20 +115,12 @@ async fn smoke(tls: bool) {
                 start.elapsed() < Duration::from_secs(3),
                 "startup exceeded three seconds"
             );
-            let mut builder = reqwest::Client::builder()
+            let client = reqwest::Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
-                .timeout(Duration::from_secs(10));
-            if tls {
-                let Ok(certificate) = std::fs::read(root.path().join("tls/cert.pem")) else {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                    continue;
-                };
-                builder = builder.add_root_certificate(
-                    reqwest::Certificate::from_pem(&certificate).expect("self-signed certificate"),
-                );
-            }
-            let client = builder.build().expect("HTTP client");
+                .timeout(Duration::from_secs(10))
+                .build()
+                .expect("HTTP client");
             if client
                 .get(format!("{base}/idp/health"))
                 .timeout(Duration::from_millis(200))
@@ -156,13 +143,9 @@ async fn smoke(tls: bool) {
             .map(|entry| entry.expect("directory entry").file_name())
             .collect::<Vec<_>>();
         entries.sort();
-        let expected = if tls {
-            vec!["tls", "unified.redb"]
-        } else {
-            vec!["unified.redb"]
-        };
         assert_eq!(
-            entries, expected,
+            entries,
+            vec!["unified.redb"],
             "local restart must retain the single-file layout after resource use"
         );
         #[cfg(unix)]
@@ -244,66 +227,48 @@ async fn smoke(tls: bool) {
         }
         retained_jwks = Some(jwks);
         authenticate(&client, &base, restart == 0).await;
-        if !tls {
-            let token = client
-                .post(format!("{base}/idp/oauth2/token"))
-                .form(&[
-                    ("grant_type", "password"),
-                    ("client_id", "local-login"),
-                    ("username", "test-user"),
-                    ("password", "test-password"),
-                    ("scope", "openid"),
-                ])
-                .send()
-                .await
-                .expect("seed user sign-in");
-            assert_eq!(token.status(), 200);
-            let token: Value = token.json().await.expect("seed User token");
-            let bearer = token["access_token"].as_str().expect("seed User bearer");
-            retained_filesystem = Some(
-                filesystem_restart(&client, &base, bearer, retained_filesystem.as_deref()).await,
-            );
-            if let Some(id) = &retained_resource {
-                let read = exchange_storage(
-                    &client,
-                    &base,
-                    "local-login",
-                    bearer,
-                    "storage:databases",
-                    "read",
-                )
-                .await;
-                assert_saved_resource(
-                    &client,
-                    &format!("{base}/storage/databases/{id}/sql"),
-                    &read,
-                )
-                .await;
-            } else {
-                retained_resource =
-                    Some(storage_roundtrip(&client, &base, "local-login", bearer).await);
-            }
+        let token = client
+            .post(format!("{base}/idp/oauth2/token"))
+            .form(&[
+                ("grant_type", "password"),
+                ("client_id", "local-login"),
+                ("username", "test-user"),
+                ("password", "test-password"),
+                ("scope", "openid"),
+            ])
+            .send()
+            .await
+            .expect("seed user sign-in");
+        assert_eq!(token.status(), 200);
+        let token: Value = token.json().await.expect("seed User token");
+        let bearer = token["access_token"].as_str().expect("seed User bearer");
+        retained_filesystem =
+            Some(filesystem_restart(&client, &base, bearer, retained_filesystem.as_deref()).await);
+        if let Some(id) = &retained_resource {
+            let read = exchange_storage(
+                &client,
+                &base,
+                "local-login",
+                bearer,
+                "storage:databases",
+                "read",
+            )
+            .await;
+            assert_saved_resource(
+                &client,
+                &format!("{base}/storage/databases/{id}/sql"),
+                &read,
+            )
+            .await;
         } else {
-            let material = (
-                std::fs::read(root.path().join("tls/cert.pem")).expect("certificate"),
-                std::fs::read(root.path().join("tls/key.pem")).expect("private key"),
-            );
-            if let Some(retained) = &retained_tls {
-                assert_eq!(&material, retained);
-            }
-            retained_tls = Some(material);
-            assert_eq!(
-                std::fs::read_dir(root.path().join("tls"))
-                    .expect("TLS files")
-                    .count(),
-                2
-            );
+            retained_resource =
+                Some(storage_roundtrip(&client, &base, "local-login", bearer).await);
         }
         assert_eq!(
             std::fs::read_dir(root.path())
                 .expect("layout after resource use")
                 .count(),
-            if tls { 2 } else { 1 },
+            1,
             "resource use must not create sidecars"
         );
         drop(server);
@@ -312,7 +277,7 @@ async fn smoke(tls: bool) {
         "four-owner health, sign-in, PKCE and restart passed; startup times: {startup_times:?}"
     );
     assert!(root.path().join("unified.redb").is_file());
-    assert_eq!(root.path().join("tls").exists(), tls);
+    assert!(!root.path().join("tls").exists());
     for owner in ["idp", "device", "management", "storage"] {
         assert!(
             !root
