@@ -493,6 +493,13 @@ impl<R: Clone> NativeResource<R> {
 pub struct ResourceGuard<'a, R> {
     backend: RwLockReadGuard<'a, Option<R>>,
 }
+
+impl<R> core::fmt::Debug for ResourceGuard<'_, R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ResourceGuard").finish_non_exhaustive()
+    }
+}
+
 impl<R> Deref for ResourceGuard<'_, R> {
     type Target = R;
     fn deref(&self) -> &R {
@@ -505,6 +512,12 @@ impl<R> Deref for ResourceGuard<'_, R> {
 pub struct NativeTransaction<R, T> {
     owner: NativeResource<R>,
     slot: Arc<Mutex<Option<T>>>,
+}
+
+impl<R, T> core::fmt::Debug for NativeTransaction<R, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("NativeTransaction").finish_non_exhaustive()
+    }
 }
 
 impl<R: Clone, T> NativeTransaction<R, T> {
@@ -531,6 +544,13 @@ pub struct TransactionGuard<'a, R, T> {
     _owner: ResourceGuard<'a, R>,
     slot: MutexGuard<'a, Option<T>>,
 }
+
+impl<R, T> core::fmt::Debug for TransactionGuard<'_, R, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TransactionGuard").finish_non_exhaustive()
+    }
+}
+
 impl<R, T> Deref for TransactionGuard<'_, R, T> {
     type Target = T;
     fn deref(&self) -> &T {

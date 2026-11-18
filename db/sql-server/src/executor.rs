@@ -13,6 +13,12 @@ impl<K, R> EngineExecutor<K, R> {
     }
 }
 
+impl<K, R> core::fmt::Debug for EngineExecutor<K, R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("EngineExecutor").finish_non_exhaustive()
+    }
+}
+
 impl<K, R> QueryExecutor for EngineExecutor<K, R>
 where
     K: Kernel + 'static,

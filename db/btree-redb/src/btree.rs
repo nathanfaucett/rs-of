@@ -146,6 +146,7 @@ mod test {
 
     use super::*;
     use crate::RedbDatabase;
+    use crate::btree_crate::BTreeTransaction;
 
     fn tmp_path() -> std::path::PathBuf {
         let mut path = std::env::temp_dir();

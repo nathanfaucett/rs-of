@@ -124,7 +124,6 @@ where
                 yield Ok(item);
             }
         })
-
     }
 }
 
@@ -167,6 +166,19 @@ where
     factory: Arc<F>,
     sharder: Arc<S>,
     _marker: PhantomData<(K, V)>,
+}
+
+impl<K, V, F, S> core::fmt::Debug for ShardedBTreeTransaction<K, V, F, S>
+where
+    K: BTreeKey + MaybeSend + MaybeSync,
+    V: BTreeValue + MaybeSend + MaybeSync,
+    F: BTreeShardFactory<K, V, S::Key>,
+    S: Sharder<K>,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ShardedBTreeTransaction")
+            .finish_non_exhaustive()
+    }
 }
 
 impl<K, V, F, S> ShardedBTreeTransaction<K, V, F, S>

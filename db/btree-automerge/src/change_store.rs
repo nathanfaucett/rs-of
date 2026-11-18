@@ -8,17 +8,20 @@ use futures::{Stream, StreamExt, pin_mut};
 
 use crate::DocumentChangeKey;
 
-#[derive(Debug)]
-pub struct AutomergeChangeStore<T>
-where
-    T: core::fmt::Debug,
-{
+pub struct AutomergeChangeStore<T> {
     inner: T,
 }
 
-impl<T: core::fmt::Debug> AutomergeChangeStore<T> {
+impl<T> AutomergeChangeStore<T> {
     pub fn new(inner: T) -> Self {
         Self { inner }
+    }
+}
+
+impl<T> core::fmt::Debug for AutomergeChangeStore<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AutomergeChangeStore")
+            .finish_non_exhaustive()
     }
 }
 
@@ -34,7 +37,7 @@ where
     (map(range.start_bound()), map(range.end_bound()))
 }
 
-impl<T: core::fmt::Debug> BTreeRead<DocumentChangeKey, Vec<u8>> for AutomergeChangeStore<T>
+impl<T> BTreeRead<DocumentChangeKey, Vec<u8>> for AutomergeChangeStore<T>
 where
     T: BTreeRead<Vec<u8>, Vec<u8>>,
 {
@@ -58,7 +61,7 @@ where
     }
 }
 
-impl<T: core::fmt::Debug> BTreeTransaction<DocumentChangeKey, Vec<u8>> for AutomergeChangeStore<T>
+impl<T> BTreeTransaction<DocumentChangeKey, Vec<u8>> for AutomergeChangeStore<T>
 where
     T: BTreeTransaction<Vec<u8>, Vec<u8>>,
 {

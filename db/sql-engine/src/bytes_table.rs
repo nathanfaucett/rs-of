@@ -12,10 +12,17 @@ use futures::{Stream, StreamExt, pin_mut};
 
 use crate::KernelTransaction;
 
-#[allow(missing_debug_implementations)]
 pub struct BytesTable<'a, T> {
     transaction: &'a T,
     table: String,
+}
+
+impl<'a, T> core::fmt::Debug for BytesTable<'a, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BytesTable")
+            .field("table", &self.table)
+            .finish_non_exhaustive()
+    }
 }
 
 pub struct BytesTableTransaction<'a, T> {
