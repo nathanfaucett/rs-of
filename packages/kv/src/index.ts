@@ -8,25 +8,21 @@ export type { DbValue } from "./value.js";
 
 // Sync exports - import to ensure they're included in bundle
 import {
-  JsKvSyncTransport,
   JsPushSyncTransport,
-  KvSyncRole,
-  KvSyncConfig,
   PushConfig,
   PushSynchronizeConfig,
   PushSynchronizeResult,
   KvChangeSubscription,
+  JsChangeEvent,
   JsKvSyncError,
 } from "./database.js";
 
 export {
-  JsKvSyncTransport,
   JsPushSyncTransport,
-  KvSyncRole,
-  KvSyncConfig,
   PushConfig,
   PushSynchronizeConfig,
   PushSynchronizeResult,
   KvChangeSubscription,
+  JsChangeEvent,
   JsKvSyncError,
 };

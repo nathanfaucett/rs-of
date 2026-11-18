@@ -1,4 +1,6 @@
-use crate::protocol::{Config, Error, Message, PushResult, PushSynchronizeConfig, PushSynchronizeError, SyncResult};
+use crate::protocol::{
+    Config, Error, Message, PushResult, PushSynchronizeConfig, PushSynchronizeError, SyncResult,
+};
 use crate::transport::SyncTransport;
 use btree::{ChangeEvent, StorageKey};
 use futures::{Stream, StreamExt};
@@ -311,9 +313,8 @@ where
     Ok(result)
 }
 
-
 /// Push synchronization - one-way sync from local to remote.
-/// 
+///
 /// This is a simplified version of synchronize that only pushes local changes
 /// without expecting inbound changes from the remote.
 pub async fn push_synchronize<T, F, S, Fut>(
@@ -336,22 +337,27 @@ where
         message_timeout: Duration::from_millis(config.message_timeout_ms),
         send_done_on_exhaust: true,
     };
-    
+
     // Use the existing synchronize function
-    let result = synchronize(transport, outbound, apply_inbound, sync_config).await.map_err(|e| {
-        match e {
+    let result = synchronize(transport, outbound, apply_inbound, sync_config)
+        .await
+        .map_err(|e| match e {
             SynchronizeError::Transport(e) => PushSynchronizeError::Transport(e),
             SynchronizeError::Protocol(e) => PushSynchronizeError::Protocol(e.to_string()),
             SynchronizeError::Apply(e) => PushSynchronizeError::Apply(e),
-            SynchronizeError::SessionTimeout => PushSynchronizeError::Protocol("session timeout".into()),
+            SynchronizeError::SessionTimeout => {
+                PushSynchronizeError::Protocol("session timeout".into())
+            }
             SynchronizeError::PeerClosed => PushSynchronizeError::Protocol("peer closed".into()),
             SynchronizeError::HandshakeFailed(e) => PushSynchronizeError::Protocol(e),
-            SynchronizeError::GenerationGap { key, have, need } => PushSynchronizeError::Protocol(
-                format!("generation gap for key {:?}: have {}, need {}", key, have, need)
-            ),
-        }
-    })?;
-    
+            SynchronizeError::GenerationGap { key, have, need } => {
+                PushSynchronizeError::Protocol(format!(
+                    "generation gap for key {:?}: have {}, need {}",
+                    key, have, need
+                ))
+            }
+        })?;
+
     // Convert SyncResult to PushResult
     Ok(PushResult {
         sent: result.events_sent as usize,

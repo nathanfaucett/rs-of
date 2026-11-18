@@ -32,11 +32,12 @@ pub use sql_server::{EngineExecutor, Server};
 #[cfg(feature = "sql")]
 pub use sql_translator::SqlTranslator;
 
-#[cfg(all(feature = "sync", not(feature = "validated-history")))]
-pub use crate::database::{
-    SessionConfig, SyncCandidateView, SyncKey, SyncManifest, SyncRole, SyncSelection,
-    SyncStageFactory, SyncStateUnit,
-};
+// Deprecated sync types removed - use validated-history feature for real implementations
+// #[cfg(all(feature = "sync", not(feature = "validated-history")))]
+// pub use crate::database::{
+//     SessionConfig, SyncCandidateView, SyncKey, SyncManifest, SyncRole, SyncSelection,
+//     SyncStageFactory, SyncStateUnit,
+// };
 
 #[cfg(feature = "validated-history")]
 pub use history::{

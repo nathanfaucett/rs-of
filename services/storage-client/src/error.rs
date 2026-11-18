@@ -1,6 +1,5 @@
 //! Storage Client errors.
 
-use alloc::string::{String, ToString};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

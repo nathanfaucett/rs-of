@@ -1,4 +1,3 @@
-use alloc::{string::String, vec::Vec};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -112,6 +111,7 @@ pub enum FrameError {
     TrailingBytes,
 }
 
+#[derive(Debug)]
 pub struct FrameCodec;
 
 impl FrameCodec {

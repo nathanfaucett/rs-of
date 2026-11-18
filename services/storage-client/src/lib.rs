@@ -23,7 +23,6 @@ pub mod native;
 #[cfg(feature = "browser")]
 pub mod browser;
 
-use alloc::string::String;
 use core::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};

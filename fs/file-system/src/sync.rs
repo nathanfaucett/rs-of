@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt::Debug, future::Future};
+use std::{collections::BTreeMap, fmt::Debug};
 
 use ofdb_kv::KvSnapshot;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};

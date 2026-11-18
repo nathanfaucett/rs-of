@@ -29,7 +29,7 @@
     "format": "biome format ."
   },
   "dependencies": {
-    "@ofsdk/fs": "workspace:*",
+    "@ofsdk/file-system": "workspace:*",
     "@ofsdk/sql": "workspace:*",
     "@ofsdk/storage-client": "workspace:*",
     "@ofsdk/storage-sync-client": "workspace:*",

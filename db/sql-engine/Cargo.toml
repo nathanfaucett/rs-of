@@ -45,6 +45,7 @@ platform = { version = "0.1", path = "../platform", package = "ofdb-platform", d
 
 # internal dependencies
 btree = { version = "0.1", path = "../btree", package = "ofdb-btree", default-features = false, features = [
+    "changes",
 ] }
 query = { version = "0.1", path = "../sql-query", package = "ofdb-sql-query", default-features = false, features = [
 ] }

@@ -129,3 +129,13 @@ impl From<btree::BTreeError> for Error {
         }
     }
 }
+
+#[cfg(feature = "std")]
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        Self::Storage {
+            kind: ErrorKind::Storage,
+            message: error.to_string(),
+        }
+    }
+}

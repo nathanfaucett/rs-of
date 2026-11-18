@@ -1,5 +1,10 @@
 // WASM module types (loaded dynamically)
-import { KvChangeSubscription } from "../pkg/ofdb_wasm.js";
+import {
+  JsPushSyncTransport,
+  PushSynchronizeConfig,
+  PushSynchronizeResult,
+  KvChangeSubscription,
+} from "../pkg/ofdb_wasm.js";
 
 interface WasmModule {
   default(): Promise<void>;
@@ -11,16 +16,14 @@ interface WasmModule {
 export interface WasmKvDatabase {
   client(): WasmKvClient;
   synchronize(
-    transport: unknown,
-    role: unknown,
-    config: unknown,
-  ): Promise<void>;
+    transport: JsPushSyncTransport,
+    config: PushSynchronizeConfig,
+  ): Promise<PushSynchronizeResult>;
   synchronize_checked(
-    transport: unknown,
-    role: unknown,
-    config: unknown,
+    transport: JsPushSyncTransport,
+    config: PushSynchronizeConfig,
     check: () => Promise<void>,
-  ): Promise<void>;
+  ): Promise<PushSynchronizeResult>;
   sync_changes(): Promise<KvChangeSubscription>;
 }
 

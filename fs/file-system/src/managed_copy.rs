@@ -4,7 +4,7 @@
     allow(dead_code, clippy::arc_with_non_send_sync)
 )]
 
-use std::{collections::BTreeMap, future::Future, sync::Arc, sync::Weak};
+use std::{collections::BTreeMap, sync::Arc, sync::Weak};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Mutex, OnceLock};

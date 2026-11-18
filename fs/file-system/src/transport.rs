@@ -1,4 +1,4 @@
-use core::{error::Error, future::Future};
+use core::error::Error;
 
 use tokio::sync::{broadcast, mpsc};
 

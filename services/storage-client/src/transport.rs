@@ -1,5 +1,5 @@
-use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
-use core::{future::Future, pin::Pin};
+use alloc::sync::Arc;
+use core::pin::Pin;
 
 use futures_util::{SinkExt, StreamExt};
 
@@ -47,6 +47,7 @@ type Socket = gloo_net::websocket::futures::WebSocket;
     all(feature = "native", not(target_arch = "wasm32")),
     all(feature = "browser", target_arch = "wasm32")
 ))]
+#[derive(Debug)]
 pub struct OwnerTransport {
     socket: Socket,
     bytes: u64,

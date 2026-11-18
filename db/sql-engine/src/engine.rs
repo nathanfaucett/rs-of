@@ -311,6 +311,12 @@ where
         self.kernel.subscribe_changes()
     }
 
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn change_signal(&self) -> &btree::ChangeSignal {
+        &self.change_signal
+    }
+
     pub async fn transaction(&self) -> EngineResult<EngineTransaction<K, R>> {
         Ok(EngineTransaction {
             engine: self.clone(),

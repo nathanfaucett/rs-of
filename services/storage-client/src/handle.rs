@@ -1,6 +1,3 @@
-use alloc::string::{String, ToString};
-use core::future::Future;
-
 use ofdb_sql::history::{SessionConfig, SyncResult, SyncRole, SyncTransport};
 use ofdb_sql::{Database, QueryParams, QueryResult};
 use uuid::Uuid;

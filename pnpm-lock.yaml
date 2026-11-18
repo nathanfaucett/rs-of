@@ -155,7 +155,7 @@ importers:
         version: link:../../packages/oidc-client
       '@ofsdk/sql':
         specifier: workspace:*
-        version: link:../../packages/sql-wasm
+        version: link:../../packages/sql
       '@ofsdk/svelte-headless':
         specifier: workspace:*
         version: link:../../packages/svelte-headless
@@ -248,46 +248,6 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@types/node@26.1.2)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@27.4.0(supports-color@10.2.2))(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))
 
-  packages/db-example:
-    dependencies:
-      '@ofsdk/kv':
-        specifier: file:../kv
-        version: link:../kv
-      '@ofsdk/sql':
-        specifier: file:../sql
-        version: link:../sql
-    devDependencies:
-      '@biomejs/biome':
-        specifier: ^2.5.3
-        version: 2.6.4
-      '@playwright/test':
-        specifier: 1.49.0
-        version: 1.49.0
-      '@sveltejs/vite-plugin-svelte':
-        specifier: ^7.2.0
-        version: 7.2.0(svelte@5.56.8)(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
-      '@tailwindcss/vite':
-        specifier: ^4.3.3
-        version: 4.3.3(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
-      portless:
-        specifier: ^0.15.4
-        version: 0.15.5
-      svelte:
-        specifier: ^5.56.8
-        version: 5.56.8
-      svelte-check:
-        specifier: ^4.7.4
-        version: 4.7.4(picomatch@4.0.5)(svelte@5.56.8)(typescript@5.9.3)
-      tailwindcss:
-        specifier: ^4.3.3
-        version: 4.3.3
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vite:
-        specifier: ^8.2.0
-        version: 8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
-
   packages/device-client:
     dependencies:
       eventemitter3:
@@ -351,8 +311,6 @@ importers:
       wasm-pack:
         specifier: ^0.13.0
         version: 0.13.1(debug@4.4.3(supports-color@10.2.2))
-
-  packages/fs-wasm: {}
 
   packages/idp-client:
     dependencies:
@@ -420,6 +378,43 @@ importers:
       wasm-pack:
         specifier: ^0.13.0
         version: 0.13.1(debug@4.4.3(supports-color@10.2.2))
+
+  packages/kv/example:
+    dependencies:
+      '@ofsdk/kv':
+        specifier: file:..
+        version: link:..
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.5.3
+        version: 2.6.4
+      '@playwright/test':
+        specifier: 1.49.0
+        version: 1.49.0
+      '@sveltejs/vite-plugin-svelte':
+        specifier: ^7.2.0
+        version: 7.2.0(svelte@5.56.8)(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
+      '@tailwindcss/vite':
+        specifier: ^4.3.3
+        version: 4.3.3(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
+      portless:
+        specifier: ^0.15.4
+        version: 0.15.5
+      svelte:
+        specifier: ^5.56.8
+        version: 5.56.8
+      svelte-check:
+        specifier: ^4.7.4
+        version: 4.7.4(picomatch@4.0.5)(svelte@5.56.8)(typescript@5.9.3)
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^8.2.0
+        version: 8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
 
   packages/management-client:
     dependencies:
@@ -619,7 +614,42 @@ importers:
         specifier: 0.13.1
         version: 0.13.1(debug@4.4.3(supports-color@10.2.2))
 
-  packages/sql-wasm: {}
+  packages/sql/example:
+    dependencies:
+      '@ofsdk/sql':
+        specifier: file:..
+        version: link:..
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.5.3
+        version: 2.6.4
+      '@playwright/test':
+        specifier: 1.49.0
+        version: 1.49.0
+      '@sveltejs/vite-plugin-svelte':
+        specifier: ^7.2.0
+        version: 7.2.0(svelte@5.56.8)(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
+      '@tailwindcss/vite':
+        specifier: ^4.3.3
+        version: 4.3.3(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
+      portless:
+        specifier: ^0.15.4
+        version: 0.15.5
+      svelte:
+        specifier: ^5.56.8
+        version: 5.56.8
+      svelte-check:
+        specifier: ^4.7.4
+        version: 4.7.4(picomatch@4.0.5)(svelte@5.56.8)(typescript@5.9.3)
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^8.2.0
+        version: 8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0)
 
   packages/storage-client:
     dependencies:
@@ -755,12 +785,12 @@ importers:
 
   packages/sync-sdk:
     dependencies:
-      '@ofsdk/fs':
+      '@ofsdk/file-system':
         specifier: workspace:*
-        version: link:../fs-wasm
+        version: link:../file-system
       '@ofsdk/sql':
         specifier: workspace:*
-        version: link:../sql-wasm
+        version: link:../sql
       '@ofsdk/storage-client':
         specifier: workspace:*
         version: link:../storage-client

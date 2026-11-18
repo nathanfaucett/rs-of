@@ -54,6 +54,8 @@ use engine_redb::RedbKernel;
 #[derive(Clone, Debug)]
 pub struct Database {
     backend: DatabaseBackend,
+    #[cfg(feature = "sync")]
+    changes: Option<btree::ChangeSignal>,
 }
 
 #[derive(Clone)]
@@ -321,38 +323,15 @@ impl Database {
     /// Dropping the stream cancels its in-flight work.
     #[cfg(feature = "sync")]
     pub fn sync_changes(&self) -> std::io::Result<sync::ChangeSubscription> {
-        match &self.backend {
-            #[cfg(feature = "redb")]
-            DatabaseBackend::File(resource) => {
-                let engine = resource
-                    .read()
-                    .map_err(|e| std::io::Error::other(e.to_string()))?;
-                engine.subscribe_changes().map(Into::into).ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Unsupported,
-                        "backend does not support committed subscriptions",
-                    )
-                })
-            }
-            #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
-            DatabaseBackend::IndexedDb(engine) => {
-                engine.subscribe_changes().map(Into::into).ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Unsupported,
-                        "backend does not support committed subscriptions",
-                    )
-                })
-            }
-            #[cfg(feature = "in-memory")]
-            DatabaseBackend::InMemory(engine) => {
-                engine.subscribe_changes().map(Into::into).ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Unsupported,
-                        "backend does not support committed subscriptions",
-                    )
-                })
-            }
-        }
+        self.changes
+            .clone()
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "committed changes require a persistent database",
+                )
+            })
+            .map(|signal| signal.subscribe().into())
     }
 
     /// Interpret selected work before exporting state. Acknowledge only after successful sync.
@@ -393,6 +372,8 @@ impl Database {
             .map_err(crate::error::from_engine)?;
         let engine = Engine::new(kernel, AutomergeRowCodec::new());
         Ok(Self {
+            #[cfg(feature = "sync")]
+            changes: None,
             backend: DatabaseBackend::IndexedDb(engine),
         })
     }
@@ -416,11 +397,11 @@ impl Database {
         .map_err(native_error)?;
         #[cfg(feature = "sync")]
         let changes = resource
-            .inspect(engine::Engine::subscribe_changes)
+            .inspect(|engine| engine.change_signal().clone())
             .map_err(native_error)?;
         Ok(Self {
             #[cfg(feature = "sync")]
-            changes,
+            changes: Some(changes),
             backend: DatabaseBackend::File(resource),
         })
     }
@@ -441,21 +422,22 @@ impl Database {
     fn open_native(path: &std::path::Path, create: bool) -> SqlResult<Self> {
         let database = engine_redb::open_unretired(path, create).map_err(native_error)?;
         let database = engine_redb::RedbDatabase::new(std::sync::Arc::new(database));
+        let resource = engine_redb::NativeResource::new(
+            path,
+            Engine::new(
+                RedbKernel::from_database(database),
+                AutomergeRowCodec::new(),
+            ),
+        )
+        .map_err(native_error)?;
         #[cfg(feature = "sync")]
-        let changes = database.subscribe_changes();
+        let changes = resource
+            .inspect(|engine| engine.change_signal().clone())
+            .map_err(native_error)?;
         Ok(Self {
             #[cfg(feature = "sync")]
             changes: Some(changes),
-            backend: DatabaseBackend::File(
-                engine_redb::NativeResource::new(
-                    path,
-                    Engine::new(
-                        RedbKernel::from_database(database),
-                        AutomergeRowCodec::new(),
-                    ),
-                )
-                .map_err(native_error)?,
-            ),
+            backend: DatabaseBackend::File(resource),
         })
     }
 
@@ -465,6 +447,8 @@ impl Database {
         let kernel = InMemoryKernel::new();
         let engine = Engine::new(kernel, AutomergeRowCodec::new());
         Self {
+            #[cfg(feature = "sync")]
+            changes: None,
             backend: DatabaseBackend::InMemory(engine),
         }
     }
@@ -789,59 +773,6 @@ impl Database {
             .push_synchronize(transport, apply_inbound, config)
             .await
     }
-}
-
-#[cfg(feature = "sync")]
-/// Placeholder for deprecated `SyncKey` API.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SyncKey {
-    pub table: String,
-    pub row: uuid::Uuid,
-}
-
-#[cfg(feature = "sync")]
-/// Placeholder for deprecated `SyncSelection` API.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SyncSelection {
-    All,
-    Selected {
-        tables: Vec<String>,
-        rows: Vec<SyncKey>,
-    },
-}
-
-#[cfg(feature = "sync")]
-/// Placeholder for deprecated `SyncStageFactory` API.
-#[derive(Debug)]
-pub struct SyncStageFactory;
-
-#[cfg(feature = "sync")]
-/// Placeholder for deprecated `SyncCandidateView` API.
-pub type SyncCandidateView = ();
-
-#[cfg(feature = "sync")]
-/// Placeholder for deprecated `SyncManifest` API.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct SyncManifest;
-
-#[cfg(feature = "sync")]
-/// Placeholder for deprecated `SyncStateUnit` API.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SyncStateUnit;
-
-#[cfg(feature = "sync")]
-/// Placeholder for deprecated `SessionConfig` API.
-#[derive(Clone, Debug, Default)]
-pub struct SessionConfig {
-    pub max_session_bytes: usize,
-}
-
-#[cfg(feature = "sync")]
-/// Placeholder for deprecated `SyncRole` API.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SyncRole {
-    Leader,
-    Follower,
 }
 
 #[cfg(feature = "sync")]

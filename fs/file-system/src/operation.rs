@@ -1,4 +1,4 @@
-use std::{future::Future, sync::Arc};
+use std::sync::Arc;
 
 use tokio::sync::watch;
 use uuid::Uuid;

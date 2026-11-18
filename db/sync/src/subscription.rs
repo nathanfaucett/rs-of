@@ -46,7 +46,7 @@ impl ChangeSubscription {
     ///
     /// # Returns
     /// `PushResult` with statistics, or `PushSynchronizeError` on failure.
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
     pub async fn push_synchronize<T, F, Fut>(
         mut self,
         transport: T,
@@ -58,15 +58,22 @@ impl ChangeSubscription {
         F: FnMut(btree::ChangeEvent) -> Fut + Send,
         Fut: Future<Output = Result<(), String>> + Send,
     {
-        #[cfg(feature = "wasm")]
-        {
-            crate::wasm_sync::push_synchronize(transport, self.events(), apply_inbound, config)
-                .await
-        }
-        #[cfg(not(feature = "wasm"))]
-        {
-            crate::sync::push_synchronize(transport, self.events(), apply_inbound, config).await
-        }
+        crate::sync::push_synchronize(transport, self.events(), apply_inbound, config).await
+    }
+
+    #[cfg(all(feature = "std", target_arch = "wasm32"))]
+    pub async fn push_synchronize<T, F, Fut>(
+        mut self,
+        transport: T,
+        apply_inbound: F,
+        config: PushSynchronizeConfig,
+    ) -> Result<crate::protocol::PushResult, crate::protocol::PushSynchronizeError<T::Error>>
+    where
+        T: crate::transport::SyncTransport,
+        F: FnMut(btree::ChangeEvent) -> Fut,
+        Fut: Future<Output = Result<(), String>>,
+    {
+        crate::wasm_sync::push_synchronize(transport, self.events(), apply_inbound, config).await
     }
 
     #[doc(hidden)]

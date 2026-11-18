@@ -4,6 +4,7 @@
     "rootDir": "src",
     "outDir": "esm",
     "declarationDir": "types",
+    "emitDeclarationOnly": true,
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "pkg", "esm", "types"],

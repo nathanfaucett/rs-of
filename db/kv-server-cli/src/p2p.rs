@@ -9,7 +9,7 @@ use std::{
 
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets};
 use ofdb_kv::Database;
-use sync::{IrohTransport, SynchronizeConfig};
+use sync::{IrohTransport, PushSynchronizeConfig as SynchronizeConfig};
 use tokio::{sync::watch, time::interval};
 
 #[cfg(unix)]

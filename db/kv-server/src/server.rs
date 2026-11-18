@@ -20,8 +20,7 @@ enum Endpoint {
     Unix(PathBuf),
 }
 
-#[derive(Clone)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct KvService<S>
 where
     S: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,

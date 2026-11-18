@@ -1,4 +1,6 @@
 use crate::{JsonValue, Row, Value, ValueType};
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

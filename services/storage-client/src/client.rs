@@ -1,4 +1,4 @@
-use alloc::{format, string::String, sync::Arc, vec::Vec};
+use alloc::{format, sync::Arc};
 
 use ofdb_platform::{MaybeSend, MaybeSync};
 use reqwest::Client as HttpClient;
@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     DatabaseId, DatabaseInfo, DeviceId, FilesystemId, FilesystemInfo, KvStoreId, KvStoreInfo,
-    ResourceId, SyncSession, SyncToDeviceRequest,
+    ResourceId, SyncSession,
     error::{Result, StorageClientError},
     handle::{FilesystemHandle, KvStoreHandle, SqlDatabaseHandle},
     protocol::StoreIdentity,
@@ -28,6 +28,18 @@ pub struct StorageClient {
     token_provider: SubjectTokenProvider,
     sync_ws_url: String,
     local_replica_id: Uuid,
+}
+
+impl core::fmt::Debug for StorageClient {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StorageClient")
+            .field("base_url", &self.base_url)
+            .field("idp_base_url", &self.idp_base_url)
+            .field("client_id", &self.client_id)
+            .field("sync_ws_url", &self.sync_ws_url)
+            .field("local_replica_id", &self.local_replica_id)
+            .finish_non_exhaustive()
+    }
 }
 impl StorageClient {
     pub fn new(

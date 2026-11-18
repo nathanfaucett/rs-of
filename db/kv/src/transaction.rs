@@ -48,6 +48,8 @@ enum Backend {
             Box<RedbTransaction>,
         >,
     ),
+    #[cfg(feature = "remote")]
+    Remote(Box<RemoteTransaction>),
 }
 
 impl core::fmt::Debug for Backend {
@@ -59,6 +61,8 @@ impl core::fmt::Debug for Backend {
             Self::Memory(_) => f.debug_tuple("Memory").field(&"...").finish(),
             #[cfg(feature = "redb")]
             Self::Redb(_) => f.debug_tuple("Redb").field(&"...").finish(),
+            #[cfg(feature = "remote")]
+            Self::Remote(_) => f.debug_tuple("Remote").field(&"...").finish(),
         }
     }
 }

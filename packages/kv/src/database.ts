@@ -3,14 +3,12 @@ import type { WasmKvDatabase } from "./wasm.js";
 import { loadWasm } from "./wasm.js";
 import { wrapError, KvError } from "./error.js";
 import {
-  JsKvSyncTransport,
   JsPushSyncTransport,
-  KvSyncRole,
-  KvSyncConfig,
   PushConfig,
   PushSynchronizeConfig,
   PushSynchronizeResult,
   KvChangeSubscription,
+  JsChangeEvent,
   JsKvSyncError,
 } from "../pkg/ofdb_wasm.js";
 
@@ -40,12 +38,11 @@ export class Database {
 
   /** Synchronize with a remote peer using the given transport. */
   async synchronize(
-    transport: JsKvSyncTransport,
-    role: KvSyncRole,
-    config: KvSyncConfig,
-  ): Promise<void> {
+    transport: JsPushSyncTransport,
+    config: PushSynchronizeConfig,
+  ): Promise<PushSynchronizeResult> {
     try {
-      await this.wasm.synchronize(transport, role, config);
+      return await this.wasm.synchronize(transport, config);
     } catch (error) {
       throw wrapError(error, KvError);
     }
@@ -53,13 +50,12 @@ export class Database {
 
   /** Synchronize with a remote peer, checking caller authorization before each batch. */
   async synchronize_checked(
-    transport: JsKvSyncTransport,
-    role: KvSyncRole,
-    config: KvSyncConfig,
+    transport: JsPushSyncTransport,
+    config: PushSynchronizeConfig,
     check: () => Promise<void>,
-  ): Promise<void> {
+  ): Promise<PushSynchronizeResult> {
     try {
-      await this.wasm.synchronize_checked(transport, role, config, check);
+      return await this.wasm.synchronize_checked(transport, config, check);
     } catch (error) {
       throw wrapError(error, KvError);
     }
@@ -77,13 +73,11 @@ export class Database {
 
 // Re-export sync types and values
 export {
-  JsKvSyncTransport,
   JsPushSyncTransport,
-  KvSyncRole,
-  KvSyncConfig,
   PushConfig,
   PushSynchronizeConfig,
   PushSynchronizeResult,
   KvChangeSubscription,
+  JsChangeEvent,
   JsKvSyncError,
 };

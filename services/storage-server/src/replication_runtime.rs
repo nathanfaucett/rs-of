@@ -459,11 +459,9 @@ impl ReplicationHost {
             }
             if result.is_ok() {
                 if let Some(changes) = subscription.as_mut() {
-                    #[allow(
-                        deprecated,
-                        reason = "bounded history passes need coalesced invalidation, not incremental event payloads"
-                    )]
-                    if changes.changed().await.is_err() {
+                    // Wait for next change event using the new events() stream API
+                    // If the stream ends (returns None), there are no more changes
+                    if changes.events().next().await.is_none() {
                         return false;
                     }
                     retry = Duration::from_millis(100);

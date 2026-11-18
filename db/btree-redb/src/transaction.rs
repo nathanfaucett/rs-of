@@ -44,7 +44,9 @@ enum WriteBackend {
 impl core::fmt::Debug for WriteBackend {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            WriteBackend::Native { .. } => f.debug_struct("WriteBackend::Native").finish_non_exhaustive(),
+            WriteBackend::Native { .. } => f
+                .debug_struct("WriteBackend::Native")
+                .finish_non_exhaustive(),
             WriteBackend::Shared(_) => f.debug_tuple("WriteBackend::Shared").finish(),
         }
     }
