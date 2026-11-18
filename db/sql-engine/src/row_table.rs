@@ -169,8 +169,6 @@ fn decode_key(bytes: &[u8]) -> EngineResult<Row> {
 
 #[cfg(test)]
 mod tests {
-    use alloc::{string::String, vec};
-
     use value::{Row, Value};
 
     use super::{decode_key, decode_value, encode_key, encode_value};

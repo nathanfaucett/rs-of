@@ -11,7 +11,7 @@ use crate::{
     transaction::NativeWriteTransaction,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RedbDatabase {
     inner: Arc<Database>,
     admission: Arc<Mutex<()>>,
@@ -65,6 +65,7 @@ impl RedbDatabase {
     }
 }
 
+#[derive(Debug)]
 pub struct RedbDatabaseTransaction {
     inner: NativeWriteTransaction,
 }

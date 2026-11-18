@@ -23,6 +23,15 @@ struct Tracking {
     created: Arc<StageCreated>,
     closed: Arc<StageClosed>,
 }
+
+impl core::fmt::Debug for Tracking {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Tracking")
+            .field("created", &"<callback>")
+            .field("closed", &"<callback>")
+            .finish()
+    }
+}
 impl core::fmt::Debug for FileSyncStageFactory {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter
@@ -73,6 +82,7 @@ impl SyncStageFactory for FileSyncStageFactory {
     }
 }
 
+#[derive(Debug)]
 pub struct FileSyncStage {
     file: Option<NamedTempFile>,
     finished: bool,

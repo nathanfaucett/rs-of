@@ -20,7 +20,7 @@ use crate::{EndpointIdStore, PAIRING_ALPN};
 
 type TemporaryPeers = BTreeMap<(iroh::EndpointId, Vec<u8>), Instant>;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct AlpnAllowlist {
     peers: Arc<Mutex<TemporaryPeers>>,
 }

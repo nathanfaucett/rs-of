@@ -3,6 +3,7 @@ use noq::{RecvStream, SendStream};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct WebStream {
     _connection: Connection,
     send: SendStream,

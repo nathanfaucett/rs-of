@@ -13,10 +13,10 @@ use crate::{
     reconstruction::reconstruct_documents, util::tx_get_document,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AutomergeBTree<B>
 where
-    B: BTree<DocumentChangeKey, Vec<u8>>,
+    B: BTree<DocumentChangeKey, Vec<u8>> + core::fmt::Debug,
 {
     inner: Arc<RwLock<B>>,
     policy: ThresholdPolicy,
@@ -24,7 +24,7 @@ where
 
 impl<B> AutomergeBTree<B>
 where
-    B: BTree<DocumentChangeKey, Vec<u8>>,
+    B: BTree<DocumentChangeKey, Vec<u8>> + core::fmt::Debug,
 {
     pub fn new(inner: B) -> Self {
         Self {
@@ -45,7 +45,7 @@ where
 
 impl<B> BTreeRead<DocumentId, AutoCommit> for AutomergeBTree<B>
 where
-    B: BTree<DocumentChangeKey, Vec<u8>>,
+    B: BTree<DocumentChangeKey, Vec<u8>> + core::fmt::Debug,
 {
     async fn get(&self, key: &DocumentId) -> BTreeResult<Option<AutoCommit>> {
         let inner_guard = self.inner.read().await;
@@ -82,7 +82,7 @@ where
 
 impl<B> BTree<DocumentId, AutoCommit> for AutomergeBTree<B>
 where
-    B: BTree<DocumentChangeKey, Vec<u8>>,
+    B: BTree<DocumentChangeKey, Vec<u8>> + core::fmt::Debug,
 {
     type Transaction = AutomergeBTreeTransaction<B::Transaction>;
 

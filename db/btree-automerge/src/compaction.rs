@@ -32,7 +32,7 @@ pub trait CompactionPolicy: MaybeSend + MaybeSync {
     fn should_compact(&self, delta_count: usize, delta_bytes: usize) -> bool;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ThresholdPolicy {
     pub threshold_count: usize,
     pub threshold_bytes: usize,

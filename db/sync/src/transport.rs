@@ -36,7 +36,7 @@ pub trait SyncTransport {
 #[cfg(test)]
 pub mod mock {
     use super::*;
-    use crate::protocol::{Config, Message};
+    use crate::protocol::Config;
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
@@ -125,7 +125,7 @@ pub mod mock {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::protocol::{Config, make_hello};
+        use crate::protocol::make_hello;
 
         #[tokio::test]
         async fn mock_transport_send_receive() {

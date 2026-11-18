@@ -18,10 +18,17 @@ pub struct BytesTable<'a, T> {
     table: String,
 }
 
-#[allow(missing_debug_implementations)]
 pub struct BytesTableTransaction<'a, T> {
     transaction: &'a mut T,
     table: String,
+}
+
+impl<'a, T> core::fmt::Debug for BytesTableTransaction<'a, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BytesTableTransaction")
+            .field("table", &self.table)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a, T> BytesTable<'a, T> {

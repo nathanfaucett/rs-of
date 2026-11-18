@@ -1,4 +1,4 @@
-use crate::protocol::{Config, Error, Message, SyncResult};
+use crate::protocol::{Config, Error, Message, PushResult, PushSynchronizeConfig, PushSynchronizeError, SyncResult};
 use crate::transport::SyncTransport;
 use btree::{ChangeEvent, StorageKey};
 use futures::{Stream, StreamExt};
@@ -309,6 +309,55 @@ where
     let _ = transport.send(close).await;
 
     Ok(result)
+}
+
+
+/// Push synchronization - one-way sync from local to remote.
+/// 
+/// This is a simplified version of synchronize that only pushes local changes
+/// without expecting inbound changes from the remote.
+pub async fn push_synchronize<T, F, S, Fut>(
+    transport: T,
+    outbound: S,
+    apply_inbound: F,
+    config: PushSynchronizeConfig,
+) -> Result<PushResult, PushSynchronizeError<T::Error>>
+where
+    T: SyncTransport,
+    S: Stream<Item = ChangeEvent> + Unpin + Send,
+    F: FnMut(ChangeEvent) -> Fut + Send,
+    Fut: Future<Output = Result<(), String>> + Send,
+{
+    // Convert PushSynchronizeConfig to SynchronizeConfig
+    let sync_config = SynchronizeConfig {
+        role: crate::SyncRole::Initiator,
+        protocol: config.protocol,
+        handshake_timeout: Duration::from_millis(config.handshake_timeout_ms),
+        message_timeout: Duration::from_millis(config.message_timeout_ms),
+        send_done_on_exhaust: true,
+    };
+    
+    // Use the existing synchronize function
+    let result = synchronize(transport, outbound, apply_inbound, sync_config).await.map_err(|e| {
+        match e {
+            SynchronizeError::Transport(e) => PushSynchronizeError::Transport(e),
+            SynchronizeError::Protocol(e) => PushSynchronizeError::Protocol(e.to_string()),
+            SynchronizeError::Apply(e) => PushSynchronizeError::Apply(e),
+            SynchronizeError::SessionTimeout => PushSynchronizeError::Protocol("session timeout".into()),
+            SynchronizeError::PeerClosed => PushSynchronizeError::Protocol("peer closed".into()),
+            SynchronizeError::HandshakeFailed(e) => PushSynchronizeError::Protocol(e),
+            SynchronizeError::GenerationGap { key, have, need } => PushSynchronizeError::Protocol(
+                format!("generation gap for key {:?}: have {}, need {}", key, have, need)
+            ),
+        }
+    })?;
+    
+    // Convert SyncResult to PushResult
+    Ok(PushResult {
+        sent: result.events_sent as usize,
+        received: result.events_received as usize,
+        conflicts_resolved: 0,
+    })
 }
 
 #[cfg(test)]

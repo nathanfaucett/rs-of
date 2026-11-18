@@ -221,7 +221,6 @@ impl KernelTransaction for InMemoryKernelTransaction {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec::Vec;
     use core::ops::Bound;
 
     use futures::{StreamExt, executor::block_on};

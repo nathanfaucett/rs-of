@@ -1,6 +1,4 @@
-use alloc::{boxed::Box, string::String, vec::Vec};
-use core::{future::Future, pin::Pin};
-
+use core::pin::Pin;
 use query::{QueryResult, Statement};
 use value::{Row, Value};
 

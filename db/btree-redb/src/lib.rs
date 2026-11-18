@@ -1,3 +1,4 @@
+extern crate btree as btree_crate;
 mod btree;
 mod byte_btree;
 mod bytes;
@@ -14,6 +15,7 @@ mod transaction;
 mod value;
 
 pub use btree::RedbBTree;
+pub use btree_crate::BTreeTransaction;
 pub use byte_btree::{RedbByteBTree, RedbByteBTreeTransaction};
 pub use bytes::Bytes;
 pub use database::{RedbDatabase, RedbDatabaseTransaction};

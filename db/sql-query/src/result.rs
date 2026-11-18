@@ -24,7 +24,6 @@ impl QueryResult {
 
 #[cfg(test)]
 mod tests {
-    use alloc::{string::String, vec};
     use value::{FromRow, FromRowError, Row, Value};
 
     use crate::{QueryResult, QueryResultColumn};

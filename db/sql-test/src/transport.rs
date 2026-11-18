@@ -27,6 +27,7 @@ impl fmt::Display for InMemoryTransportError {
 
 impl std::error::Error for InMemoryTransportError {}
 
+#[derive(Debug)]
 pub struct InMemoryTransport {
     receiver: mpsc::UnboundedReceiver<Message>,
     sender: Option<mpsc::UnboundedSender<Message>>,

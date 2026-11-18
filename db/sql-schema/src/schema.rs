@@ -51,11 +51,6 @@ impl TableSchema {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::{string::String, vec};
-    #[cfg(feature = "std")]
-    use std::{string::String, vec};
-
     use value::{Value, ValueType};
 
     use super::{ColumnSchema, TableSchema};

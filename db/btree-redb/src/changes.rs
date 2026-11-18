@@ -8,7 +8,7 @@ use btree::StorageInvalidation;
 type Key = (String, Vec<u8>);
 type Values = (Option<Vec<u8>>, Option<Vec<u8>>);
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Mutations {
     keys: Mutex<BTreeMap<Key, Values>>,
     tables: Mutex<BTreeMap<String, (bool, bool)>>,

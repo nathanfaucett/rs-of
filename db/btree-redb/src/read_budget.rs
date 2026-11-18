@@ -2,7 +2,7 @@ use std::{marker::PhantomData, sync::Mutex};
 
 use btree::{BTreeError, BTreeResult};
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ReadBudget(Option<Mutex<(usize, usize, bool)>>);
 
 impl ReadBudget {

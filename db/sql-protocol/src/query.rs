@@ -1,5 +1,3 @@
-use alloc::boxed::Box;
-
 use proto::{
     BinaryExpr, InListExpr, InSubqueryExpr, LikeExpr, OptionalQueryTextConcat,
     QueryAggregate as ProtoQueryAggregate, QueryColumn as ProtoQueryColumn,

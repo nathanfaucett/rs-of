@@ -37,8 +37,6 @@ mod tests {
                 .expect("write");
             tx.commit().expect("commit");
 
-            #[allow(deprecated)]
-            changes.changed().await.expect("event notification");
             let mut stream = changes.events();
             let event = stream.next().await.expect("event available");
             assert_eq!(event.key.key, vec![1]);
@@ -69,9 +67,8 @@ mod tests {
             tx.commit().expect("commit");
 
             // Wait for new events before polling stream
-            #[allow(deprecated)]
-            changes.changed().await.expect("event notification");
-            let event = changes.events().next().await.expect("event available");
+            let mut stream = changes.events();
+            let event = stream.next().await.expect("event available");
             assert_eq!(event.key.key, vec![1]);
         });
     }

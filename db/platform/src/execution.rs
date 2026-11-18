@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 use core::pin::Pin;
 
 /// Native work remains transferable between threads; browser work stays local.

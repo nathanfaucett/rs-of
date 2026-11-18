@@ -1,4 +1,3 @@
-use alloc::{string::String, vec::Vec};
 use query::QueryErrorKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

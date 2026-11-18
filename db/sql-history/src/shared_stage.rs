@@ -6,6 +6,7 @@ use btree_redb::SharedNamespace;
 
 use crate::{FileSyncStage, FileSyncStageFactory, SyncStage, SyncStageFactory};
 
+#[derive(Debug)]
 pub enum NativeSyncStageFactory {
     File(FileSyncStageFactory),
     Shared(SharedNamespace),
@@ -23,6 +24,7 @@ impl NativeSyncStageFactory {
     }
 }
 
+#[derive(Debug)]
 pub enum NativeSyncStage {
     File(FileSyncStage),
     Shared(SharedSyncStage),
@@ -49,6 +51,7 @@ impl SyncStageFactory for NativeSyncStageFactory {
     }
 }
 
+#[derive(Debug)]
 pub struct SharedSyncStage {
     namespace: SharedNamespace,
     table: String,

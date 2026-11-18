@@ -21,9 +21,10 @@ enum Endpoint {
 }
 
 #[derive(Clone)]
+#[derive(Debug)]
 pub struct KvService<S>
 where
-    S: BTree<Vec<u8>, Vec<u8>>,
+    S: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,
 {
     store: Arc<KvStore<S>>,
     max_decoding_message_size: Option<usize>,
@@ -31,7 +32,7 @@ where
 
 impl<S> KvService<S>
 where
-    S: BTree<Vec<u8>, Vec<u8>>,
+    S: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,
 {
     pub fn new(store: KvStore<S>) -> Self {
         Self {
@@ -58,7 +59,7 @@ where
 #[tonic::async_trait]
 impl<S> proto::kvdb::kv_service_server::KvService for KvService<S>
 where
-    S: BTree<Vec<u8>, Vec<u8>> + Send + Sync + 'static,
+    S: BTree<Vec<u8>, Vec<u8>> + Send + Sync + 'static + core::fmt::Debug,
 {
     type TransactionStream = crate::transaction::TransactionStream;
 
@@ -196,9 +197,10 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct Server<S>
 where
-    S: BTree<Vec<u8>, Vec<u8>>,
+    S: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,
 {
     endpoint: Endpoint,
     service: KvService<S>,
@@ -208,7 +210,7 @@ where
 
 impl<S> Server<S>
 where
-    S: BTree<Vec<u8>, Vec<u8>>,
+    S: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,
 {
     pub fn tcp(address: SocketAddr, store: KvStore<S>) -> Self {
         Self {

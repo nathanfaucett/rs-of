@@ -7,7 +7,7 @@ use engine::{EngineError, EngineResult, Kernel, KernelTransaction};
 
 use futures::Stream;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RedbKernel {
     database: RedbDatabase,
     namespace: Option<btree_redb::SharedNamespace>,
@@ -39,6 +39,7 @@ impl RedbKernel {
     }
 }
 
+#[derive(Debug)]
 pub struct RedbKernelTransaction {
     pub(crate) database: RedbDatabaseTransaction,
     namespace: Option<btree_redb::SharedNamespace>,

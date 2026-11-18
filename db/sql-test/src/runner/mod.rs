@@ -1,4 +1,4 @@
-use std::{borrow::Cow, future::Future};
+use std::borrow::Cow;
 
 use value::Row;
 

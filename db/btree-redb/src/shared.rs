@@ -14,7 +14,7 @@ use crate::{RedbByteBTree, RedbDatabase};
 const RETIRED: TableDefinition<&str, bool> = TableDefinition::new("ofdb.shared.retired");
 type Owners = BTreeMap<String, Weak<dyn Any + Send + Sync>>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SharedDatabase {
     database: Arc<redb::Database>,
     admission: Arc<AsyncMutex<()>>,
@@ -67,7 +67,7 @@ impl SharedDatabase {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SharedNamespace {
     host: SharedDatabase,
     prefix: String,

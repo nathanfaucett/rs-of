@@ -15,6 +15,7 @@ pub fn create_secret_entry(
     store.build(service, user, Some(&modifiers))
 }
 
+#[derive(Debug)]
 pub struct SecretStore {
     service: String,
     target: String,

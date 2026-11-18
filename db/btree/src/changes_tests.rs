@@ -1,4 +1,4 @@
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 
 use crate::changes::ChangeSignal;
 
@@ -6,27 +6,31 @@ use crate::changes::ChangeSignal;
 async fn notifications_are_coalesced_and_cancel_safe() {
     let signal = ChangeSignal::default();
     let mut changes = signal.subscribe();
-    #[allow(deprecated)]
-    let _ = changes.changed().now_or_never().is_none();
     signal.committed();
     signal.committed();
-    #[allow(deprecated)]
-    changes.changed().await.expect("coalesced notification");
-    #[allow(deprecated)]
-    let _ = changes.changed().now_or_never().is_none();
+    // Events are available immediately after commit
+    let mut stream = changes.events();
+    assert!(
+        stream.next().now_or_never().is_some(),
+        "notification received"
+    );
     signal.committed();
     let mut clone = changes.clone();
-    #[allow(deprecated)]
-    let _ = clone.changed().now_or_never().is_none();
-    #[allow(deprecated)]
-    changes
-        .changed()
-        .await
-        .expect("original pending notification");
+    assert!(
+        clone.events().next().now_or_never().is_some(),
+        "cloned notification received"
+    );
+    assert!(
+        changes.events().next().now_or_never().is_some(),
+        "original notification received"
+    );
     signal.committed();
     changes.consume();
-    #[allow(deprecated)]
-    let _ = changes.changed().now_or_never().is_none();
+    // After consume, no more historical events
+    assert!(
+        changes.events().next().now_or_never().is_none(),
+        "no more events after consume"
+    );
 }
 
 #[tokio::test]
@@ -36,19 +40,20 @@ async fn merged_notifications_close_only_after_all_senders_close() {
     let mut changes = a.subscribe().merge(b.subscribe());
     a.committed();
     b.committed();
-    #[allow(deprecated)]
-    changes.changed().await.expect("merged invalidation");
-    #[allow(deprecated)]
-    let _ = changes.changed().now_or_never().is_none();
+    // Events available immediately
+    assert!(
+        changes.events().next().now_or_never().is_some(),
+        "merged notification received"
+    );
     drop(a);
+    // a dropped, but b still alive - stream should not close yet
     assert!(changes.closed().now_or_never().is_none());
     b.committed();
     drop(b);
+    // Both senders dropped - wait for closed
     changes.closed().await;
-    #[allow(deprecated)]
-    changes.changed().await.expect("final pending notification");
-    #[allow(deprecated)]
-    let _ = changes.changed().await.expect_err("closed").kind();
+    // After closed, no more events
+    assert!(changes.events().next().await.is_none());
 }
 
 #[cfg(test)]
@@ -69,15 +74,13 @@ mod change_event_tests {
             generation: 1,
         };
         signal.committed_with_events([event.clone()]);
-        #[allow(deprecated)]
-        changes.changed().await.expect("notification received");
         let mut stream = changes.events();
-        let e = StreamExt::next(&mut stream).await.unwrap();
+        let e = stream.next().await.unwrap();
         assert_eq!(e.key.table, "test");
         assert_eq!(e.key.key, b"key1");
         assert_eq!(e.blob, vec![1, 2, 3]);
         assert_eq!(e.generation, 1);
-        assert!(StreamExt::next(&mut stream).await.is_none());
+        assert!(stream.next().await.is_none());
     }
 
     #[tokio::test]
@@ -103,14 +106,12 @@ mod change_event_tests {
             },
         ];
         signal.committed_with_events(events.clone());
-        #[allow(deprecated)]
-        changes.changed().await.expect("notification received");
         let mut stream = changes.events();
-        let e1 = StreamExt::next(&mut stream).await.unwrap();
-        let e2 = StreamExt::next(&mut stream).await.unwrap();
+        let e1 = stream.next().await.unwrap();
+        let e2 = stream.next().await.unwrap();
         assert_eq!(e1.generation, 1);
         assert_eq!(e2.generation, 2);
-        assert!(StreamExt::next(&mut stream).await.is_none());
+        assert!(stream.next().await.is_none());
     }
 
     #[tokio::test]
@@ -127,12 +128,10 @@ mod change_event_tests {
             generation: 1,
         };
         signal.committed_with_events([event]);
-        #[allow(deprecated)]
-        changes.changed().await.expect("notification received");
         let mut stream = changes.events();
-        let e = StreamExt::next(&mut stream).await.unwrap();
+        let e = stream.next().await.unwrap();
         assert_eq!(e.blob.len(), 1024 * 1024);
-        assert!(StreamExt::next(&mut stream).await.is_none());
+        assert!(stream.next().await.is_none());
     }
 
     #[tokio::test]
@@ -166,16 +165,14 @@ mod change_event_tests {
             },
         ];
         signal.committed_with_events(events);
-        #[allow(deprecated)]
-        changes.changed().await.expect("notification received");
         let mut stream = changes.events();
-        let e1 = StreamExt::next(&mut stream).await.unwrap();
-        let e2 = StreamExt::next(&mut stream).await.unwrap();
-        let e3 = StreamExt::next(&mut stream).await.unwrap();
+        let e1 = stream.next().await.unwrap();
+        let e2 = stream.next().await.unwrap();
+        let e3 = stream.next().await.unwrap();
         assert_eq!(e1.generation, 1);
         assert_eq!(e2.generation, 2);
         assert_eq!(e3.generation, 3);
-        assert!(StreamExt::next(&mut stream).await.is_none());
+        assert!(stream.next().await.is_none());
     }
 }
 
@@ -198,12 +195,10 @@ mod change_event_tests2 {
             generation: 1,
         };
         signal.committed_with_events([event]);
-        #[allow(deprecated)]
-        changes.changed().await.expect("notification received");
         let mut stream = changes.events();
-        let e = StreamExt::next(&mut stream).await.unwrap();
+        let e = stream.next().await.unwrap();
         assert_eq!(e.blob.len(), 1024 * 1024);
-        assert!(StreamExt::next(&mut stream).await.is_none());
+        assert!(stream.next().await.is_none());
     }
 
     #[tokio::test]
@@ -237,15 +232,13 @@ mod change_event_tests2 {
             },
         ];
         signal.committed_with_events(events);
-        #[allow(deprecated)]
-        changes.changed().await.expect("notification received");
         let mut stream = changes.events();
-        let e1 = StreamExt::next(&mut stream).await.unwrap();
-        let e2 = StreamExt::next(&mut stream).await.unwrap();
-        let e3 = StreamExt::next(&mut stream).await.unwrap();
+        let e1 = stream.next().await.unwrap();
+        let e2 = stream.next().await.unwrap();
+        let e3 = stream.next().await.unwrap();
         assert_eq!(e1.generation, 1);
         assert_eq!(e2.generation, 2);
         assert_eq!(e3.generation, 3);
-        assert!(StreamExt::next(&mut stream).await.is_none());
+        assert!(stream.next().await.is_none());
     }
 }

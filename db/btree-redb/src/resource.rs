@@ -16,6 +16,14 @@ pub struct NativeResource<R> {
     inner: Arc<Inner<R>>,
 }
 
+impl<R> core::fmt::Debug for NativeResource<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("NativeResource")
+            .field("inner", &self.inner)
+            .finish()
+    }
+}
+
 struct Inner<R> {
     location: Location,
     stages: NativeStageTracker,
@@ -23,6 +31,16 @@ struct Inner<R> {
     state: StdMutex<State>,
 }
 
+impl<R> core::fmt::Debug for Inner<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Inner")
+            .field("location", &self.location)
+            .field("stages", &self.stages)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug)]
 enum Location {
     File {
         path: PathBuf,

@@ -5,7 +5,9 @@ use async_stream::stream;
 use futures::Stream;
 use redb::{Database, ReadableDatabase, ReadableTableMetadata};
 
-use btree::{BTree, BTreeError, BTreeRead, BTreeResult, ChangeSignal, ChangeSubscription};
+use crate::btree_crate::{
+    BTree, BTreeError, BTreeRead, BTreeResult, ChangeSignal, ChangeSubscription,
+};
 
 use crate::{
     RedbBTreeTransaction,
@@ -13,7 +15,7 @@ use crate::{
     redb::{RedbKey, RedbValue, table_definition},
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RedbBTree<K, V> {
     db: Arc<Database>,
     admission: Arc<Mutex<()>>,
@@ -141,8 +143,6 @@ where
 #[cfg(test)]
 mod test {
     use futures::{StreamExt, executor::block_on};
-
-    use btree::{BTree, BTreeRead, BTreeTransaction};
 
     use super::*;
     use crate::RedbDatabase;

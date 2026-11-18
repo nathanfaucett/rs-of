@@ -24,6 +24,7 @@ where
         .and_then(|document| document.doc))
 }
 
+#[derive(Debug)]
 pub struct AutomergeBTreeTransaction<T>
 where
     T: BTreeTransaction<DocumentChangeKey, Vec<u8>>,

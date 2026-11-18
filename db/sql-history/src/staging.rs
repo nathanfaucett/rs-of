@@ -1,5 +1,5 @@
 use alloc::{format, string::String, vec::Vec};
-use core::{fmt::Display, future::Future};
+use core::fmt::Display;
 
 use platform::{MaybeSend, MaybeSync};
 
@@ -29,7 +29,7 @@ pub trait SyncStageFactory: MaybeSend + MaybeSync {
     fn create(&self) -> impl Future<Output = Result<Self::Stage, Self::Error>> + MaybeSend;
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct MemorySyncStageFactory {
     max_bytes: usize,
 }
@@ -56,6 +56,7 @@ impl SyncStageFactory for MemorySyncStageFactory {
     }
 }
 
+#[derive(Debug)]
 pub struct MemorySyncStage {
     records: Vec<Vec<u8>>,
     next: usize,

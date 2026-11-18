@@ -1,5 +1,3 @@
-use core::future::Future;
-
 use futures::executor::block_on;
 
 /// Blocks on a future using the embedded executor; the entry point for

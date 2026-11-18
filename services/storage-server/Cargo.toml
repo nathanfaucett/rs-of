@@ -167,3 +167,6 @@ utoipa = { version = "5.5", default-features = false, features = [
     "chrono",
 ] }
 utoipa-axum = { version = "0.2", default-features = false, features = [] }
+
+[lints]
+workspace = true

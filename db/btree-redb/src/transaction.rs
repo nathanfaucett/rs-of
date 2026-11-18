@@ -25,6 +25,7 @@ trait WriteTransactionHandle {
     fn rollback(self) -> BTreeResult<()>;
 }
 
+#[derive(Debug)]
 pub struct NativeWriteTransaction {
     backend: WriteBackend,
     mutations: Mutations,
@@ -38,6 +39,15 @@ enum WriteBackend {
         _admission: MutexGuardArc<()>,
     },
     Shared(crate::shared_transaction::SharedWriteTransaction),
+}
+
+impl core::fmt::Debug for WriteBackend {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            WriteBackend::Native { .. } => f.debug_struct("WriteBackend::Native").finish_non_exhaustive(),
+            WriteBackend::Shared(_) => f.debug_tuple("WriteBackend::Shared").finish(),
+        }
+    }
 }
 
 impl NativeWriteTransaction {
@@ -307,7 +317,11 @@ impl WriteTransactionHandle for &NativeWriteTransaction {
     }
 }
 
-pub struct RedbBTreeTransactionCore<T, K, V> {
+#[derive(Debug)]
+pub struct RedbBTreeTransactionCore<T, K, V>
+where
+    T: core::fmt::Debug,
+{
     tx: T,
     name: String,
     _phantom_marker: PhantomData<fn(K, V)>,
@@ -317,7 +331,10 @@ pub type RedbBTreeTransaction<K, V> = RedbBTreeTransactionCore<NativeWriteTransa
 pub type RedbBTreeScopedTransaction<'a, K, V> =
     RedbBTreeTransactionCore<&'a NativeWriteTransaction, K, V>;
 
-impl<T, K, V> RedbBTreeTransactionCore<T, K, V> {
+impl<T, K, V> RedbBTreeTransactionCore<T, K, V>
+where
+    T: core::fmt::Debug,
+{
     pub fn new(tx: T, name: impl Into<String>) -> Self {
         Self {
             tx,
@@ -329,7 +346,7 @@ impl<T, K, V> RedbBTreeTransactionCore<T, K, V> {
 
 impl<T, K, V> BTreeRead<K, V> for RedbBTreeTransactionCore<T, K, V>
 where
-    T: WriteTransactionHandle + Send + Sync,
+    T: WriteTransactionHandle + Send + Sync + core::fmt::Debug,
     K: RedbKey,
     V: RedbValue,
 {
@@ -350,7 +367,7 @@ where
 
 impl<T, K, V> BTreeTransaction<K, V> for RedbBTreeTransactionCore<T, K, V>
 where
-    T: WriteTransactionHandle + Send + Sync,
+    T: WriteTransactionHandle + Send + Sync + core::fmt::Debug,
     K: RedbKey,
     V: RedbValue,
 {

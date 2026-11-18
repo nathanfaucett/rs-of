@@ -10,7 +10,7 @@ use redb::Database;
 
 use crate::{Bytes, RedbBTree, RedbBTreeTransaction};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RedbByteBTree(RedbBTree<Bytes, Vec<u8>>);
 
 impl RedbByteBTree {
@@ -69,6 +69,7 @@ impl BTree<Vec<u8>, Vec<u8>> for RedbByteBTree {
     }
 }
 
+#[derive(Debug)]
 pub struct RedbByteBTreeTransaction(RedbBTreeTransaction<Bytes, Vec<u8>>);
 
 impl BTreeRead<Vec<u8>, Vec<u8>> for RedbByteBTreeTransaction {

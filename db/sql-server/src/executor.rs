@@ -1,5 +1,4 @@
-use std::{future::Future, pin::Pin};
-
+use core::pin::Pin;
 use engine::{Engine, EngineError, EngineTransaction, Kernel, RowCodec};
 use protocol::{ConflictValues, QueryExecutor, QueryServiceError, QueryTransaction};
 use query::{QueryResult, Statement};

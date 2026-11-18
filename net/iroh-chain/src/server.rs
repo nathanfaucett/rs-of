@@ -37,6 +37,18 @@ struct ServerInner {
     pairing_lock: Mutex<()>,
 }
 
+impl std::fmt::Debug for ServerInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerInner")
+            .field("allowed", &self.allowed)
+            .field("alpn_allowlist", &self.alpn_allowlist)
+            .field("pairing_enabled", &self.pairing_enabled)
+            .field("pairing_generation", &self.pairing_generation)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug)]
 pub struct Server {
     inner: Arc<ServerInner>,
 }

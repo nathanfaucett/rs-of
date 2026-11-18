@@ -55,8 +55,8 @@ impl ChangeSubscription {
     ) -> Result<crate::protocol::PushResult, crate::protocol::PushSynchronizeError<T::Error>>
     where
         T: crate::transport::SyncTransport,
-        F: FnMut(btree::ChangeEvent) -> Fut,
-        Fut: Future<Output = Result<(), String>>,
+        F: FnMut(btree::ChangeEvent) -> Fut + Send,
+        Fut: Future<Output = Result<(), String>> + Send,
     {
         #[cfg(feature = "wasm")]
         {

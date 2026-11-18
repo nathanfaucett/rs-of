@@ -41,6 +41,7 @@ where
 }
 
 /// A Sharded `BTree` that supports a dynamic number of shards.
+#[derive(Debug)]
 pub struct ShardedBTree<K, V, F, S>
 where
     K: BTreeKey + MaybeSend + MaybeSync,
@@ -123,6 +124,7 @@ where
                 yield Ok(item);
             }
         })
+
     }
 }
 
@@ -310,7 +312,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use core::hash::{Hash, Hasher};
+    use core::hash::Hasher;
     use std::{hash::DefaultHasher, sync::Mutex};
 
     use futures::executor::block_on;

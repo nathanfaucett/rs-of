@@ -40,6 +40,7 @@ impl ProtocolHandler for Echo {
 }
 
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct WebServer {
     server: Server,
     message_callbacks: Callbacks,

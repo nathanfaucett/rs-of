@@ -123,7 +123,7 @@ pub struct PushResult {
 /// Error from push synchronization.
 #[derive(Debug, Clone, Error, Serialize, Deserialize)]
 pub enum PushSynchronizeError<E> {
-    #[error("transport error: {0}")]
+    #[error("transport error: {0:?}")]
     Transport(E),
     #[error("protocol error: {0}")]
     Protocol(String),
@@ -180,7 +180,7 @@ pub enum Message {
 /// Error types for sync.
 #[derive(Debug, Error)]
 pub enum Error<E> {
-    #[error("transport error: {0}")]
+    #[error("transport error: {0:?}")]
     Transport(E),
     #[error("codec error: {0}")]
     Codec(String),
@@ -307,7 +307,6 @@ impl fmt::Display for SessionId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use btree::StorageKey;
 
     #[test]
     fn message_round_trip() {
