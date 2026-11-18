@@ -22,8 +22,8 @@ pub enum EntityType {
 impl fmt::Display for EntityType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EntityType::User => write!(f, "user"),
-            EntityType::Client => write!(f, "client"),
+            Self::User => write!(f, "user"),
+            Self::Client => write!(f, "client"),
         }
     }
 }

@@ -1,4 +1,5 @@
 use core::error::Error;
+use std::string::ToString;
 
 use crate::idp::contract::error_code::ErrorCode;
 use crate::idp::contract::error_response::ErrorResponse;

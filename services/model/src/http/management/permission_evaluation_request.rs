@@ -24,13 +24,14 @@ pub struct PermissionEvaluationRequest {
 }
 
 impl PermissionEvaluationRequest {
+    #[must_use]
     pub fn new(
         action: crate::http::management::identity_action::IdentityAction,
         request_id: String,
         subject: crate::http::management::permission_subject::PermissionSubject,
         target: crate::http::management::permission_target::PermissionTarget,
-    ) -> PermissionEvaluationRequest {
-        PermissionEvaluationRequest {
+    ) -> Self {
+        Self {
             action,
             request_id,
             subject: Box::new(subject),

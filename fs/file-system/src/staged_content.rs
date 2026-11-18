@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{Error, content::Staged};
 
-pub(crate) struct StagedContent {
+pub struct StagedContent {
     file: File,
     content_root: PathBuf,
     temporary: PathBuf,
@@ -51,11 +51,11 @@ impl Staged for StagedContent {
         Box::pin(async { self.file.write_all(bytes).map_err(Error::from) })
     }
 
-    fn copy_from<'a>(
-        &'a mut self,
+    fn copy_from(
+        &mut self,
         file_id: Uuid,
         revision: Uuid,
-    ) -> BoxFuture<'a, Result<(), Error>> {
+    ) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
             let source = self
                 .content_root
@@ -84,11 +84,11 @@ impl Staged for StagedContent {
         })
     }
 
-    fn sync<'a>(&'a mut self) -> BoxFuture<'a, Result<(), Error>> {
+    fn sync(&mut self) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async { self.file.sync_all().map_err(Error::from) })
     }
 
-    fn publish<'a>(&'a mut self) -> BoxFuture<'a, Result<(), Error>> {
+    fn publish(&mut self) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
             fs::rename(&self.temporary, &self.destination)?;
             self.published = true;
@@ -117,7 +117,7 @@ impl Drop for StagedContent {
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ContentStep {
+pub enum ContentStep {
     Write,
     Sync,
     Publish,
@@ -125,4 +125,4 @@ pub(crate) enum ContentStep {
 }
 
 #[cfg(test)]
-pub(crate) type ContentAction = (ContentStep, Box<dyn FnOnce() + Send>);
+pub type ContentAction = (ContentStep, Box<dyn FnOnce() + Send>);

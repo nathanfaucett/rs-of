@@ -17,14 +17,14 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, watch};
 
 use crate::{Error, content::ContentObject, root::RootObject};
 
-pub(crate) struct Storage {
+pub struct Storage {
     pub(crate) metadata: Database,
     pub(crate) client: Client,
     pub(crate) content: Arc<dyn ContentObject>,
     pub local_state: Option<Client>,
 }
 
-pub(crate) struct ManagedCopy {
+pub struct ManagedCopy {
     retired: watch::Sender<bool>,
     root: RwLock<Box<dyn RootObject>>,
     storage: RwLock<Option<Storage>>,

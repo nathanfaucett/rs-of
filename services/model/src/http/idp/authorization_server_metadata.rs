@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorizationServerMetadata {
     /// URL of the authorization endpoint. REQUIRED unless no grant types use it.
     #[serde(
@@ -32,7 +32,7 @@ pub struct AuthorizationServerMetadata {
         skip_serializing_if = "Option::is_none"
     )]
     pub dpop_signing_alg_values_supported: Option<Vec<String>>,
-    /// List of supported grant types. In OAuth 2.1: authorization_code, client_credentials, refresh_token (no implicit/password).
+    /// List of supported grant types. In OAuth 2.1: `authorization_code`, `client_credentials`, `refresh_token` (no implicit/password).
     #[serde(
         rename = "grant_types_supported",
         skip_serializing_if = "Option::is_none"
@@ -105,13 +105,13 @@ pub struct AuthorizationServerMetadata {
     /// Whether the server requires PKCE for all clients (OAuth 2.1 best practice).
     #[serde(rename = "require_pkce", skip_serializing_if = "Option::is_none")]
     pub require_pkce: Option<bool>,
-    /// List of supported response_mode values. Defaults to [\"query\", \"fragment\"] if omitted.
+    /// List of supported `response_mode` values. Defaults to [\"query\", \"fragment\"] if omitted.
     #[serde(
         rename = "response_modes_supported",
         skip_serializing_if = "Option::is_none"
     )]
     pub response_modes_supported: Option<Vec<crate::http::idp::response_mode::ResponseMode>>,
-    /// REQUIRED. List of supported response_type values. In OAuth 2.1 this should primarily be [\"code\"].
+    /// REQUIRED. List of supported `response_type` values. In OAuth 2.1 this should primarily be [\"code\"].
     #[serde(
         rename = "response_types_supported",
         skip_serializing_if = "Option::is_none"
@@ -172,7 +172,7 @@ pub struct AuthorizationServerMetadata {
     )]
     pub token_endpoint_auth_methods_supported:
         Option<Vec<crate::http::idp::token_endpoint_auth_method::TokenEndpointAuthMethod>>,
-    /// JWS signing algorithms supported for JWT client authentication at the token endpoint (private_key_jwt, client_secret_jwt).
+    /// JWS signing algorithms supported for JWT client authentication at the token endpoint (`private_key_jwt`, `client_secret_jwt`).
     #[serde(
         rename = "token_endpoint_auth_signing_alg_values_supported",
         skip_serializing_if = "Option::is_none"
@@ -184,7 +184,7 @@ pub struct AuthorizationServerMetadata {
         skip_serializing_if = "Option::is_none"
     )]
     pub ui_locales_supported: Option<Vec<String>>,
-    /// URL of the UserInfo endpoint.
+    /// URL of the `UserInfo` endpoint.
     #[serde(
         rename = "userinfo_endpoint",
         default,
@@ -195,8 +195,9 @@ pub struct AuthorizationServerMetadata {
 }
 
 impl AuthorizationServerMetadata {
-    pub fn new(issuer: String) -> AuthorizationServerMetadata {
-        AuthorizationServerMetadata {
+    #[must_use]
+    pub const fn new(issuer: String) -> Self {
+        Self {
             authorization_endpoint: None,
             code_challenge_methods_supported: None,
             dpop_signing_alg_values_supported: None,

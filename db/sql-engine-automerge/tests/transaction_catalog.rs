@@ -633,7 +633,7 @@ fn cached_schema_does_not_skip_malformed_nonmatching_row_decoding() {
             documents
                 .insert(id(99).as_bytes().to_vec(), malformed)
                 .await
-                .expect("raw malformed user row")
+                .expect("raw malformed user row");
         };
         raw.commit().await.expect("commit malformed row");
         reads.take();

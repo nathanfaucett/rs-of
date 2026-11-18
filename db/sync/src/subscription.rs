@@ -30,6 +30,7 @@ impl ChangeSubscription {
 
     /// Combine stores into one lifecycle. Changes to either schedule one shared pass.
     /// The subscription closes only after all combined backends close.
+    #[must_use]
     pub fn merge(self, other: Self) -> Self {
         Self {
             changes: self.changes.merge(other.changes),
@@ -41,7 +42,7 @@ impl ChangeSubscription {
     ///
     /// # Arguments
     /// - `transport`: Bidirectional transport implementing `SyncTransport`
-    /// - `apply_inbound`: Function to apply received ChangeEvent to local storage
+    /// - `apply_inbound`: Function to apply received `ChangeEvent` to local storage
     /// - `config`: Synchronization configuration
     ///
     /// # Returns
@@ -78,6 +79,6 @@ impl ChangeSubscription {
 
     #[doc(hidden)]
     pub async fn closed(&self) {
-        self.changes.closed().await
+        self.changes.closed().await;
     }
 }

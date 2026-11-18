@@ -12,23 +12,26 @@ pub enum DocumentType {
 impl fmt::Display for DocumentType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DocumentType::Snapshot => write!(f, "Snapshot"),
-            DocumentType::Incremental => write!(f, "Incremental"),
-            DocumentType::Metadata => write!(f, "Metadata"),
+            Self::Snapshot => write!(f, "Snapshot"),
+            Self::Incremental => write!(f, "Incremental"),
+            Self::Metadata => write!(f, "Metadata"),
         }
     }
 }
 
 impl DocumentType {
-    pub fn is_snapshot(self) -> bool {
-        matches!(self, DocumentType::Snapshot)
+    #[must_use]
+    pub const fn is_snapshot(self) -> bool {
+        matches!(self, Self::Snapshot)
     }
 
-    pub fn is_incremental(self) -> bool {
-        matches!(self, DocumentType::Incremental)
+    #[must_use]
+    pub const fn is_incremental(self) -> bool {
+        matches!(self, Self::Incremental)
     }
 
-    pub fn is_metadata(self) -> bool {
-        matches!(self, DocumentType::Metadata)
+    #[must_use]
+    pub const fn is_metadata(self) -> bool {
+        matches!(self, Self::Metadata)
     }
 }

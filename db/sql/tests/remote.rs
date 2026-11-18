@@ -65,17 +65,16 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         .await
         .expect("execute query remotely");
     assert_eq!(results.len(), 1);
-    assert!(results[0].rows.is_empty());
+    assert_eq!(results[0].rows, [] as [ofdb_sql::Row; 0]);
 
     let id = Uuid::parse_str("018f0f8e-7b6d-7c4a-8f12-123456789abc").expect("valid test UUID");
 
     let key = Row::new(vec![Value::Uuid(id)]);
-    assert!(
+    assert_eq!(
         client
             .row_conflicts("items", &key)
             .await
-            .expect("remote conflict inspection")
-            .is_empty()
+            .expect("remote conflict inspection"), [] as [std::string::String; 0]
     );
     for keys in [core::slice::from_ref(&key), &[]] {
         assert_eq!(
@@ -89,28 +88,25 @@ async fn remote_client_executes_typed_queries_over_tcp() {
                 .expect("local batch conflicts")
         );
     }
-    assert!(
+    assert_eq!(
         client
             .row_conflict_values("items", &key)
             .await
-            .expect("remote conflict values")
-            .is_empty()
+            .expect("remote conflict values"), [] as [(std::string::String, std::vec::Vec<ofdb_sql::Value>); 0]
     );
 
     let mut transaction = client.transaction().await.expect("remote transaction");
-    assert!(
+    assert_eq!(
         transaction
             .row_conflicts("items", &key)
             .await
-            .expect("transaction conflicts")
-            .is_empty()
+            .expect("transaction conflicts"), [] as [std::string::String; 0]
     );
-    assert!(
+    assert_eq!(
         transaction
             .row_conflict_values("items", &key)
             .await
-            .expect("transaction values")
-            .is_empty()
+            .expect("transaction values"), [] as [(std::string::String, std::vec::Vec<ofdb_sql::Value>); 0]
     );
     transaction
         .rollback()
@@ -141,12 +137,9 @@ async fn remote_client_executes_typed_queries_over_tcp() {
             .await
             .is_err()
     );
-    assert!(
-        client
+    client
             .translate_and_execute("INVALID SQL", &SqlTranslator)
-            .await
-            .is_err()
-    );
+            .await.unwrap_err();
 
     let empty_error = client
         .execute(Vec::new())
@@ -173,10 +166,10 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         .execute_sql("SELECT id FROM atomic_items", None)
         .await
         .expect("read after failed batch");
-    assert!(rows[0].rows.is_empty());
-    assert!(client.execute_sql("BEGIN", None).await.is_err());
-    assert!(client.execute_sql("COMMIT", None).await.is_err());
-    assert!(client.execute_sql("ROLLBACK", None).await.is_err());
+    assert_eq!(rows[0].rows, [] as [ofdb_sql::Row; 0]);
+    client.execute_sql("BEGIN", None).await.unwrap_err();
+    client.execute_sql("COMMIT", None).await.unwrap_err();
+    client.execute_sql("ROLLBACK", None).await.unwrap_err();
 
     client
         .execute_sql("CREATE TABLE transaction_items (id UUID PRIMARY KEY)", None)
@@ -206,7 +199,7 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         .execute_sql("SELECT id FROM transaction_items", None)
         .await
         .expect("read after remote rollback");
-    assert!(rows[0].rows.is_empty());
+    assert_eq!(rows[0].rows, [] as [ofdb_sql::Row; 0]);
 
     let mut transaction = client
         .transaction()

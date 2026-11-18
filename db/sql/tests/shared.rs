@@ -159,7 +159,7 @@ async fn shared_namespaces_isolate_restart_and_retire_without_removing_the_host(
         .await
         .unwrap_err();
     assert!(idle.commit().await.is_err());
-    assert!(Database::open_shared(&host, "resource").is_err());
+    Database::open_shared(&host, "resource").unwrap_err();
     let control = Database::open_shared(&host, "control").expect("control survives");
     control
         .client()
@@ -173,6 +173,6 @@ async fn shared_namespaces_isolate_restart_and_retire_without_removing_the_host(
     drop(issued);
     drop(host);
     let host = SharedDatabase::create(&path).expect("restart after retirement");
-    assert!(Database::open_shared(&host, "resource").is_err());
+    Database::open_shared(&host, "resource").unwrap_err();
     Database::open_shared(&host, "control").expect("control remains usable");
 }

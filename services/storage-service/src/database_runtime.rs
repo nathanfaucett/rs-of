@@ -374,7 +374,7 @@ impl DatabaseRuntime {
                 .lock()
                 .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
             self.evict(scope, id, &mut open)?;
-        }
+        };
         self.local_copies.set_sql_initializing(scope, id, true)?;
         self.local_copies.complete(scope, id)
     }
@@ -692,13 +692,10 @@ mod tests {
             .remove_local_copy(&scope, resource.id)
             .await
             .expect("retire resource");
-        assert!(
-            sql.client()
+        sql.client()
                 .execute_sql("SELECT * FROM notes", None)
-                .await
-                .is_err()
-        );
-        assert!(kv.client().get("saved").await.is_err());
+                .await.unwrap_err();
+        kv.client().get("saved").await.unwrap_err();
         database
             .client()
             .execute_sql("SELECT * FROM users", None)
@@ -720,7 +717,7 @@ mod tests {
             .expect("restart retired host");
         let runtime = DatabaseRuntime::with_shared(database.storage(), database.client())
             .expect("retired runtime");
-        assert!(runtime.open_existing(&scope, resource.id).is_err());
+        runtime.open_existing(&scope, resource.id).unwrap_err();
         assert_eq!(
             runtime.list(&scope).expect("retained identity"),
             vec![resource.clone()]
@@ -737,13 +734,10 @@ mod tests {
             .open_selected(&scope, resource.id)
             .expect("fresh SQL")
             .expect("same resource identity");
-        assert!(
-            fresh
+        fresh
                 .client()
                 .execute_sql("SELECT * FROM notes", None)
-                .await
-                .is_err()
-        );
+                .await.unwrap_err();
         let fresh_kv = runtime
             .open_kv_selected(&scope, resource.id)
             .expect("fresh KV")
@@ -919,7 +913,7 @@ mod tests {
                 .expect("retire initializing intent");
             assert!(!path.exists());
             assert!(!stage.exists());
-            assert!(runtime.ensure(&scope, "interrupted", None).is_err());
+            runtime.ensure(&scope, "interrupted", None).unwrap_err();
             drop(runtime);
             let runtime = DatabaseRuntime::new(root.clone()).expect("restart retired intent");
             runtime
@@ -994,9 +988,9 @@ mod tests {
         let old_path = super::database_path(&root, &scope, retired.id).expect("old path");
         assert!(!old_path.exists());
         assert!(!old_path.with_extension("kv.redb").exists());
-        assert!(runtime.open(&scope, retired.id).is_err());
-        assert!(runtime.open_selected(&scope, retired.id).is_err());
-        assert!(runtime.open_kv_selected(&scope, retired.id).is_err());
+        runtime.open(&scope, retired.id).unwrap_err();
+        runtime.open_selected(&scope, retired.id).unwrap_err();
+        runtime.open_kv_selected(&scope, retired.id).unwrap_err();
         assert!(
             runtime
                 .open(&scope, unrelated.id)
@@ -1012,7 +1006,7 @@ mod tests {
         drop(other_handle);
         drop(runtime);
         let reopened = DatabaseRuntime::new(root.clone()).expect("offline restart");
-        assert!(reopened.open(&scope, retired.id).is_err());
+        reopened.open(&scope, retired.id).unwrap_err();
         reopened
             .remove_local_copy(&scope, retired.id)
             .await
@@ -1062,14 +1056,11 @@ mod tests {
             .remove_owner_copies("old")
             .await
             .expect("all covered old-owner copies retired");
-        assert!(runtime.open(&scope, old.id).is_err());
-        assert!(
-            old_handle
+        runtime.open(&scope, old.id).unwrap_err();
+        old_handle
                 .client()
                 .translate_and_execute("CREATE TABLE denied (id UUID PRIMARY KEY)", &SqlTranslator)
-                .await
-                .is_err()
-        );
+                .await.unwrap_err();
         assert!(
             runtime
                 .open(&other, unrelated.id)
@@ -1120,13 +1111,10 @@ mod tests {
             "successful SQL phase is not rolled back"
         );
         assert!(kv_path.exists(), "failed KV phase is not falsely removed");
-        assert!(runtime.open(&scope, resource.id).is_err());
-        assert!(
-            sql.client()
+        runtime.open(&scope, resource.id).unwrap_err();
+        sql.client()
                 .translate_and_execute("CREATE TABLE denied (id UUID PRIMARY KEY)", &SqlTranslator)
-                .await
-                .is_err()
-        );
+                .await.unwrap_err();
         runtime
             .reconcile_selected_copies(&[("owner".into(), scope.application, resource.id)])
             .await
@@ -1139,7 +1127,7 @@ mod tests {
         drop(runtime);
         drop(foreign_kv);
         let reopened = DatabaseRuntime::new(root.clone()).expect("restart with pending intent");
-        assert!(reopened.open(&scope, resource.id).is_err());
+        reopened.open(&scope, resource.id).unwrap_err();
         reopened
             .reconcile_selected_copies(&[])
             .await
@@ -1346,30 +1334,25 @@ mod tests {
             .open(&scope, second.id)
             .expect("second database opens")
             .expect("second catalog record exists");
-        assert!(
+        assert_eq!(
             first_db
                 .client()
                 .execute_sql("SELECT id FROM first_table", None)
                 .await
                 .expect("first table survives restart")[0]
-                .rows
-                .is_empty()
+                .rows, [] as [ofdb_sql::Row; 0]
         );
-        assert!(
-            second_db
+        second_db
                 .client()
                 .execute_sql("SELECT id FROM first_table", None)
-                .await
-                .is_err()
-        );
-        assert!(
+                .await.unwrap_err();
+        assert_eq!(
             second_db
                 .client()
                 .execute_sql("SELECT id FROM second_table", None)
                 .await
                 .expect("second table survives restart")[0]
-                .rows
-                .is_empty()
+                .rows, [] as [ofdb_sql::Row; 0]
         );
         assert!(
             runtime
@@ -1382,14 +1365,13 @@ mod tests {
                 .expect("deleted database lookup succeeds")
                 .is_none()
         );
-        assert!(
+        assert_eq!(
             first_db
                 .client()
                 .execute_sql("SELECT id FROM first_table", None)
                 .await
                 .expect("an already-issued handle remains usable")[0]
-                .rows
-                .is_empty()
+                .rows, [] as [ofdb_sql::Row; 0]
         );
 
         drop(runtime);

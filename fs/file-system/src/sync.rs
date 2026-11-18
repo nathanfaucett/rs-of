@@ -394,9 +394,7 @@ where
                         .handles
                         .get_mut(&(peer.clone(), handle))
                         .ok_or(Error::NotFound)?;
-                    if state.revision != expected_revision {
-                        Err(Error::StaleRevision)
-                    } else {
+                    if state.revision == expected_revision {
                         let count = access
                             .write_at_inner(&state.path, expected_revision, offset, data)
                             .await?;
@@ -405,6 +403,8 @@ where
                             count,
                             revision: state.revision,
                         }])
+                    } else {
+                        Err(Error::StaleRevision)
                     }
                 }
                 FileOperation::Scan {

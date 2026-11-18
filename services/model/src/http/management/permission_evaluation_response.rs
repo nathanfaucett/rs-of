@@ -23,12 +23,13 @@ pub struct PermissionEvaluationResponse {
 }
 
 impl PermissionEvaluationResponse {
+    #[must_use]
     pub fn new(
         allowed: bool,
         audit: crate::http::management::permission_audit_identity::PermissionAuditIdentity,
         request: crate::http::management::permission_evaluation_request::PermissionEvaluationRequest,
-    ) -> PermissionEvaluationResponse {
-        PermissionEvaluationResponse {
+    ) -> Self {
+        Self {
             allowed,
             audit: Box::new(audit),
             request: Box::new(request),

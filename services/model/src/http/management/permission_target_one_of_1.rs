@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PermissionTargetOneOf1 {
     #[serde(rename = "resource")]
     pub resource: Box<crate::http::management::identity_resource::IdentityResource>,
@@ -19,11 +19,12 @@ pub struct PermissionTargetOneOf1 {
 }
 
 impl PermissionTargetOneOf1 {
+    #[must_use]
     pub fn new(
         resource: crate::http::management::identity_resource::IdentityResource,
         scope: Scope,
-    ) -> PermissionTargetOneOf1 {
-        PermissionTargetOneOf1 {
+    ) -> Self {
+        Self {
             resource: Box::new(resource),
             scope,
         }
@@ -31,13 +32,10 @@ impl PermissionTargetOneOf1 {
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Scope {
     #[serde(rename = "installation")]
+    #[default]
     Installation,
 }
 
-impl Default for Scope {
-    fn default() -> Scope {
-        Self::Installation
-    }
-}

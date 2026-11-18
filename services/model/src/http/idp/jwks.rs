@@ -17,7 +17,8 @@ pub struct Jwks {
 }
 
 impl Jwks {
-    pub fn new(keys: Vec<crate::http::idp::jwk_public::JwkPublic>) -> Jwks {
-        Jwks { keys }
+    #[must_use]
+    pub const fn new(keys: Vec<crate::http::idp::jwk_public::JwkPublic>) -> Self {
+        Self { keys }
     }
 }

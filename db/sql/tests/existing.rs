@@ -6,7 +6,7 @@ use ofdb_sql::{Database, Value};
 async fn existing_only_open_preserves_data_and_never_initializes_missing_or_corrupt_files() {
     let directory = tempfile::tempdir().expect("isolated database directory");
     let path = directory.path().join("existing.redb");
-    assert!(Database::open_existing(&path).is_err());
+    Database::open_existing(&path).unwrap_err();
     assert!(!path.exists());
     let database = Database::open(&path).expect("initialize database");
     database
@@ -28,7 +28,7 @@ async fn existing_only_open_preserves_data_and_never_initializes_missing_or_corr
     drop(database);
     for bytes in [b"".as_slice(), b"corrupt database".as_slice()] {
         std::fs::write(&path, bytes).expect("simulate damaged acknowledged content");
-        assert!(Database::open_existing(&path).is_err());
+        Database::open_existing(&path).unwrap_err();
         assert_eq!(std::fs::read(&path).expect("unchanged corrupt file"), bytes);
     }
 }

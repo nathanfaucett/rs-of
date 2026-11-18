@@ -1,4 +1,4 @@
-//! Replica modules for IdP owner
+//! Replica modules for `IdP` owner
 //!
 //! Provides schema migration functions for the IDP and Management owners.
 

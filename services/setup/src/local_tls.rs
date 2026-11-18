@@ -2,8 +2,7 @@ use std::{
     fs,
     io::{self, Write},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    path::Path,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::Arc,
     time::Duration,
@@ -115,6 +114,7 @@ impl LocalTls {
         })
     }
 
+    #[must_use]
     pub fn ca_path(&self) -> PathBuf {
         self.directory.join("ca.pem")
     }
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn https_requires_fixed_loopback_identity() {
         for address in ["127.0.0.1:0", "0.0.0.0:3000", "127.0.0.2:3000"] {
-            assert!(LocalTls::api_base(address.parse().expect("address")).is_err());
+            LocalTls::api_base(address.parse().expect("address")).unwrap_err();
         }
         assert_eq!(
             LocalTls::api_base("[::1]:3000".parse().expect("address")).expect("IPv6 SAN"),

@@ -29,9 +29,9 @@ pub enum ClientProfile {
 impl fmt::Display for ClientProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ClientProfile::Web => write!(f, "web_application"),
-            ClientProfile::UserAgentBased => write!(f, "user_agent_based_application"),
-            ClientProfile::Native => write!(f, "native_application"),
+            Self::Web => write!(f, "web_application"),
+            Self::UserAgentBased => write!(f, "user_agent_based_application"),
+            Self::Native => write!(f, "native_application"),
         }
     }
 }

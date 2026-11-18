@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SqlValueOneOf1 {
     #[serde(rename = "type")]
     pub r#type: Type,
@@ -19,19 +19,17 @@ pub struct SqlValueOneOf1 {
 }
 
 impl SqlValueOneOf1 {
-    pub fn new(r#type: Type, value: bool) -> SqlValueOneOf1 {
-        SqlValueOneOf1 { r#type, value }
+    #[must_use]
+    pub const fn new(r#type: Type, value: bool) -> Self {
+        Self { r#type, value }
     }
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Type {
     #[serde(rename = "boolean")]
+    #[default]
     Boolean,
 }
 
-impl Default for Type {
-    fn default() -> Type {
-        Self::Boolean
-    }
-}

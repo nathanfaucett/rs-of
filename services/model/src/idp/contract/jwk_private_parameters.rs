@@ -41,9 +41,9 @@ pub enum JwkPrivateParameters {
 impl From<JwkPrivateParameters> for JwkPublicParameters {
     fn from(val: JwkPrivateParameters) -> Self {
         match val {
-            JwkPrivateParameters::Rsa { n, e, .. } => JwkPublicParameters::Rsa { n, e },
-            JwkPrivateParameters::Ec { crv, x, y, .. } => JwkPublicParameters::Ec { crv, x, y },
-            JwkPrivateParameters::Opk { crv, x, .. } => JwkPublicParameters::Opk { crv, x },
+            JwkPrivateParameters::Rsa { n, e, .. } => Self::Rsa { n, e },
+            JwkPrivateParameters::Ec { crv, x, y, .. } => Self::Ec { crv, x, y },
+            JwkPrivateParameters::Opk { crv, x, .. } => Self::Opk { crv, x },
             JwkPrivateParameters::Oct { .. } => {
                 unreachable!("Octet keys are not supported in Jwk Public Parameters")
             }

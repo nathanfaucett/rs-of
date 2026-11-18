@@ -104,7 +104,7 @@ where
     PeerId:
         Clone + core::fmt::Debug + Ord + serde::Serialize + serde::de::DeserializeOwned + 'static,
 {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         file_system: &'a FileSystem<PeerId>,
         path: String,
         revision: Uuid,
@@ -161,23 +161,23 @@ where
 pub trait FileHandle<PeerId>: MaybeSend + MaybeSync {
     type Error: std::error::Error + 'static;
 
-    fn read<'a>(
-        &'a mut self,
+    fn read(
+        &mut self,
         offset: u64,
         length: u32,
-    ) -> FileFuture<'a, Result<Bytes, Self::Error>>;
+    ) -> FileFuture<'_, Result<Bytes, Self::Error>>;
 
-    fn write<'a>(
-        &'a mut self,
+    fn write(
+        &mut self,
         offset: u64,
         data: Bytes,
-    ) -> FileFuture<'a, Result<u32, Self::Error>>;
+    ) -> FileFuture<'_, Result<u32, Self::Error>>;
 
-    fn scan<'a>(
-        &'a mut self,
+    fn scan(
+        &mut self,
         cursor: Option<String>,
         limit: u32,
-    ) -> FileFuture<'a, Result<ScanPage<PeerId>, Self::Error>>;
+    ) -> FileFuture<'_, Result<ScanPage<PeerId>, Self::Error>>;
 
     fn close(self: Box<Self>) -> FileFuture<'static, Result<(), Self::Error>>;
 }
@@ -195,14 +195,14 @@ where
 {
     type Error = Error;
 
-    fn read<'a>(&'a mut self, offset: u64, length: u32) -> FileFuture<'a, Result<Bytes, Error>> {
+    fn read(&mut self, offset: u64, length: u32) -> FileFuture<'_, Result<Bytes, Error>> {
         Box::pin(async move {
             let access = self.file_system.access().await?;
             self.read_admitted(&access, offset, length).await
         })
     }
 
-    fn write<'a>(&'a mut self, offset: u64, data: Bytes) -> FileFuture<'a, Result<u32, Error>> {
+    fn write(&mut self, offset: u64, data: Bytes) -> FileFuture<'_, Result<u32, Error>> {
         Box::pin(async move {
             let access = self.file_system.access().await?;
             if self.kind == FileKind::Directory {
@@ -216,11 +216,11 @@ where
         })
     }
 
-    fn scan<'a>(
-        &'a mut self,
+    fn scan(
+        &mut self,
         cursor: Option<String>,
         limit: u32,
-    ) -> FileFuture<'a, Result<ScanPage<PeerId>, Error>> {
+    ) -> FileFuture<'_, Result<ScanPage<PeerId>, Error>> {
         Box::pin(async move {
             let access = self.file_system.access().await?;
             if self.kind != FileKind::Directory {

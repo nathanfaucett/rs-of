@@ -12,8 +12,10 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ClientType {
     #[serde(rename = "confidential")]
+    #[default]
     Confidential,
     #[serde(rename = "public")]
     Public,
@@ -28,8 +30,3 @@ impl core::fmt::Display for ClientType {
     }
 }
 
-impl Default for ClientType {
-    fn default() -> ClientType {
-        Self::Confidential
-    }
-}

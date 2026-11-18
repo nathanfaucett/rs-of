@@ -15,7 +15,7 @@ pub enum TokenType {
     /// Case-insensitive matches for known specifications
     #[serde(rename = "Bearer", alias = "bearer")]
     Bearer,
-    /// DPoP (Demonstrating Proof-of-Possession) is a mechanism that binds an access token to a specific client and request
+    /// `DPoP` (Demonstrating Proof-of-Possession) is a mechanism that binds an access token to a specific client and request
     #[serde(rename = "DPoP", alias = "dpop")]
     DPoP,
 }

@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::{
     collections::{BTreeMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
@@ -32,7 +33,7 @@ fn json_number_compares_all_representations() {
     assert_eq!(JsonNumber::I64(1), JsonNumber::U64(1));
     assert_eq!(
         JsonNumber::I64(1).cmp(&JsonNumber::U64(1)),
-        core::cmp::Ordering::Equal
+        Ordering::Equal
     );
 }
 
@@ -83,7 +84,7 @@ fn value_type_ranks_follow_variant_order() {
     ];
 
     for (rank, value_type) in types.iter().enumerate() {
-        assert_eq!(value_type.rank(), rank as u8);
+        assert_eq!(value_type.rank(), u8::try_from(rank).expect("rank fits in u8"));
     }
 }
 
@@ -133,6 +134,10 @@ fn value_integer_conversion_accepts_only_finite_in_range_floats() {
     assert_eq!(Value::Float(1.5).as_integer(), Some(1));
     assert_eq!(Value::Float(f64::NAN).as_integer(), None);
     assert_eq!(Value::Float(f64::INFINITY).as_integer(), None);
-    assert_eq!(Value::Float((i64::MAX as f64) * 2.0).as_integer(), None);
+    #[allow(clippy::cast_precision_loss, reason = "testing overflow behavior")]
+    {
+        let val = (i64::MAX as f64) * 2.0;
+        assert_eq!(Value::Float(val).as_integer(), None);
+    };
     assert_eq!(Value::Text("1".into()).as_integer(), None);
 }

@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum JwkPublicParameters {
     JwkPublicParametersOneOf(
@@ -31,13 +31,10 @@ impl Default for JwkPublicParameters {
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Kty {
     #[serde(rename = "Opk")]
+    #[default]
     Opk,
 }
 
-impl Default for Kty {
-    fn default() -> Kty {
-        Self::Opk
-    }
-}

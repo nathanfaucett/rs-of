@@ -10,14 +10,15 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiscoveryRequest {
     #[serde(rename = "nonce")]
     pub nonce: String,
 }
 
 impl DiscoveryRequest {
-    pub fn new(nonce: String) -> DiscoveryRequest {
-        DiscoveryRequest { nonce }
+    #[must_use]
+    pub const fn new(nonce: String) -> Self {
+        Self { nonce }
     }
 }

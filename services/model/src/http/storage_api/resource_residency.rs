@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceResidency {
     #[serde(rename = "mode")]
@@ -18,7 +18,8 @@ pub struct ResourceResidency {
 }
 
 impl ResourceResidency {
-    pub fn new(mode: crate::http::storage_api::residency_mode::ResidencyMode) -> ResourceResidency {
-        ResourceResidency { mode }
+    #[must_use]
+    pub const fn new(mode: crate::http::storage_api::residency_mode::ResidencyMode) -> Self {
+        Self { mode }
     }
 }

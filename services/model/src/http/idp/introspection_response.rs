@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IntrospectionResponse {
     #[serde(rename = "applicationId")]
@@ -20,11 +20,12 @@ pub struct IntrospectionResponse {
 }
 
 impl IntrospectionResponse {
+    #[must_use]
     pub fn new(
         application_id: String,
         claims: crate::http::idp::standard_claims::StandardClaims,
-    ) -> IntrospectionResponse {
-        IntrospectionResponse {
+    ) -> Self {
+        Self {
             application_id,
             claims: Box::new(claims),
         }

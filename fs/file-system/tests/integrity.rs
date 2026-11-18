@@ -41,7 +41,7 @@ impl Drop for Handle {
 }
 impl FileHandle<u8> for Handle {
     type Error = Error;
-    fn read<'a>(&'a mut self, _: u64, _: u32) -> FileFuture<'a, Result<Bytes, Error>> {
+    fn read(&mut self, _: u64, _: u32) -> FileFuture<'_, Result<Bytes, Error>> {
         Box::pin(async move {
             let chunk = self
                 .exchange
@@ -62,14 +62,14 @@ impl FileHandle<u8> for Handle {
             }
         })
     }
-    fn write<'a>(&'a mut self, _: u64, _: Bytes) -> FileFuture<'a, Result<u32, Error>> {
+    fn write(&mut self, _: u64, _: Bytes) -> FileFuture<'_, Result<u32, Error>> {
         Box::pin(async { Err(Error::Offline) })
     }
-    fn scan<'a>(
-        &'a mut self,
+    fn scan(
+        &mut self,
         _: Option<String>,
         _: u32,
-    ) -> FileFuture<'a, Result<ScanPage<u8>, Error>> {
+    ) -> FileFuture<'_, Result<ScanPage<u8>, Error>> {
         Box::pin(async { Err(Error::Offline) })
     }
     fn close(self: Box<Self>) -> FileFuture<'static, Result<(), Error>> {
@@ -216,7 +216,7 @@ async fn cancelling_a_polled_multichunk_fetch_cleans_staging_and_retries() {
     assert_eq!(fs::read(&stages[0]).expect("staged bytes"), b"partial");
     control.cancel();
     assert!(matches!(fetch.await, Err(Error::Cancelled)));
-    assert!(fixture.temporary_files().is_empty());
+    assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
     assert!(matches!(
         fixture.target.read("file").await,
         Err(Error::ContentUnavailable)
@@ -230,7 +230,7 @@ async fn cancelling_a_polled_multichunk_fetch_cleans_staging_and_retries() {
         fixture.target.read("file").await.expect("complete visible"),
         b"complete"
     );
-    assert!(fixture.temporary_files().is_empty());
+    assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
 }
 
 #[tokio::test]
@@ -260,7 +260,7 @@ async fn dropping_a_polled_fetch_and_stream_errors_remove_only_abandoned_staging
         } else {
             assert!(matches!(sync.fetch("file").await, Err(Error::Offline)));
         }
-        assert!(fixture.temporary_files().is_empty());
+        assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
         assert!(matches!(
             fixture.target.read("file").await,
             Err(Error::ContentUnavailable)
@@ -296,7 +296,7 @@ async fn revision_change_during_staging_cannot_replace_newer_valid_content() {
         .expect("newer local revision");
     release.notify_one();
     assert!(matches!(fetch.await, Err(Error::StaleRevision)));
-    assert!(fixture.temporary_files().is_empty());
+    assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
     assert_eq!(
         fixture
             .target
@@ -339,7 +339,7 @@ async fn complete_staging_still_requires_a_new_publication_decision() {
     allowed.store(false, std::sync::atomic::Ordering::SeqCst);
     release.notify_one();
     assert!(matches!(fetch.await, Err(Error::PermissionDenied)));
-    assert!(fixture.temporary_files().is_empty());
+    assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
     assert!(matches!(
         fixture.target.read("file").await,
         Err(Error::ContentUnavailable)
@@ -396,5 +396,5 @@ async fn imported_new_revision_needs_new_content_and_keeps_earlier_complete_byte
             .expect("new content visible"),
         b"replacement"
     );
-    assert!(fixture.temporary_files().is_empty());
+    assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
 }

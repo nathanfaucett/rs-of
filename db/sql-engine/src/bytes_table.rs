@@ -17,7 +17,7 @@ pub struct BytesTable<'a, T> {
     table: String,
 }
 
-impl<'a, T> core::fmt::Debug for BytesTable<'a, T> {
+impl<T> core::fmt::Debug for BytesTable<'_, T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BytesTable")
             .field("table", &self.table)
@@ -30,7 +30,7 @@ pub struct BytesTableTransaction<'a, T> {
     table: String,
 }
 
-impl<'a, T> core::fmt::Debug for BytesTableTransaction<'a, T> {
+impl<T> core::fmt::Debug for BytesTableTransaction<'_, T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BytesTableTransaction")
             .field("table", &self.table)

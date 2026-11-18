@@ -22,12 +22,13 @@ pub struct HistoryRequest {
 }
 
 impl HistoryRequest {
+    #[must_use]
     pub fn new(
         approval: crate::setup::IndependentJoinApproval,
         recipient: String,
         return_nonce: String,
-    ) -> HistoryRequest {
-        HistoryRequest {
+    ) -> Self {
+        Self {
             approval: Box::new(approval),
             recipient,
             return_nonce,

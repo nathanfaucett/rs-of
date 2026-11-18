@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdentityResourceOneOf1 {
     #[serde(
         rename = "id",
@@ -24,19 +24,17 @@ pub struct IdentityResourceOneOf1 {
 }
 
 impl IdentityResourceOneOf1 {
-    pub fn new(r#type: Type) -> IdentityResourceOneOf1 {
-        IdentityResourceOneOf1 { id: None, r#type }
+    #[must_use]
+    pub const fn new(r#type: Type) -> Self {
+        Self { id: None, r#type }
     }
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Type {
     #[serde(rename = "application")]
+    #[default]
     Application,
 }
 
-impl Default for Type {
-    fn default() -> Type {
-        Self::Application
-    }
-}

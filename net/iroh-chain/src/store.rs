@@ -22,10 +22,12 @@ impl Default for EndpointIdStore {
 }
 
 impl EndpointIdStore {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn ids(&self) -> Vec<EndpointId> {
         self.ids
             .read()
@@ -35,6 +37,7 @@ impl EndpointIdStore {
             .collect()
     }
 
+    #[must_use]
     pub fn contains(&self, id: EndpointId) -> bool {
         self.ids
             .read()
@@ -44,6 +47,7 @@ impl EndpointIdStore {
 
     /// Observes coalesced inventory changes, not connection state.
     /// Subscribe before reading the inventory to avoid missing concurrent changes.
+    #[must_use]
     pub fn subscribe_changes(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()
     }
@@ -56,10 +60,11 @@ impl EndpointIdStore {
                 return;
             }
             *ids = replacement;
-        }
+        };
         self.notify_changed();
     }
 
+    #[must_use]
     pub fn add(&self, id: EndpointId) -> bool {
         let changed = self
             .ids
@@ -72,6 +77,7 @@ impl EndpointIdStore {
         changed
     }
 
+    #[must_use]
     pub fn remove(&self, id: EndpointId) -> bool {
         let changed = self
             .ids
@@ -114,7 +120,7 @@ mod tests {
         assert_eq!(*changes.borrow_and_update(), 3);
         store.replace([]);
         assert_eq!(*changes.borrow_and_update(), 4);
-        assert!(store.ids().is_empty());
+        assert_eq!(store.ids(), [] as [iroh::PublicKey; 0]);
     }
 
     #[test]
@@ -173,6 +179,6 @@ mod tests {
         assert!(!store.contains(first));
         assert_eq!(store.ids(), vec![second]);
         assert!(store.remove(second));
-        assert!(shared.ids().is_empty());
+        assert_eq!(shared.ids(), [] as [iroh::PublicKey; 0]);
     }
 }

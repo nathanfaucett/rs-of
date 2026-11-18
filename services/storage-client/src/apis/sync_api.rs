@@ -10,7 +10,6 @@
 
 use super::{ContentType, Error, configuration};
 use crate::{apis::ResponseContent, models};
-use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
 /// struct for passing parameters to the method [`sync_connect`]

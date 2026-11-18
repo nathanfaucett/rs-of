@@ -47,7 +47,7 @@ impl DatabaseCatalog {
     }
 
     /// Uses the migrated shared Storage tables instead of namespace catalog files.
-    pub fn with_client(root: PathBuf, client: ofdb_sql::Client) -> io::Result<Self> {
+    pub const fn with_client(root: PathBuf, client: ofdb_sql::Client) -> io::Result<Self> {
         Ok(Self {
             root,
             client: Some(client),
@@ -215,9 +215,7 @@ impl DatabaseCatalog {
         self.with_catalog(scope, false, |catalog| {
             Ok(catalog
                 .records
-                .values()
-                .cloned()
-                .filter(|record| !record.deleted && !record.initializing)
+                .values().filter(|&record| !record.deleted && !record.initializing).cloned()
                 .map(|record| record.resource)
                 .collect())
         })
@@ -481,17 +479,15 @@ mod tests {
                 .await
                 .expect("cross-kind lookup works")
         );
-        assert!(
+        assert_eq!(
             catalog
                 .list(&other_subject)
-                .expect("other subject lists")
-                .is_empty()
+                .expect("other subject lists"), [] as [of_model::storage::database_resource::DatabaseResource; 0]
         );
-        assert!(
+        assert_eq!(
             catalog
                 .list(&other_application)
-                .expect("other application lists")
-                .is_empty()
+                .expect("other application lists"), [] as [of_model::storage::database_resource::DatabaseResource; 0]
         );
         drop(catalog);
 
@@ -574,7 +570,7 @@ mod tests {
             subject: "../other",
             application: of_model::id::Id::now_v7(),
         };
-        assert!(catalog.list(&scope).is_err());
+        catalog.list(&scope).unwrap_err();
         fs::remove_dir_all(root).expect("test catalog is removed");
     }
 }

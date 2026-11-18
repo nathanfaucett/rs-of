@@ -10,7 +10,7 @@ pub enum Residency {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct ResidencyRules {
+pub struct ResidencyRules {
     rules: BTreeMap<String, Residency>,
 }
 

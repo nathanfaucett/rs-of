@@ -173,7 +173,7 @@ impl ContentStore for NativeContent {
 }
 
 /// Opens the native managed copy for a filesystem root.
-pub(crate) async fn open(root: &Path) -> Result<Arc<ManagedCopy>, Error> {
+pub async fn open(root: &Path) -> Result<Arc<ManagedCopy>, Error> {
     let copy = locate(root).await?;
     copy.observe_retirement().await?;
     copy.check()?;
@@ -207,7 +207,7 @@ pub(crate) async fn open(root: &Path) -> Result<Arc<ManagedCopy>, Error> {
 }
 
 /// Permanently retires and removes the native managed copy at a filesystem root.
-pub(crate) async fn remove_root(root: &Path) -> Result<(), Error> {
+pub async fn remove_root(root: &Path) -> Result<(), Error> {
     locate(root).await?.remove().await
 }
 

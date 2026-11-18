@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleResponse {
     #[serde(rename = "application_id")]
     pub application_id: String,
@@ -32,14 +32,15 @@ pub struct RoleResponse {
 }
 
 impl RoleResponse {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         application_id: String,
         created_at: i64,
         id: String,
         name: String,
         updated_at: i64,
-    ) -> RoleResponse {
-        RoleResponse {
+    ) -> Self {
+        Self {
             application_id,
             created_at,
             description: None,

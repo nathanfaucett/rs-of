@@ -1,4 +1,4 @@
-//! Replica modules for IdP service
+//! Replica modules for `IdP` service
 //!
 //! This module re-exports the database repositories from the `ofdb` module
 //! to provide a stable `idp_service::replica` path for downstream crates.

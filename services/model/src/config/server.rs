@@ -15,7 +15,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            host: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            host: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             port: default_port(),
             gzip: true,
             prefix: None,
@@ -25,13 +25,14 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
+    #[must_use]
     pub fn prefix(&self) -> &str {
         if let Some(prefix) = self.prefix.as_ref() {
             prefix
         } else {
             ""
         }
-        .trim_end_matches("/")
+        .trim_end_matches('/')
     }
 }
 

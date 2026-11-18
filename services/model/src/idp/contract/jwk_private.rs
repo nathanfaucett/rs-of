@@ -33,7 +33,7 @@ pub struct JwkPrivate {
 
 impl From<JwkPrivate> for JwkPublic {
     fn from(val: JwkPrivate) -> Self {
-        JwkPublic {
+        Self {
             r#use: val.r#use,
             kid: val.kid,
             alg: val.alg,

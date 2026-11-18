@@ -84,15 +84,15 @@ async fn initial_and_changed_snapshots_are_authorized_per_destination() {
     sync.pump()
         .await
         .expect("requested export denied for actual peer");
-    assert!(take_messages(&mut denied_messages).is_empty());
-    assert!(take_messages(&mut allowed_messages).is_empty());
+    assert_eq!(take_messages(&mut denied_messages), [] as [file_system::SyncMessage<u8>; 0]);
+    assert_eq!(take_messages(&mut allowed_messages), [] as [file_system::SyncMessage<u8>; 0]);
     permitted.store(false, Ordering::SeqCst);
     files.delete("initial").await.expect("local tombstone");
     sync.pump().await.expect("revoked publication discarded");
     sync.announce()
         .await
         .expect("revoked initial exchange discarded");
-    assert!(take_messages(&mut denied_messages).is_empty());
+    assert_eq!(take_messages(&mut denied_messages), [] as [file_system::SyncMessage<u8>; 0]);
     assert!(
         take_messages(&mut allowed_messages).is_empty(),
         "later denial applies on established exchange"
@@ -102,7 +102,7 @@ async fn initial_and_changed_snapshots_are_authorized_per_destination() {
     assert!(
         matches!(take_messages(&mut allowed_messages).as_slice(), [SyncMessage::SnapshotRequest { peer: 3 }, SyncMessage::SnapshotDelta { snapshots }] if snapshots.len() == 2)
     );
-    assert!(take_messages(&mut denied_messages).is_empty());
+    assert_eq!(take_messages(&mut denied_messages), [] as [file_system::SyncMessage<u8>; 0]);
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -203,7 +203,7 @@ async fn cancellation_releases_polled_pending_outbound_sends() {
         sync.pump().await.expect("baseline publication completes");
         match path {
             OutboundPath::AnnounceRequest | OutboundPath::RunStartup => {
-                exchange.block.store(1, Ordering::SeqCst)
+                exchange.block.store(1, Ordering::SeqCst);
             }
             _ => exchange.block.store(2, Ordering::SeqCst),
         }
@@ -314,7 +314,7 @@ async fn retirement_releases_polled_pending_outbound_sends() {
         sync.pump().await.expect("baseline publication completes");
         match path {
             OutboundPath::AnnounceRequest | OutboundPath::RunStartup => {
-                exchange.block.store(1, Ordering::SeqCst)
+                exchange.block.store(1, Ordering::SeqCst);
             }
             _ => exchange.block.store(2, Ordering::SeqCst),
         }
@@ -408,7 +408,7 @@ async fn retirement_denies_pending_outbound_policy_instead_of_reporting_success(
         pending.as_mut().poll(&mut context),
         Poll::Ready(Err(Error::PermissionDenied))
     ));
-    assert!(take_messages(&mut messages).is_empty());
+    assert_eq!(take_messages(&mut messages), [] as [file_system::SyncMessage<u8>; 0]);
     drop(pending);
     drop(sync);
     drop(files);

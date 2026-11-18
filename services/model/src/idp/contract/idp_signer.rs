@@ -14,7 +14,7 @@ use crate::idp::contract::key_use::KeyUse;
 
 /// Public enrollment state. Approval is checked against the executing Node's trusted local policy.
 /// Deserialization, configuration, and JWK possession do not establish its provenance.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct IdpSignerRecord {
     pub member_id: Id,
     pub key_id: Id,
@@ -28,6 +28,7 @@ pub struct IdpSignerRecord {
 impl IdpSignerRecord {
     /// Check metadata binding on a locally trusted snapshot, not approval provenance
     /// or cryptographic validity. Verification must validate the public point and signature.
+    #[must_use]
     pub fn matches(&self, member_id: Id, key_id: Id, issuer: &str, now: i64) -> bool {
         !member_id.is_nil()
             && !key_id.is_nil()
@@ -50,6 +51,7 @@ impl IdpSignerRecord {
 
     /// Compare public material only. Issuance must also derive the public point from
     /// the local secret and validate it; caller-supplied JWK coordinates are not proof.
+    #[must_use]
     pub fn matches_local_public_material(&self, private: Option<&JwkPrivate>) -> bool {
         private.is_some_and(|private| {
             matches!(private.params, JwkPrivateParameters::Ec { .. })
@@ -59,7 +61,7 @@ impl IdpSignerRecord {
 }
 
 /// Approved Installation membership binds a Node identity and transport endpoint.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ReplicaMembership {
     pub installation_id: String,
     pub member_id: Id,
@@ -70,6 +72,7 @@ pub struct ReplicaMembership {
 }
 
 impl ReplicaMembership {
+    #[must_use]
     pub fn matches(&self, installation_id: &str, member_id: Id, endpoint_id: &str) -> bool {
         !installation_id.is_empty()
             && installation_id.trim() == installation_id
@@ -84,7 +87,7 @@ impl ReplicaMembership {
     }
 }
 
-/// Subject binding is resolved independently of the IdP member's signer key.
+/// Subject binding is resolved independently of the `IdP` member's signer key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TokenPrincipalBinding {
     pub entity_type: EntityType,
@@ -94,6 +97,7 @@ pub struct TokenPrincipalBinding {
 
 impl TokenPrincipalBinding {
     /// The caller must also resolve a live User/Client and its current active root.
+    #[must_use]
     pub fn matches_active_root(&self, root: &Key, now: i64) -> bool {
         self.key_id == root.id
             && self.entity_type == root.entity_type

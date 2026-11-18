@@ -11,7 +11,6 @@
 use super::support::Error;
 use super::{ContentType, configuration};
 use crate::apis::support::ResponseContent;
-use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
 /// struct for passing parameters to the method [`owner_cleanup`]
@@ -78,7 +77,7 @@ pub async fn owner_cleanup(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.owner_copy_cleanup);
 
     let req = req_builder.build()?;
@@ -114,7 +113,7 @@ pub async fn replication_admission(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.replication_admission_request);
 
     let req = req_builder.build()?;
@@ -155,7 +154,7 @@ pub async fn selected_resources(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -174,14 +173,14 @@ pub async fn selected_resources(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::device::selected_resources_response::SelectedResourcesResponse`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::device::selected_resources_response::SelectedResourcesResponse`"
-                ))));
+                ))))
             }
         }
     } else {

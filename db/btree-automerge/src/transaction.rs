@@ -37,7 +37,7 @@ impl<T> AutomergeBTreeTransaction<T>
 where
     T: BTreeTransaction<DocumentChangeKey, Vec<u8>>,
 {
-    pub fn new(inner_tx: T, policy: ThresholdPolicy) -> Self {
+    pub const fn new(inner_tx: T, policy: ThresholdPolicy) -> Self {
         Self { inner_tx, policy }
     }
 }
@@ -135,7 +135,7 @@ where
     }
 
     async fn commit(self) -> BTreeResult<()> {
-        let AutomergeBTreeTransaction { inner_tx, .. } = self;
+        let Self { inner_tx, .. } = self;
         inner_tx.commit().await
     }
 

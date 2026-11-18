@@ -160,16 +160,13 @@ async fn serve_setup_inner<G: Send + 'static>(
         }
     }
     cancellation.cancel();
-    let stopped = match tokio::time::timeout(Duration::from_secs(10), server.join_next()).await {
-        Ok(result) => result
-            .expect("one setup listener task")
-            .map_err(io::Error::other)
-            .and_then(|result| result),
-        Err(_) => {
-            server.abort_all();
-            let _ = server.join_next().await;
-            Err(io::Error::other("setup HTTPS shutdown timed out"))
-        }
+    let stopped = if let Ok(result) = tokio::time::timeout(Duration::from_secs(10), server.join_next()).await { result
+    .expect("one setup listener task")
+    .map_err(io::Error::other)
+    .and_then(|result| result) } else {
+        server.abort_all();
+        let _ = server.join_next().await;
+        Err(io::Error::other("setup HTTPS shutdown timed out"))
     };
     verified.and(stopped)
 }

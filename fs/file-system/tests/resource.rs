@@ -46,7 +46,7 @@ async fn resources_have_distinct_roots_duplicate_names_and_persist() {
         reopened.list().await.expect("list resources"),
         vec![first, second]
     );
-    assert!(reopened.open_filesystem(first_id, 1_u8).await.is_ok());
+    reopened.open_filesystem(first_id, 1_u8).await.unwrap();
     fs::remove_dir_all(root).expect("remove test root");
 }
 
@@ -68,7 +68,7 @@ async fn deletion_is_a_durable_tombstone_exported_in_snapshot() {
         catalog.open_filesystem(resource.id, 1_u8).await,
         Err(Error::NotFound)
     ));
-    assert!(catalog.list().await.expect("list resources").is_empty());
+    assert_eq!(catalog.list().await.expect("list resources"), [] as [file_system::FileSystemResource; 0]);
     let snapshot = catalog.snapshot().await.expect("export snapshot");
     assert_eq!(snapshot.len(), 1);
     assert!(snapshot[0].deleted);
@@ -81,7 +81,7 @@ async fn deletion_is_a_durable_tombstone_exported_in_snapshot() {
         .import_snapshot(&reopened.snapshot().await.expect("snapshot after restart"))
         .await
         .expect("import snapshot");
-    assert!(imported.list().await.expect("list imported").is_empty());
+    assert_eq!(imported.list().await.expect("list imported"), [] as [file_system::FileSystemResource; 0]);
     assert!(matches!(
         imported.open_filesystem(resource.id, 1_u8).await,
         Err(Error::NotFound)
@@ -116,7 +116,7 @@ async fn imported_tombstone_wins_over_a_live_catalog_entry() {
         }])
         .await
         .expect("import stale live record");
-    assert!(catalog.list().await.expect("list resources").is_empty());
+    assert_eq!(catalog.list().await.expect("list resources"), [] as [file_system::FileSystemResource; 0]);
     fs::remove_dir_all(root).expect("remove test root");
 }
 
@@ -161,12 +161,11 @@ async fn deselecting_projected_resource_evicts_only_local_copy_without_tombstone
         [resource]
     );
     assert!(!catalog.snapshot().await.expect("snapshot remains live")[0].deleted);
-    assert!(
+    assert_eq!(
         catalog
             .projected_selected()
             .await
-            .expect("projection deselected")
-            .is_empty()
+            .expect("projection deselected"), [] as [file_system::FileSystemId; 0]
     );
 
     drop(filesystem);
@@ -182,6 +181,6 @@ async fn filesystem_id_is_uuid_v7_backed_and_parsed_ids_are_checked() {
         FileSystemId::parse(&id.as_uuid().to_string()).expect("parse UUIDv7"),
         id
     );
-    assert!(FileSystemId::parse("not-an-id").is_err());
-    assert!(FileSystemId::parse(&Uuid::nil().to_string()).is_err());
+    FileSystemId::parse("not-an-id").unwrap_err();
+    FileSystemId::parse(&Uuid::nil().to_string()).unwrap_err();
 }

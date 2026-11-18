@@ -319,17 +319,11 @@ impl PublicSecurityTable {
         self,
         record: &serde_json::Map<alloc::string::String, serde_json::Value>,
     ) -> bool {
-        if record.len() != self.columns().len()
-            || self.columns().iter().any(|column| {
+        !(record.len() != self.columns().len() || self.columns().iter().any(|column| {
                 record
                     .get(*column)
                     .is_none_or(|value| !self.permits_value(column, value))
-            })
-        {
-            return false;
-        }
-
-        true
+            }))
     }
 }
 
@@ -343,9 +337,7 @@ fn permits_public_jwk(text: &str) -> bool {
     public
         .keys()
         .all(|field| ["kid", "use", "alg", "kty", "crv", "x", "y"].contains(&field.as_str()))
-        && serde_json::from_str::<of_model::idp::contract::jwk_public::JwkPublic>(text)
-            .ok()
-            .is_some_and(|jwk| crate::oauth2::verifing_key_from_jwt(&jwk).is_ok())
+        && serde_json::from_str::<of_model::idp::contract::jwk_public::JwkPublic>(text).is_ok_and(|jwk| crate::oauth2::verifing_key_from_jwt(&jwk).is_ok())
 }
 
 pub const PUBLIC_IDENTITY_POLICY_TABLES: &[PublicSecurityTable] = &[

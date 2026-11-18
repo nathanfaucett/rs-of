@@ -97,6 +97,7 @@ mod tests {
 }
 
 impl OAuth2Config {
+    #[must_use]
     pub fn to_metadata(&self, endpoint_base: &str) -> AuthorizationServerMetadata {
         let endpoint_base = endpoint_base.trim_end_matches('/');
 

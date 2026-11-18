@@ -271,8 +271,7 @@ mod remote {
             client
                 .transaction()
                 .await
-                .err()
-                .expect("next begin is disabled")
+                .expect_err("next begin is disabled")
                 .kind,
             ErrorKind::Rejected
         );

@@ -14,8 +14,8 @@ pub fn open_private_storage(path: &Path) -> io::Result<SharedDatabase> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
+        options.mode(0o600)
+    };
     match options.open(path) {
         Ok(file) => file.sync_all()?,
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
@@ -64,7 +64,7 @@ pub async fn local_database(
         let adapter = EmbeddedDatabase {
             database,
             storage: SharedDatabase::in_memory()
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?,
+                .map_err(|e| io::Error::other(e.to_string()))?,
         };
         return Ok(Arc::new(adapter));
     }
@@ -72,10 +72,10 @@ pub async fn local_database(
     let path = data_dir.join("unified.redb");
     let storage = open_private_storage(&path)?;
     let database = SqlDatabase::open_shared(&storage, "control")
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     let adapter = EmbeddedDatabase { database, storage };
     up(&adapter.client())
         .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     Ok(Arc::new(adapter))
 }

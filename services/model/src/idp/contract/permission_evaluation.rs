@@ -63,6 +63,7 @@ pub enum IdentityAction {
 }
 
 impl IdentityAction {
+    #[must_use]
     pub const fn permission(self) -> &'static str {
         match self {
             Self::ClientsRead => "idp.clients.read",
@@ -107,6 +108,7 @@ impl IdentityAction {
         }
     }
 
+    #[must_use]
     pub const fn application_scoped(self) -> bool {
         matches!(
             self,
@@ -182,7 +184,8 @@ pub struct PermissionEvaluationRequest {
 }
 
 impl PermissionEvaluationRequest {
-    pub fn policy_namespace(&self) -> Option<Id> {
+    #[must_use]
+    pub const fn policy_namespace(&self) -> Option<Id> {
         use IdentityAction as A;
         let resource = match &self.target {
             PermissionTarget::Application { resource, .. }

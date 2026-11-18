@@ -55,7 +55,7 @@ pub struct User {
 
 impl From<User> for UserInfo {
     fn from(val: User) -> Self {
-        UserInfo {
+        Self {
             sub: val.id.to_string(),
             permissions: Vec::new(),
             name: Some(val.name),

@@ -503,7 +503,7 @@ impl From<&Role> for RoleRow {
 
 impl From<RoleRow> for Row {
     fn from(row: RoleRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Uuid(row.application_id),
             Value::Text(row.name),
@@ -601,7 +601,7 @@ impl FromRow for UserRoleRow {
 
 impl From<UserRoleRow> for Row {
     fn from(row: UserRoleRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Uuid(row.user_id),
             Value::Uuid(row.application_id),

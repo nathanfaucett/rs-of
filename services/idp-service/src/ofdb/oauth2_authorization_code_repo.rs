@@ -320,7 +320,7 @@ impl From<&OAuth2AuthorizationCode> for AuthorizationCodeRow {
 
 impl From<AuthorizationCodeRow> for Row {
     fn from(row: AuthorizationCodeRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Text(row.code),
             Value::Text(row.client_id),

@@ -1,7 +1,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct CreateUserRequest {
@@ -16,8 +16,9 @@ pub struct CreateUserRequest {
 }
 
 impl CreateUserRequest {
-    pub fn new(name: String, email: String, password: String) -> CreateUserRequest {
-        CreateUserRequest {
+    #[must_use]
+    pub const fn new(name: String, email: String, password: String) -> Self {
+        Self {
             name,
             email,
             password,
@@ -26,7 +27,7 @@ impl CreateUserRequest {
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct UpdateUserInfoRequest {
@@ -68,8 +69,9 @@ pub struct UpdateUserInfoRequest {
 }
 
 impl UpdateUserInfoRequest {
-    pub fn new() -> UpdateUserInfoRequest {
-        UpdateUserInfoRequest {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
             name: None,
             given_name: None,
             family_name: None,

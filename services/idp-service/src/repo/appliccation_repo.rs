@@ -1,4 +1,3 @@
-use alloc::{string::String, vec::Vec};
 
 use of_model::idp::model::application::Application;
 

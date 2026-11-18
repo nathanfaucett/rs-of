@@ -23,7 +23,8 @@ pub struct DocumentChangeKey {
 }
 
 impl DocumentChangeKey {
-    pub fn new(id: DocumentId, r#type: DocumentType, change_hash: DocumentChangeHash) -> Self {
+    #[must_use]
+    pub const fn new(id: DocumentId, r#type: DocumentType, change_hash: DocumentChangeHash) -> Self {
         Self {
             id,
             r#type,
@@ -31,18 +32,22 @@ impl DocumentChangeKey {
         }
     }
 
-    pub fn new_snapshot(id: DocumentId, change_hash: DocumentChangeHash) -> Self {
+    #[must_use]
+    pub const fn new_snapshot(id: DocumentId, change_hash: DocumentChangeHash) -> Self {
         Self::new(id, DocumentType::Snapshot, change_hash)
     }
 
-    pub fn new_incremental(id: DocumentId, change_hash: DocumentChangeHash) -> Self {
+    #[must_use]
+    pub const fn new_incremental(id: DocumentId, change_hash: DocumentChangeHash) -> Self {
         Self::new(id, DocumentType::Incremental, change_hash)
     }
 
-    pub fn new_metadata(id: DocumentId) -> Self {
+    #[must_use]
+    pub const fn new_metadata(id: DocumentId) -> Self {
         Self::new(id, DocumentType::Metadata, [0; 32])
     }
 
+    #[must_use]
     pub fn id_to_uuid(id: &[u8]) -> Uuid {
         if id.len() == 16
             && let Some(uuid) = Uuid::from_slice(id).ok()
@@ -53,30 +58,37 @@ impl DocumentChangeKey {
         Uuid::new_v5(&Uuid::NAMESPACE_DNS, id)
     }
 
-    pub fn id(&self) -> &DocumentId {
+    #[must_use]
+    pub const fn id(&self) -> &DocumentId {
         &self.id
     }
 
+    #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         &self.id
     }
 
-    pub fn r#type(&self) -> DocumentType {
+    #[must_use]
+    pub const fn r#type(&self) -> DocumentType {
         self.r#type
     }
 
-    pub fn change_hash(&self) -> &DocumentChangeHash {
+    #[must_use]
+    pub const fn change_hash(&self) -> &DocumentChangeHash {
         &self.change_hash
     }
 
+    #[must_use]
     pub fn uuid(&self) -> Uuid {
         Self::id_to_uuid(&self.id)
     }
 
+    #[must_use]
     pub fn actor_id(&self) -> ActorId {
         ActorId::from(self.uuid().as_bytes())
     }
 
+    #[must_use]
     pub fn encode_ordered(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(self.id.len() + 35);
         for byte in &self.id {
@@ -125,7 +137,8 @@ impl DocumentChangeKey {
         Ok(Self::new(id, r#type, hash))
     }
 
-    pub fn min_for_id(id: DocumentId) -> Self {
+    #[must_use]
+    pub const fn min_for_id(id: DocumentId) -> Self {
         Self {
             id,
             r#type: DocumentType::Snapshot,
@@ -133,7 +146,8 @@ impl DocumentChangeKey {
         }
     }
 
-    pub fn max_for_id(id: DocumentId) -> Self {
+    #[must_use]
+    pub const fn max_for_id(id: DocumentId) -> Self {
         Self {
             id,
             r#type: DocumentType::Metadata,
@@ -141,6 +155,7 @@ impl DocumentChangeKey {
         }
     }
 
+    #[must_use]
     pub fn range_for(id: &DocumentId) -> impl RangeBounds<Self> + Clone {
         let start = Bound::Included(Self::min_for_id(id.clone()));
         let end = Bound::Included(Self::max_for_id(id.clone()));
@@ -219,7 +234,7 @@ mod tests {
     #[test]
     fn ordered_codec_rejects_malformed_bytes() {
         for bytes in [vec![], vec![0], vec![0, 1], vec![0, 0, 3], vec![0, 0, 0]] {
-            assert!(DocumentChangeKey::decode_ordered(&bytes).is_err());
+            DocumentChangeKey::decode_ordered(&bytes).unwrap_err();
         }
     }
 }

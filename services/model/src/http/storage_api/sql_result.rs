@@ -19,10 +19,11 @@ pub struct SqlResult {
 }
 
 impl SqlResult {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         columns: Vec<String>,
         rows: Vec<Vec<crate::http::storage_api::sql_value::SqlValue>>,
-    ) -> SqlResult {
-        SqlResult { columns, rows }
+    ) -> Self {
+        Self { columns, rows }
     }
 }

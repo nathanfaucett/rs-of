@@ -142,11 +142,8 @@ async fn websocket_rejects_wrong_resource_before_sending_credentials() {
         send(&mut socket, SyncMessage::Hello(hello)).await;
         assert!(!matches!(socket.next().await, Some(Ok(Message::Binary(_)))));
     });
-    assert!(
-        OwnerTransport::connect(&url, &identity(), "must-not-leak".into())
-            .await
-            .is_err()
-    );
+    OwnerTransport::connect(&url, &identity(), "must-not-leak".into())
+            .await.unwrap_err();
     server.await.expect("server task");
 }
 
@@ -163,7 +160,7 @@ fn frame_wire_format_and_corruption_are_checked() {
     assert_eq!(FrameCodec::decode(&expected).expect("decode"), frame);
     let mut corrupt = expected;
     corrupt[6] = 0;
-    assert!(FrameCodec::decode(&corrupt).is_err());
-    assert!(FrameCodec::decode(&expected[..10]).is_err());
-    assert!(SyncMessage::decode(&[5, 0]).is_err());
+    FrameCodec::decode(&corrupt).unwrap_err();
+    FrameCodec::decode(&expected[..10]).unwrap_err();
+    SyncMessage::decode(&[5, 0]).unwrap_err();
 }

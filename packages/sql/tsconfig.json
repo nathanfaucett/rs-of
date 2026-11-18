@@ -5,6 +5,8 @@
     "outDir": "esm",
     "declarationDir": "types",
     "lib": ["ESNext", "DOM", "DOM.Iterable", "ESNext.Disposable"],
+    "allowImportingTsExtensions": false,
+    "emitDeclarationOnly": false,
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "pkg", "esm", "types"],

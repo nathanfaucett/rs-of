@@ -11,7 +11,6 @@
 use super::support::Error;
 use super::{ContentType, configuration};
 use crate::apis::support::ResponseContent;
-use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
 /// struct for passing parameters to the method [`independent_join_enroll_node_join`]
@@ -83,7 +82,7 @@ pub async fn independent_join_enroll_node_join(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.independent_join_approval);
 
     let req = req_builder.build()?;
@@ -120,13 +119,13 @@ pub fn independent_join_history_stream_request(
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.header("Authorization", params.authorization.to_string());
-    req_builder = req_builder.header("Upgrade", params.upgrade.to_string());
-    req_builder = req_builder.header("Connection", params.connection.to_string());
-    req_builder = req_builder.header("Sec-WebSocket-Key", params.sec_web_socket_key.to_string());
+    req_builder = req_builder.header("Authorization", params.authorization.clone());
+    req_builder = req_builder.header("Upgrade", params.upgrade.clone());
+    req_builder = req_builder.header("Connection", params.connection.clone());
+    req_builder = req_builder.header("Sec-WebSocket-Key", params.sec_web_socket_key.clone());
     req_builder = req_builder.header(
         "Sec-WebSocket-Version",
-        params.sec_web_socket_version.to_string(),
+        params.sec_web_socket_version.clone(),
     );
 
     let req = req_builder.build()?;

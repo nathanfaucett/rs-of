@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReplicationAdmissionRequest {
     #[serde(rename = "applicationId")]
@@ -28,15 +28,16 @@ pub struct ReplicationAdmissionRequest {
 }
 
 impl ReplicationAdmissionRequest {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         application_id: String,
         kind: String,
         operation: String,
         resource_id: String,
         source_endpoint_id: String,
         target_endpoint_id: String,
-    ) -> ReplicationAdmissionRequest {
-        ReplicationAdmissionRequest {
+    ) -> Self {
+        Self {
             application_id,
             kind,
             operation,

@@ -19,7 +19,6 @@ use ofdb_sql::QueryUpdate;
 use ofdb_sql::QueryUpdateAssignment;
 use ofdb_sql::Row;
 use ofdb_sql::Statement;
-use ofdb_sql::Transaction;
 use ofdb_sql::Uuid;
 use ofdb_sql::Value;
 
@@ -259,7 +258,7 @@ impl From<&OAuth2UserConsent> for ConsentRow {
 }
 impl From<ConsentRow> for Row {
     fn from(row: ConsentRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Uuid(row.user_id),
             Value::Text(row.client_id),

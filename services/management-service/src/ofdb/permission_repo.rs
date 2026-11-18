@@ -400,7 +400,7 @@ impl PermissionRepo for DbPermissionRepo {
                 .next()
                 .ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
             let rows = result.rows_as::<SyncSelectionRow>().map_err(row_error)?;
-            Ok(rows.into_iter().map(|r| r.into()).collect())
+            Ok(rows.into_iter().map(std::convert::Into::into).collect())
         }
     }
 
@@ -423,7 +423,7 @@ impl PermissionRepo for DbPermissionRepo {
                 .next()
                 .ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
             let rows = result.rows_as::<SyncSelectionRow>().map_err(row_error)?;
-            Ok(rows.into_iter().map(|r| r.into()).collect())
+            Ok(rows.into_iter().map(std::convert::Into::into).collect())
         }
     }
 
@@ -530,7 +530,7 @@ impl From<&Permission> for PermissionRow {
 }
 impl From<PermissionRow> for Row {
     fn from(row: PermissionRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Uuid(row.application_id),
             Value::Text(row.name),
@@ -593,7 +593,7 @@ impl FromRow for RolePermissionRow {
 }
 impl From<RolePermissionRow> for Row {
     fn from(row: RolePermissionRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Uuid(row.role_id),
             Value::Uuid(row.permission_id),
@@ -647,7 +647,7 @@ impl FromRow for SyncSelectionRow {
 
 impl From<SyncSelectionRow> for SyncSelection {
     fn from(row: SyncSelectionRow) -> Self {
-        SyncSelection {
+        Self {
             device_id: row.device_id,
             resource_id: row.resource_id,
             application_id: row.application_id,

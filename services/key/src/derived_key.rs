@@ -26,14 +26,16 @@ impl fmt::Display for DerivedKey {
 }
 
 impl DerivedKey {
-    pub fn new(key: XPrv, derivation_path: DerivationPath) -> Self {
+    #[must_use]
+    pub const fn new(key: XPrv, derivation_path: DerivationPath) -> Self {
         Self {
             key,
             derivation_path,
         }
     }
 
-    pub fn key(&self) -> &XPrv {
+    #[must_use]
+    pub const fn key(&self) -> &XPrv {
         &self.key
     }
 
@@ -47,6 +49,7 @@ impl DerivedKey {
         })
     }
 
+    #[must_use]
     pub fn to_xprv_string(&self) -> Zeroizing<String> {
         self.key.to_string(Prefix::XPRV)
     }
@@ -77,7 +80,8 @@ impl DerivedKey {
         Ok((x, y, d))
     }
 
-    pub fn derivation_path(&self) -> &DerivationPath {
+    #[must_use]
+    pub const fn derivation_path(&self) -> &DerivationPath {
         &self.derivation_path
     }
 
@@ -132,7 +136,7 @@ impl DerivedKey {
         })
     }
 
-    pub fn verify_derived_key(&self, child: DerivedKey) -> KeyResult<bool> {
+    pub fn verify_derived_key(&self, child: Self) -> KeyResult<bool> {
         let parent_path = self.derivation_path().as_ref();
         let child_path = child.derivation_path().as_ref();
 

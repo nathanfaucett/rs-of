@@ -25,18 +25,19 @@ pub struct ErrorResponse {
 
 impl From<serde::de::value::Error> for ErrorResponse {
     fn from(error: serde::de::value::Error) -> Self {
-        ErrorResponse::new(ErrorCode::ServerError).with_description(error.to_string())
+        Self::new(ErrorCode::ServerError).with_description(error.to_string())
     }
 }
 
 impl From<KeyError> for ErrorResponse {
     fn from(error: KeyError) -> Self {
-        ErrorResponse::new(ErrorCode::ServerError).with_description(error.to_string())
+        Self::new(ErrorCode::ServerError).with_description(error.to_string())
     }
 }
 
 impl ErrorResponse {
-    pub fn new(code: ErrorCode) -> Self {
+    #[must_use]
+    pub const fn new(code: ErrorCode) -> Self {
         Self {
             error: code,
             error_description: None,

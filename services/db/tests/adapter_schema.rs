@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use db::adapters::{EmbeddedDatabase, MemoryDatabase};
 use db::ofdb::up;
-use ofdb_sql::Client;
 use ofdb_sql::Database as SqlDatabase;
 use tempfile::tempdir;
 
@@ -62,8 +61,8 @@ async fn unified_schema_persists_and_reopens() {
         )
         .await
         .expect("write user");
-        txn.commit().await.expect("commit");
-    }
+        txn.commit().await.expect("commit")
+    };
 
     {
         let adapter = EmbeddedDatabase::open_file(&path).await.expect("reopen");
@@ -138,7 +137,7 @@ async fn failed_migration_returns_error() {
     let database = SqlDatabase::in_memory();
     let client = database.client();
     let result = up(&client).await;
-    assert!(result.is_ok());
+    result.unwrap();
     let mut txn = client.transaction().await.expect("txn");
     txn.execute_sql("DROP TABLE users", None)
         .await
@@ -173,7 +172,7 @@ async fn in_memory_database_works() {
     let database = SqlDatabase::in_memory();
     let client = database.client();
     let result = up(&client).await;
-    assert!(result.is_ok());
+    result.unwrap();
     client
         .execute_sql("SELECT * FROM users LIMIT 0", None)
         .await

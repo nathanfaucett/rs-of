@@ -28,10 +28,11 @@ impl SqlDatabaseHandle {
             token_provider,
         }
     }
-    pub fn database(&self) -> &Database {
+    #[must_use]
+    pub const fn database(&self) -> &Database {
         &self.database
     }
-    pub fn database_mut(&mut self) -> &mut Database {
+    pub const fn database_mut(&mut self) -> &mut Database {
         &mut self.database
     }
     pub async fn execute(&self, sql: &str) -> Result<QueryResult> {
@@ -112,10 +113,12 @@ impl SqlDatabaseHandle {
         )
         .await
     }
-    pub fn store_identity(&self) -> &StoreIdentity {
+    #[must_use]
+    pub const fn store_identity(&self) -> &StoreIdentity {
         &self.store_identity
     }
-    pub fn resource_id(&self) -> Uuid {
+    #[must_use]
+    pub const fn resource_id(&self) -> Uuid {
         self.store_identity.store_id
     }
 }
@@ -132,13 +135,15 @@ pub struct KvStoreHandle {
     store_identity: StoreIdentity,
 }
 impl KvStoreHandle {
-    pub fn new(database: ofdb_kv::Database, store_identity: StoreIdentity) -> Self {
+    #[must_use]
+    pub const fn new(database: ofdb_kv::Database, store_identity: StoreIdentity) -> Self {
         Self {
             database,
             store_identity,
         }
     }
-    pub fn database(&self) -> &ofdb_kv::Database {
+    #[must_use]
+    pub const fn database(&self) -> &ofdb_kv::Database {
         &self.database
     }
     /// Exchanges KV v3 history on an owner-admitted resource stream.
@@ -160,10 +165,12 @@ impl KvStoreHandle {
             .await
             .map_err(|e| StorageClientError::Sync(e.to_string()))
     }
-    pub fn store_identity(&self) -> &StoreIdentity {
+    #[must_use]
+    pub const fn store_identity(&self) -> &StoreIdentity {
         &self.store_identity
     }
-    pub fn resource_id(&self) -> Uuid {
+    #[must_use]
+    pub const fn resource_id(&self) -> Uuid {
         self.store_identity.store_id
     }
 }
@@ -179,13 +186,16 @@ pub struct FilesystemHandle {
     store_identity: StoreIdentity,
 }
 impl FilesystemHandle {
-    pub fn new(store_identity: StoreIdentity) -> Self {
+    #[must_use]
+    pub const fn new(store_identity: StoreIdentity) -> Self {
         Self { store_identity }
     }
-    pub fn store_identity(&self) -> &StoreIdentity {
+    #[must_use]
+    pub const fn store_identity(&self) -> &StoreIdentity {
         &self.store_identity
     }
-    pub fn resource_id(&self) -> Uuid {
+    #[must_use]
+    pub const fn resource_id(&self) -> Uuid {
         self.store_identity.store_id
     }
 }

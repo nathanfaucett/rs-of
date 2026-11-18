@@ -22,6 +22,10 @@ pub enum JsonNumber {
 impl Eq for JsonNumber {}
 
 impl JsonNumber {
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "JSON numbers are represented as f64"
+    )]
     fn eq_i64(&self, value: i64) -> bool {
         match self {
             Self::I64(other) => value == *other,
@@ -30,17 +34,24 @@ impl JsonNumber {
         }
     }
 
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "JSON numbers are represented as f64"
+    )]
     fn cmp_i64(&self, value: i64) -> Ordering {
         match self {
             Self::I64(other) => value.cmp(other),
-            Self::U64(other) => match u64::try_from(value) {
-                Ok(value) => value.cmp(other),
-                Err(_) => Ordering::Less,
-            },
+            Self::U64(other) => {
+                u64::try_from(value).map_or(Ordering::Less, |value| value.cmp(other))
+            }
             Self::F64(other) => (value as f64).to_bits().cmp(&other.to_bits()),
         }
     }
 
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "JSON numbers are represented as f64"
+    )]
     fn eq_u64(&self, value: u64) -> bool {
         match self {
             Self::I64(other) => u64::try_from(*other) == Ok(value),
@@ -49,17 +60,24 @@ impl JsonNumber {
         }
     }
 
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "JSON numbers are represented as f64"
+    )]
     fn cmp_u64(&self, value: u64) -> Ordering {
         match self {
-            Self::I64(other) => match u64::try_from(*other) {
-                Ok(other) => value.cmp(&other),
-                Err(_) => Ordering::Greater,
-            },
+            Self::I64(other) => {
+                u64::try_from(*other).map_or(Ordering::Greater, |other| value.cmp(&other))
+            }
             Self::U64(other) => value.cmp(other),
             Self::F64(other) => (value as f64).to_bits().cmp(&other.to_bits()),
         }
     }
 
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "JSON numbers are represented as f64"
+    )]
     fn eq_f64(&self, value: f64) -> bool {
         match self {
             Self::I64(other) => value == (*other as f64),
@@ -68,6 +86,10 @@ impl JsonNumber {
         }
     }
 
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "JSON numbers are represented as f64"
+    )]
     fn cmp_f64(&self, value: f64) -> Ordering {
         match self {
             Self::I64(other) => value.to_bits().cmp(&(*other as f64).to_bits()),
@@ -118,35 +140,59 @@ macro_rules! impl_json_number_for_integer {
         $(
         impl From<$t> for JsonNumber {
             fn from(value: $t) -> Self {
-                JsonNumber::I64(value as i64)
+                JsonNumber::I64(i64::from(value))
             }
         }
         )*
     };
 }
 
-impl_json_number_for_integer!(i8, i16, i32, isize, i128);
+impl_json_number_for_integer!(i8, i16, i32);
+
+impl From<isize> for JsonNumber {
+    fn from(value: isize) -> Self {
+        Self::I64(value as i64)
+    }
+}
+
+impl From<i128> for JsonNumber {
+    fn from(value: i128) -> Self {
+        Self::I64(i64::try_from(value).unwrap_or(i64::MAX))
+    }
+}
 
 macro_rules! impl_json_number_for_unsigned_integer {
     ($($t:ty),*) => {
         $(
         impl From<$t> for JsonNumber {
             fn from(value: $t) -> Self {
-                JsonNumber::U64(value as u64)
+                JsonNumber::U64(u64::from(value))
             }
         }
         )*
     };
 }
 
-impl_json_number_for_unsigned_integer!(u8, u16, u32, usize, u128);
+impl_json_number_for_unsigned_integer!(u8, u16, u32);
+
+impl From<usize> for JsonNumber {
+    fn from(value: usize) -> Self {
+        Self::U64(value as u64)
+    }
+}
+
+impl From<u128> for JsonNumber {
+    fn from(value: u128) -> Self {
+        Self::U64(u64::try_from(value).unwrap_or(u64::MAX))
+    }
+}
 
 macro_rules! impl_json_number_for_float {
     ($($t:ty),*) => {
         $(
         impl From<$t> for JsonNumber {
             fn from(value: $t) -> Self {
-                JsonNumber::F64(value as f64)
+                JsonNumber::F64(value.into())
             }
         }
         )*
@@ -157,19 +203,19 @@ impl_json_number_for_float!(f32);
 
 impl From<f64> for JsonNumber {
     fn from(value: f64) -> Self {
-        JsonNumber::F64(value)
+        Self::F64(value)
     }
 }
 
 impl From<i64> for JsonNumber {
     fn from(value: i64) -> Self {
-        JsonNumber::I64(value)
+        Self::I64(value)
     }
 }
 
 impl From<u64> for JsonNumber {
     fn from(value: u64) -> Self {
-        JsonNumber::U64(value)
+        Self::U64(value)
     }
 }
 
@@ -177,20 +223,11 @@ impl From<u64> for JsonNumber {
 impl From<serde_json::Number> for JsonNumber {
     fn from(num: serde_json::Number) -> Self {
         if num.is_f64() {
-            match num.as_f64() {
-                Some(f) => Self::F64(f),
-                None => Self::F64(f64::NAN),
-            }
+            num.as_f64().map_or(Self::F64(f64::NAN), Self::F64)
         } else if num.is_i64() {
-            match num.as_i64() {
-                Some(i) => Self::I64(i),
-                None => Self::F64(f64::NAN),
-            }
+            num.as_i64().map_or(Self::F64(f64::NAN), Self::I64)
         } else if num.is_u64() {
-            match num.as_u64() {
-                Some(u) => Self::U64(u),
-                None => Self::F64(f64::NAN),
-            }
+            num.as_u64().map_or(Self::F64(f64::NAN), Self::U64)
         } else {
             Self::F64(f64::NAN)
         }

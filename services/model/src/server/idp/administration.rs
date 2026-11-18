@@ -33,6 +33,6 @@ pub struct SetUserBlockedRequest {
     pub blocked: bool,
 }
 
-fn default_limit() -> u32 {
+const fn default_limit() -> u32 {
     50
 }

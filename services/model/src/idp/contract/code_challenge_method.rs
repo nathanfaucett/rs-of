@@ -24,7 +24,7 @@ pub enum CodeChallengeMethod {
 impl fmt::Display for CodeChallengeMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CodeChallengeMethod::S256 => write!(f, "S256"),
+            Self::S256 => write!(f, "S256"),
         }
     }
 }

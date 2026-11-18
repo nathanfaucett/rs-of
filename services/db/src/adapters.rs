@@ -21,10 +21,12 @@ pub enum AdapterError {
 }
 
 impl AdapterError {
-    pub fn storage_error(error: io::Error) -> Self {
+    #[must_use]
+    pub const fn storage_error(error: io::Error) -> Self {
         Self::Storage(error)
     }
 
+    #[must_use]
     pub fn sql_error(kind: QueryErrorKind, message: String) -> Self {
         Self::Sql(QueryError::new(kind, message))
     }
@@ -56,11 +58,13 @@ impl EmbeddedDatabase {
     }
 
     /// Returns the SQL client for query access.
+    #[must_use]
     pub fn client(&self) -> Client {
         self.database.client()
     }
 
     /// Returns the underlying redb storage (for filesystem runtime).
+    #[must_use]
     pub fn storage(&self) -> SharedDatabase {
         self.storage.clone()
     }
@@ -86,16 +90,19 @@ impl MemoryDatabase {
     }
 
     /// Returns the SQL client for query access.
+    #[must_use]
     pub fn client(&self) -> Client {
         self.database.client()
     }
 
     /// Returns the underlying redb storage.
+    #[must_use]
     pub fn storage(&self) -> SharedDatabase {
         self.storage.clone()
     }
 
     /// Returns the underlying SQL database.
+    #[must_use]
     pub fn database(&self) -> SqlDatabase {
         self.database.clone()
     }
@@ -128,6 +135,7 @@ impl RemoteDatabase {
     }
 
     /// Returns the SQL client for query access.
+    #[must_use]
     pub fn client(&self) -> Client {
         self.client.clone()
     }

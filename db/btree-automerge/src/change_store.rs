@@ -13,7 +13,7 @@ pub struct AutomergeChangeStore<T> {
 }
 
 impl<T> AutomergeChangeStore<T> {
-    pub fn new(inner: T) -> Self {
+    pub const fn new(inner: T) -> Self {
         Self { inner }
     }
 }

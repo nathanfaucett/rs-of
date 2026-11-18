@@ -24,7 +24,7 @@ pub type ServerTask = tokio::task::JoinHandle<()>;
 
 pub async fn stop_server(mut server: ServerTask) {
     if let Ok(result) = tokio::time::timeout(Duration::from_secs(3), &mut server).await {
-        result.expect("KV server task should complete")
+        result.expect("KV server task should complete");
     } else {
         server.abort();
         let _ = server.await;

@@ -1,6 +1,7 @@
 use crate::{JsonValue, Row, Value, ValueType};
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
+use std::fmt;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,18 +16,18 @@ pub enum FromRowError {
     },
 }
 
-impl core::fmt::Display for FromRowError {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for FromRowError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingColumn(column) => write!(formatter, "missing column {column}"),
-            Self::DuplicateColumn(column) => write!(formatter, "duplicate column {column}"),
-            Self::MissingValue(column) => write!(formatter, "missing value for column {column}"),
+            Self::MissingColumn(column) => write!(f, "missing column {column}"),
+            Self::DuplicateColumn(column) => write!(f, "duplicate column {column}"),
+            Self::MissingValue(column) => write!(f, "missing value for column {column}"),
             Self::InvalidValue {
                 column,
                 expected,
                 actual,
             } => write!(
-                formatter,
+                f,
                 "invalid value for column {column}: expected {expected:?}, got {actual:?}"
             ),
         }
@@ -39,10 +40,24 @@ pub trait FromValue: Sized {
     fn from_value(value: &Value) -> Option<Self>;
 }
 
+/// Decodes a row into a type.
+///
+/// # Errors
+/// Returns `FromRowError` if the row cannot be decoded into the type.
 pub trait FromRow: Sized {
+    /// Decodes a row into a type.
+    ///
+    /// # Errors
+    /// Returns `FromRowError` if the row cannot be decoded into the type.
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError>;
 }
 
+/// Gets a value from a row by column name.
+///
+/// # Errors
+/// Returns `FromRowError::MissingColumn` if the column is not found.
+/// Returns `FromRowError::DuplicateColumn` if the column appears more than once.
+/// Returns `FromRowError::MissingValue` if the row doesn't have a value at the column index.
 pub fn value<'a>(row: &'a Row, columns: &[&str], column: &str) -> Result<&'a Value, FromRowError> {
     let mut indices = columns
         .iter()
@@ -59,6 +74,10 @@ pub fn value<'a>(row: &'a Row, columns: &[&str], column: &str) -> Result<&'a Val
         .ok_or_else(|| FromRowError::MissingValue(String::from(column)))
 }
 
+/// Decodes a value into type T.
+///
+/// # Errors
+/// Returns `FromRowError::InvalidValue` if the value cannot be decoded into type T.
 pub fn decode<T: FromValue>(value: &Value, column: &str) -> Result<T, FromRowError> {
     T::from_value(value).ok_or_else(|| FromRowError::InvalidValue {
         column: String::from(column),

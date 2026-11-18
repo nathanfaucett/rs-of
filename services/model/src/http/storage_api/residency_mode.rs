@@ -12,8 +12,10 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ResidencyMode {
     #[serde(rename = "full")]
+    #[default]
     Full,
     #[serde(rename = "passthrough")]
     Passthrough,
@@ -28,8 +30,3 @@ impl core::fmt::Display for ResidencyMode {
     }
 }
 
-impl Default for ResidencyMode {
-    fn default() -> ResidencyMode {
-        Self::Full
-    }
-}

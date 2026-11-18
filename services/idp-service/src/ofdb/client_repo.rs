@@ -818,7 +818,7 @@ impl ClientRow {
 
 impl From<ClientRow> for Row {
     fn from(row: ClientRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Uuid(row.application_id),
             Value::Text(row.client_id),

@@ -33,6 +33,7 @@ impl<PeerId, F> Decision<PeerId> for F where
 type DecisionObject<PeerId> = dyn Decision<PeerId>;
 
 /// Caller-local policy and one-way cancellation for one sync executor.
+///
 /// Admission is linearized by the final cancellation read after the decision completes.
 /// Admitted mutations finish without cancellation selection; outbound delivery waits are cancellable.
 pub struct OperationControl<PeerId> {
@@ -66,6 +67,7 @@ impl<PeerId> OperationControl<PeerId> {
         self.cancelled.send_replace(true);
     }
 
+    #[must_use]
     pub fn is_cancelled(&self) -> bool {
         *self.cancelled.borrow()
     }

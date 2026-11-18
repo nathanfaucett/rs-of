@@ -278,11 +278,11 @@ where
     PeerId: Clone + Ord + MaybeSend + MaybeSync + 'static,
 {
     type Error = MemoryTransportError;
-    fn read<'a>(
-        &'a mut self,
+    fn read(
+        &mut self,
         offset: u64,
         length: u32,
-    ) -> crate::FileFuture<'a, Result<Bytes, Self::Error>> {
+    ) -> crate::FileFuture<'_, Result<Bytes, Self::Error>> {
         let receiver = match self.transport.start_request(
             self.peer.clone(),
             FileOperation::Read {
@@ -312,11 +312,11 @@ where
             Ok(Bytes::from(bytes))
         })
     }
-    fn write<'a>(
-        &'a mut self,
+    fn write(
+        &mut self,
         offset: u64,
         data: Bytes,
-    ) -> crate::FileFuture<'a, Result<u32, Self::Error>> {
+    ) -> crate::FileFuture<'_, Result<u32, Self::Error>> {
         Box::pin(async move {
             let response = self
                 .transport
@@ -340,11 +340,11 @@ where
             }
         })
     }
-    fn scan<'a>(
-        &'a mut self,
+    fn scan(
+        &mut self,
         cursor: Option<String>,
         limit: u32,
-    ) -> crate::FileFuture<'a, Result<ScanPage<PeerId>, Self::Error>> {
+    ) -> crate::FileFuture<'_, Result<ScanPage<PeerId>, Self::Error>> {
         Box::pin(async move {
             let response = self
                 .transport

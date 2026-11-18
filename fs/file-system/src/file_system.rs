@@ -682,7 +682,7 @@ where
                         &parent,
                         FileMeta::directory(Uuid::now_v7(), self.node_id.clone()),
                     )
-                    .await?
+                    .await?;
                 }
             }
         }

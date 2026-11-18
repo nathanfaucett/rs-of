@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SetUserMfaRequest {
     #[serde(rename = "method")]
@@ -20,7 +20,8 @@ pub struct SetUserMfaRequest {
 }
 
 impl SetUserMfaRequest {
-    pub fn new(method: String, enable: bool) -> SetUserMfaRequest {
-        SetUserMfaRequest { method, enable }
+    #[must_use]
+    pub const fn new(method: String, enable: bool) -> Self {
+        Self { method, enable }
     }
 }

@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SyncConnectRequest {
     #[serde(rename = "resourceId")]
@@ -20,8 +20,9 @@ pub struct SyncConnectRequest {
 }
 
 impl SyncConnectRequest {
-    pub fn new(resource_id: uuid::Uuid, target_device: uuid::Uuid) -> SyncConnectRequest {
-        SyncConnectRequest {
+    #[must_use]
+    pub const fn new(resource_id: uuid::Uuid, target_device: uuid::Uuid) -> Self {
+        Self {
             resource_id,
             target_device,
         }

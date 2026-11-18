@@ -19,6 +19,7 @@ pub fn parse_scopes(scope: &str) -> Vec<String> {
         .collect()
 }
 
+#[must_use]
 pub fn scopes_to_string(scopes: &[String]) -> String {
     scopes.join(" ")
 }
@@ -47,6 +48,7 @@ pub fn validate_scopes(requested: &[String], allowed: &[String]) -> ErrorRespons
     }
 }
 
+#[must_use]
 pub fn intersect_scopes(requested: &[String], allowed: &[String]) -> Vec<String> {
     if requested.is_empty() {
         return allowed.to_vec();

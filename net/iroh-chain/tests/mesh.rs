@@ -288,7 +288,7 @@ async fn mesh_tracks_allowlist_changes_and_offline_peers() {
 
         for server in &network.servers[..2] {
             server.peers().remove(added_id);
-            assert!(server.open_stream(added_id).await.is_err());
+            server.open_stream(added_id).await.unwrap_err();
         }
         let mut removed_observer = network.servers[2].subscribe_messages();
         let mut survivor_observer = network.servers[1].subscribe_messages();
@@ -426,12 +426,9 @@ async fn pairing_offer_and_reply_exchange() {
             .unwrap();
         let _unknown_router = unknown.router(Echo);
         unknown.peers().add(receiver.endpoint().id());
-        assert!(
-            unknown
+        unknown
                 .send_pairing_offer(receiver.endpoint().addr(), b"pairing disabled")
-                .await
-                .is_err()
-        );
+                .await.unwrap_err();
         receiver.close().await;
         tokio::time::timeout(Duration::from_secs(5), offer.closed())
             .await

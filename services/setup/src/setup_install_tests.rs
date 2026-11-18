@@ -192,8 +192,7 @@ async fn installation_child() {
             ) {
                 let descendant_stopped =
                     fs::read_to_string(format!("/proc/{}/stat", descendant.as_raw_pid()))
-                        .map(|stat| stat.split_whitespace().nth(2) == Some("Z"))
-                        .unwrap_or(true);
+                        .map_or(true, |stat| stat.split_whitespace().nth(2) == Some("Z"));
                 assert!(
                     descendant_stopped,
                     "descendant must terminate before host/admission leases release"

@@ -74,7 +74,7 @@ pub struct Client {
 
 impl From<Client> for ClientRegistration {
     fn from(val: Client) -> Self {
-        ClientRegistration {
+        Self {
             // The URI of the application associated with the client.
             application: ApplicationRegistration {
                 name: Some(val.client_name.clone()),

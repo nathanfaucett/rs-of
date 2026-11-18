@@ -29,8 +29,10 @@ impl Default for SqlValue {
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Type {
     #[serde(rename = "null")]
+    #[default]
     Null,
     #[serde(rename = "boolean")]
     Boolean,
@@ -46,8 +48,3 @@ pub enum Type {
     Blob,
 }
 
-impl Default for Type {
-    fn default() -> Type {
-        Self::Null
-    }
-}

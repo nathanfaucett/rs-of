@@ -22,8 +22,8 @@ pub enum Sex {
 impl fmt::Display for Sex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Sex::Male => write!(f, "male"),
-            Sex::Female => write!(f, "female"),
+            Self::Male => write!(f, "male"),
+            Self::Female => write!(f, "female"),
         }
     }
 }

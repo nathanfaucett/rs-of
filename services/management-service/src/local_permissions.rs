@@ -16,7 +16,7 @@ pub struct LocalPermissions {
 
 impl LocalPermissions {
     #[must_use]
-    pub fn new(engine: Client) -> Self {
+    pub const fn new(engine: Client) -> Self {
         Self { engine }
     }
 
@@ -82,8 +82,8 @@ mod tests {
                     .evaluate(&request)
                     .await
                     .expect("local permission allows")
-            );
-        }
+            )
+        };
         {
             let engine = Arc::new(Database::open(&path).expect("reopen offline policy"));
             let local = LocalPermissions::new(engine.client());
@@ -102,8 +102,8 @@ mod tests {
                     .evaluate(&request)
                     .await
                     .expect("wrong action/target denies")
-            );
-        }
+            )
+        };
         std::fs::remove_file(path).expect("remove policy fixture");
     }
 }

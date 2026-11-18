@@ -10,15 +10,16 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HealthResponse {
     #[serde(rename = "database")]
     pub database: Box<crate::http::device::health_status::HealthStatus>,
 }
 
 impl HealthResponse {
-    pub fn new(database: crate::http::device::health_status::HealthStatus) -> HealthResponse {
-        HealthResponse {
+    #[must_use]
+    pub fn new(database: crate::http::device::health_status::HealthStatus) -> Self {
+        Self {
             database: Box::new(database),
         }
     }

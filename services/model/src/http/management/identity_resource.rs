@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum IdentityResource {
     IdentityResourceOneOf(
@@ -52,8 +52,10 @@ impl Default for IdentityResource {
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Type {
     #[serde(rename = "client")]
+    #[default]
     Client,
     #[serde(rename = "application")]
     Application,
@@ -75,8 +77,3 @@ pub enum Type {
     ReplicaSigner,
 }
 
-impl Default for Type {
-    fn default() -> Type {
-        Self::Client
-    }
-}

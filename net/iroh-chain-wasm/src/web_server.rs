@@ -55,7 +55,7 @@ impl WebServer {
     pub async fn create(
         secret_key_hex: Option<String>,
         relay_urls: Vec<String>,
-    ) -> Result<WebServer, JsError> {
+    ) -> Result<Self, JsError> {
         let secret_key = match secret_key_hex {
             Some(hex) => {
                 SecretKey::from_str(&hex).map_err(|error| JsError::new(&error.to_string()))?
@@ -80,6 +80,7 @@ impl WebServer {
         Ok(web)
     }
 
+    #[must_use]
     pub fn endpoint_id(&self) -> String {
         self.server.endpoint().id().to_string()
     }
@@ -100,6 +101,7 @@ impl WebServer {
             .map_err(|error| JsError::new(&error.to_string()))
     }
 
+    #[must_use]
     pub fn subscribe_messages(&self, callback: js_sys::Function) -> u32 {
         let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
         self.message_callbacks
@@ -141,6 +143,7 @@ impl WebServer {
         self.server.set_pairing_enabled(enabled);
     }
 
+    #[must_use]
     pub fn subscribe_pairing_offers(&self, callback: js_sys::Function) -> u32 {
         let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
         self.pairing_callbacks
@@ -219,8 +222,7 @@ impl WebServer {
                     let source = JsValue::from(message.source.to_string());
                     let destination = message
                         .destination
-                        .map(|id| JsValue::from(id.to_string()))
-                        .unwrap_or(JsValue::NULL);
+                        .map_or(JsValue::NULL, |id| JsValue::from(id.to_string()));
                     let payload = js_sys::Uint8Array::from(message.payload.as_slice());
                     let _ = callback.call3(&JsValue::NULL, &source, &destination, &payload);
                 }

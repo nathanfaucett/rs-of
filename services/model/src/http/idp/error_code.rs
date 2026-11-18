@@ -10,11 +10,13 @@
 
 use serde::{Deserialize, Serialize};
 
-/// ErrorCode : Standard OAuth 2.0 error codes (RFC 6749 Section 5.2).
+/// `ErrorCode` : Standard OAuth 2.0 error codes (RFC 6749 Section 5.2).
 /// Standard OAuth 2.0 error codes (RFC 6749 Section 5.2).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ErrorCode {
     #[serde(rename = "not_found")]
+    #[default]
     NotFound,
     #[serde(rename = "unauthorized_client")]
     UnauthorizedClient,
@@ -65,8 +67,3 @@ impl core::fmt::Display for ErrorCode {
     }
 }
 
-impl Default for ErrorCode {
-    fn default() -> ErrorCode {
-        Self::NotFound
-    }
-}

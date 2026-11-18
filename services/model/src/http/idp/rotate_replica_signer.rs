@@ -18,8 +18,9 @@ pub struct RotateReplicaSigner {
 }
 
 impl RotateReplicaSigner {
-    pub fn new(public_jwk: crate::http::idp::jwk_public::JwkPublic) -> RotateReplicaSigner {
-        RotateReplicaSigner {
+    #[must_use]
+    pub fn new(public_jwk: crate::http::idp::jwk_public::JwkPublic) -> Self {
+        Self {
             public_jwk: Box::new(public_jwk),
         }
     }

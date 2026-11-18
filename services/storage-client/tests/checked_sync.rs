@@ -63,7 +63,7 @@ fn sql() -> SqlDatabaseHandle {
     let identity = identity();
     SqlDatabaseHandle::new(
         ofdb_sql::Database::in_memory(),
-        identity.clone(),
+        identity,
         TransportConfig::new("ws://unused".into()),
         token(),
     )

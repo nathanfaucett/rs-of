@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorizationCodeResponseOneOf1 {
     #[serde(rename = "error")]
     pub error: crate::http::idp::error_code::ErrorCode,
@@ -23,11 +23,12 @@ pub struct AuthorizationCodeResponseOneOf1 {
 }
 
 impl AuthorizationCodeResponseOneOf1 {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         error: crate::http::idp::error_code::ErrorCode,
         state: String,
-    ) -> AuthorizationCodeResponseOneOf1 {
-        AuthorizationCodeResponseOneOf1 {
+    ) -> Self {
+        Self {
             error,
             error_description: None,
             error_uri: None,

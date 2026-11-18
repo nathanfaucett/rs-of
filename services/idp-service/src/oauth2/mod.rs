@@ -8,7 +8,6 @@ pub mod scope;
 pub mod service;
 pub mod token;
 
-pub(crate) use authorization::validate_dynamic_client_grants;
 pub use authorization::{
     resolve_redirect_uri, validate_authorization_details, validate_authorization_request,
 };

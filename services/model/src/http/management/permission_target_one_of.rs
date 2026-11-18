@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PermissionTargetOneOf {
     #[serde(rename = "applicationId")]
     pub application_id: String,
@@ -21,12 +21,13 @@ pub struct PermissionTargetOneOf {
 }
 
 impl PermissionTargetOneOf {
+    #[must_use]
     pub fn new(
         application_id: String,
         resource: crate::http::management::identity_resource::IdentityResource,
         scope: Scope,
-    ) -> PermissionTargetOneOf {
-        PermissionTargetOneOf {
+    ) -> Self {
+        Self {
             application_id,
             resource: Box::new(resource),
             scope,
@@ -35,13 +36,10 @@ impl PermissionTargetOneOf {
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Scope {
     #[serde(rename = "application")]
+    #[default]
     Application,
 }
 
-impl Default for Scope {
-    fn default() -> Scope {
-        Self::Application
-    }
-}

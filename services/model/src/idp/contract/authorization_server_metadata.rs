@@ -40,7 +40,7 @@ pub struct AuthorizationServerMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registration_endpoint: Option<String>,
 
-    /// URL of the UserInfo endpoint.
+    /// URL of the `UserInfo` endpoint.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub userinfo_endpoint: Option<String>,
 
@@ -48,18 +48,18 @@ pub struct AuthorizationServerMetadata {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scopes_supported: Vec<String>,
 
-    /// REQUIRED. List of supported response_type values.
+    /// REQUIRED. List of supported `response_type` values.
     /// In OAuth 2.1 this should primarily be ["code"].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub response_types_supported: Vec<ResponseType>,
 
-    /// List of supported response_mode values.
+    /// List of supported `response_mode` values.
     /// Defaults to ["query", "fragment"] if omitted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub response_modes_supported: Vec<ResponseMode>,
 
     /// List of supported grant types.
-    /// In OAuth 2.1: authorization_code, client_credentials, refresh_token (no implicit/password).
+    /// In OAuth 2.1: `authorization_code`, `client_credentials`, `refresh_token` (no implicit/password).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grant_types_supported: Vec<GrantType>,
 
@@ -68,7 +68,7 @@ pub struct AuthorizationServerMetadata {
     pub token_endpoint_auth_methods_supported: Vec<TokenEndpointAuthMethod>,
 
     /// JWS signing algorithms supported for JWT client authentication
-    /// at the token endpoint (private_key_jwt, client_secret_jwt).
+    /// at the token endpoint (`private_key_jwt`, `client_secret_jwt`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub token_endpoint_auth_signing_alg_values_supported: Vec<String>,
 

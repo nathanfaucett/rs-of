@@ -22,12 +22,13 @@ pub struct EnrollReplicaSigner {
 }
 
 impl EnrollReplicaSigner {
+    #[must_use]
     pub fn new(
         endpoint_id: String,
         member_id: String,
         public_jwk: crate::http::idp::jwk_public::JwkPublic,
-    ) -> EnrollReplicaSigner {
-        EnrollReplicaSigner {
+    ) -> Self {
+        Self {
             endpoint_id,
             member_id,
             public_jwk: Box::new(public_jwk),

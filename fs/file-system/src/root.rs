@@ -5,12 +5,12 @@ use ofdb_platform::{BoxFuture, MaybeSend, MaybeSync};
 use crate::Error;
 
 /// Object-safe root boundary shared across threads on native targets.
-pub(crate) trait RootObject: Root + MaybeSend + MaybeSync {}
+pub trait RootObject: Root + MaybeSend + MaybeSync {}
 impl<T: ?Sized + Root + MaybeSend + MaybeSync> RootObject for T {}
 
 /// Internal port for exclusive ownership, durable retirement, and root removal of one
 /// filesystem identity. The boundary is internal to the library.
-pub(crate) trait Root: MaybeSend + MaybeSync {
+pub trait Root: MaybeSend + MaybeSync {
     /// Whether a durable retirement record exists.
     fn retired(&self) -> BoxFuture<'_, Result<bool, Error>>;
 

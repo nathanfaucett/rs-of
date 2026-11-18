@@ -50,7 +50,7 @@ fn existing_named_table_transactions_reopen_without_conversion() {
         Database::open(&path).is_err(),
         "missing default table must not replace kv"
     );
-    assert!(Database::open_with_table(&path, "missing").is_err());
+    Database::open_with_table(&path, "missing").unwrap_err();
 }
 
 #[test]
@@ -62,9 +62,9 @@ fn unsupported_named_table_is_not_replaced() {
         let tx = db.begin_write().expect("fixture transaction");
         tx.open_table(redb::TableDefinition::<u64, u64>::new("kv"))
             .expect("incompatible table");
-        tx.commit().expect("fixture commit")
+        tx.commit().expect("fixture commit");
     };
-    assert!(Database::open_with_table(&path, "kv").is_err());
+    Database::open_with_table(&path, "kv").unwrap_err();
 }
 
 #[test]

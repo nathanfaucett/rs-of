@@ -1,4 +1,4 @@
-use std::{future::Future, io};
+use std::io;
 
 pub fn run<T: Send>(future: impl Future<Output = io::Result<T>> + Send) -> io::Result<T> {
     std::thread::scope(|scope| {

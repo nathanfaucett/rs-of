@@ -79,7 +79,8 @@ impl MasterKey {
         Ok(Self { key })
     }
 
-    pub fn key(&self) -> &XPrv {
+    #[must_use]
+    pub const fn key(&self) -> &XPrv {
         &self.key
     }
 

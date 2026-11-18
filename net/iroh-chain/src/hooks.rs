@@ -46,7 +46,7 @@ pub struct AllowlistHook {
 }
 
 impl AllowlistHook {
-    pub fn new(
+    pub const fn new(
         allowed: EndpointIdStore,
         pairing_enabled: Arc<AtomicBool>,
         alpn_allowlist: AlpnAllowlist,

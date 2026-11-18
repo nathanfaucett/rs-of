@@ -11,7 +11,6 @@
 use super::support::Error;
 use super::{ContentType, configuration};
 use crate::apis::support::ResponseContent;
-use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
 /// struct for passing parameters to the method [`active_user`]
@@ -46,7 +45,7 @@ pub async fn active_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;

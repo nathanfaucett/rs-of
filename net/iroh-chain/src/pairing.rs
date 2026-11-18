@@ -19,6 +19,7 @@ pub struct PairingOffer {
 }
 
 impl PairingOffer {
+    #[must_use]
     pub fn new(
         remote_id: EndpointId,
         payload: Vec<u8>,
@@ -35,6 +36,7 @@ impl PairingOffer {
         }
     }
 
+    #[must_use]
     pub fn is_closed(&self) -> bool {
         self._connection.close_reason().is_some()
     }
@@ -75,7 +77,7 @@ mod tests {
 
     #[test]
     fn limits_pairing_payloads() {
-        assert!(validate_payload(&[0; MAX_PAIRING_PAYLOAD_LENGTH]).is_ok());
+        validate_payload(&[0; MAX_PAIRING_PAYLOAD_LENGTH]).unwrap();
         assert!(validate_payload(&[0; MAX_PAIRING_PAYLOAD_LENGTH + 1]).is_err());
     }
 }

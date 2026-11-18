@@ -25,7 +25,8 @@ pub struct TransportConfig {
     pub sync_ws_url: String,
 }
 impl TransportConfig {
-    pub fn new(sync_ws_url: String) -> Self {
+    #[must_use]
+    pub const fn new(sync_ws_url: String) -> Self {
         Self { sync_ws_url }
     }
 }

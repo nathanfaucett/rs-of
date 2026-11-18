@@ -149,13 +149,13 @@ mod initialization_tests {
                     resume_rx.recv().expect("resume initialization");
                     Ok(())
                 })
-                .expect("first initialization")
+                .expect("first initialization");
             }
         });
         entered_rx.recv().expect("wait for initialization start");
         let (finished_tx, finished_rx) = std::sync::mpsc::channel();
         let second = std::thread::spawn({
-            let initialized = initialized.clone();
+            let initialized = initialized;
             let calls = calls.clone();
             move || {
                 initialize_store(&initialized, || {

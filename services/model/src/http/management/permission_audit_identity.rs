@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermissionAuditIdentity {
     #[serde(rename = "actor")]
@@ -22,12 +22,13 @@ pub struct PermissionAuditIdentity {
 }
 
 impl PermissionAuditIdentity {
+    #[must_use]
     pub fn new(
         actor: crate::http::management::permission_subject::PermissionSubject,
         service_client_id: String,
         service_subject: String,
-    ) -> PermissionAuditIdentity {
-        PermissionAuditIdentity {
+    ) -> Self {
+        Self {
             actor: Box::new(actor),
             service_client_id,
             service_subject,

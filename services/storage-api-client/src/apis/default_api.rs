@@ -11,7 +11,6 @@
 use super::support::Error;
 use super::{ContentType, configuration};
 use crate::apis::support::ResponseContent;
-use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
 /// struct for passing parameters to the method [`upgrade_socket`]
@@ -87,14 +86,14 @@ pub async fn health(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `serde_json::Value`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `serde_json::Value`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -142,20 +141,20 @@ pub fn upgrade_socket_request(
     configuration: &configuration::Configuration,
     params: UpgradeSocketParams,
 ) -> Result<reqwest::Request, Error<UpgradeSocketError>> {
-    let uri_str = format!("{}", configuration.base_path);
+    let uri_str = configuration.base_path.to_string();
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
-    req_builder = req_builder.query(&[("access_token", &params.access_token.to_string())]);
-    req_builder = req_builder.query(&[("filesystem_id", &params.filesystem_id.to_string())]);
+    req_builder = req_builder.query(&[("access_token", &params.access_token.clone())]);
+    req_builder = req_builder.query(&[("filesystem_id", &params.filesystem_id.clone())]);
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.header("Upgrade", params.upgrade.to_string());
-    req_builder = req_builder.header("Connection", params.connection.to_string());
-    req_builder = req_builder.header("Sec-WebSocket-Key", params.sec_web_socket_key.to_string());
+    req_builder = req_builder.header("Upgrade", params.upgrade.clone());
+    req_builder = req_builder.header("Connection", params.connection.clone());
+    req_builder = req_builder.header("Sec-WebSocket-Key", params.sec_web_socket_key.clone());
     req_builder = req_builder.header(
         "Sec-WebSocket-Version",
-        params.sec_web_socket_version.to_string(),
+        params.sec_web_socket_version.clone(),
     );
 
     let req = req_builder.build()?;
@@ -212,14 +211,14 @@ pub async fn version(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::storage_api::version_response::VersionResponse`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::storage_api::version_response::VersionResponse`"
-                ))));
+                ))))
             }
         }
     } else {

@@ -14,7 +14,7 @@ pub struct ReconstructedDocument {
 }
 
 impl ReconstructedDocument {
-    pub fn new(id: DocumentId) -> Self {
+    pub const fn new(id: DocumentId) -> Self {
         Self {
             id,
             doc: None,
@@ -36,8 +36,8 @@ impl ReconstructedDocument {
         }
         if let Some(doc) = self.doc.as_mut() {
             doc.load_incremental(data).map_err(BTreeError::custom)?;
-        } else {
-            if key.r#type().is_snapshot() {
+        }
+            else if key.r#type().is_snapshot() {
                 self.doc.replace(
                     AutoCommit::load(data)
                         .map_err(BTreeError::custom)?
@@ -49,7 +49,6 @@ impl ReconstructedDocument {
                     key.id()
                 )));
             }
-        }
 
         self.deltas += 1;
         self.bytes_size += data.len();
@@ -58,7 +57,7 @@ impl ReconstructedDocument {
     }
 }
 
-pub(crate) struct ReconstructedRangeDocument {
+pub struct ReconstructedRangeDocument {
     pub keys: Vec<DocumentChangeKey>,
     pub result: BTreeResult<ReconstructedDocument>,
 }
@@ -97,7 +96,7 @@ impl PendingDocument {
     }
 }
 
-pub(crate) fn reconstruct_documents<S>(source: S) -> impl Stream<Item = ReconstructedRangeDocument>
+pub fn reconstruct_documents<S>(source: S) -> impl Stream<Item = ReconstructedRangeDocument>
 where
     S: Stream<Item = BTreeResult<(DocumentChangeKey, Vec<u8>)>>,
 {

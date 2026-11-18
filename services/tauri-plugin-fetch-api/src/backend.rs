@@ -18,7 +18,7 @@ pub type RequestBoxStream = Request<Body>;
 pub type ResponseBoxStream = Response<Body>;
 
 /// Type definition for the user-supplied asynchronous request handler signature.
-/// Takes the Tauri AppHandle and an inbound HTTP Request containing the incoming byte stream,
+/// Takes the Tauri `AppHandle` and an inbound HTTP Request containing the incoming byte stream,
 /// and returns a Future that resolves to an HTTP Response containing the outbound byte stream.
 pub type HandlerFn<R> = Arc<
     dyn Fn(
@@ -104,7 +104,7 @@ async fn upload_plugin_chunk(
     Ok(())
 }
 
-/// Tauri command to explicitly interrupt an active streaming operation via AbortController signals.
+/// Tauri command to explicitly interrupt an active streaming operation via `AbortController` signals.
 #[tauri::command]
 async fn cancel_plugin_stream(
     stream_id: String,
@@ -140,8 +140,8 @@ async fn init_plugin_stream<R: Runtime>(
         let mut senders = plugin_state.upload_senders.lock().await;
         senders.insert(stream_id.clone(), req_tx);
         let mut active = plugin_state.active_streams.lock().await;
-        active.insert(stream_id.clone());
-    }
+        active.insert(stream_id.clone())
+    };
 
     // 3. Map client payload configurations into a native tauri::http::Request wrapper layout
     let mut http_req = Request::builder()

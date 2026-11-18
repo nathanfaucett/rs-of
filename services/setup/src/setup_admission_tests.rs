@@ -70,13 +70,13 @@ fn health_checks_private_state_without_authorizing_and_failure_is_sticky() {
         }
         match fault {
             "missing" => {
-                fs::rename(root.join("held-state"), &state).expect("external fixture restoration")
+                fs::rename(root.join("held-state"), &state).expect("external fixture restoration");
             }
             "corrupt" => fs::write(&state, original).expect("external fixture restoration"),
             "permissions" => fs::set_permissions(&state, fs::Permissions::from_mode(0o600))
                 .expect("external fixture restoration"),
             "pending" => {
-                fs::remove_file(root.join("pending")).expect("external fixture restoration")
+                fs::remove_file(root.join("pending")).expect("external fixture restoration");
             }
             _ => {
                 fs::remove_file(root.join("lock")).expect("remove replacement fixture inode");
@@ -428,21 +428,21 @@ fn missing_corrupt_and_unsafe_retained_state_is_not_repaired() {
             "state-permissions" => fs::set_permissions(&state, fs::Permissions::from_mode(0o644))
                 .expect("unsafe state"),
             "root-permissions" => {
-                fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).expect("unsafe root")
+                fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).expect("unsafe root");
             }
             "symlink" => {
                 fs::rename(&state, parent.path().join("saved")).expect("save state");
                 symlink(parent.path().join("saved"), &state).expect("unsafe symlink");
             }
             "hardlink" => {
-                fs::hard_link(&state, parent.path().join("alias")).expect("unsafe hardlink")
+                fs::hard_link(&state, parent.path().join("alias")).expect("unsafe hardlink");
             }
             "directory" => {
                 fs::remove_file(&state).expect("remove state");
                 fs::create_dir(&state).expect("wrong file type");
             }
             "pending" => {
-                fs::write(root.join("pending"), "interrupted update").expect("incomplete write")
+                fs::write(root.join("pending"), "interrupted update").expect("incomplete write");
             }
             _ => unreachable!(),
         }
@@ -500,15 +500,15 @@ fn incomplete_existing_root_and_unsafe_parents_never_generate() {
     let root = parent.path().join("existing");
     fs::create_dir(&root).expect("incomplete root");
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).expect("private root");
-    assert!(SetupAdmission::open(&root).is_err());
+    SetupAdmission::open(&root).unwrap_err();
     assert_eq!(fs::read_dir(&root).expect("unchanged root").count(), 0);
     let alias = parent.path().join("alias");
     symlink(&root, &alias).expect("root symlink");
-    assert!(SetupAdmission::open(&alias).is_err());
-    assert!(SetupAdmission::open(&alias.join("nested")).is_err());
+    SetupAdmission::open(&alias).unwrap_err();
+    SetupAdmission::open(&alias.join("nested")).unwrap_err();
     fs::set_permissions(parent.path(), fs::Permissions::from_mode(0o755)).expect("unsafe parent");
     let fresh = parent.path().join("fresh");
-    assert!(SetupAdmission::open(&fresh).is_err());
+    SetupAdmission::open(&fresh).unwrap_err();
     assert!(!fresh.exists());
 }
 

@@ -1,4 +1,4 @@
-use std::{future::Future, io, path::PathBuf, pin::Pin, sync::Arc};
+use std::{io, path::PathBuf, pin::Pin, sync::Arc};
 
 use iroh::{
     EndpointId,

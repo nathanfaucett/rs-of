@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileSystemDetailResponse {
     #[serde(rename = "applicationId")]
     pub application_id: String,
@@ -26,8 +26,9 @@ pub struct FileSystemDetailResponse {
 }
 
 impl FileSystemDetailResponse {
-    pub fn new(application_id: String, id: String) -> FileSystemDetailResponse {
-        FileSystemDetailResponse {
+    #[must_use]
+    pub const fn new(application_id: String, id: String) -> Self {
+        Self {
             application_id,
             id,
             name: None,

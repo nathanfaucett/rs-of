@@ -277,7 +277,7 @@ pub struct EventStream<'a> {
     delivered_any: bool,
 }
 
-impl<'a> core::fmt::Debug for EventStream<'a> {
+impl core::fmt::Debug for EventStream<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("EventStream")
             .field("delivered_any", &self.delivered_any)

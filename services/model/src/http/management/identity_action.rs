@@ -12,8 +12,10 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum IdentityAction {
     #[serde(rename = "clients_read")]
+    #[default]
     ClientsRead,
     #[serde(rename = "clients_register")]
     ClientsRegister,
@@ -130,8 +132,3 @@ impl core::fmt::Display for IdentityAction {
     }
 }
 
-impl Default for IdentityAction {
-    fn default() -> IdentityAction {
-        Self::ClientsRead
-    }
-}

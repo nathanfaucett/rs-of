@@ -12,8 +12,10 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum KeyUse {
     #[serde(rename = "sig")]
+    #[default]
     Sig,
     #[serde(rename = "enc")]
     Enc,
@@ -28,8 +30,3 @@ impl core::fmt::Display for KeyUse {
     }
 }
 
-impl Default for KeyUse {
-    fn default() -> KeyUse {
-        Self::Sig
-    }
-}

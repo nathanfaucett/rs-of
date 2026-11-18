@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientConsentMetadata {
     #[serde(rename = "allowed_scopes")]
     pub allowed_scopes: Vec<String>,
@@ -53,14 +53,15 @@ pub struct ClientConsentMetadata {
 }
 
 impl ClientConsentMetadata {
+    #[must_use]
     pub fn new(
         allowed_scopes: Vec<String>,
         application: crate::http::idp::application_registration::ApplicationRegistration,
         client_id: String,
         client_name: String,
         redirect_uris: Vec<String>,
-    ) -> ClientConsentMetadata {
-        ClientConsentMetadata {
+    ) -> Self {
+        Self {
             allowed_scopes,
             application: Box::new(application),
             client_id,

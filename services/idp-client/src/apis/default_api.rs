@@ -11,7 +11,6 @@
 use super::support::Error;
 use super::{ContentType, configuration};
 use crate::apis::support::ResponseContent;
-use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
 /// struct for passing parameters to the method [`approve_for_user`]
@@ -222,7 +221,7 @@ pub struct SetUserMfaParams {
 /// struct for passing parameters to the method [`token`]
 #[derive(Clone, Debug, Default)]
 pub struct TokenParams {
-    /// Optional HTTP Basic OAuth Client credentials; client_credentials also accepts client_secret_post
+    /// Optional HTTP Basic OAuth Client credentials; `client_credentials` also accepts `client_secret_post`
     pub authorization: Option<String>,
     pub client_id: Option<String>,
     pub password: Option<String>,
@@ -554,7 +553,7 @@ pub async fn approve_for_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.approve_for_user_request);
 
     let req = req_builder.build()?;
@@ -574,14 +573,14 @@ pub async fn approve_for_user(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::is_allowed_for_user_response::IsAllowedForUserResponse`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::is_allowed_for_user_response::IsAllowedForUserResponse`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -612,7 +611,7 @@ pub async fn authorize_json(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.authorization_request);
 
     let req = req_builder.build()?;
@@ -632,14 +631,14 @@ pub async fn authorize_json(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::authorization_code_response::AuthorizationCodeResponse`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::authorization_code_response::AuthorizationCodeResponse`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -662,49 +661,49 @@ pub async fn authorize_query(
 
     req_builder = req_builder.query(&[("response_type", &params.response_type.to_string())]);
     if let Some(ref param_value) = params.client_id {
-        req_builder = req_builder.query(&[("client_id", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("client_id", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.application_id {
-        req_builder = req_builder.query(&[("application_id", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("application_id", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.registration {
-        req_builder = req_builder.query(&[("registration", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("registration", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.redirect_uri {
-        req_builder = req_builder.query(&[("redirect_uri", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("redirect_uri", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.scope {
-        req_builder = req_builder.query(&[("scope", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("scope", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.state {
-        req_builder = req_builder.query(&[("state", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("state", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.resource {
-        req_builder = req_builder.query(&[("resource", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("resource", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.code_challenge {
-        req_builder = req_builder.query(&[("code_challenge", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("code_challenge", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.code_challenge_method {
         req_builder = req_builder.query(&[("code_challenge_method", &param_value.to_string())]);
     }
     if let Some(ref param_value) = params.nonce {
-        req_builder = req_builder.query(&[("nonce", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("nonce", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.prompt {
-        req_builder = req_builder.query(&[("prompt", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("prompt", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.response_mode {
         req_builder = req_builder.query(&[("response_mode", &param_value.to_string())]);
     }
     if let Some(ref param_value) = params.login_hint {
-        req_builder = req_builder.query(&[("login_hint", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("login_hint", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.id_token_hint {
-        req_builder = req_builder.query(&[("id_token_hint", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("id_token_hint", &param_value.clone())]);
     }
     if let Some(ref param_value) = params.ui_locales {
-        req_builder = req_builder.query(&[("ui_locales", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("ui_locales", &param_value.clone())]);
     }
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
@@ -743,7 +742,7 @@ pub async fn create_application(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.application_registration);
 
     let req = req_builder.build()?;
@@ -779,7 +778,7 @@ pub async fn create_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.create_user_request);
 
     let req = req_builder.build()?;
@@ -799,14 +798,14 @@ pub async fn create_user(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::user_info::UserInfo`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::user_info::UserInfo`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -838,7 +837,7 @@ pub async fn delete_application(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -877,7 +876,7 @@ pub async fn delete_register(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -916,7 +915,7 @@ pub async fn delete_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -952,10 +951,10 @@ pub async fn device_auth(
     }
     let mut multipart_form_params = std::collections::HashMap::new();
     if let Some(param_value) = params.client_id {
-        multipart_form_params.insert("client_id", param_value.to_string());
+        multipart_form_params.insert("client_id", param_value.clone());
     }
     if let Some(param_value) = params.scope {
-        multipart_form_params.insert("scope", param_value.to_string());
+        multipart_form_params.insert("scope", param_value.clone());
     }
     req_builder = req_builder.form(&multipart_form_params);
 
@@ -976,14 +975,14 @@ pub async fn device_auth(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::device_authorization::DeviceAuthorization`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::device_authorization::DeviceAuthorization`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1042,7 +1041,7 @@ pub async fn get_application(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1082,7 +1081,7 @@ pub async fn get_client(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1101,14 +1100,14 @@ pub async fn get_client(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::client_consent_metadata::ClientConsentMetadata`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::client_consent_metadata::ClientConsentMetadata`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1138,7 +1137,7 @@ pub async fn get_register(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1157,14 +1156,14 @@ pub async fn get_register(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::client_registration::ClientRegistration`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::client_registration::ClientRegistration`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1194,7 +1193,7 @@ pub async fn get_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1213,14 +1212,14 @@ pub async fn get_user(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::user_info::UserInfo`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::user_info::UserInfo`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1261,14 +1260,14 @@ pub async fn health(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::health_response::HealthResponse`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::health_response::HealthResponse`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1299,7 +1298,7 @@ pub async fn is_allowed_for_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.is_allowed_for_user_request);
 
     let req = req_builder.build()?;
@@ -1319,14 +1318,14 @@ pub async fn is_allowed_for_user(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::is_allowed_for_user_response::IsAllowedForUserResponse`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::is_allowed_for_user_response::IsAllowedForUserResponse`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1367,14 +1366,14 @@ pub async fn jwks(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::jwks::Jwks`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::jwks::Jwks`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1406,7 +1405,7 @@ pub async fn list_applications(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1443,7 +1442,7 @@ pub async fn list_client_keys(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1486,7 +1485,7 @@ pub async fn list_consents(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1525,7 +1524,7 @@ pub async fn list_users(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1544,14 +1543,14 @@ pub async fn list_users(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `Vec&lt;of_model::http::idp::user_info::UserInfo&gt;`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;of_model::http::idp::user_info::UserInfo&gt;`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1627,14 +1626,14 @@ pub async fn openid_configuration(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::authorization_server_metadata::AuthorizationServerMetadata`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::authorization_server_metadata::AuthorizationServerMetadata`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1664,7 +1663,7 @@ pub async fn put_register(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.client_registration);
 
     let req = req_builder.build()?;
@@ -1684,14 +1683,14 @@ pub async fn put_register(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::client_registration::ClientRegistration`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::client_registration::ClientRegistration`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1719,7 +1718,7 @@ pub async fn register(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.client_registration);
 
     let req = req_builder.build()?;
@@ -1739,14 +1738,14 @@ pub async fn register(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::client_registration::ClientRegistration`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::client_registration::ClientRegistration`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -1776,7 +1775,7 @@ pub async fn reset_password(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.reset_password);
 
     let req = req_builder.build()?;
@@ -1811,9 +1810,9 @@ pub async fn revoke(
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
     let mut multipart_form_params = std::collections::HashMap::new();
-    multipart_form_params.insert("token", params.token.to_string());
+    multipart_form_params.insert("token", params.token.clone());
     if let Some(param_value) = params.token_type_hint {
-        multipart_form_params.insert("token_type_hint", param_value.to_string());
+        multipart_form_params.insert("token_type_hint", param_value.clone());
     }
     req_builder = req_builder.form(&multipart_form_params);
 
@@ -1854,7 +1853,7 @@ pub async fn revoke_client_keys(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1894,7 +1893,7 @@ pub async fn revoke_consent(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1933,7 +1932,7 @@ pub async fn rotate_client_key(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1972,7 +1971,7 @@ pub async fn rotate_client_secret(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1991,14 +1990,14 @@ pub async fn rotate_client_secret(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `String`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `String`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -2059,7 +2058,7 @@ pub async fn set_user_blocked(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.set_user_blocked_request);
 
     let req = req_builder.build()?;
@@ -2099,7 +2098,7 @@ pub async fn set_user_mfa(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.set_user_mfa_request);
 
     let req = req_builder.build()?;
@@ -2134,59 +2133,59 @@ pub async fn token(
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
     if let Some(param_value) = params.authorization {
-        req_builder = req_builder.header("Authorization", param_value.to_string());
+        req_builder = req_builder.header("Authorization", param_value.clone());
     }
     let mut multipart_form_params = std::collections::HashMap::new();
     if let Some(param_value) = params.client_id {
-        multipart_form_params.insert("client_id", param_value.to_string());
+        multipart_form_params.insert("client_id", param_value.clone());
     }
     if let Some(param_value) = params.password {
-        multipart_form_params.insert("password", param_value.to_string());
+        multipart_form_params.insert("password", param_value.clone());
     }
     if let Some(param_value) = params.resource {
-        multipart_form_params.insert("resource", param_value.to_string());
+        multipart_form_params.insert("resource", param_value.clone());
     }
     if let Some(param_value) = params.scope {
-        multipart_form_params.insert("scope", param_value.to_string());
+        multipart_form_params.insert("scope", param_value.clone());
     }
     if let Some(param_value) = params.username {
-        multipart_form_params.insert("username", param_value.to_string());
+        multipart_form_params.insert("username", param_value.clone());
     }
     if let Some(param_value) = params.grant_type {
-        multipart_form_params.insert("grant_type", param_value.to_string());
+        multipart_form_params.insert("grant_type", param_value.clone());
     }
     if let Some(param_value) = params.code {
-        multipart_form_params.insert("code", param_value.to_string());
+        multipart_form_params.insert("code", param_value.clone());
     }
     if let Some(param_value) = params.code_verifier {
-        multipart_form_params.insert("code_verifier", param_value.to_string());
+        multipart_form_params.insert("code_verifier", param_value.clone());
     }
     if let Some(param_value) = params.redirect_uri {
-        multipart_form_params.insert("redirect_uri", param_value.to_string());
+        multipart_form_params.insert("redirect_uri", param_value.clone());
     }
     if let Some(param_value) = params.audience {
-        multipart_form_params.insert("audience", param_value.to_string());
+        multipart_form_params.insert("audience", param_value.clone());
     }
     if let Some(param_value) = params.client_secret {
-        multipart_form_params.insert("client_secret", param_value.to_string());
+        multipart_form_params.insert("client_secret", param_value.clone());
     }
     if let Some(param_value) = params.refresh_token {
-        multipart_form_params.insert("refresh_token", param_value.to_string());
+        multipart_form_params.insert("refresh_token", param_value.clone());
     }
     if let Some(param_value) = params.actor_token {
-        multipart_form_params.insert("actor_token", param_value.to_string());
+        multipart_form_params.insert("actor_token", param_value.clone());
     }
     if let Some(param_value) = params.actor_token_type {
-        multipart_form_params.insert("actor_token_type", param_value.to_string());
+        multipart_form_params.insert("actor_token_type", param_value.clone());
     }
     if let Some(param_value) = params.authorization_details {
-        multipart_form_params.insert("authorization_details", param_value.to_string());
+        multipart_form_params.insert("authorization_details", param_value.clone());
     }
     if let Some(param_value) = params.requested_token_type {
-        multipart_form_params.insert("requested_token_type", param_value.to_string());
+        multipart_form_params.insert("requested_token_type", param_value.clone());
     }
     if let Some(param_value) = params.subject_token {
-        multipart_form_params.insert("subject_token", param_value.to_string());
+        multipart_form_params.insert("subject_token", param_value.clone());
     }
     if let Some(param_value) = params.subject_token_type {
         multipart_form_params.insert("subject_token_type", param_value.to_string());
@@ -2210,14 +2209,14 @@ pub async fn token(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::token_response::TokenResponse`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::token_response::TokenResponse`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -2247,7 +2246,7 @@ pub async fn update_application(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.application_registration);
 
     let req = req_builder.build()?;
@@ -2285,7 +2284,7 @@ pub async fn update_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.update_user_info_request);
 
     let req = req_builder.build()?;
@@ -2305,14 +2304,14 @@ pub async fn update_user(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::user_info::UserInfo`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::user_info::UserInfo`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -2337,7 +2336,7 @@ pub async fn userinfo(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -2356,14 +2355,14 @@ pub async fn userinfo(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::user_info::UserInfo`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::user_info::UserInfo`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -2404,14 +2403,14 @@ pub async fn version(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::idp::version_response::VersionResponse`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::idp::version_response::VersionResponse`"
-                ))));
+                ))))
             }
         }
     } else {

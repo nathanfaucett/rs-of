@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Registration {
     #[serde(rename = "challenge")]
@@ -24,13 +24,14 @@ pub struct Registration {
 }
 
 impl Registration {
+    #[must_use]
     pub fn new(
         challenge: String,
         operation: crate::setup::IndependentCreateIntent,
         recipient: String,
         registration: Option<serde_json::Value>,
-    ) -> Registration {
-        Registration {
+    ) -> Self {
+        Self {
             challenge,
             operation: Box::new(operation),
             recipient,

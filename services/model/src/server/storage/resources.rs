@@ -76,6 +76,6 @@ pub struct SyncSessionResponse {
     pub bytes_received: u64,
 }
 
-fn default_bidirectional() -> SyncDirection {
+const fn default_bidirectional() -> SyncDirection {
     SyncDirection::Bidirectional
 }

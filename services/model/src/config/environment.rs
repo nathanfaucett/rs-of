@@ -10,11 +10,12 @@ pub enum Environment {
 }
 
 impl Environment {
-    pub fn as_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
         match self {
-            Environment::Local => "local",
-            Environment::Development => "development",
-            Environment::Production => "production",
+            Self::Local => "local",
+            Self::Development => "development",
+            Self::Production => "production",
         }
     }
 }

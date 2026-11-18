@@ -10,14 +10,15 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PairingAcceptance {
     #[serde(rename = "accepting")]
     pub accepting: bool,
 }
 
 impl PairingAcceptance {
-    pub fn new(accepting: bool) -> PairingAcceptance {
-        PairingAcceptance { accepting }
+    #[must_use]
+    pub const fn new(accepting: bool) -> Self {
+        Self { accepting }
     }
 }

@@ -33,7 +33,9 @@ use std::sync::Arc;
 
 async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) {
     let engine = Arc::new(ofdb_sql::Database::in_memory());
-    up(&engine).await.expect("initialize independent schema");
+    up(&engine.client())
+        .await
+        .expect("initialize independent schema");
     for table in [
         "applications",
         "clients",
@@ -447,7 +449,9 @@ async fn public_keys_survive_native_reopen_without_secret_store() {
     let entity_id = Id::now_v7();
     let (id, public, token) = {
         let engine = Arc::new(ofdb_sql::Database::open(&path).expect("open temporary database"));
-        up(&engine).await.expect("initialize current schema");
+        up(&engine.client())
+            .await
+            .expect("initialize current schema");
         let keys = KeyService::new(
             DbKeyRepo::new(engine.client()),
             TestPrivateKeyRepo::default(),

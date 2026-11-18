@@ -11,7 +11,8 @@ pub struct WebStream {
 }
 
 impl WebStream {
-    pub fn new(connection: Connection, send: SendStream, recv: RecvStream) -> Self {
+    #[must_use]
+    pub const fn new(connection: Connection, send: SendStream, recv: RecvStream) -> Self {
         Self {
             _connection: connection,
             send,

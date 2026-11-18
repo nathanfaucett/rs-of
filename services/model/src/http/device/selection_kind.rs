@@ -12,8 +12,10 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SelectionKind {
     #[serde(rename = "database")]
+    #[default]
     Database,
     #[serde(rename = "filesystem")]
     Filesystem,
@@ -28,8 +30,3 @@ impl core::fmt::Display for SelectionKind {
     }
 }
 
-impl Default for SelectionKind {
-    fn default() -> SelectionKind {
-        Self::Database
-    }
-}

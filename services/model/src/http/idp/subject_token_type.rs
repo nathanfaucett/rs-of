@@ -12,8 +12,10 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SubjectTokenType {
     #[serde(rename = "urn:ietf:params:oauth:token-type:jwt")]
+    #[default]
     UrnColonIetfColonParamsColonOauthColonTokenTypeColonJwt,
     #[serde(rename = "urn:ietf:params:oauth:token-type:access_token")]
     UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken,
@@ -52,8 +54,3 @@ impl core::fmt::Display for SubjectTokenType {
     }
 }
 
-impl Default for SubjectTokenType {
-    fn default() -> SubjectTokenType {
-        Self::UrnColonIetfColonParamsColonOauthColonTokenTypeColonJwt
-    }
-}

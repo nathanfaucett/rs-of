@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdentityResourceOneOf9 {
     #[serde(
         rename = "member_id",
@@ -24,8 +24,9 @@ pub struct IdentityResourceOneOf9 {
 }
 
 impl IdentityResourceOneOf9 {
-    pub fn new(r#type: Type) -> IdentityResourceOneOf9 {
-        IdentityResourceOneOf9 {
+    #[must_use]
+    pub const fn new(r#type: Type) -> Self {
+        Self {
             member_id: None,
             r#type,
         }
@@ -33,13 +34,10 @@ impl IdentityResourceOneOf9 {
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Type {
     #[serde(rename = "replicaSigner")]
+    #[default]
     ReplicaSigner,
 }
 
-impl Default for Type {
-    fn default() -> Type {
-        Self::ReplicaSigner
-    }
-}

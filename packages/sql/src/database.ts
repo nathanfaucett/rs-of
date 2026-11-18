@@ -5,6 +5,7 @@ import { loadWasm } from "./wasm.js";
 import { wrapError, Error as SqlError } from "./error.js";
 import {
   JsPushSyncTransport,
+  JsSqlSyncTransport,
   SqlSyncRole,
   JsSqlSyncError,
   PushConfig,
@@ -57,6 +58,7 @@ export class Database {
 // Re-export sync types and values
 export {
   JsPushSyncTransport,
+  JsSqlSyncTransport,
   SqlSyncRole,
   JsSqlSyncError,
   PushConfig,

@@ -32,15 +32,18 @@ pub struct DeviceId(pub Uuid);
 
 impl DeviceId {
     #[cfg(feature = "std")]
+    #[must_use]
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
 
-    pub fn from_uuid(uuid: Uuid) -> Self {
+    #[must_use]
+    pub const fn from_uuid(uuid: Uuid) -> Self {
         Self(uuid)
     }
 
-    pub fn as_uuid(&self) -> Uuid {
+    #[must_use]
+    pub const fn as_uuid(&self) -> Uuid {
         self.0
     }
 }

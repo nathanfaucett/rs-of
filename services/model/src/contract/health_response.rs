@@ -18,7 +18,8 @@ pub struct HealthResponse {
 }
 
 impl HealthResponse {
-    pub fn is_healthy(&self) -> bool {
+    #[must_use]
+    pub const fn is_healthy(&self) -> bool {
         matches!(self.database, HealthStatus::Healthy)
     }
 }

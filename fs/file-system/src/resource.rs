@@ -256,10 +256,10 @@ impl FileSystemCatalog {
         {
             match &self.storage {
                 CatalogStorage::Native(root) => {
-                    crate::native::remove_root(&root.join(id.0.to_string())).await?
+                    crate::native::remove_root(&root.join(id.0.to_string())).await?;
                 }
                 CatalogStorage::Shared(host, name) => {
-                    crate::shared::remove(host, &format!("{name}:{}", id.0)).await?
+                    crate::shared::remove(host, &format!("{name}:{}", id.0)).await?;
                 }
             }
         }

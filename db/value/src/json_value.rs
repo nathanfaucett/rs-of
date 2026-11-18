@@ -29,8 +29,9 @@ pub enum JsonValue {
 }
 
 #[cfg(feature = "automerge")]
+use autosurgeon::reconcile::NoKey;
 impl autosurgeon::Reconcile for JsonValue {
-    type Key<'a> = autosurgeon::reconcile::NoKey;
+    type Key<'a> = NoKey;
 
     fn reconcile<R: autosurgeon::Reconciler>(&self, mut reconciler: R) -> Result<(), R::Error> {
         use autosurgeon::reconcile::MapReconciler;

@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Device {
     #[serde(rename = "address")]
     pub address: String,
@@ -19,8 +19,9 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new(address: String, public_key: String) -> Device {
-        Device {
+    #[must_use]
+    pub const fn new(address: String, public_key: String) -> Self {
+        Self {
             address,
             public_key,
         }

@@ -25,8 +25,8 @@ pub enum ClientType {
 impl fmt::Display for ClientType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ClientType::Confidential => write!(f, "confidential"),
-            ClientType::Public => write!(f, "public"),
+            Self::Confidential => write!(f, "confidential"),
+            Self::Public => write!(f, "public"),
         }
     }
 }

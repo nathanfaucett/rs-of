@@ -22,7 +22,7 @@ pub struct ErrorResponse {
 
 impl From<serde::de::value::Error> for ErrorResponse {
     fn from(error: serde::de::value::Error) -> Self {
-        ErrorResponse::new("internal_server_error").with_description(error.to_string())
+        Self::new("internal_server_error").with_description(error.to_string())
     }
 }
 

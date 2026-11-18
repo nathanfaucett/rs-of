@@ -103,6 +103,7 @@ impl fmt::Debug for Mesh {
     }
 }
 
+#[must_use]
 pub fn endpoint_relay_urls(endpoint: &Endpoint) -> Vec<RelayUrl> {
     let from_addr: Vec<RelayUrl> = endpoint.addr().relay_urls().cloned().collect();
     if !from_addr.is_empty() {
@@ -198,7 +199,7 @@ impl Mesh {
                 if inner.endpoint.is_closed() {
                     break;
                 }
-                let mesh = Mesh { inner };
+                let mesh = Self { inner };
                 mesh.reconcile(false).await;
                 drop(mesh);
                 sleep(RETRY).await;
@@ -363,7 +364,7 @@ impl Mesh {
                     true
                 }
             });
-        }
+        };
         let relay_urls = endpoint_relay_urls(&self.inner.endpoint);
         for id in desired {
             if self.inner.endpoint.is_closed() {
@@ -392,7 +393,7 @@ impl Mesh {
                 && self.register(conn.clone(), true).await
             {
                 let weak = Arc::downgrade(&self.inner);
-                spawn(async move { Mesh::run(weak, conn).await });
+                spawn(async move { Self::run(weak, conn).await });
             }
         }
     }
@@ -439,7 +440,7 @@ impl Mesh {
                 }
             };
             let Some(inner) = weak.upgrade() else { break };
-            let mesh = Mesh { inner };
+            let mesh = Self { inner };
             if mesh.inner.endpoint.is_closed()
                 || !mesh.inner.peers.contains(peer)
                 || !neighbors(mesh.inner.endpoint.id(), mesh.inner.peers.ids()).contains(&peer)
@@ -535,8 +536,8 @@ mod tests {
         assert_eq!(decoded.source, source);
         assert_eq!(decoded.destination, Some(destination));
         assert_eq!(decoded.payload, message.payload);
-        assert!(parse(&data[..97]).is_err());
-        assert!(parse(&[0; super::MAX_FRAME + 1]).is_err());
+        parse(&data[..97]).unwrap_err();
+        parse(&[0; super::MAX_FRAME + 1]).unwrap_err();
     }
 
     #[test]

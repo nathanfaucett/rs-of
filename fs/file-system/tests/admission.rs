@@ -363,7 +363,7 @@ async fn queued_snapshots_recheck_local_decision_before_import() {
     source.announce().await.expect("tombstone queues");
     allowed.store(false, Ordering::SeqCst);
     target.pump().await.expect("tombstone denied");
-    assert!(right.entry("kept").await.is_ok());
+    right.entry("kept").await.unwrap();
     allowed.store(true, Ordering::SeqCst);
     source.announce().await.expect("tombstone retry");
     target.pump().await.expect("tombstone admitted");
@@ -419,13 +419,13 @@ async fn invalid_snapshot_set_rolls_back_and_retains_prior_imports_and_tombstone
         .await
         .expect("invalid set queues");
     assert!(matches!(target.pump().await, Err(Error::Metadata(_))));
-    assert!(right.entry("kept").await.is_ok());
-    assert!(right.entry("deleted").await.is_ok());
+    right.entry("kept").await.unwrap();
+    right.entry("deleted").await.unwrap();
     assert!(matches!(right.entry("later").await, Err(Error::NotFound)));
     source.announce().await.expect("valid retry");
     target.pump().await.expect("valid set commits");
     assert!(matches!(right.entry("deleted").await, Err(Error::NotFound)));
-    assert!(right.entry("later").await.is_ok());
+    right.entry("later").await.unwrap();
     fs::remove_dir_all(left_root).expect("source cleanup");
     fs::remove_dir_all(right_root).expect("target cleanup");
 }

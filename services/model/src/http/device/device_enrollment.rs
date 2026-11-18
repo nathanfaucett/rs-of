@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceEnrollment {
     #[serde(
         rename = "approvalCode",
@@ -26,11 +26,12 @@ pub struct DeviceEnrollment {
 }
 
 impl DeviceEnrollment {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         id: String,
         state: crate::http::device::device_state::DeviceState,
-    ) -> DeviceEnrollment {
-        DeviceEnrollment {
+    ) -> Self {
+        Self {
             approval_code: None,
             id,
             state,

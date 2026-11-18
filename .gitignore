@@ -2,8 +2,7 @@
 /node_modules
 /.env*
 !/.env.example
-/vaults
-/data/
+/.data
 
 /config/**/*.redb
 **/node_modules/

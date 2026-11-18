@@ -9,7 +9,7 @@ use crate::idp::contract::sex::Sex;
 use crate::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
 pub mod client_type {
-    use super::*;
+    use super::{Serializer, ClientType, Deserializer, Deserialize, Error};
 
     pub fn serialize<S>(value: &ClientType, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -31,7 +31,7 @@ pub mod client_type {
 }
 
 pub mod client_profile {
-    use super::*;
+    use super::{Serializer, ClientProfile, Deserializer, Deserialize, Error};
 
     pub fn serialize<S>(value: &ClientProfile, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -56,7 +56,7 @@ pub mod client_profile {
 }
 
 pub mod token_endpoint_auth_method {
-    use super::*;
+    use super::{Serializer, TokenEndpointAuthMethod, Deserializer, Deserialize, Error};
 
     pub fn serialize<S>(value: &TokenEndpointAuthMethod, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -83,7 +83,7 @@ pub mod token_endpoint_auth_method {
 }
 
 pub mod code_challenge_method_option {
-    use super::*;
+    use super::{Serializer, CodeChallengeMethod, Deserializer, Deserialize, Error};
 
     pub fn serialize<S>(
         value: &Option<CodeChallengeMethod>,
@@ -113,7 +113,7 @@ pub mod code_challenge_method_option {
 }
 
 pub mod entity_type {
-    use super::*;
+    use super::{Serializer, EntityType, Deserializer, Deserialize, Error};
 
     pub fn serialize<S>(value: &EntityType, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -135,7 +135,7 @@ pub mod entity_type {
 }
 
 pub mod sex_option {
-    use super::*;
+    use super::{Serializer, Sex, Deserializer, Deserialize, Error};
 
     pub fn serialize<S>(value: &Option<Sex>, serializer: S) -> Result<S::Ok, S::Error>
     where

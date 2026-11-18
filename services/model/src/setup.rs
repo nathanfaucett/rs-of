@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::setup as models;
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Challenge {
@@ -18,13 +18,14 @@ pub struct Challenge {
 }
 
 impl Challenge {
+    #[must_use]
     pub fn new(
         challenge: String,
         operation: models::IndependentCreateIntent,
         recipient: String,
         registration: Option<serde_json::Value>,
-    ) -> Challenge {
-        Challenge {
+    ) -> Self {
+        Self {
             challenge,
             operation: Box::new(operation),
             recipient,
@@ -33,7 +34,7 @@ impl Challenge {
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct IndependentCreateIntent {
@@ -63,7 +64,8 @@ pub struct IndependentCreateIntent {
 }
 
 impl IndependentCreateIntent {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         administrator: String,
         device: String,
         idp: String,
@@ -72,8 +74,8 @@ impl IndependentCreateIntent {
         operation_nonce: String,
         purpose: String,
         storage: String,
-    ) -> IndependentCreateIntent {
-        IndependentCreateIntent {
+    ) -> Self {
+        Self {
             administrator,
             device,
             idp,
@@ -87,7 +89,7 @@ impl IndependentCreateIntent {
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct IndependentCreateRequest {
     #[serde(rename = "administrator")]
@@ -118,7 +120,8 @@ pub struct IndependentCreateRequest {
 }
 
 impl IndependentCreateRequest {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         administrator: String,
         device: String,
         idp: String,
@@ -127,8 +130,8 @@ impl IndependentCreateRequest {
         operation_nonce: String,
         purpose: String,
         storage: String,
-    ) -> IndependentCreateRequest {
-        IndependentCreateRequest {
+    ) -> Self {
+        Self {
             administrator,
             device,
             idp,
@@ -143,7 +146,7 @@ impl IndependentCreateRequest {
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct IndependentOwnerPublic {
@@ -160,14 +163,15 @@ pub struct IndependentOwnerPublic {
 }
 
 impl IndependentOwnerPublic {
+    #[must_use]
     pub fn new(
         clients: Vec<serde_json::Value>,
         facts: Option<serde_json::Value>,
         operation: models::IndependentCreateIntent,
         owner: String,
         registered: Vec<String>,
-    ) -> IndependentOwnerPublic {
-        IndependentOwnerPublic {
+    ) -> Self {
+        Self {
             clients,
             facts,
             operation: Box::new(operation),
@@ -177,7 +181,7 @@ impl IndependentOwnerPublic {
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct IndependentPeer {
@@ -198,7 +202,8 @@ pub struct IndependentPeer {
 }
 
 impl IndependentPeer {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         address: Option<serde_json::Value>,
         device: String,
         endpoint: String,
@@ -206,8 +211,8 @@ impl IndependentPeer {
         issuer: String,
         nonce: String,
         signature: String,
-    ) -> IndependentPeer {
-        IndependentPeer {
+    ) -> Self {
+        Self {
             address,
             device,
             endpoint,
@@ -237,6 +242,7 @@ pub struct IndependentJoinRequest {
 }
 
 impl IndependentJoinRequest {
+    #[must_use]
     pub fn new(
         device_id: uuid::Uuid,
         endpoint_id: String,
@@ -244,8 +250,8 @@ impl IndependentJoinRequest {
         operation: models::IndependentCreateIntent,
         public_signer: crate::http::device::jwk_public::JwkPublic,
         source: models::IndependentPeer,
-    ) -> IndependentJoinRequest {
-        IndependentJoinRequest {
+    ) -> Self {
+        Self {
             device_id,
             endpoint_id,
             member_id,
@@ -268,12 +274,13 @@ pub struct IndependentJoinApproval {
 }
 
 impl IndependentJoinApproval {
+    #[must_use]
     pub fn new(
         owner_subject: uuid::Uuid,
         request: models::IndependentJoinRequest,
         signature: String,
-    ) -> IndependentJoinApproval {
-        IndependentJoinApproval {
+    ) -> Self {
+        Self {
             owner_subject,
             request: Box::new(request),
             signature,

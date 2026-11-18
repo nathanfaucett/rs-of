@@ -6,14 +6,14 @@ use utoipa::{Modify, ToSchema};
 
 #[derive(ToSchema)]
 #[allow(dead_code)]
-pub(crate) struct OwnerSetupStatus {
+pub struct OwnerSetupStatus {
     stage: String,
     state: String,
     ready: bool,
     owners: Vec<String>,
 }
 
-pub(crate) struct SetupSecurity;
+pub struct SetupSecurity;
 impl Modify for SetupSecurity {
     fn modify(&self, document: &mut Document) {
         document
@@ -29,6 +29,7 @@ impl Modify for SetupSecurity {
             );
     }
 }
+#[must_use]
 pub fn owner_setup_openapi() -> Document {
     let mut document = crate::independent_create::setup_routes()
         .get_openapi()

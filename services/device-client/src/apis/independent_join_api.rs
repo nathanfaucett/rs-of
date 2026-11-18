@@ -11,7 +11,6 @@
 use super::support::Error;
 use super::{ContentType, configuration};
 use crate::apis::support::ResponseContent;
-use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
 /// struct for passing parameters to the method [`independent_join_approve`]
@@ -162,7 +161,7 @@ pub async fn independent_join_accepting(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -181,14 +180,14 @@ pub async fn independent_join_accepting(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::http::device::acceptance_request::AcceptanceRequest`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::http::device::acceptance_request::AcceptanceRequest`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -220,7 +219,7 @@ pub async fn independent_join_approve(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -275,14 +274,14 @@ pub async fn independent_join_discover(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `of_model::setup::IndependentPeer`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `of_model::setup::IndependentPeer`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -310,13 +309,13 @@ pub fn independent_join_history_stream_request(
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.header("Authorization", params.authorization.to_string());
-    req_builder = req_builder.header("Upgrade", params.upgrade.to_string());
-    req_builder = req_builder.header("Connection", params.connection.to_string());
-    req_builder = req_builder.header("Sec-WebSocket-Key", params.sec_web_socket_key.to_string());
+    req_builder = req_builder.header("Authorization", params.authorization.clone());
+    req_builder = req_builder.header("Upgrade", params.upgrade.clone());
+    req_builder = req_builder.header("Connection", params.connection.clone());
+    req_builder = req_builder.header("Sec-WebSocket-Key", params.sec_web_socket_key.clone());
     req_builder = req_builder.header(
         "Sec-WebSocket-Version",
-        params.sec_web_socket_version.to_string(),
+        params.sec_web_socket_version.clone(),
     );
 
     let req = req_builder.build()?;
@@ -357,7 +356,7 @@ pub async fn independent_join_pending(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -376,14 +375,14 @@ pub async fn independent_join_pending(
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
+                Err(Error::from(serde_json::Error::custom(
                     "Received `text/plain` content type response that cannot be converted to `Vec&lt;serde_json::Value&gt;`",
-                )));
+                )))
             }
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;serde_json::Value&gt;`"
-                ))));
+                ))))
             }
         }
     } else {
@@ -415,7 +414,7 @@ pub async fn independent_join_reject(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -489,7 +488,7 @@ pub async fn independent_join_set_accepting(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.acceptance_request);
 
     let req = req_builder.build()?;

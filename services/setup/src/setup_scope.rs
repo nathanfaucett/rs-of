@@ -29,7 +29,8 @@ impl SetupScope {
         }
     }
 
-    pub fn owners(self) -> &'static [&'static str] {
+    #[must_use]
+    pub const fn owners(self) -> &'static [&'static str] {
         match self {
             Self::Idp => &["idp"],
             Self::Device => &["device"],

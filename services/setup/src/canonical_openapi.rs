@@ -5,6 +5,7 @@ use serde_json::Value;
 /// Loads a checked-in contract for a validated owner. A public origin gains its owner mount;
 /// a complete public base retains its path, independently of the local mount.
 /// Export remains derived from Rust route registrations, not these served artifacts.
+#[must_use]
 pub fn canonical_openapi(owner: &str, api_base_uri: &str, prefix: &str) -> Value {
     let source = match owner {
         "idp" => include_str!("../../../openapi/idp.json"),

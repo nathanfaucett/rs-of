@@ -73,8 +73,8 @@ pub fn create_private_directory(path: &Path, recursive: bool) -> io::Result<()> 
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
-    }
+        builder.mode(0o700)
+    };
     builder.recursive(recursive).create(&path)?;
     sync_ancestry(&path)
 }
@@ -86,6 +86,7 @@ pub fn sync_ancestry(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+#[must_use]
 pub fn private_options(create_new: bool) -> OpenOptions {
     let mut options = OpenOptions::new();
     options.read(true).write(true).create_new(create_new);
@@ -94,8 +95,8 @@ pub fn private_options(create_new: bool) -> OpenOptions {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(
             rustix::fs::OFlags::NOFOLLOW.bits() as i32 | rustix::fs::OFlags::NONBLOCK.bits() as i32,
-        );
-    }
+        )
+    };
     options
 }
 
@@ -127,8 +128,8 @@ pub fn read_private(path: &Path) -> io::Result<Vec<u8>> {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(
             rustix::fs::OFlags::NOFOLLOW.bits() as i32 | rustix::fs::OFlags::NONBLOCK.bits() as i32,
-        );
-    }
+        )
+    };
     let mut file = options.open(path)?;
     #[cfg(unix)]
     {

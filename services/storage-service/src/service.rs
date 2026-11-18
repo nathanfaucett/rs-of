@@ -36,7 +36,7 @@ where
     PeerId: Clone + fmt::Debug + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     #[must_use]
-    pub fn new(file_system: Arc<FileSystem<PeerId>>) -> Self {
+    pub const fn new(file_system: Arc<FileSystem<PeerId>>) -> Self {
         Self { file_system }
     }
 
@@ -219,25 +219,19 @@ mod policy_tests {
             .await
             .expect("Passthrough");
         let service = StorageService::new(Arc::clone(&filesystem));
-        assert!(
-            service
+        service
                 .execute(StorageRequest::Delete {
                     path: "original.txt".into()
                 })
-                .await
-                .is_err()
-        );
-        assert!(
-            service
+                .await.unwrap_err();
+        service
                 .execute(StorageRequest::Rename {
                     from: "original.txt".into(),
                     to: "renamed.txt".into()
                 })
-                .await
-                .is_err()
-        );
-        assert!(filesystem.entry("original.txt").await.is_ok());
-        assert!(filesystem.entry("renamed.txt").await.is_err());
+                .await.unwrap_err();
+        filesystem.entry("original.txt").await.unwrap();
+        filesystem.entry("renamed.txt").await.unwrap_err();
         drop(service);
         drop(filesystem);
         std::fs::remove_dir_all(root).expect("remove fixture");
@@ -504,7 +498,7 @@ mod tests {
                 .await,
             Ok(StorageResponse::Listed { entries }) if entries.len() == 2
         ));
-        assert!(service.stream("notes/renamed.txt", 1).await.is_ok());
+        service.stream("notes/renamed.txt", 1).await.unwrap();
         assert!(matches!(
             service
                 .execute(StorageRequest::Delete {
@@ -524,15 +518,12 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&root);
         let service = StorageService::new(Arc::new(FileSystem::open(&root, 1_u8).await.unwrap()));
-        assert!(
-            service
+        service
                 .execute(StorageRequest::Write {
                     path: "note.txt".into(),
                     content: Vec::new()
                 })
-                .await
-                .is_err()
-        );
+                .await.unwrap_err();
         let _ = fs::remove_dir_all(root);
     }
 }

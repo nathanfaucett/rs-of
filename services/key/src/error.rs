@@ -22,32 +22,32 @@ impl KeyError {
     where
         T: Into<String>,
     {
-        KeyError::InvalidDerivation(error.into())
+        Self::InvalidDerivation(error.into())
     }
 
     pub fn other<E>(error: E) -> Self
     where
         E: Into<Box<dyn Error + Send + Sync>>,
     {
-        KeyError::Other(error.into())
+        Self::Other(error.into())
     }
 }
 
 impl From<bip32::Error> for KeyError {
     fn from(err: bip32::Error) -> Self {
-        KeyError::Bip32(err)
+        Self::Bip32(err)
     }
 }
 
 impl From<bip39::Error> for KeyError {
     fn from(err: bip39::Error) -> Self {
-        KeyError::Bip39(err)
+        Self::Bip39(err)
     }
 }
 
 impl From<getrandom::Error> for KeyError {
     fn from(err: getrandom::Error) -> Self {
-        KeyError::Random(err)
+        Self::Random(err)
     }
 }
 

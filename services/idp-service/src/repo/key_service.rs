@@ -44,11 +44,11 @@ where
         &self.namespace
     }
 
-    pub fn key_repo(&self) -> &R {
+    pub const fn key_repo(&self) -> &R {
         &self.key_repo
     }
 
-    pub fn private_key_repo(&self) -> &P {
+    pub const fn private_key_repo(&self) -> &P {
         &self.private_key_repo
     }
 

@@ -10,11 +10,14 @@
 
 use serde::{Deserialize, Serialize};
 
-/// ResponseType : Valid OAuth 2.0 response types for the authorization endpoint. we do not support the `token` or `id_token` response type (implicit flow) as it is not recommended in OAuth 2.1 and has security weaknesses.
+/// `ResponseType` : Valid OAuth 2.0 response types for the authorization endpoint. we do not support the `token` or `id_token` response type (implicit flow) as it is not recommended in OAuth 2.1 and has security weaknesses.
+///
 /// Valid OAuth 2.0 response types for the authorization endpoint. we do not support the `token` or `id_token` response type (implicit flow) as it is not recommended in OAuth 2.1 and has security weaknesses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ResponseType {
     #[serde(rename = "code")]
+    #[default]
     Code,
 }
 
@@ -26,8 +29,3 @@ impl core::fmt::Display for ResponseType {
     }
 }
 
-impl Default for ResponseType {
-    fn default() -> ResponseType {
-        Self::Code
-    }
-}

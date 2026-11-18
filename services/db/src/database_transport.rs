@@ -13,7 +13,8 @@ pub struct DatabaseTransport {
 }
 
 impl DatabaseTransport {
-    pub fn new(send: SendStream, recv: RecvStream) -> Self {
+    #[must_use]
+    pub const fn new(send: SendStream, recv: RecvStream) -> Self {
         Self { send, recv }
     }
 }

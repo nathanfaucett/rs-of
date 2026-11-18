@@ -27,7 +27,7 @@ impl RepoError {
     where
         E: Into<Box<dyn Error + Send + Sync>>,
     {
-        RepoError::Other(error.into())
+        Self::Other(error.into())
     }
 }
 
@@ -39,7 +39,7 @@ impl From<keyring_core::Error> for RepoError {
 
 impl From<RepoError> for ErrorResponse {
     fn from(error: RepoError) -> Self {
-        ErrorResponse::new(ErrorCode::ServerError).with_description(error.to_string())
+        Self::new(ErrorCode::ServerError).with_description(error.to_string())
     }
 }
 

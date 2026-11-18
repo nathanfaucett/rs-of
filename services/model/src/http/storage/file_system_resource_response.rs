@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileSystemResourceResponse {
     #[serde(rename = "id")]
     pub id: String,
@@ -24,7 +24,8 @@ pub struct FileSystemResourceResponse {
 }
 
 impl FileSystemResourceResponse {
-    pub fn new(id: String) -> FileSystemResourceResponse {
-        FileSystemResourceResponse { id, name: None }
+    #[must_use]
+    pub const fn new(id: String) -> Self {
+        Self { id, name: None }
     }
 }

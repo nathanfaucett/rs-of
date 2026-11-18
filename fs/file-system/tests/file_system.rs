@@ -276,7 +276,7 @@ async fn syncs_content_and_rejects_stale_responses() {
     let mut write = Box::pin(stale.write(0, Bytes::from_static(b"x")));
     tokio::select! {
         result = &mut write => assert!(result.is_err()),
-        _ = tokio::task::yield_now() => { left_sync.pump().await.unwrap(); assert!(write.await.is_err()); }
+        () = tokio::task::yield_now() => { left_sync.pump().await.unwrap(); write.await.unwrap_err(); }
     }
     assert_eq!(
         right.entry("file.txt").await.unwrap().meta,
@@ -407,7 +407,7 @@ async fn reports_unavailable_requested_content() {
     let mut read = Box::pin(handle.read(0, 1));
     tokio::select! {
         result = &mut read => assert!(result.is_err()),
-        _ = tokio::task::yield_now() => { left_sync.pump().await.unwrap(); assert!(read.await.is_err()); }
+        () = tokio::task::yield_now() => { left_sync.pump().await.unwrap(); read.await.unwrap_err(); }
     }
     fs::remove_dir_all(left_root).unwrap();
     fs::remove_dir_all(right_root).unwrap();
@@ -607,7 +607,7 @@ async fn directory_semantics_and_boundaries() {
         Err(file_system::Error::InvalidChunkSize)
     ));
     for path in ["", "/a", "a//b", "a/./b", "a/../b", ".data/a"] {
-        assert!(file_system.write(path, b"x").await.is_err());
+        file_system.write(path, b"x").await.unwrap_err();
     }
 
     file_system.delete("z.txt").await.unwrap();
@@ -768,16 +768,10 @@ async fn rejects_unsupported_metadata_schema() {
     );
     let database = redb::Database::open(&metadata_path).unwrap();
     let transaction = database.begin_read().unwrap();
-    assert!(
-        transaction
-            .open_table(redb::TableDefinition::<&str, &[u8]>::new("metadata"))
-            .is_ok()
-    );
-    assert!(
-        transaction
-            .open_table(redb::TableDefinition::<&str, &[u8]>::new("ofdb-kv"))
-            .is_err()
-    );
+    transaction
+            .open_table(redb::TableDefinition::<&str, &[u8]>::new("metadata")).unwrap();
+    transaction
+            .open_table(redb::TableDefinition::<&str, &[u8]>::new("ofdb-kv")).unwrap_err();
     fs::remove_dir_all(root).unwrap();
 }
 

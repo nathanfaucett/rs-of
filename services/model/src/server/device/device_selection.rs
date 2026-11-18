@@ -25,21 +25,24 @@ pub enum SelectionKind {
 }
 
 impl SelectionKind {
-    pub fn resource_kind(&self) -> ResourceKind {
+    #[must_use]
+    pub const fn resource_kind(&self) -> ResourceKind {
         match self {
             Self::Database => ResourceKind::Database,
             Self::Filesystem => ResourceKind::FileSystem,
         }
     }
 
-    pub fn storage_audience(&self) -> &'static str {
+    #[must_use]
+    pub const fn storage_audience(&self) -> &'static str {
         match self {
             Self::Database => "storage:databases",
             Self::Filesystem => "storage:filesystems",
         }
     }
 
-    pub fn policy_kind(&self) -> &'static str {
+    #[must_use]
+    pub const fn policy_kind(&self) -> &'static str {
         match self {
             Self::Database => "database",
             Self::Filesystem => "filesystem",

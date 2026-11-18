@@ -31,11 +31,11 @@ pub enum TokenEndpointAuthMethod {
 impl fmt::Display for TokenEndpointAuthMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TokenEndpointAuthMethod::ClientSecretBasic => write!(f, "client_secret_basic"),
-            TokenEndpointAuthMethod::ClientSecretPost => write!(f, "client_secret_post"),
-            TokenEndpointAuthMethod::PrivateKeyJwt => write!(f, "private_key_jwt"),
-            TokenEndpointAuthMethod::ClientSecretJwt => write!(f, "client_secret_jwt"),
-            TokenEndpointAuthMethod::None => write!(f, "none"),
+            Self::ClientSecretBasic => write!(f, "client_secret_basic"),
+            Self::ClientSecretPost => write!(f, "client_secret_post"),
+            Self::PrivateKeyJwt => write!(f, "private_key_jwt"),
+            Self::ClientSecretJwt => write!(f, "client_secret_jwt"),
+            Self::None => write!(f, "none"),
         }
     }
 }

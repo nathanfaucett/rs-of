@@ -25,6 +25,8 @@ ofdb = [
     "dep:ofdb-sql",
 ]
 replica = ["ofdb"]
+redb = []
+test-support = []
 std = [
     "bip32/std",
     "key/std",

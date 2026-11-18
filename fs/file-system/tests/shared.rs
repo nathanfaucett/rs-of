@@ -48,7 +48,7 @@ async fn shared_filesystem_retains_content_catalog_and_retirement_in_one_file() 
         .remove_managed_copy(resource.id)
         .await
         .expect("retire copy");
-    assert!(fs.read("saved.txt").await.is_err());
+    fs.read("saved.txt").await.unwrap_err();
     assert!(catalog.open_filesystem(resource.id, 1_u8).await.is_err());
     assert_eq!(
         catalog.list().await.expect("identity retained"),

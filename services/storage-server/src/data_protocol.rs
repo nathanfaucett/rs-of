@@ -1,4 +1,4 @@
-use std::{future::Future, io, pin::Pin, sync::Arc};
+use std::{io, pin::Pin, sync::Arc};
 
 use iroh::{
     endpoint::{Connection, RecvStream, SendStream},

@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 
 use of_model::id::Id;
 

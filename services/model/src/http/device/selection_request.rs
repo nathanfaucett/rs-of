@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SelectionRequest {
     #[serde(rename = "applicationId")]
@@ -24,13 +24,14 @@ pub struct SelectionRequest {
 }
 
 impl SelectionRequest {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         application_id: String,
         id: String,
         kind: crate::http::device::selection_kind::SelectionKind,
         storage_access_token: String,
-    ) -> SelectionRequest {
-        SelectionRequest {
+    ) -> Self {
+        Self {
             application_id,
             id,
             kind,

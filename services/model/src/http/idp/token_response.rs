@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenResponse {
     /// The access token issued by the authorization server.
     #[serde(rename = "access_token")]
@@ -68,11 +68,12 @@ pub struct TokenResponse {
 }
 
 impl TokenResponse {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         access_token: String,
         token_type: crate::http::idp::token_type::TokenType,
-    ) -> TokenResponse {
-        TokenResponse {
+    ) -> Self {
+        Self {
             access_token,
             expires_in: None,
             id_token: None,

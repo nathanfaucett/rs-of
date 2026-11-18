@@ -1,3 +1,4 @@
+use std::any::type_name;
 #[cfg(all(not(feature = "std"), feature = "wasm"))]
 use alloc::{boxed::Box, format};
 #[cfg(not(feature = "std"))]
@@ -232,6 +233,8 @@ impl Value {
     }
 
     #[must_use]
+    #[allow(clippy::cast_precision_loss, reason = "comparing f64 with i64 bounds")]
+    #[allow(clippy::cast_possible_truncation, reason = "bounds checked above")]
     pub fn as_integer(&self) -> Option<i64> {
         match self {
             Self::Integer(i) => Some(*i),
@@ -247,6 +250,10 @@ impl Value {
     }
 
     #[must_use]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "converting i64 to f64 for JSON number representation"
+    )]
     pub const fn as_float(&self) -> Option<f64> {
         match self {
             Self::Float(f) => Some(*f),
@@ -360,8 +367,8 @@ pub enum ValueType {
 
 impl ValueType {
     #[must_use]
-    pub const fn rank(&self) -> u8 {
-        *self as u8
+    pub const fn rank(self) -> u8 {
+        self as u8
     }
 }
 
@@ -405,16 +412,16 @@ impl redb::Value for Value {
     }
 
     fn type_name() -> redb::TypeName {
-        redb::TypeName::new(core::any::type_name::<Self>())
+        redb::TypeName::new(type_name::<Self>())
     }
 }
 
 #[cfg(feature = "redb")]
 impl redb::Key for Value {
-    fn compare(a: &[u8], b: &[u8]) -> Ordering {
+    fn compare(data1: &[u8], data2: &[u8]) -> Ordering {
         use redb::Value;
-        let a_value = Self::from_bytes(a);
-        let b_value = Self::from_bytes(b);
+        let a_value = Self::from_bytes(data1);
+        let b_value = Self::from_bytes(data2);
         a_value.cmp(&b_value)
     }
 }
@@ -447,16 +454,16 @@ impl redb::Value for Row {
     }
 
     fn type_name() -> redb::TypeName {
-        redb::TypeName::new(core::any::type_name::<Self>())
+        redb::TypeName::new(type_name::<Self>())
     }
 }
 
 #[cfg(feature = "redb")]
 impl redb::Key for Row {
-    fn compare(a: &[u8], b: &[u8]) -> Ordering {
+    fn compare(data1: &[u8], data2: &[u8]) -> Ordering {
         use redb::Value;
-        let a_value = Self::from_bytes(a);
-        let b_value = Self::from_bytes(b);
+        let a_value = Self::from_bytes(data1);
+        let b_value = Self::from_bytes(data2);
         a_value.cmp(&b_value)
     }
 }

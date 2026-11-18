@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     fs,
-    future::Future,
     io,
     path::PathBuf,
     pin::Pin,
@@ -375,7 +374,7 @@ where
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::Unsupported => {}
             Err(error) => return Err(error.to_string()),
-        };
+        }
         let selected = selected
             .iter()
             .map(|(owner, application_id, resource_id)| {
@@ -584,8 +583,8 @@ where
                 .copy_catalogs
                 .lock()
                 .map_err(|_| "copy catalog lock poisoned".to_owned())?;
-            catalogs.insert(key, Arc::clone(&catalog));
-        }
+            catalogs.insert(key, Arc::clone(&catalog))
+        };
         Ok(catalog)
     }
 
@@ -868,7 +867,7 @@ mod tests {
             .remove_owner_copies(namespace.user_sub)
             .await
             .expect("retire discovered owner resources");
-        assert!(filesystem.read("saved.txt").await.is_err());
+        filesystem.read("saved.txt").await.unwrap_err();
         assert_eq!(
             std::fs::read_dir(&root)
                 .expect("one file after resource use and retirement")
@@ -894,7 +893,7 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert!(runtime.create_resource(&namespace, None).await.is_err());
+        runtime.create_resource(&namespace, None).await.unwrap_err();
         assert_eq!(
             runtime
                 .list_resources(&namespace)
@@ -917,7 +916,7 @@ mod tests {
             .open_resource(&namespace, resource.id)
             .await
             .expect("fresh generation");
-        assert!(fresh.read("saved.txt").await.is_err());
+        fresh.read("saved.txt").await.unwrap_err();
         fresh
             .write("new.txt", b"new generation")
             .await
@@ -1113,7 +1112,7 @@ mod tests {
                 user_sub,
                 application_id: of_model::id::Id::now_v7(),
             };
-            assert!(storage_namespace_id(&namespace).is_err());
+            storage_namespace_id(&namespace).unwrap_err();
         }
     }
 
@@ -1186,8 +1185,8 @@ mod tests {
             runtime
                 .apply_deletion_tombstone(&namespace, resource_id)
                 .await
-                .expect("remote deletion tombstone applies");
-        }
+                .expect("remote deletion tombstone applies")
+        };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime reopens");
         assert!(
             runtime
@@ -1248,7 +1247,7 @@ mod tests {
             .remove_unselected_projected_resources(&[])
             .await
             .expect("public owner cleanup succeeds with live handles");
-        assert!(old.write("denied.txt", b"no").await.is_err());
+        old.write("denied.txt", b"no").await.unwrap_err();
         assert!(runtime.open_resource(&scope, resource.id).await.is_err());
         runtime
             .remove_unselected_projected_resources(&[(
@@ -1298,7 +1297,7 @@ mod tests {
             fresh.read("new.txt").await.expect("fresh content"),
             b"new copy"
         );
-        assert!(fresh.read("old.txt").await.is_err());
+        fresh.read("old.txt").await.unwrap_err();
         drop(fresh);
         drop(reopened);
         fs::remove_dir_all(root).expect("fixture cleanup");
@@ -1395,12 +1394,11 @@ mod tests {
             "authoritative Tombstone denies a cached-generation scoped reopen"
         );
         assert!(runtime.open_resource(&scope, resource.id).await.is_err());
-        assert!(
+        assert_eq!(
             runtime
                 .list_resources(&scope)
                 .await
-                .expect("deleted catalog lists")
-                .is_empty()
+                .expect("deleted catalog lists"), [] as [file_system::FileSystemResource; 0]
         );
         assert!(
             runtime
@@ -1504,7 +1502,7 @@ mod tests {
             .set_resource_residency(&scope, resource.id, file_system::Residency::Passthrough)
             .await
             .expect("local residency choice");
-        assert!(filesystem.write("denied.txt", b"no").await.is_err());
+        filesystem.write("denied.txt", b"no").await.unwrap_err();
         drop(filesystem);
         drop(runtime);
         let reopened = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("offline reopen");
@@ -1516,7 +1514,7 @@ mod tests {
             filesystem.residency("").expect("persisted residency"),
             file_system::Residency::Passthrough
         );
-        assert!(filesystem.write("denied.txt", b"no").await.is_err());
+        filesystem.write("denied.txt", b"no").await.unwrap_err();
         assert!(
             filesystem.read("local.txt").await.is_err(),
             "no reachable Full peer; do not pretend cached content is available"
@@ -1560,10 +1558,7 @@ mod tests {
         assert!(projected_root.exists());
         let session = crate::service::ScopedStorageService::open_resource(
             &runtime,
-            Namespace {
-                user_sub: namespace.user_sub,
-                application_id: namespace.application_id,
-            },
+            namespace,
             projected_id,
         )
         .await
@@ -1733,7 +1728,7 @@ mod tests {
                 .expect("resource deletes")
         );
         assert!(runtime.open_resource(&namespace, first.id).await.is_err());
-        assert!(first_fs.list("").await.is_ok());
+        first_fs.list("").await.unwrap();
         drop(first_fs);
         drop(runtime);
 

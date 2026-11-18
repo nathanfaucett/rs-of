@@ -610,7 +610,7 @@ impl UserRepo for DbUserRepo {
                     assignment(
                         USERS,
                         "mfa_totp_secret",
-                        secret.map(Value::Text).unwrap_or(Value::Null),
+                        secret.map_or(Value::Null, Value::Text),
                     ),
                     assignment(USERS, "updated_at", Value::Integer(now)),
                 ],
@@ -635,7 +635,7 @@ impl UserRepo for DbUserRepo {
                     assignment(
                         USERS,
                         "mfa_webauthn_credentials",
-                        credentials.map(Value::Text).unwrap_or(Value::Null),
+                        credentials.map_or(Value::Null, Value::Text),
                     ),
                     assignment(USERS, "updated_at", Value::Integer(now)),
                 ],
@@ -654,13 +654,9 @@ impl UserRepo for DbUserRepo {
         blocked_by: Option<Id>,
     ) -> RepoResult<()> {
         let now = now().timestamp();
-        let blocked_at = if blocked {
-            Some(Value::Integer(now))
-        } else {
-            None
-        };
+        let blocked_at = blocked.then_some(Value::Integer(now));
         let blocked_by_val = if blocked {
-            blocked_by.map(|id| Value::Uuid(id)).unwrap_or(Value::Null)
+            blocked_by.map_or(Value::Null, Value::Uuid)
         } else {
             Value::Null
         };
@@ -838,7 +834,7 @@ impl UserRow {
 }
 impl From<UserRow> for Row {
     fn from(row: UserRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Text(row.handle),
             Value::Text(row.name),
@@ -903,7 +899,7 @@ impl TryFrom<EmailRow> for UserEmail {
 }
 impl From<EmailRow> for Row {
     fn from(row: EmailRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Uuid(row.user_id),
             Value::Text(row.email),
@@ -954,7 +950,7 @@ impl TryFrom<PhoneRow> for UserPhoneNumber {
 }
 impl From<PhoneRow> for Row {
     fn from(row: PhoneRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Uuid(row.user_id),
             Value::Text(row.phone_number),
@@ -991,7 +987,7 @@ impl FromRow for CredentialRow {
 }
 impl From<CredentialRow> for Row {
     fn from(row: CredentialRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Uuid(row.user_id),
             Value::Text(row.kind),
@@ -1053,7 +1049,7 @@ fn from(table: &str) -> QueryFrom {
 fn column(table: &str, column: &str) -> QueryColumn {
     QueryColumn::new(table.into(), column.into())
 }
-fn expr_value(value: Value) -> QueryExpr {
+const fn expr_value(value: Value) -> QueryExpr {
     QueryExpr::Value(QueryExprValue::Value(value))
 }
 fn equals(table: &str, column_name: &str, value: Value) -> QueryExpr {

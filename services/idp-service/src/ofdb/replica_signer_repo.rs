@@ -9,7 +9,6 @@ use ofdb_sql::Transaction;
 use ofdb_sql::Value;
 
 use crate::repo::{RepoError, RepoResult};
-use db::ofdb::up;
 
 pub struct DbReplicaSignerRepo {
     engine: ofdb_sql::Client,
@@ -36,7 +35,7 @@ impl DbReplicaSignerRepo {
         Self { engine }
     }
 
-    /// Read current, unambiguous, conflict-clear IdP token-signing trust, not endpoint approval.
+    /// Read current, unambiguous, conflict-clear `IdP` token-signing trust, not endpoint approval.
     pub async fn trusted_signers(
         &self,
         issuer: &str,
@@ -200,7 +199,7 @@ impl DbReplicaSignerRepo {
         }
     }
 
-    /// Enroll in the caller's IdP owner transaction without committing it.
+    /// Enroll in the caller's `IdP` owner transaction without committing it.
     /// The caller must roll back the transaction on any error.
     pub async fn enroll_in_transaction(
         transaction: &mut Transaction,
@@ -331,8 +330,7 @@ impl DbReplicaSignerRepo {
             transaction
                 .translate_and_execute(
                     &format!(
-                        "UPDATE idp_replica_signers SET revoked_at = {approved_at}, active_member_id = NULL WHERE active_member_id = CAST('{}' AS UUID)",
-                        member_id,
+                        "UPDATE idp_replica_signers SET revoked_at = {approved_at}, active_member_id = NULL WHERE active_member_id = CAST('{member_id}' AS UUID)",
                     ),
                     &SqlTranslator,
                 )
@@ -512,7 +510,7 @@ mod tests {
 
     use of_model::id::Id;
 
-    use of_model::ofdb;
+    
 
     use crate::ofdb::replica_signer_repo::DbReplicaSignerRepo;
 

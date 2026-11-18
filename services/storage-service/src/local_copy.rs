@@ -28,7 +28,7 @@ struct CopyPolicy {
     reselected: BTreeSet<(String, Id, Id)>,
 }
 
-pub(crate) struct LocalCopyPolicy {
+pub struct LocalCopyPolicy {
     storage: PolicyStorage,
     lock: Mutex<()>,
 }
@@ -39,13 +39,13 @@ enum PolicyStorage {
 }
 
 impl LocalCopyPolicy {
-    pub fn with_store(store: ofdb_kv::Client) -> Self {
+    pub const fn with_store(store: ofdb_kv::Client) -> Self {
         Self {
             storage: PolicyStorage::Kv(store),
             lock: Mutex::new(()),
         }
     }
-    pub(crate) fn new(path: PathBuf) -> Self {
+    pub(crate) const fn new(path: PathBuf) -> Self {
         Self {
             storage: PolicyStorage::File(path),
             lock: Mutex::new(()),
@@ -356,7 +356,7 @@ impl LocalCopyPolicy {
     }
 }
 
-pub(crate) struct CopyScope(pub String, pub Id);
+pub struct CopyScope(pub String, pub Id);
 
 impl StorageNamespace for CopyScope {
     fn user_sub(&self) -> &str {

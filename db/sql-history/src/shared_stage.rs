@@ -19,7 +19,8 @@ impl From<FileSyncStageFactory> for NativeSyncStageFactory {
 }
 
 impl NativeSyncStageFactory {
-    pub fn shared(namespace: SharedNamespace) -> Self {
+    #[must_use]
+    pub const fn shared(namespace: SharedNamespace) -> Self {
         Self::Shared(namespace)
     }
 }

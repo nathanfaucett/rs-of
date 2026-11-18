@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorizationRequest {
     #[serde(rename = "client_id")]
     pub client_id: String,
@@ -108,11 +108,12 @@ pub struct AuthorizationRequest {
 }
 
 impl AuthorizationRequest {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         client_id: String,
         response_type: crate::http::idp::response_type::ResponseType,
-    ) -> AuthorizationRequest {
-        AuthorizationRequest {
+    ) -> Self {
+        Self {
             client_id,
             code_challenge: None,
             code_challenge_method: None,

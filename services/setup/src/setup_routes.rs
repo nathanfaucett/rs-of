@@ -40,7 +40,7 @@ async fn healthy(state: Arc<SetupState>) -> bool {
 }
 
 #[derive(Serialize)]
-pub(crate) struct SetupStatus {
+pub struct SetupStatus {
     pub(crate) stage: String,
     pub(crate) state: String,
     pub(crate) ready: bool,
@@ -89,7 +89,7 @@ pub fn setup_router(
         .allow_private_network(true);
     Router::new()
         .route("/setup/owner/status", get(status))
-        .with_state(state.clone())
+        .with_state(state)
         .merge(
             Router::new()
                 .route("/setup/owner/admission", post(check_admission))

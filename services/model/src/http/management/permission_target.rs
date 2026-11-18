@@ -28,13 +28,10 @@ impl Default for PermissionTarget {
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Scope {
     #[serde(rename = "installation")]
+    #[default]
     Installation,
 }
 
-impl Default for Scope {
-    fn default() -> Scope {
-        Self::Installation
-    }
-}

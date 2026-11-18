@@ -13,7 +13,7 @@ use rustix::process::{WaitId, WaitIdOptions, waitid};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
-pub(crate) struct Installation {
+pub struct Installation {
     state: Mutex<State>,
 }
 
@@ -27,7 +27,7 @@ impl Installation {
     fn state(&self) -> MutexGuard<'_, State> {
         self.state
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     pub(crate) fn cancel(&self) {
@@ -111,13 +111,13 @@ impl Drop for OwnedChild<'_> {
     }
 }
 
-pub(crate) struct CancelInstallation {
+pub struct CancelInstallation {
     installation: Arc<Installation>,
     cancellation: CancellationToken,
 }
 
 impl CancelInstallation {
-    pub(crate) fn new(installation: Arc<Installation>, cancellation: CancellationToken) -> Self {
+    pub(crate) const fn new(installation: Arc<Installation>, cancellation: CancellationToken) -> Self {
         Self {
             installation,
             cancellation,

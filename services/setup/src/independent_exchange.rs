@@ -26,7 +26,7 @@ pub struct OutstandingChallenge {
 
 #[derive(Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Registration {
+pub struct Registration {
     operation: IndependentCreateIntent,
     recipient: String,
     registration: serde_json::Value,
@@ -120,7 +120,7 @@ impl IndependentCreateControl {
                 || state
                     .active
                     .as_ref()
-                    .is_none_or(|active| active.is_cancelled())
+                    .is_none_or(tokio_util::sync::CancellationToken::is_cancelled)
                 || self.0.shutdown.is_cancelled()
             {
                 return Err(io::Error::other(
@@ -135,7 +135,7 @@ impl IndependentCreateControl {
                 bound: bound.clone(),
                 expires: Instant::now() + Duration::from_secs(30),
             });
-        }
+        };
         let configuration = of_idp_client::apis::configuration::Configuration {
             base_path: bound.operation.base(&bound.recipient)?.to_owned(),
             client: self.http_client(),
@@ -162,7 +162,7 @@ impl IndependentCreateControl {
 }
 
 #[utoipa::path(get, tag = "default", path = "/setup/owner/public", operation_id = "owner_public", responses((status = 200, body = IndependentOwnerPublic, description = "Operation-bound public owner metadata, not setup authorization"), (status = 409, description = "Public owner metadata not yet available")))]
-pub(crate) async fn public(
+pub async fn public(
     State(control): State<IndependentCreateControl>,
 ) -> Result<Json<IndependentOwnerPublic>, StatusCode> {
     let state = control.0.lifecycle.lock().await;
@@ -170,7 +170,7 @@ pub(crate) async fn public(
 }
 
 #[utoipa::path(post, tag = "default", path = "/setup/owner/challenge", operation_id = "challenge", request_body = Challenge, security(()), description = "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.", responses((status = 204, description = "Exact handoff accepted"), (status = 400, description = "Invalid registration"), (status = 403, description = "Operation or challenge denied"), (status = 409, description = "Owner not ready"), (status = 503, description = "Owner unavailable")))]
-pub(crate) async fn challenge(
+pub async fn challenge(
     State(control): State<IndependentCreateControl>,
     Json(bound): Json<Challenge>,
 ) -> StatusCode {
@@ -180,7 +180,7 @@ pub(crate) async fn challenge(
         || state
             .active
             .as_ref()
-            .is_none_or(|active| active.is_cancelled())
+            .is_none_or(tokio_util::sync::CancellationToken::is_cancelled)
         || control.0.shutdown.is_cancelled()
         || state.intent.as_ref() != Some(&bound.operation)
         || bound.recipient != control.owner()
@@ -251,7 +251,7 @@ pub(crate) async fn challenge(
         || state
             .active
             .as_ref()
-            .is_none_or(|active| active.is_cancelled())
+            .is_none_or(tokio_util::sync::CancellationToken::is_cancelled)
         || state
             .public
             .as_ref()
@@ -281,7 +281,7 @@ pub(crate) async fn challenge(
 }
 
 #[utoipa::path(post, tag = "default", path = "/setup/owner/register", operation_id = "register", request_body = Registration, security(()), description = "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.", responses((status = 204, description = "Exact handoff accepted"), (status = 400, description = "Invalid registration"), (status = 403, description = "Operation or challenge denied"), (status = 409, description = "Owner not ready"), (status = 503, description = "Owner unavailable")))]
-pub(crate) async fn register(
+pub async fn register(
     State(control): State<IndependentCreateControl>,
     Json(mut reply): Json<Registration>,
 ) -> StatusCode {
@@ -300,7 +300,7 @@ pub(crate) async fn register(
         || state
             .active
             .as_ref()
-            .is_none_or(|active| active.is_cancelled())
+            .is_none_or(tokio_util::sync::CancellationToken::is_cancelled)
         || control.0.shutdown.is_cancelled()
         || state.intent.as_ref() != Some(&reply.operation)
     {
@@ -362,7 +362,7 @@ pub(crate) async fn register(
         || state
             .active
             .as_ref()
-            .is_none_or(|active| active.is_cancelled())
+            .is_none_or(tokio_util::sync::CancellationToken::is_cancelled)
     {
         return StatusCode::FORBIDDEN;
     }
@@ -492,7 +492,7 @@ mod tests {
                 "operation" => body["operation"]["node"] = serde_json::json!("competing"),
                 "registration" => {
                     body["registration"]["client_id"] =
-                        serde_json::json!("00000000-0000-4000-8000-000000000002")
+                        serde_json::json!("00000000-0000-4000-8000-000000000002");
                 }
                 "challenge" => body["challenge"] = serde_json::json!("c".repeat(64)),
                 _ => (),

@@ -365,7 +365,7 @@ fn catalog_snapshot_preserves_largest_identity_defaults_and_stored_fallback() {
             assert_eq!(row_id, key);
             assert_eq!(row.values.len(), 3);
             assert_eq!(row.values[2], Value::from("fresh-default"));
-            assert!(rows.next().await.is_none())
+            assert!(rows.next().await.is_none());
         };
         codec
             .remove_row(&mut transaction, engine::ENGINE_TABLES_STORAGE, &id(99))
@@ -656,7 +656,7 @@ fn catalog_snapshot_select_decodes_malformed_nonmatching_rows() {
             documents
                 .insert(id(2).as_bytes().to_vec(), malformed)
                 .await
-                .expect("persist nonmatching malformed document through public raw store")
+                .expect("persist nonmatching malformed document through public raw store");
         };
         transaction
             .commit()

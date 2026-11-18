@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IntrospectionRequest {
     #[serde(rename = "token")]
     pub token: String,
@@ -24,8 +24,9 @@ pub struct IntrospectionRequest {
 }
 
 impl IntrospectionRequest {
-    pub fn new(token: String) -> IntrospectionRequest {
-        IntrospectionRequest {
+    #[must_use]
+    pub const fn new(token: String) -> Self {
+        Self {
             token,
             token_type_hint: None,
         }

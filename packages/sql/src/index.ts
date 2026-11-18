@@ -18,6 +18,7 @@ export type { DbValue, JsonValue, ValueType } from "./value.js";
 // Sync exports - import to ensure they're included in bundle
 import {
   JsPushSyncTransport,
+  JsSqlSyncTransport,
   JsSqlSyncError,
   SqlSyncDirection,
   SqlSyncRole,
@@ -28,6 +29,7 @@ import {
 
 export {
   JsPushSyncTransport,
+  JsSqlSyncTransport,
   JsSqlSyncError,
   SqlSyncDirection,
   SqlSyncRole,

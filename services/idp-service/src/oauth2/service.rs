@@ -122,7 +122,7 @@ where
     K: KeyRepo,
     P: crate::repo::PrivateKeyRepo,
 {
-    pub fn new(
+    pub const fn new(
         application_repo: A,
         client_repo: C,
         authorization_code_repo: AC,
@@ -696,8 +696,7 @@ where
         let requested_scopes = request
             .scope
             .as_deref()
-            .map(parse_scopes)
-            .unwrap_or_default();
+            .map_or_default(parse_scopes);
         let scopes = intersect_scopes(&requested_scopes, &client.allowed_scopes);
         let normalized_scope = Self::normalize_scopes(&scopes);
 
@@ -919,8 +918,7 @@ where
         let requested_scopes = request
             .scope
             .as_deref()
-            .map(parse_scopes)
-            .unwrap_or_default();
+            .map_or_default(parse_scopes);
         let scopes = intersect_scopes(&requested_scopes, &client.allowed_scopes);
 
         self.issue_tokens_for_client(
@@ -1098,8 +1096,7 @@ where
         let requested_scopes = request
             .scope
             .as_deref()
-            .map(parse_scopes)
-            .unwrap_or_default();
+            .map_or_default(parse_scopes);
         if requested_scopes.is_empty() {
             return Err(ErrorResponse::new(ErrorCode::InvalidScope)
                 .with_description("at least one scope is required for client credentials"));
@@ -1179,8 +1176,7 @@ where
         let requested_scopes = request
             .scope
             .as_deref()
-            .map(parse_scopes)
-            .unwrap_or_default();
+            .map_or_default(parse_scopes);
         let scopes = if requested_scopes.is_empty() {
             refresh_token.scope.clone()
         } else {
@@ -1250,8 +1246,7 @@ where
         let requested_scopes = request
             .scope
             .as_deref()
-            .map(parse_scopes)
-            .unwrap_or_default();
+            .map_or_default(parse_scopes);
         let scopes = if requested_scopes.is_empty() {
             subject_token.scope.clone()
         } else {
@@ -2083,11 +2078,7 @@ where
                 ErrorResponse::new(ErrorCode::NotFound)
                     .with_description("User not found".to_string())
             })?;
-        let secret = if enable {
-            Some(crate::util::generate_random_string::<32>())
-        } else {
-            None
-        };
+        let secret = enable.then(crate::util::generate_random_string::<32>);
         self.user_repo
             .set_user_mfa_totp_secret(user_id, secret)
             .await

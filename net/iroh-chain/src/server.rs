@@ -62,6 +62,7 @@ impl Clone for Server {
 }
 
 impl Server {
+    #[must_use]
     pub fn new(endpoint: Endpoint, allowed: EndpointIdStore) -> Self {
         Self::from_parts(
             endpoint,
@@ -137,6 +138,7 @@ impl Server {
         }
     }
 
+    #[must_use]
     pub fn endpoint(&self) -> &Endpoint {
         &self.inner.endpoint
     }
@@ -145,6 +147,7 @@ impl Server {
         self.inner.alpn_allowlist.allow_for(peer, alpn, duration);
     }
 
+    #[must_use]
     pub fn allowlist_hook(&self) -> AllowlistHook {
         AllowlistHook::new(
             self.inner.allowed.clone(),
@@ -198,6 +201,7 @@ impl Server {
         router
     }
 
+    #[must_use]
     pub fn subscribe_pairing_offers(&self) -> broadcast::Receiver<PairingOffer> {
         self.inner.pairing_offers.subscribe()
     }
@@ -248,16 +252,19 @@ impl Server {
         });
     }
 
+    #[must_use]
     pub fn pairing_enabled(&self) -> bool {
         self.inner.pairing_enabled.load(Ordering::Acquire)
     }
 
     /// Identifies the current acceptance window; every enable/disable invalidates older offers.
+    #[must_use]
     pub fn pairing_acceptance_generation(&self) -> Option<u64> {
         *self.inner.pairing_acceptance.borrow()
     }
 
     /// Observes acceptance changes, including natural expiration, without polling.
+    #[must_use]
     pub fn subscribe_pairing_acceptance(&self) -> watch::Receiver<Option<u64>> {
         self.inner.pairing_acceptance.subscribe()
     }
@@ -296,10 +303,12 @@ impl Server {
             .map_err(Error::other)
     }
 
+    #[must_use]
     pub fn peers(&self) -> EndpointIdStore {
         self.inner.allowed.clone()
     }
 
+    #[must_use]
     pub fn subscribe_messages(&self) -> broadcast::Receiver<Message> {
         self.inner.mesh.subscribe()
     }

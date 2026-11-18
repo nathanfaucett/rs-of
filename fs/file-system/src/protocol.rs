@@ -58,14 +58,14 @@ mod tests {
 
     #[test]
     fn rejects_invalid_and_unsupported_frames() {
-        assert!(decode_sync_message::<u8>(&[]).is_err());
-        assert!(decode_sync_message::<u8>(&[0]).is_err());
-        assert!(decode_sync_message::<u8>(&[FILESYSTEM_SYNC_PROTOCOL_VERSION, 0xff]).is_err());
+        decode_sync_message::<u8>(&[]).unwrap_err();
+        decode_sync_message::<u8>(&[0]).unwrap_err();
+        decode_sync_message::<u8>(&[FILESYSTEM_SYNC_PROTOCOL_VERSION, 0xff]).unwrap_err();
     }
 
     #[test]
     fn rejects_oversized_frames_before_decoding() {
         let frame = vec![FILESYSTEM_SYNC_PROTOCOL_VERSION; MAX_FILESYSTEM_SYNC_FRAME_SIZE + 1];
-        assert!(decode_sync_message::<u8>(&frame).is_err());
+        decode_sync_message::<u8>(&frame).unwrap_err();
     }
 }

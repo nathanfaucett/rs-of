@@ -709,7 +709,7 @@ mod pure_filesystem_api_tests {
 
         // list
         let entries = fs.list("notes").await.expect("list");
-        assert!(entries.is_empty());
+        assert_eq!(entries, [] as [file_system::Entry<std::string::String>; 0]);
 
         // write in subdirectory
         fs.write("notes/sub.txt", b"sub content")
@@ -731,7 +731,7 @@ mod pure_filesystem_api_tests {
         // delete
         fs.delete("notes/sub.txt").await.expect("delete file");
         let entries = fs.list("notes").await.expect("list after delete");
-        assert!(entries.is_empty());
+        assert_eq!(entries, [] as [file_system::Entry<std::string::String>; 0]);
 
         fs.delete("notes").await.expect("delete dir");
         let entries = fs.list("").await.expect("list root");

@@ -313,7 +313,7 @@ where
 
     #[cfg(feature = "std")]
     #[must_use]
-    pub fn change_signal(&self) -> &btree::ChangeSignal {
+    pub const fn change_signal(&self) -> &btree::ChangeSignal {
         &self.change_signal
     }
 

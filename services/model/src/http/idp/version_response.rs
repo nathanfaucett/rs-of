@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VersionResponse {
     #[serde(rename = "build")]
     pub build: String,
@@ -21,8 +21,9 @@ pub struct VersionResponse {
 }
 
 impl VersionResponse {
-    pub fn new(build: String, name: String, version: String) -> VersionResponse {
-        VersionResponse {
+    #[must_use]
+    pub const fn new(build: String, name: String, version: String) -> Self {
+        Self {
             build,
             name,
             version,

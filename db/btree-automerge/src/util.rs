@@ -94,13 +94,11 @@ where
     F: FnOnce(&mut AutoCommit) -> BTreeResult<()>,
 {
     let mut current_doc = tx_get_document(tx, &doc_id, false, policy)
-        .await?
-        .map(|(doc, _)| doc)
-        .unwrap_or_else(|| {
+        .await?.map_or_else(|| {
             AutoCommit::new().with_actor(ActorId::from(
                 DocumentChangeKey::id_to_uuid(doc_id.as_slice()).as_bytes(),
             ))
-        });
+        }, |(doc, _)| doc);
 
     let previous_heads = current_doc.get_heads();
     update_fn(&mut current_doc)?;

@@ -1,5 +1,4 @@
 use crate::repo::{OAuth2RefreshToken, OAuth2RefreshTokenRepo, RepoError, RepoResult};
-use chrono::{DateTime, Utc};
 use db::ofdb::validators::SecurityRow;
 use db::ofdb::validators::SecurityTable;
 use db::ofdb::validators::allows_token_issuance;
@@ -15,8 +14,6 @@ use ofdb_sql::QueryUpdate;
 use ofdb_sql::QueryUpdateAssignment;
 use ofdb_sql::Row;
 use ofdb_sql::Statement;
-use ofdb_sql::Transaction;
-use ofdb_sql::Uuid;
 use ofdb_sql::Value;
 use sha2::{Digest, Sha256};
 

@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 
 use of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID;
 
@@ -63,7 +62,7 @@ where
     P: PermissionRepo,
     R: RoleRepo,
 {
-    pub fn new(permission_repo: P, role_repo: R) -> Self {
+    pub const fn new(permission_repo: P, role_repo: R) -> Self {
         Self {
             permission_repo,
             role_repo,

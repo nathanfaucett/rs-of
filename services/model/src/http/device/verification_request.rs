@@ -19,11 +19,12 @@ pub struct VerificationRequest {
 }
 
 impl VerificationRequest {
+    #[must_use]
     pub fn new(
         approval: crate::setup::IndependentJoinApproval,
         context: String,
-    ) -> VerificationRequest {
-        VerificationRequest {
+    ) -> Self {
+        Self {
             approval: Box::new(approval),
             context,
         }

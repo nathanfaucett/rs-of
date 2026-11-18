@@ -18,6 +18,7 @@ pub struct LocalIdentity {
 }
 
 impl LocalIdentity {
+    #[must_use]
     pub const fn new(engine: Client) -> Self {
         Self { engine }
     }

@@ -1,6 +1,6 @@
 use alloc::{
     format,
-    string::{String, ToString},
+    string::ToString,
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};

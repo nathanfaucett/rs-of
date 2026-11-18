@@ -4,6 +4,7 @@ use base64::Engine;
 
 use crate::password_config::PasswordConfig;
 
+#[must_use]
 pub fn generate_random_string<const N: usize>() -> String {
     // TODO: use generic_const_exprs once stablized to enforce N > 0 at compile time
     debug_assert_ne!(N, 0);
@@ -12,10 +13,11 @@ pub fn generate_random_string<const N: usize>() -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
+#[must_use]
 pub fn random_bytes(size: usize) -> Vec<u8> {
     let mut bytes = vec![0u8; size];
     getrandom::fill(&mut bytes).expect("Failed to generate random bytes");
-    bytes.to_vec()
+    bytes.clone()
 }
 
 pub fn encrypt_password(config: &PasswordConfig, input: &str) -> argon2::Result<String> {

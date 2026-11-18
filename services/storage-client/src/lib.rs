@@ -34,6 +34,7 @@ use uuid::Uuid;
 pub struct ResourceId(pub Uuid);
 
 impl ResourceId {
+    #[must_use]
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
@@ -86,6 +87,7 @@ pub type FilesystemId = ResourceId;
 pub struct DeviceId(pub Uuid);
 
 impl DeviceId {
+    #[must_use]
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
@@ -129,6 +131,7 @@ impl core::str::FromStr for DeviceId {
 pub struct ApplicationId(pub Uuid);
 
 impl ApplicationId {
+    #[must_use]
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }

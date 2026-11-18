@@ -44,11 +44,13 @@ pub struct SingleNodeRunner {
 }
 
 impl SingleNodeRunner {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn with_policy(policy: VerificationPolicy) -> Self {
+    #[must_use]
+    pub const fn with_policy(policy: VerificationPolicy) -> Self {
         Self { policy }
     }
 }
@@ -81,7 +83,7 @@ impl TestRunner for SingleNodeRunner {
             match (&step.expected_error, result) {
                 (None, Ok(mut results)) => {
                     if step.expected_rows.is_some() {
-                        let rows = results.pop().map(|result| result.rows).unwrap_or_default();
+                        let rows = results.pop().map_or_default(|result| result.rows);
                         verify_step_result(step, rows)?;
                     }
                 }
@@ -117,7 +119,7 @@ impl TestRunner for SingleNodeRunner {
                     .translate_and_execute(exp.query.as_ref(), &SqlTranslator)
                     .await
                     .map_err(RunnerError::Engine)?;
-                let actual_rows = results.pop().map(|r| r.rows).unwrap_or_default();
+                let actual_rows = results.pop().map_or_default(|r| r.rows);
                 if actual_rows != exp.expected_rows {
                     return Err(RunnerError::ExpectationFailed {
                         node: exp.target_node,

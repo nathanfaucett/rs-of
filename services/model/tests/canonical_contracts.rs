@@ -22,12 +22,9 @@ fn join_request_keeps_the_signed_field_order() {
         wire,
         r#"{"purpose":"of.equal-node-join.v1","installation":"https://issuer.test","member_id":"00000000-0000-7000-8000-000000000001","endpoint_id":"endpoint","name":"node","public_signer":{"use":"sig","kid":"00000000-0000-7000-8000-000000000002","alg":"EdDSA","kty":"Opk","crv":"Ed25519","x":"key"},"approving_peer":"peer"}"#
     );
-    assert!(
-        serde_json::from_str::<NodeJoinRequest>(
+    serde_json::from_str::<NodeJoinRequest>(
             &fixture.replace("\"name\":\"node\"", "\"name\":\"node\",\"untrusted\":true")
-        )
-        .is_err()
-    );
+        ).unwrap_err();
 }
 
 #[test]
@@ -105,11 +102,8 @@ fn sdk_identifier_constructors_make_v7_ids() {
 
 #[test]
 fn oauth_mutations_reject_unknown_fields() {
-    assert!(
-        serde_json::from_str::<http::idp::CreateUserRequest>(
+    serde_json::from_str::<http::idp::CreateUserRequest>(
             r#"{"name":"user","email":"user@test","password":"secret","admin":true}"#
-        )
-        .is_err()
-    );
-    assert!(serde_json::from_str::<http::idp::UpdateUserInfoRequest>(r#"{"admin":true}"#).is_err());
+        ).unwrap_err();
+    serde_json::from_str::<http::idp::UpdateUserInfoRequest>(r#"{"admin":true}"#).unwrap_err();
 }

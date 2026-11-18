@@ -266,10 +266,10 @@ fn remove_range_skips_malformed_documents_and_removes_their_changes() {
             let stream = tx.remove_range(malformed_id.clone()..=valid_id.clone());
             pin_mut!(stream);
 
-            assert!(stream.next().await.unwrap().is_err());
+            stream.next().await.unwrap().unwrap_err();
             assert_eq!(stream.next().await.unwrap().unwrap().0, valid_id);
             assert!(stream.next().await.is_none());
-        }
+        };
         tx.commit().await.unwrap();
 
         assert_eq!(inner.get(&malformed_key).await.unwrap(), None);

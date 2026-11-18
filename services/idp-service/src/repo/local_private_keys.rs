@@ -1,4 +1,3 @@
-use std::future::Future;
 
 use bip32::DerivationPath;
 

@@ -14,7 +14,7 @@ pub struct RemoteDatabaseConfig {
     pub deadline_ms: u64,
 }
 
-fn default_deadline() -> u64 {
+const fn default_deadline() -> u64 {
     10_000
 }
 
@@ -110,7 +110,7 @@ mod tests {
             client_key: None,
             deadline_ms: 1000,
         };
-        assert!(config.validate().is_ok());
+        config.validate().unwrap();
         for endpoint in [
             "http://sql.example:50051",
             "http://0.0.0.0:50051",
@@ -131,6 +131,6 @@ mod tests {
         config.endpoint = "https://sql.example:50051".into();
         config.ca_certificate = Some("ca.pem".into());
         config.client_certificate = Some("client.pem".into());
-        assert!(config.validate().is_ok());
+        config.validate().unwrap();
     }
 }

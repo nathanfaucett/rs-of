@@ -27,13 +27,15 @@ pub enum SetupRelationship {
 }
 
 impl SetupRelationship {
-    pub fn owner(self) -> &'static str {
+    #[must_use]
+    pub const fn owner(self) -> &'static str {
         match self {
             Self::IdpManagement => "idp",
             Self::ManagementIdp => "management",
             Self::StorageIdp | Self::StorageManagement => "storage",
         }
     }
+    #[must_use]
     pub fn registration(
         self,
         id: Id,

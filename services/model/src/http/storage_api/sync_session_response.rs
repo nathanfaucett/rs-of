@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SyncSessionResponse {
     #[serde(rename = "sessionId")]
@@ -30,7 +30,8 @@ pub struct SyncSessionResponse {
 }
 
 impl SyncSessionResponse {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         session_id: uuid::Uuid,
         resource_id: uuid::Uuid,
         source_device: uuid::Uuid,
@@ -38,8 +39,8 @@ impl SyncSessionResponse {
         status: Status,
         bytes_sent: i32,
         bytes_received: i32,
-    ) -> SyncSessionResponse {
-        SyncSessionResponse {
+    ) -> Self {
+        Self {
             session_id,
             resource_id,
             source_device,

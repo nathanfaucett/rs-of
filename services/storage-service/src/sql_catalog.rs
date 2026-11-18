@@ -76,9 +76,7 @@ async fn persist(
         let name = record
             .resource
             .name
-            .as_ref()
-            .map(|name| format!("'{}'", name.replace('\'', "''")))
-            .unwrap_or_else(|| "NULL".into());
+            .as_ref().map_or_else(|| "NULL".into(), |name| format!("'{}'", name.replace('\'', "''")));
         let existing = transaction
             .execute_sql(
                 &format!(

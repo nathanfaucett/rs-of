@@ -1,5 +1,4 @@
 use std::{
-    future::Future,
     io::{self, Write},
     path::{Path, PathBuf},
     pin::Pin,
@@ -162,6 +161,7 @@ impl IndependentSetupHost {
 }
 
 impl IndependentCreateHost {
+    #[must_use]
     pub fn control(&self) -> IndependentCreateControl {
         self.control.clone()
     }
@@ -213,15 +213,19 @@ impl IndependentCreateHost {
 }
 
 impl IndependentCreateControl {
+    #[must_use]
     pub fn http_client(&self) -> reqwest::Client {
         self.0.client.clone()
     }
+    #[must_use]
     pub fn shutdown_token(&self) -> CancellationToken {
         self.0.shutdown.child_token()
     }
+    #[must_use]
     pub fn owner(&self) -> &str {
         &self.0.owner
     }
+    #[must_use]
     pub fn directory(&self) -> &Path {
         &self.0.directory
     }
@@ -304,7 +308,7 @@ impl IndependentCreateControl {
     /// The supplied control avoids retaining the host in its own observation callback.
     pub fn set_readiness<F, Check>(&self, check: F) -> io::Result<()>
     where
-        F: Fn(IndependentCreateControl) -> Check + Send + Sync + 'static,
+        F: Fn(Self) -> Check + Send + Sync + 'static,
         Check: Future<Output = io::Result<()>> + Send + 'static,
     {
         *self
@@ -627,6 +631,7 @@ pub struct RequestObservation<'a> {
 }
 
 impl<'a> RequestObservation<'a> {
+    #[must_use]
     pub fn start(owner: &'a str, phase: &'static str) -> Self {
         let started = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").map(|_| {
             eprintln!("seam=owner_request phase={phase}_start owner={owner} pid={} thread={:?} wall_ms={}", std::process::id(), std::thread::current().id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system clock").as_millis());

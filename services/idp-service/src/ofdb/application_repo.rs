@@ -19,7 +19,6 @@ use ofdb_sql::QueryUpdate;
 use ofdb_sql::QueryUpdateAssignment;
 use ofdb_sql::Row;
 use ofdb_sql::Statement;
-use ofdb_sql::Transaction;
 use ofdb_sql::Uuid;
 use ofdb_sql::Value;
 
@@ -249,7 +248,7 @@ impl From<&Application> for ApplicationRow {
 
 impl From<ApplicationRow> for Row {
     fn from(row: ApplicationRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Text(row.name),
             Value::Text(row.uri),

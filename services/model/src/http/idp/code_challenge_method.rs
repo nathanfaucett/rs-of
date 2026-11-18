@@ -10,11 +10,14 @@
 
 use serde::{Deserialize, Serialize};
 
-/// CodeChallengeMethod : PKCE code challenge methods (RFC 7636). the `plain` method is not included as it is not recommended in OAuth 2.1 due to security weaknesses. Only `S256` is supported for better security.
+/// `CodeChallengeMethod` : PKCE code challenge methods (RFC 7636). the `plain` method is not included as it is not recommended in OAuth 2.1 due to security weaknesses. Only `S256` is supported for better security.
+///
 /// PKCE code challenge methods (RFC 7636). the `plain` method is not included as it is not recommended in OAuth 2.1 due to security weaknesses. Only `S256` is supported for better security.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum CodeChallengeMethod {
     #[serde(rename = "S256")]
+    #[default]
     S256,
 }
 
@@ -26,8 +29,3 @@ impl core::fmt::Display for CodeChallengeMethod {
     }
 }
 
-impl Default for CodeChallengeMethod {
-    fn default() -> CodeChallengeMethod {
-        Self::S256
-    }
-}

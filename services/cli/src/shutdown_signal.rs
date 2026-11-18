@@ -7,7 +7,7 @@ pub async fn shutdown_signal(cancellation_token: CancellationToken) {
     let terminate = async {
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
             Ok(mut signal) => match signal.recv().await {
-                Some(_) => Ok(()),
+                Some(()) => Ok(()),
                 None => Ok(()),
             },
             Err(e) => Err(e),
@@ -23,8 +23,8 @@ pub async fn shutdown_signal(cancellation_token: CancellationToken) {
     };
 
     match result {
-        Ok(_) => log::info!("shutdown signal received, shutting down"),
-        Err(e) => log::error!("error receiving shutdown signal: {}", e),
+        Ok(()) => log::info!("shutdown signal received, shutting down"),
+        Err(e) => log::error!("error receiving shutdown signal: {e}"),
     }
 
     cancellation_token.cancel();

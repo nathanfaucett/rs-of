@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserInfo {
     #[serde(
         rename = "birthdate",
@@ -144,8 +144,9 @@ pub struct UserInfo {
 }
 
 impl UserInfo {
-    pub fn new(sub: String, updated_at: String, blocked: bool) -> UserInfo {
-        UserInfo {
+    #[must_use]
+    pub const fn new(sub: String, updated_at: String, blocked: bool) -> Self {
+        Self {
             birthdate: None,
             email: None,
             email_verified: None,

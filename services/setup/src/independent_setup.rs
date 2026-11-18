@@ -155,14 +155,7 @@ impl IndependentSetupHost {
             ),
             std::fs::TryLockError::Error(error) => error,
         })?;
-        if !retained {
-            operation.sync_all()?;
-            sync_ancestry(&directory)?;
-            let mut file = private_options(true).open(directory.join("host.json"))?;
-            file.write_all(&serde_json::to_vec(&settings)?)?;
-            file.sync_all()?;
-            sync_ancestry(&directory)?;
-        } else {
+        if retained {
             let retained: HostSettings =
                 serde_json::from_slice(&read_private(&directory.join("host.json"))?)?;
             if retained != settings {
@@ -171,6 +164,13 @@ impl IndependentSetupHost {
                 ));
             }
             require_private(&directory.join("setup-admission"), true)?;
+        } else {
+            operation.sync_all()?;
+            sync_ancestry(&directory)?;
+            let mut file = private_options(true).open(directory.join("host.json"))?;
+            file.write_all(&serde_json::to_vec(&settings)?)?;
+            file.sync_all()?;
+            sync_ancestry(&directory)?;
         }
         let admission = Arc::new(SetupAdmission::open(&directory.join("setup-admission"))?);
         if domain_exists && admission.host_intent().map_err(io::Error::other)?.is_none() {
@@ -202,6 +202,7 @@ impl IndependentSetupHost {
         Ok(())
     }
 
+    #[must_use]
     pub fn admission_path(&self) -> PathBuf {
         self.settings
             .domain
@@ -209,11 +210,13 @@ impl IndependentSetupHost {
             .join("setup-admission/state")
     }
 
-    pub fn tls(&self) -> &LocalTls {
+    #[must_use]
+    pub const fn tls(&self) -> &LocalTls {
         &self.tls
     }
 
-    pub fn local_addr(&self) -> SocketAddr {
+    #[must_use]
+    pub const fn local_addr(&self) -> SocketAddr {
         self.settings.address
     }
 

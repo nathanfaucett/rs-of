@@ -1,5 +1,5 @@
 #[cfg(feature = "ofdb")]
-use std::{future::Future, io, pin::Pin, sync::Arc};
+use std::{io, pin::Pin, sync::Arc};
 
 use idp_service::oauth2::NodeSignerBinding;
 use iroh::EndpointId;

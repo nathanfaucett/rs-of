@@ -225,15 +225,19 @@ impl IndependentReset {
             .map_err(io::Error::other)
     }
 
-    pub fn worker(&self) -> Option<&Value> {
+    #[must_use]
+    pub const fn worker(&self) -> Option<&Value> {
         self.journal.worker.as_ref()
     }
-    pub fn intent(&self) -> Option<&IndependentCreateIntent> {
+    #[must_use]
+    pub const fn intent(&self) -> Option<&IndependentCreateIntent> {
         self.journal.intent.as_ref()
     }
+    #[must_use]
     pub fn directory(&self) -> &Path {
         &self.directory
     }
+    #[must_use]
     pub fn secrets_pending(&self) -> bool {
         self.journal.phase == Phase::Secrets
     }
@@ -353,8 +357,7 @@ fn uninstall_local_ca_with(
     let pem = directory.join("ca.pem");
     let fingerprint = ca_fingerprint(directory)?;
     #[cfg(target_os = "linux")]
-    {
-        return uninstall_linux_ca(
+    return uninstall_linux_ca(
             directory,
             &fingerprint,
             &[
@@ -369,7 +372,6 @@ fn uninstall_local_ca_with(
             ],
             &mut run,
         );
-    }
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var_os("HOME").ok_or_else(|| io::Error::other("HOME is missing"))?;

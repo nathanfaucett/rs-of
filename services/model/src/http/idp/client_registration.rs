@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientRegistration {
     #[serde(rename = "allowed_audiences", skip_serializing_if = "Option::is_none")]
     pub allowed_audiences: Option<Vec<String>>,
@@ -134,13 +134,14 @@ pub struct ClientRegistration {
 }
 
 impl ClientRegistration {
+    #[must_use]
     pub fn new(
         application: crate::http::idp::application_registration::ApplicationRegistration,
         client_name: String,
         profile: crate::http::idp::client_profile::ClientProfile,
         token_endpoint_auth_method: crate::http::idp::token_endpoint_auth_method::TokenEndpointAuthMethod,
-    ) -> ClientRegistration {
-        ClientRegistration {
+    ) -> Self {
+        Self {
             allowed_audiences: None,
             allowed_grant_types: None,
             allowed_scopes: None,

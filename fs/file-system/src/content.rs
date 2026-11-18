@@ -5,17 +5,17 @@ use uuid::Uuid;
 use crate::Error;
 
 /// Object-safe content boundary shared across threads on native targets.
-pub(crate) trait ContentObject: ContentStore + MaybeSend + MaybeSync {}
+pub trait ContentObject: ContentStore + MaybeSend + MaybeSync {}
 impl<T: ?Sized + ContentStore + MaybeSend + MaybeSync> ContentObject for T {}
 
 /// Object-safe staged revision boundary shared across threads on native targets.
-pub(crate) trait StagedObject: Staged + MaybeSend {}
+pub trait StagedObject: Staged + MaybeSend {}
 impl<T: ?Sized + Staged + MaybeSend> StagedObject for T {}
 
 /// Internal port for complete Content Revisions addressed by File id and Content Revision id.
 ///
 /// The boundary is internal to the library: it is not a public extension point.
-pub(crate) trait ContentStore: MaybeSend + MaybeSync {
+pub trait ContentStore: MaybeSend + MaybeSync {
     /// Whether the revision's bytes are stored.
     fn has(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<bool, Error>>;
 
@@ -45,24 +45,24 @@ pub(crate) trait ContentStore: MaybeSend + MaybeSync {
 
 /// A staged revision write. Publishing makes the bytes durable at the revision's address;
 /// dropping an unpublished stage discards it.
-pub(crate) trait Staged: MaybeSend {
+pub trait Staged: MaybeSend {
     fn write<'a>(&'a mut self, bytes: &'a [u8]) -> BoxFuture<'a, Result<(), Error>>;
 
     /// Copies a previous revision's bytes as the staged revision's starting content.
-    fn copy_from<'a>(
-        &'a mut self,
+    fn copy_from(
+        &mut self,
         file_id: Uuid,
         revision: Uuid,
-    ) -> BoxFuture<'a, Result<(), Error>>;
+    ) -> BoxFuture<'_, Result<(), Error>>;
 
     fn write_at<'a>(&'a mut self, offset: u64, bytes: &'a [u8])
     -> BoxFuture<'a, Result<(), Error>>;
 
     fn write_end<'a>(&'a mut self, bytes: &'a [u8]) -> BoxFuture<'a, Result<(), Error>>;
 
-    fn sync<'a>(&'a mut self) -> BoxFuture<'a, Result<(), Error>>;
+    fn sync(&mut self) -> BoxFuture<'_, Result<(), Error>>;
 
-    fn publish<'a>(&'a mut self) -> BoxFuture<'a, Result<(), Error>>;
+    fn publish(&mut self) -> BoxFuture<'_, Result<(), Error>>;
 
     /// Marks the published bytes as committed so dropping no longer removes them.
     fn commit(&mut self);

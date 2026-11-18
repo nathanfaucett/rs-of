@@ -17,7 +17,8 @@ pub struct SqlResponse {
 }
 
 impl SqlResponse {
-    pub fn new(results: Vec<crate::http::storage_api::sql_result::SqlResult>) -> SqlResponse {
-        SqlResponse { results }
+    #[must_use]
+    pub const fn new(results: Vec<crate::http::storage_api::sql_result::SqlResult>) -> Self {
+        Self { results }
     }
 }

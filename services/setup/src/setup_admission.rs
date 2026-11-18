@@ -25,7 +25,7 @@ use subtle::ConstantTimeEq;
 /// return it over HTTP, log it, or put it in a URL. These Unix permissions protect
 /// this capability, not existing domain private keys or their secure providers.
 ///
-/// Methods perform synchronous durable IO; async hosts should use spawn_blocking.
+/// Methods perform synchronous durable IO; async hosts should use `spawn_blocking`.
 /// Binding authorizes an exact retry, not mutual exclusion of provisioning work.
 /// The host must coordinate that work and explicitly retire after completion;
 /// dropping this handle or cancelling a request does neither.

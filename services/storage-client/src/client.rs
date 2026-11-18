@@ -65,10 +65,12 @@ impl StorageClient {
             local_replica_id: Uuid::now_v7(),
         }
     }
+    #[must_use]
     pub fn sync_ws_url(&self) -> &str {
         &self.sync_ws_url
     }
-    pub fn local_replica_id(&self) -> Uuid {
+    #[must_use]
+    pub const fn local_replica_id(&self) -> Uuid {
         self.local_replica_id
     }
 
@@ -181,7 +183,7 @@ impl StorageClient {
             .json()
             .await?)
     }
-    fn identity(&self, id: ResourceId) -> StoreIdentity {
+    const fn identity(&self, id: ResourceId) -> StoreIdentity {
         StoreIdentity {
             store_id: id.0,
             replica_id: self.local_replica_id,

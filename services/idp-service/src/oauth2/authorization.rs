@@ -128,9 +128,9 @@ fn validate_pkce(
     }
 }
 
-fn validate_response_mode(request: &AuthorizationRequest) -> ErrorResponseResult<()> {
+const fn validate_response_mode(request: &AuthorizationRequest) -> ErrorResponseResult<()> {
     match request.response_mode {
-        None | Some(ResponseMode::Query) | Some(ResponseMode::FormPost) => Ok(()),
+        None | Some(ResponseMode::Query | ResponseMode::FormPost) => Ok(()),
     }
 }
 

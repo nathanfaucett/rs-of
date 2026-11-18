@@ -352,8 +352,7 @@ where
             SynchronizeError::HandshakeFailed(e) => PushSynchronizeError::Protocol(e),
             SynchronizeError::GenerationGap { key, have, need } => {
                 PushSynchronizeError::Protocol(format!(
-                    "generation gap for key {:?}: have {}, need {}",
-                    key, have, need
+                    "generation gap for key {key:?}: have {have}, need {need}"
                 ))
             }
         })?;

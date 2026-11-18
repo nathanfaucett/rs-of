@@ -19,7 +19,6 @@ use ofdb_sql::QueryUpdate;
 use ofdb_sql::QueryUpdateAssignment;
 use ofdb_sql::Row;
 use ofdb_sql::Statement;
-use ofdb_sql::Transaction;
 use ofdb_sql::Uuid;
 use ofdb_sql::Value;
 
@@ -398,7 +397,7 @@ impl From<&Key> for KeyRow {
 
 impl From<KeyRow> for Row {
     fn from(row: KeyRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             row.parent_id.map_or(Value::Null, Value::Uuid),
             Value::Integer(row.entity_type),

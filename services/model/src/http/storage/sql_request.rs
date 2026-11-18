@@ -18,7 +18,8 @@ pub struct SqlRequest {
 }
 
 impl SqlRequest {
-    pub fn new(statements: Vec<crate::http::storage::sql_statement::SqlStatement>) -> SqlRequest {
-        SqlRequest { statements }
+    #[must_use]
+    pub const fn new(statements: Vec<crate::http::storage::sql_statement::SqlStatement>) -> Self {
+        Self { statements }
     }
 }

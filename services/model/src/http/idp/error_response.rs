@@ -10,8 +10,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// ErrorResponse : Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2). should match fields from crates/model/src/contract/error_response.rs
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+/// `ErrorResponse` : Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2). should match fields from `crates/model/src/contract/error_response.rs`
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorResponse {
     #[serde(rename = "error")]
     pub error: crate::http::idp::error_code::ErrorCode,
@@ -32,9 +32,10 @@ pub struct ErrorResponse {
 }
 
 impl ErrorResponse {
-    /// Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2). should match fields from crates/model/src/contract/error_response.rs
-    pub fn new(error: crate::http::idp::error_code::ErrorCode) -> ErrorResponse {
-        ErrorResponse {
+    /// Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2). should match fields from `crates/model/src/contract/error_response.rs`
+    #[must_use]
+    pub const fn new(error: crate::http::idp::error_code::ErrorCode) -> Self {
+        Self {
             error,
             error_description: None,
             error_uri: None,

@@ -1,6 +1,6 @@
 // Generated from the canonical allOf/oneOf composition.
 use serde::{Deserialize, Serialize};
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JwkPublic {
     #[serde(flatten)]
     pub parameters: crate::http::storage_api::jwk_public_parameters::JwkPublicParameters,

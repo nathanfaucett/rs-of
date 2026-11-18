@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorizationDetail {
     #[serde(rename = "actions")]
     pub actions: Vec<crate::http::idp::storage_authorization_action::StorageAuthorizationAction>,
@@ -19,22 +19,20 @@ pub struct AuthorizationDetail {
 }
 
 impl AuthorizationDetail {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         actions: Vec<crate::http::idp::storage_authorization_action::StorageAuthorizationAction>,
         r#type: Type,
-    ) -> AuthorizationDetail {
-        AuthorizationDetail { actions, r#type }
+    ) -> Self {
+        Self { actions, r#type }
     }
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum Type {
     #[serde(rename = "storage")]
+    #[default]
     Storage,
 }
 
-impl Default for Type {
-    fn default() -> Type {
-        Self::Storage
-    }
-}

@@ -94,6 +94,7 @@ pub mod validators {
     }
 
     impl SecurityTable {
+        #[must_use]
         pub const fn name(self) -> &'static str {
             match self {
                 Self::User => "users",
@@ -114,6 +115,7 @@ pub mod validators {
             }
         }
 
+        #[must_use]
         pub const fn is_token_state(self) -> bool {
             matches!(
                 self,
@@ -130,10 +132,12 @@ pub mod validators {
     }
 
     impl SecurityRow {
+        #[must_use]
         pub const fn new(table: SecurityTable, id: Uuid) -> Self {
             Self { table, id }
         }
 
+        #[must_use]
         pub fn key(&self) -> Row {
             Row::new(vec![Value::Uuid(self.id)])
         }
@@ -153,7 +157,7 @@ pub mod validators {
     /// Checks for conflicts across the given security rows.
     async fn clear(engine: &Client, rows: &[SecurityRow]) -> Result<bool, QueryError> {
         for group in rows.chunk_by(|left, right| left.table == right.table) {
-            let keys = group.iter().map(|row| row.key()).collect::<Vec<_>>();
+            let keys = group.iter().map(SecurityRow::key).collect::<Vec<_>>();
             if engine
                 .row_conflicts_batch(group[0].table.name(), &keys)
                 .await?
@@ -238,8 +242,7 @@ pub mod validators {
 mod tests {
     #[cfg(feature = "ofdb")]
     use super::up;
-    #[cfg(feature = "ofdb")]
-    use ofdb_sql::Client;
+    
     #[cfg(feature = "ofdb")]
     use ofdb_sql::Database as SqlDatabase;
 

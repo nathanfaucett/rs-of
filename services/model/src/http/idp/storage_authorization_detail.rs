@@ -10,16 +10,17 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageAuthorizationDetail {
     #[serde(rename = "actions")]
     pub actions: Vec<crate::http::idp::storage_authorization_action::StorageAuthorizationAction>,
 }
 
 impl StorageAuthorizationDetail {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         actions: Vec<crate::http::idp::storage_authorization_action::StorageAuthorizationAction>,
-    ) -> StorageAuthorizationDetail {
-        StorageAuthorizationDetail { actions }
+    ) -> Self {
+        Self { actions }
     }
 }
