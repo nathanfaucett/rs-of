@@ -34,7 +34,7 @@ pub async fn stop_server(mut server: ServerTask) {
 
 pub async fn start_client_server<B>(backend: B) -> (Client, Shutdown, ServerTask)
 where
-    B: BTree<Vec<u8>, Vec<u8>> + Send + Sync + 'static,
+    B: BTree<Vec<u8>, Vec<u8>> + Send + Sync + 'static + core::fmt::Debug,
 {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await

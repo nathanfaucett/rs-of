@@ -1,4 +1,3 @@
-use alloc::string::String;
 
 #[derive(serde::Deserialize)]
 pub struct StorageQuery {

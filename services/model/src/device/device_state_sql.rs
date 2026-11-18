@@ -1,5 +1,3 @@
-#[cfg(not(feature = "std"))]
-use alloc::format;
 
 use serde::{Deserialize, Deserializer, Serializer, de::Error};
 

@@ -1,4 +1,3 @@
-use alloc::{string::String, vec::Vec};
 /*
  * LIDP Device API
  *

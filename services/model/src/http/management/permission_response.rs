@@ -1,4 +1,3 @@
-use alloc::string::String;
 /*
  * LIDP Management API
  *

@@ -1,4 +1,3 @@
-use alloc::string::String;
 
 use serde::Deserialize;
 use serde::Serialize;

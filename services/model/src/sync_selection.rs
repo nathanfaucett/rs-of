@@ -1,7 +1,6 @@
 use crate::id::Id;
 use crate::management::SyncSelection;
 use crate::management_error::ManagementResult;
-use alloc::vec::Vec;
 
 /// Sync selection repository trait.
 pub trait SyncSelectionRepo {

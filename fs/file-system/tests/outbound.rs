@@ -1,9 +1,11 @@
 use std::{
     fs,
+    pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
     },
+    task::Poll,
 };
 
 use file_system::{
@@ -11,7 +13,6 @@ use file_system::{
     MemoryTransportError, OpenRequest, OperationControl, RemoteOperation, Residency,
     SessionRequest, SyncMessage, Transport,
 };
-use std::{future::Future, pin::Pin, sync::atomic::AtomicU8, task::Poll};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 

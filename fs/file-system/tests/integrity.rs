@@ -1,7 +1,6 @@
 use std::{
     collections::VecDeque,
     fs,
-    future::Future,
     pin::Pin,
     sync::{Arc, Mutex},
     task::Poll,

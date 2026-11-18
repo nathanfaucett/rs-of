@@ -1,5 +1,4 @@
 use crate::id::Id as Uuid;
-use alloc::{string::String, vec::Vec};
 
 #[cfg(feature = "ofdb")]
 use ofdb_sql::FromRow;

@@ -1,4 +1,3 @@
-use alloc::string::String;
 /*
  * OAuth Server
  *

@@ -3,7 +3,6 @@ use uuid::Uuid;
 
 use super::sdk::ResourceId;
 
-use super::sync::SyncDirection;
 use super::sync::SyncStatus;
 
 /// Represents an active sync session between two devices.

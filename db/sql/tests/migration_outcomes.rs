@@ -72,7 +72,6 @@ fn embedded_concurrent_calls_apply_each_version_once() {
 #[cfg(all(feature = "remote", feature = "server"))]
 mod remote {
     use std::{
-        future::Future,
         pin::Pin,
         sync::{
             Arc,

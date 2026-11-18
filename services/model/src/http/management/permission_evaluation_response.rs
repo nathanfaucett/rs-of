@@ -1,4 +1,3 @@
-use alloc::boxed::Box;
 /*
  * LIDP Management API
  *

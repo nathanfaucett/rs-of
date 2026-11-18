@@ -1580,7 +1580,6 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "server-common",
  "setup",
  "thiserror 2.0.21",
  "tokio",
@@ -2036,7 +2035,6 @@ name = "file-system-wasm"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
- "file-system",
  "wasm-bindgen",
 ]
 
@@ -3906,7 +3904,6 @@ dependencies = [
  "chrono",
  "of-db",
  "of-model",
- "ofdb-kv",
  "ofdb-sql",
  "serde",
  "thiserror 2.0.21",

@@ -15,7 +15,7 @@ name = "device_service"
 
 [features]
 default = []
-independent = ["ofdb", "server-common/independent", "dep:setup"]
+independent = ["ofdb", "dep:setup"]
 utoipa = ["std", "dep:utoipa", "of-model/utoipa"]
 
 ofdb = [
@@ -30,13 +30,11 @@ ofdb = [
     "of-model/ofdb",
     "idp-service/ofdb",
     "idp-service/replica",
-    "dep:server-common",
     "dep:axum",
     "dep:futures-util",
 
     "dep:getrandom",
     "dep:ofdb-sql",
-    "dep:ofdb-sql-history",
     "dep:ofdb-kv",
     "dep:tokio",
     "dep:tokio-tungstenite",
@@ -60,6 +58,7 @@ std = [
 
 [dependencies]
 # API Schema
+# Internal
 utoipa = { version = "5.5", default-features = false, features = [
     "macros",
 ], optional = true }
@@ -68,7 +67,6 @@ utoipa = { version = "5.5", default-features = false, features = [
 of-idp-client = { path = "../idp-client", default-features = false, optional = true }
 of-device-client = { path = "../device-client", default-features = false, optional = true }
 of-storage-api-client = { path = "../storage-api-client", default-features = false, optional = true }
-server-common = { path = "../server-common", default-features = false, optional = true }
 setup = { path = "../setup", default-features = false, optional = true }
 db = { package = "of-db", path = "../db", default-features = false, features = [
     "network",

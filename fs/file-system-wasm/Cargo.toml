@@ -15,15 +15,9 @@ crate-type = ["cdylib", "rlib"]
 name = "file_system_wasm"
 
 [features]
-default = ["browser"]
-browser = ["file-system/browser"]
+default = []
 
 [dependencies]
-# Internal
-file-system = { version = "0.1", path = "../file-system", package = "file-system", default-features = false, features = [
-    "browser",
-] }
-
 # WASM
 console_error_panic_hook = { version = "0.1", default-features = false }
 wasm-bindgen = { version = "0.2", default-features = false, features = ["std"] }

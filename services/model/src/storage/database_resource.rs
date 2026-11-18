@@ -1,4 +1,3 @@
-use alloc::string::String;
 use serde::{Deserialize, Serialize};
 
 pub type DatabaseId = crate::id::Id;

@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 /*
  * OAuth Server
  *

@@ -3,7 +3,6 @@ use std::{io, path::Path, sync::Arc};
 use btree_redb::SharedDatabase;
 use ofdb_sql::Client;
 use ofdb_sql::Database as SqlDatabase;
-use ofdb_sql::QueryError;
 
 use crate::adapters::EmbeddedDatabase;
 use crate::ofdb::up;

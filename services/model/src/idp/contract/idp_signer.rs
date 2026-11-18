@@ -108,8 +108,6 @@ impl TokenPrincipalBinding {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "std"))]
-    use alloc::string::ToString;
 
     use crate::idp::contract::idp_signer::IdpSignerRecord;
     use crate::idp::contract::idp_signer::ReplicaMembership;

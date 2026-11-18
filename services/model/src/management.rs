@@ -4,7 +4,6 @@
 //! enabled for specific resources. This is parallel to the Iroh mesh selection
 //! but for WebSocket-based sync (browser/server apps).
 
-use alloc::{string::String, vec::Vec};
 use core::fmt::Debug;
 
 use crate::id::Id;
@@ -150,7 +149,6 @@ pub struct SyncSelectionResponse {
 mod tests {
     use super::*;
     use crate::id::Id;
-    use alloc::string::ToString;
 
     #[test]
     fn sync_selection_serialization() {

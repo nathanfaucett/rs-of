@@ -1,4 +1,3 @@
-use alloc::string::String;
 // Generated from the canonical allOf/oneOf composition.
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]

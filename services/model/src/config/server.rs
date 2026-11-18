@@ -1,4 +1,3 @@
-use alloc::string::String;
 use core::net::{IpAddr, Ipv4Addr};
 
 use serde::{Deserialize, Serialize};
