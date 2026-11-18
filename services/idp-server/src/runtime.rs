@@ -17,7 +17,6 @@ use iroh::protocol::{ProtocolHandler, Router as IrohRouter};
 use iroh_chain::Server;
 use management_service::LocalPermissions;
 use of_model::id::Id;
-use ofdb_sql::Database;
 
 use crate::bootstrap::BOOTSTRAP_ALPN;
 use crate::bootstrap::handler::BootstrapProtocolHandler;

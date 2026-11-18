@@ -17,7 +17,6 @@ use ofdb_sql::Row;
 use ofdb_sql::Statement;
 use ofdb_sql::Uuid;
 use ofdb_sql::Value;
-use ofdb_sql::{FromRow, FromRowError, decode, value};
 
 use of_model::device_error::DeviceError;
 

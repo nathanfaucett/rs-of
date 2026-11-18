@@ -7,16 +7,13 @@ use crate::RouterState;
 
 use super::openapi::{__path_openapi_json, openapi_json};
 use super::residency::{
-    __path_get_file_system_residency, __path_put_file_system_residency, get_file_system_residency,
-    put_file_system_residency,
+    __path_get_file_system_residency, __path_put_file_system_residency,
 };
-use super::resources::sql::{__path_execute_sql, execute_sql};
+use super::resources::sql::__path_execute_sql;
 use super::resources::{
     __path_create_database, __path_create_file_system, __path_delete_database,
     __path_delete_file_system, __path_ensure_database, __path_get_database, __path_get_file_system,
-    __path_list_databases, __path_list_file_systems, __path_sync_connect, create_database,
-    create_file_system, delete_database, delete_file_system, ensure_database, get_database,
-    get_file_system, list_databases, list_file_systems, sync_connect,
+    __path_list_databases, __path_list_file_systems, __path_sync_connect,
 };
 use super::routes::health::{__path_health, health};
 use super::routes::version::{__path_version, version};

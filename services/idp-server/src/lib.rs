@@ -59,7 +59,6 @@ pub use provisioning::{OwnerProvisioner, open_local_identity_database};
 pub use router::{
     RouterState, authorize_bearer, openapi_document, openapi_router, public_metadata_router,
 };
-pub(crate) use router::{authorize_bearer_any_principal, authorize_bearer_client};
 pub use runtime::{
     IdpRuntime, build_local_router, build_oauth_runtime, build_runtime, identity_client,
 };

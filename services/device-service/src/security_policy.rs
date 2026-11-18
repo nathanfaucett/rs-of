@@ -1,5 +1,5 @@
 #[cfg(feature = "ofdb")]
-use std::{io, sync::Arc};
+use std::io;
 
 use idp_service::{
     ofdb::LocalIdentity,
@@ -10,14 +10,11 @@ use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 use of_model::idp::contract::permission_evaluation::IdentityResource;
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
-use of_model::idp::contract::permission_evaluation::PermissionSubject;
 use of_model::idp::contract::permission_evaluation::PermissionTarget;
-use ofdb_sql::Database;
 use ofdb_sql::Value;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    device_repo::DeviceRepo,
     ofdb::DbDeviceRepo,
     security_candidates::{self, JoinCandidate, PeerBinding},
     security_sync::{PUBLIC_DEVICE_TABLES, public_device_columns},

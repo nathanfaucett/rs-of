@@ -5,7 +5,6 @@ use of_model::server::storage::resources::FileSystemDetailResponse;
 use of_model::server::storage::resources::FileSystemResourceResponse;
 use of_model::server::storage::resources::SyncConnectRequest;
 use of_model::server::storage::resources::SyncSessionResponse;
-use of_model::storage::sync::SyncStatus;
 use std::sync::Arc;
 
 use axum::{
@@ -519,13 +518,10 @@ pub async fn delete_file_system(
 
 mod tests {
     use super::*;
-    use axum::{
-        body::Body,
-        http::{Request, StatusCode},
-    };
-    use http::header::AUTHORIZATION;
+    
+    
     use of_model::storage::namespace::StorageNamespace;
-    use tower::ServiceExt;
+    
 
     #[derive(Clone)]
     struct TestNamespace {

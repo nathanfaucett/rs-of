@@ -165,7 +165,7 @@ impl StorageReplicationRuntime {
                     () = lifetime.cancelled() => None,
                     event = events.next() => event,
                 };
-                let Some(event) = event else { break };
+                let Some(_event) = event else { break };
                 admission.fence();
                 changes.send_modify(|_| {});
             }

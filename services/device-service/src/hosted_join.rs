@@ -2,9 +2,9 @@ use std::{future::Future, io, pin::Pin};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use iroh::{EndpointAddr, EndpointId, Signature};
-use iroh_chain::{PairingOffer as IrohPairingOffer, Server};
+use iroh_chain::Server;
 use of_model::id::Id;
-use of_model::node_join::{NodeJoinApproval as ModelNodeJoinApproval, NodeJoinRequest};
+use of_model::node_join::NodeJoinRequest;
 
 const PURPOSE: &str = "of.equal-node-join.v1";
 

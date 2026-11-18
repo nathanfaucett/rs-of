@@ -13,8 +13,6 @@ use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh_chain::Server;
 use management_service::LocalPermissions;
 use of_model::id::Id;
-use of_model::idp::contract::permission_evaluation::IdentityAction;
-use of_model::idp::contract::permission_evaluation::IdentityResource;
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
 use of_model::idp::contract::permission_evaluation::PermissionSubject;
 use of_model::idp::contract::permission_evaluation::PermissionTarget;
@@ -318,7 +316,7 @@ impl SecurityProtocol {
 
     async fn authorize(
         &self,
-        connection: &Connection,
+        _connection: &Connection,
         member: Id,
         context: SecurityContext,
     ) -> io::Result<()> {

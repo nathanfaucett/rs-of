@@ -12,12 +12,11 @@ use server_common::{bind_addr, public_base_url, serve};
 
 use env_logger::Env;
 
-use device_service::HostedControlPlane;
 use tokio::{select, spawn, time::sleep};
 use tokio_util::sync::CancellationToken;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
-use crate::{AppConfig, runtime::build_local_router};
+use crate::runtime::build_local_router;
 
 #[derive(clap::Parser, Debug)]
 enum DeviceCommand {
