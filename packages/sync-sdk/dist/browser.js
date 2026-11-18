@@ -1,8 +1,9 @@
 // Browser implementation of @ofsdk/sync-sdk
 import { BehaviorSubject, Subject } from "rxjs";
 import { StorageClient } from "@ofsdk/storage-client";
-import { SyncClient, } from "@ofsdk/storage-sync-client";
-import initializeSql, { SqlDatabase, SqlSessionConfig, SqlSyncRole, JsSqlSyncTransport, } from "@ofsdk/sql";
+import { SyncClient } from "@ofsdk/storage-sync-client";
+import { Database, JsPushSyncTransport, PushSynchronizeConfig, } from "@ofsdk/sql";
+import { execute } from "./sql";
 /** Browser sync SDK implementation */
 export class BrowserSyncSDK {
     config;
@@ -48,7 +49,7 @@ export class BrowserSyncSDK {
             }
             const handle = await this.storageClient.openSqlDatabase(databaseId);
             // Open local WASM database with the resourceId as name
-            const sqlDatabase = await SqlDatabase.open(handle.id);
+            const sqlDatabase = await Database.open(handle.id);
             const storeIdentity = {
                 storeId: handle.identity.storeId,
                 replicaId: handle.identity.replicaId,
@@ -65,7 +66,7 @@ export class BrowserSyncSDK {
         },
         create: async (name) => {
             const handle = await this.storageClient.createSqlDatabase(name);
-            const sqlDatabase = await SqlDatabase.open(handle.id);
+            const sqlDatabase = await Database.open(handle.id);
             const storeIdentity = {
                 storeId: handle.identity.storeId,
                 replicaId: handle.identity.replicaId,
@@ -202,38 +203,7 @@ class BrowserDatabaseHandle {
     async execute(sql, params) {
         if (!this.sqlDatabase)
             throw new Error("Database closed");
-        const client = this.sqlDatabase.client();
-        const result = await client.execute(sql, params
-            ? JSON.stringify(params.map((value) => {
-                if (value === null)
-                    return { type: "null" };
-                if (typeof value === "string")
-                    return { type: "text", value };
-                if (typeof value === "boolean")
-                    return { type: "bool", value };
-                if (typeof value === "bigint" ||
-                    (typeof value === "number" && Number.isSafeInteger(value))) {
-                    return { type: "integer", value: String(value) };
-                }
-                throw new TypeError("SQL parameters must be text, booleans, integers or null");
-            }))
-            : undefined);
-        const results = JSON.parse(result);
-        const last = results.at(-1) ?? { columns: [], rows: [] };
-        return {
-            columns: last.columns,
-            rows: last.rows.map((row) => row.map((value) => {
-                if (value.type === "null")
-                    return null;
-                if (value.type === "integer") {
-                    const integer = BigInt(value.value);
-                    return Number.isSafeInteger(Number(integer))
-                        ? Number(integer)
-                        : integer;
-                }
-                return value.value;
-            })),
-        };
+        return execute(this.sqlDatabase, sql, params);
     }
     get changes$() {
         return this._changes$.asObservable();
@@ -266,15 +236,14 @@ class BrowserDatabaseHandle {
                 identity: this.handle.storeIdentity,
                 direction: "Bidirectional",
             });
-            const transport = new JsSqlSyncTransport({
+            const transport = new JsPushSyncTransport({
                 send: (data) => {
                     syncSession.send(data);
                     return Promise.resolve();
                 },
                 receive: () => syncSession.receive(),
             });
-            const config = new SqlSessionConfig();
-            await this.sqlDatabase.synchronize(transport, config, SqlSyncRole.Initiator);
+            await this.sqlDatabase.synchronize(transport, new PushSynchronizeConfig());
             this._state$.next({ ...this._state$.value, status: "synced" });
         }
         catch (error) {
@@ -355,41 +324,22 @@ class BrowserFilesystemHandle {
         version: 0,
         vectorClock: {},
     });
-    fsHandle = null;
     closed = false;
     constructor(handle, config) {
         this.handle = handle;
         this.config = config;
     }
-    async read(path) {
-        if (!this.fsHandle)
-            throw new Error("Filesystem not initialized");
-        return this.fsHandle.read(path);
+    async read(_path) {
+        throw new Error("Filesystem not initialized");
     }
-    async write(path, data) {
-        if (!this.fsHandle)
-            throw new Error("Filesystem not initialized");
-        await this.fsHandle.write(path, data);
-        this._changes$.next({
-            type: "local-upsert",
-            doc: {
-                path,
-                isDirectory: false,
-                size: data.length,
-                modified: Date.now(),
-            },
-        });
+    async write(_path, _data) {
+        throw new Error("Filesystem not initialized");
     }
-    async delete(path) {
-        if (!this.fsHandle)
-            throw new Error("Filesystem not initialized");
-        await this.fsHandle.delete(path);
-        this._changes$.next({ type: "local-delete", id: path });
+    async delete(_path) {
+        throw new Error("Filesystem not initialized");
     }
-    async list(path) {
-        if (!this.fsHandle)
-            throw new Error("Filesystem not initialized");
-        return this.fsHandle.list(path);
+    async list(_path) {
+        throw new Error("Filesystem not initialized");
     }
     get changes$() {
         return this._changes$.asObservable();
@@ -403,16 +353,12 @@ class BrowserFilesystemHandle {
     }
     async close() {
         this.closed = true;
-        if (this.fsHandle) {
-            this.fsHandle.close();
-        }
         this._changes$.complete();
         this._state$.complete();
     }
 }
 /** Create sync SDK instance for browser */
 export async function createSync(config) {
-    await initializeSql();
     const sdk = new BrowserSyncSDK(config);
     return sdk;
 }

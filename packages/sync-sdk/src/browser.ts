@@ -2,18 +2,12 @@
 
 import { BehaviorSubject, Observable, Subject } from "rxjs";
 import { StorageClient } from "@ofsdk/storage-client";
+import { SyncClient, StoreIdentity } from "@ofsdk/storage-sync-client";
 import {
-  SyncClient,
-  StoreIdentity,
-  SyncDirection,
-} from "@ofsdk/storage-sync-client";
-import initializeSql, {
-  SqlDatabase,
-  SqlSessionConfig,
-  SqlSyncRole,
-  JsSqlSyncTransport,
+  Database,
+  JsPushSyncTransport,
+  PushSynchronizeConfig,
 } from "@ofsdk/sql";
-import { FileSystemHandle } from "@ofsdk/fs";
 import {
   SyncConfig,
   SyncSDK,
@@ -27,6 +21,7 @@ import {
   QueryResult,
   FileEntry,
 } from "./core";
+import { execute } from "./sql";
 
 /** Document type that must have an id property for database operations. */
 type WithId = { id: string; [key: string]: unknown };
@@ -82,7 +77,7 @@ export class BrowserSyncSDK implements SyncSDK {
 
       const handle = await this.storageClient.openSqlDatabase(databaseId);
       // Open local WASM database with the resourceId as name
-      const sqlDatabase = await SqlDatabase.open(handle.id);
+      const sqlDatabase = await Database.open(handle.id);
       const storeIdentity: StoreIdentity = {
         storeId: handle.identity.storeId,
         replicaId: handle.identity.replicaId,
@@ -103,7 +98,7 @@ export class BrowserSyncSDK implements SyncSDK {
 
     create: async (name: string): Promise<DatabaseHandle> => {
       const handle = await this.storageClient.createSqlDatabase(name);
-      const sqlDatabase = await SqlDatabase.open(handle.id);
+      const sqlDatabase = await Database.open(handle.id);
       const storeIdentity: StoreIdentity = {
         storeId: handle.identity.storeId,
         replicaId: handle.identity.replicaId,
@@ -257,13 +252,13 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
     version: 0,
     vectorClock: {},
   });
-  private sqlDatabase: SqlDatabase | null = null;
+  private sqlDatabase: Database | null = null;
   private syncClient: SyncClient | null = null;
   private closed = false;
 
   constructor(
     private handle: {
-      sqlDatabase: SqlDatabase;
+      sqlDatabase: Database;
       resourceId: string;
       storeIdentity: StoreIdentity;
     },
@@ -278,45 +273,7 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
 
   async execute(sql: string, params?: unknown[]): Promise<QueryResult> {
     if (!this.sqlDatabase) throw new Error("Database closed");
-    const client = this.sqlDatabase.client();
-    const result = await client.execute(
-      sql,
-      params
-        ? JSON.stringify(
-            params.map((value) => {
-              if (value === null) return { type: "null" };
-              if (typeof value === "string") return { type: "text", value };
-              if (typeof value === "boolean") return { type: "bool", value };
-              if (
-                typeof value === "bigint" ||
-                (typeof value === "number" && Number.isSafeInteger(value))
-              ) {
-                return { type: "integer", value: String(value) };
-              }
-              throw new TypeError(
-                "SQL parameters must be text, booleans, integers or null",
-              );
-            }),
-          )
-        : undefined,
-    );
-    const results = JSON.parse(result);
-    const last = results.at(-1) ?? { columns: [], rows: [] };
-    return {
-      columns: last.columns,
-      rows: last.rows.map((row: { type: string; value?: unknown }[]) =>
-        row.map((value) => {
-          if (value.type === "null") return null;
-          if (value.type === "integer") {
-            const integer = BigInt(value.value as string);
-            return Number.isSafeInteger(Number(integer))
-              ? Number(integer)
-              : integer;
-          }
-          return value.value;
-        }),
-      ),
-    };
+    return execute(this.sqlDatabase, sql, params);
   }
 
   get changes$(): Observable<ChangeEvent<T>> {
@@ -357,7 +314,7 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
         direction: "Bidirectional",
       });
 
-      const transport = new JsSqlSyncTransport({
+      const transport = new JsPushSyncTransport({
         send: (data: Uint8Array) => {
           syncSession.send(data);
           return Promise.resolve();
@@ -365,12 +322,9 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
         receive: () => syncSession.receive(),
       });
 
-      const config = new SqlSessionConfig();
-
       await this.sqlDatabase.synchronize(
         transport,
-        config,
-        SqlSyncRole.Initiator,
+        new PushSynchronizeConfig(),
       );
 
       this._state$.next({ ...this._state$.value, status: "synced" });
@@ -460,7 +414,6 @@ class BrowserFilesystemHandle implements FilesystemHandle {
     version: 0,
     vectorClock: {},
   });
-  private fsHandle: FileSystemHandle | null = null;
   private closed = false;
 
   constructor(
@@ -468,34 +421,20 @@ class BrowserFilesystemHandle implements FilesystemHandle {
     private config: SyncConfig,
   ) {}
 
-  async read(path: string): Promise<Uint8Array> {
-    if (!this.fsHandle) throw new Error("Filesystem not initialized");
-    return this.fsHandle.read(path);
+  async read(_path: string): Promise<Uint8Array> {
+    throw new Error("Filesystem not initialized");
   }
 
-  async write(path: string, data: Uint8Array): Promise<void> {
-    if (!this.fsHandle) throw new Error("Filesystem not initialized");
-    await this.fsHandle.write(path, data);
-    this._changes$.next({
-      type: "local-upsert",
-      doc: {
-        path,
-        isDirectory: false,
-        size: data.length,
-        modified: Date.now(),
-      },
-    });
+  async write(_path: string, _data: Uint8Array): Promise<void> {
+    throw new Error("Filesystem not initialized");
   }
 
-  async delete(path: string): Promise<void> {
-    if (!this.fsHandle) throw new Error("Filesystem not initialized");
-    await this.fsHandle.delete(path);
-    this._changes$.next({ type: "local-delete", id: path });
+  async delete(_path: string): Promise<void> {
+    throw new Error("Filesystem not initialized");
   }
 
-  async list(path: string): Promise<FileEntry[]> {
-    if (!this.fsHandle) throw new Error("Filesystem not initialized");
-    return this.fsHandle.list(path);
+  async list(_path: string): Promise<FileEntry[]> {
+    throw new Error("Filesystem not initialized");
   }
 
   get changes$(): Observable<ChangeEvent<FileEntry>> {
@@ -513,9 +452,6 @@ class BrowserFilesystemHandle implements FilesystemHandle {
 
   async close(): Promise<void> {
     this.closed = true;
-    if (this.fsHandle) {
-      this.fsHandle.close();
-    }
     this._changes$.complete();
     this._state$.complete();
   }
@@ -523,7 +459,6 @@ class BrowserFilesystemHandle implements FilesystemHandle {
 
 /** Create sync SDK instance for browser */
 export async function createSync(config: SyncConfig): Promise<SyncSDK> {
-  await initializeSql();
   const sdk = new BrowserSyncSDK(config);
   return sdk;
 }

@@ -16,8 +16,12 @@ name = "file_system_wasm"
 
 [features]
 default = []
+browser = ["file-system/browser"]
 
 [dependencies]
+# Internal
+file-system = { path = "../file-system", default-features = false }
+
 # WASM
 console_error_panic_hook = { version = "0.1", default-features = false }
 wasm-bindgen = { version = "0.2", default-features = false, features = ["std"] }

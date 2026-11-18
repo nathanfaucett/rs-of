@@ -1,119 +1,86 @@
-# TypeScript SDK Packages
+# TypeScript packages
 
-TypeScript/JavaScript SDKs for the `of` ecosystem, built from the Rust crates via `wasm-pack`.
+Workspace packages for browser and application clients. Some packages wrap this
+repository's Rust crates through WebAssembly.
 
-## Packages
+## Package status
 
-| Package | Source | Description |
-|---------|--------|-------------|
-| `@ofsdk/sql` | `packages/sql` | SQL database client (from `db/wasm`) |
-| `@ofsdk/sql-wasm` | `packages/sql-wasm` | Pre-built WASM bundle for `@ofsdk/sql` |
-| `@ofsdk/kv` | `packages/kv` | Key-value store client (from `db/kv-wasm`) |
-| `@ofsdk/net` | `packages/net` | Mesh networking client (from `net/iroh-chain-wasm`) |
-| `@ofsdk/file-system` | `packages/file-system` | Filesystem client (from `fs/file-system-wasm`) |
-| `@ofsdk/example` | `packages/example` | Example app integration |
-| `@ofsdk/fs-wasm` | `packages/fs-wasm` | Pre-built WASM bundle for filesystem |
-| `@ofsdk/sync-sdk` | `packages/sync-sdk` | Sync orchestration SDK |
-| `@ofsdk/storage-client` | `packages/storage-client` | Storage API client |
-| `@ofsdk/storage-db-collection` | `packages/storage-db-collection` | Database collection helpers |
-| `@ofsdk/storage-sync-client` | `packages/storage-sync-client` | Storage sync client |
-| `@ofsdk/oidc-client` | `packages/oidc-client` | OAuth/OIDC client |
-| `@ofsdk/idp-client` | `packages/idp-client` | IdP API client |
-| `@ofsdk/management-client` | `packages/management-client` | Management API client |
-| `@ofsdk/device-client` | `packages/device-client` | Device API client |
-| `@ofsdk/svelte-headless` | `packages/svelte-headless` | Svelte 5 headless components |
-| `@ofsdk/native-fetch` | `packages/native-fetch` | Native fetch polyfill |
-| `@ofsdk/sdk` | `packages/sdk` | Combined SDK re-export |
+**Publishable** means that `package.json` does not mark the package as private. It
+does not mean that the package is published to npm.
 
-## Build
+### Publishable packages
 
-```bash
-# Build all WASM packages
-pnpm sdk:build
+| Package                        | Directory                        | Purpose                                |
+| ------------------------------ | -------------------------------- | -------------------------------------- |
+| `@ofsdk/device-client`         | `packages/device-client`         | Device authority API client            |
+| `@ofsdk/idp-client`            | `packages/idp-client`            | Identity provider API client           |
+| `@ofsdk/management-client`     | `packages/management-client`     | Management API client                  |
+| `@ofsdk/native-fetch`          | `packages/native-fetch`          | Native application fetch bridge        |
+| `@ofsdk/oidc-client`           | `packages/oidc-client`           | OpenID Connect client                  |
+| `@ofsdk/sql`                   | `packages/sql`                   | SQL over IndexedDB with WASM           |
+| `@ofsdk/storage-client`        | `packages/storage-client`        | Storage REST and WebSocket client      |
+| `@ofsdk/storage-db-collection` | `packages/storage-db-collection` | Storage-backed TanStack DB collections |
+| `@ofsdk/svelte-headless`       | `packages/svelte-headless`       | Svelte 5 headless utilities            |
 
-# Build individual package
-cd packages/sql
-pnpm build:wasm
+### Private workspace packages
 
-# Build with specific rust toolchain (pinned in rust-toolchain.toml)
+These packages are for use through this pnpm workspace. They are not published to
+npm and must not use registry installation or publication instructions.
+
+| Package                      | Directory                      | Purpose                                     |
+| ---------------------------- | ------------------------------ | ------------------------------------------- |
+| `@ofsdk/file-system`         | `packages/file-system`         | Browser file system over OPFS and IndexedDB |
+| `@ofsdk/kv`                  | `packages/kv`                  | Key-value storage over IndexedDB            |
+| `@ofsdk/net`                 | `packages/net`                 | Browser mesh networking                     |
+| `@ofsdk/sdk`                 | `packages/sdk`                 | Authenticated browser Storage access        |
+| `@ofsdk/storage-sync-client` | `packages/storage-sync-client` | Storage SQL sync WebSocket transport        |
+| `@ofsdk/sync-sdk`            | `packages/sync-sdk`            | Sync orchestration                          |
+
+## Local development
+
+Run these commands from the repository root. They require only this checkout.
+
+```sh
 pnpm install --frozen-lockfile
-pnpm sdk:build
 ```
 
-## WASM Sources
+For `sql`, `kv`, `net`, and `file-system`, generated `pkg/`, `esm/`, and `types/`
+output is not tracked. On a fresh checkout, create the WASM and TypeScript
+output before a full package build or before consuming their generated entry
+points:
 
-| Package | Rust Source |
-|---------|-------------|
-| `@ofsdk/sql` | `db/wasm` → `packages/sql-wasm` (checked-in) → `packages/sql` wrapper |
-| `@ofsdk/kv` | `db/kv-wasm` (if exists) → `packages/kv` wrapper |
-| `@ofsdk/net` | `net/iroh-chain-wasm` → `packages/net` wrapper |
-| `@ofsdk/file-system` | `fs/file-system-wasm` → `packages/file-system` wrapper |
-
-The `wasm` crates (`db/wasm`, `net/iroh-chain-wasm`, `fs/file-system-wasm`) are standalone `wasm-pack` workspaces with their own `Cargo.lock`. They are **excluded** from the Cargo workspace.
-
-## Development
-
-```bash
-# Install dependencies
-pnpm install --frozen-lockfile
-
-# Build all packages
-pnpm sdk:build
-
-# Run tests
-pnpm test
-
-# Type-check
-pnpm typecheck
-
-# Lint
-pnpm lint
+```sh
+pnpm --filter @ofsdk/sql run build:all
+pnpm --filter @ofsdk/kv run build:all
+pnpm --filter @ofsdk/net run build
+pnpm --filter @ofsdk/file-system run build
 ```
 
-## Publishing
+Then build and test the direct package workspaces:
 
-Packages are published to npm from the `packages/` directory. Pre-built WASM bundles (`sql-wasm`, `fs-wasm`) are checked in to avoid requiring Rust toolchain at install time.
+```sh
+# Build every direct package workspace.
+pnpm --filter "./packages/*" run build
 
-```bash
-# Publish single package
-cd packages/sql
-npm publish
+# Install the browser used by the SQL tests on the first test run.
+pnpm --filter @ofsdk/sql exec playwright install chromium
 
-# Or use changesets for versioning
-pnpm changeset
-pnpm version
-pnpm publish -r
+# Run tests for packages that define a test script.
+pnpm --filter "./packages/*" run test
+
+# Build or test one package.
+pnpm --filter @ofsdk/sdk run build
+pnpm --filter @ofsdk/sdk test
 ```
 
-## Usage
+For later TypeScript-only changes, use each package's `build` script after its
+WASM output exists. Other packages also generate entry points such as `esm/`,
+`types/`, or `dist/`; build their workspace dependencies before running consumers.
 
-```typescript
-import { createSqlClient, createKvClient, createNetClient, createFileSystemClient } from '@ofsdk/sdk';
+## Related documentation
 
-// SQL
-const sql = await createSqlClient({ memory: true });
-await sql.execute("CREATE TABLE users (id UUID PRIMARY KEY, name TEXT)");
-await sql.execute("INSERT INTO users (id, name) VALUES (uuid_v7(), 'Alice')");
-const rows = await sql.query("SELECT * FROM users");
-
-// KV
-const kv = await createKvClient({ memory: true });
-await kv.set("key", { value: "hello", expiry: 1000 });
-const value = await kv.get("key");
-
-// Mesh networking
-const net = await createNetClient();
-await net.connect(trustedPeer);
-net.onMessage((msg) => console.log("Received:", msg));
-
-// Filesystem
-const fs = await createFileSystemClient({ path: "/data" });
-await fs.write("/hello.txt", new TextEncoder().encode("Hello"));
-const content = await fs.read("/hello.txt");
-```
-
-## Related
-
-- [db/README.md](../db/README.md) — Rust database crates (`ofdb-sql`, `ofdb-kv`)
-- [fs/README.md](../fs/README.md) — Rust filesystem crate (`file-system`)
-- [net/README.md](../net/README.md) — Rust mesh networking crate (`iroh-chain`)
+- [Rust database crates](../db/README.md)
+- [Rust file system crate](../fs/README.md)
+- [Rust mesh networking crate](../net/README.md)
+- [Project goals](../docs/goal.md)
+- [End-to-end tests](../e2e/README.md)

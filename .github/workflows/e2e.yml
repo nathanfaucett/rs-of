@@ -20,34 +20,14 @@ jobs:
     timeout-minutes: 45
     env:
       RUSTUP_TOOLCHAIN: 1.100
-    defaults:
-      run:
-        working-directory: of
     steps:
       - uses: actions/checkout@v4
         with:
-          path: of
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: nathanfaucett/rs-ofdb
-          ref: 544b6270116ef73e7cab53b2a191bcad608146ba
-          path: ofdb
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: nathanfaucett/rs-ofnet
-          path: ofnet
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          repository: nathanfaucett/rs-offs
-          path: offs
           persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: of/.nvmrc
+          node-version-file: .nvmrc
       - uses: pnpm/action-setup@v4
         with:
           version: 12.4.1
@@ -63,14 +43,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            of/target
-          key: ${{ runner.os }}-e2e-cargo-${{ hashFiles('of/Cargo.lock', 'ofdb/Cargo.lock', 'ofnet/Cargo.lock', 'offs/Cargo.lock') }}
-      - name: Build the linked ofdb SQL package
-        working-directory: ofdb
-        run: |
-          pnpm install --frozen-lockfile --ignore-scripts
-          pnpm --filter @ofsdk/sql run build:wasm
-          pnpm --filter @ofsdk/sql run build:esm
+            target
+            db/wasm/target
+          key: ${{ runner.os }}-e2e-cargo-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Install browser
@@ -107,7 +83,9 @@ jobs:
         with:
           name: real-backend-e2e
           path: |
-            of/apps/*/.vitest-attachments
-            of/apps/**/__screenshots__
+            apps/*/.vitest-attachments
+            apps/**/__screenshots__
+            e2e/.results/
+            .scratch/e2e-report/
           include-hidden-files: true
           retention-days: 7

@@ -1,31 +1,19 @@
 # Storage client
 
-SQL and KV handles use the current ofdb checked history APIs. Query and transaction
-operations remain local. Resource creation, lookup, and selection remain Storage
-owner operations; the client does not grant resource access or Installation membership.
+Current Rust client for Storage resource APIs and local SQL/KV handles. Resource catalogs and access belong to Storage. Selection is desired Device replication state, not a Resource-access grant.
 
-- `SqlDatabaseHandle::synchronize` obtains a fresh `storage:sync` token, performs
-  the Storage v1 Hello/Attach exchange, and carries SQL v7 owner messages over
-  WebSocket. It checks credentials again before each inbound apply. The Storage
-  server remains responsible for token introspection and resource authorization.
-- `SqlDatabaseHandle::synchronize_with` accepts an already admitted SQL resource
-  stream, the current ofdb session configuration and role, a staging directory,
-  and an authorization/cancellation check.
-- `KvStoreHandle::synchronize_with` accepts an already admitted KV resource stream
-  and uses the checked KV v3 exchange. SQL and KV protocols are not interchangeable.
-  The Storage WebSocket endpoint currently admits SQL only; this client does not
-  invent a KV WebSocket protocol.
+## Current behavior
 
-For either injected stream, the caller must authenticate the peer, bind the stream
-to the handle's resource, and reject revoked authorization or cancellation in the
-check callback. A transport identity is not a resource-access grant.
+- SQL and KV queries and transactions operate on local ofdb handles.
+- `SqlDatabaseHandle::synchronize` uses the configured token provider and native or browser WebSocket transport. It performs the Storage v1 Hello/Attach exchange and carries SQL v7 messages through the checked SQL history API.
+- `SqlDatabaseHandle::synchronize_with` accepts an authenticated SQL stream, session configuration, role, staging directory, and authorization/cancellation check.
+- `KvStoreHandle::synchronize_with` accepts an authenticated KV stream and uses the checked KV v3 exchange. The Storage WebSocket endpoint accepts SQL only; it is not a KV protocol.
 
-SQL and KV share the Storage database resource catalog. Filesystems use the
-filesystem catalog. Token exchange uses the IdP OAuth form endpoint and the exact
-Storage resource audience. Both native and browser entry points share this HTTP
-implementation; their WebSocket transports remain platform-specific.
+Callers must authenticate injected streams, bind them to the correct Resource, and reject revoked authorization or cancellation in the check callback. Transport identity is not Resource authority. Use persistent store/replica identities and a real schema fingerprint; an attached session is not proof of correct identity, completed synchronization, or backup.
 
-Run the focused checks with:
+The target public ofdb boundary is only `ofdb-sql` and `ofdb-kv`: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Current client dependencies are not fully migrated to that boundary. See [ADR 0003](../../docs/adr/0003-ofdb-facade-boundary.md).
+
+## Focused checks
 
 ```sh
 cargo test -p of-storage-client --all-targets

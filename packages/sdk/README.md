@@ -146,7 +146,7 @@ retaining provider bodies. Only an explicit different key creates a replacement.
 The unkeyed `createDatabase(name?, signal?)` intentionally allocates a fresh identity
 on every successful invocation and is not an ensure/retry primitive.
 
-See the [Storage SQL contract](../../services/storage-service/docs/api.md#explicit-application-sql-contract)
+See the [Storage SQL contract](../../services/storage-service/docs/api.md)
 for identity derivation, offline-Node limits, wire values, request/result bounds and
 atomic rollback. The app owns default selection, schema/version transactions and
 collection lifecycle. The SDK owns none of those policies and selects no Devices.

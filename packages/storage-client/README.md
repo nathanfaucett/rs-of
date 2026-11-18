@@ -31,7 +31,7 @@ are generated from `openapi/storage.json`, alongside the Rust Storage owner clie
 Tagged integers are decimal strings, preserving i64 values beyond JS safe integers;
 serialized records can use text. A batch succeeds completely or fails without a
 partial snapshot. Timeouts/cancellation after sending do not prove rollback.
-See the [exact server contract](../../services/storage-service/docs/api.md#explicit-application-sql-contract)
+See the [exact server contract](../../services/storage-service/docs/api.md)
 and [SDK SQL usage](../sdk/README.md#explicit-sql-capability).
 
 ## Synchronization

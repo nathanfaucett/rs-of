@@ -60,6 +60,7 @@ export async function startBackend({
       stdio: "inherit",
       env: {
         ...process.env,
+        RUST_MIN_STACK: process.env.RUST_MIN_STACK ?? "67108864",
         ...env,
         E2E_DATA_DIR: dataDir,
         E2E_PORT: String(port),

@@ -1,47 +1,42 @@
 # Server configuration samples
 
-Run from the repository root. Relative paths resolve against the working directory,
-not the YAML directory. All samples select `https://of.localhost:1355` as the exact
-app UI origin. Change it consistently for your actual browser/native deployment.
+Run commands from the repository root. Relative paths in these samples resolve against the process working directory, not the YAML file. Keep each advertised public base, listener, UI origin, and TLS identity consistent.
 
-| Command | Configuration | HTTPS base | Data |
+The samples describe current server entry points. They do not mean the accepted target architecture is fully implemented. See [target architecture](../docs/architecture.md) and [backend deployments](../docs/backend-deployments.md).
+
+## Independent server samples
+
+| Command | Default configuration | Advertised HTTPS base | Data directory |
 | --- | --- | --- | --- |
 | `just idp` | `config/idp/config.yaml` | `https://127.0.0.1:3000` | `data/idp` |
 | `just management` | `config/management/config.yaml` | `https://management-api.localhost:1355` | `data/management` |
 | `just device` | `config/device/config.yaml` | `https://127.0.0.1:3003` | `data/device` |
 | `just storage` | `config/storage/config.yaml` | `https://127.0.0.1:3002` | `data/storage` |
 
-Unified local mode does not use YAML. Run `just unified --data-dir .data --port 1355
---origin http://localhost:5173 --no-tls`. It mounts `/idp`, `/management`, `/device`,
-and `/storage` once. Omit `--no-tls` for a retained self-signed leaf certificate;
-there is no CA or admission flow. See the [local backend guide](../README.md#local-development-backend).
-The remaining configuration and setup instructions apply only to separate owners.
+These recipes use `portless`. Supply the matching public base URLs to browser or native clients. Independent setup and service operations are defined by the files under `openapi/`.
 
-Management is policy-only: its separate CLI serves loopback HTTP on port 3001, not
-a setup listener/authority. Arrange a verified HTTPS proxy for its advertised
-public base. This is not an additional setup owner or a fourth setup CA.
+Current independent Management serves policy APIs and has no separate setup-owner ceremony. Its sample public HTTPS base requires the configured proxy. IdP, Device, and Storage retain their current independent setup paths. These current flows do not make Management the owner of Device records in the target model.
 
-Configure the app's exact `PUBLIC_IDP_BASE_URL`, `PUBLIC_MANAGEMENT_BASE_URL`,
-`PUBLIC_DEVICE_BASE_URL` and `PUBLIC_STORAGE_BASE_URL`. Bundled desktop derives
-these from its one retained dynamic local HTTPS origin instead. Selecting remote
-bases never substitutes local services or forwards a bundled setup code.
+Preserve each server's retained data and TLS/setup state across restart. Do not place passwords, private keys, setup capabilities, or internal record IDs in these samples.
 
-IdP, Device and Storage each expose `<base>/setup/owner/...` and issue their own
-protected code. Management has no fourth setup code or registration ceremony.
-Submit one public exact Create/Join tuple separately under each owner's code; only
-IdP receives the Create password. Correlate each current status and public operation
-before login. See [CLI examples](../docs/operations.md#automatic-unified-cli-bootstrap).
+## Local composition
 
-Preserve separate owner domain roots and each `<owner>.setup-host` directory.
-See [reset/recovery](../docs/operations.md#persistence-reset-and-recovery).
+Local mode does not consume these YAML files:
 
-Pass an alternate config as the first recipe argument, then server arguments:
+```sh
+just unified --data-dir .data --port 1355 --origin http://localhost:5173 --no-tls
+```
+
+It mounts `/idp`, `/management`, `/device`, and `/storage` on one loopback listener. Omit `--no-tls` to retain a self-signed local certificate. This mode is for development and does not establish production Installation membership.
+
+Current local composition uses a shared embedded database implementation. That is a deployment choice, not an architectural requirement. One server process does not require one physical database file or one shared database host.
+
+## Alternate configuration
+
+Pass another configuration path before server arguments:
 
 ```sh
 just device config/device/config.yaml serve --port 3103
 ```
 
-An explicit listener override must agree with the actual advertised HTTPS base and
-retained TLS identity. Keep retained paths/URLs/origins stable. Environment overrides
-remain supported but are not a substitute for recovering exact retained owner state.
-No passwords, private keys, internal IDs or setup codes belong in these samples.
+An explicit listener override must agree with the advertised base and retained TLS identity. Environment overrides do not replace recovery of required retained state.

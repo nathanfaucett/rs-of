@@ -416,7 +416,5 @@ It replaces only its generated
 `artifacts/consumer/` directory.
 
 Output: `packages/sql/artifacts/ofdb-sql-0.1.0.tgz`. The raw binary is
-`packages/sql/pkg/ofdb_wasm_bg.wasm`. See
-[`docs/sql-bindings-validation.md`](../../docs/sql-bindings-validation.md) for
-measured evidence and limits. This qualification does not include sync, app
-integration, the KV JS wrapper, or a different browser engine.
+`packages/sql/pkg/ofdb_wasm_bg.wasm`. This qualification does not include sync,
+app integration, the KV JS wrapper, or a different browser engine.

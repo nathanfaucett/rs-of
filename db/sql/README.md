@@ -193,10 +193,9 @@ database
 
 ## Browser SQL persistence
 
-See the [browser quickstarts and support limits](../../docs/browser.md) for explicit
-transactions, typed statements, stack configuration and caller-owned sync, and the
-[release validation matrix](../../docs/browser-validation.md) for measured costs.
-Chrome/Firefox Window and Dedicated Worker are validated.
+See the [browser support limits](../../docs/browser.md) for explicit
+transactions, typed statements, stack configuration, and caller-owned sync.
+Browser tests and commit-specific results do not establish a standing release matrix.
 
 Enable `indexeddb` for typed statements, and add `sql` only for SQL-text translation:
 
@@ -233,10 +232,9 @@ eviction and user-cleared site data apply. Native completion does not promise
 filesystem-equivalent durability or protection from eviction/power loss. See the
 [byte adapter](../btree-indexeddb/README.md) for format/lifecycle details.
 
-Window and Dedicated Worker tests run in Chrome and Firefox without a Tokio
-runtime, native networking or Redb. Consumers must provision the documented
-[Wasm stack budget](../../tests/browser/README.md#stack-budget) (the harness uses
-16 MiB). No default-stack guarantee is claimed.
+Window and Dedicated Worker builds do not require a Tokio runtime, native
+networking, or Redb. Consumers must provision an adequate Wasm stack; the historical
+test harness used 16 MiB. No default-stack guarantee is claimed.
 
 ### Browser checked synchronization
 
@@ -275,6 +273,5 @@ accepts local callback futures. The caller owns and polls the runner; dropping i
 cancels its callback or retry wait. Retry starts at 100 ms, doubles to 30 seconds
 and resets after success. SQL and KV share the same subscription type and can
 merge for one broad-session callback, not selective logical mapping. No task,
-transport, peer selection or authorization is started automatically. See the
-[browser harness](../../tests/browser/README.md#continuous-synchronization) for
-real Window/Worker lifecycle tests.
+transport, peer selection, or authorization is started automatically. Real
+Window/Worker lifecycle behavior requires explicit browser qualification.

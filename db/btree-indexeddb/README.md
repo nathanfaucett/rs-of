@@ -77,17 +77,16 @@ IndexedDB/JS materialization. Commits write only net differences, but building t
 diff also visits the snapshot. Selective sync does not imply selective physical
 reads. Incremental loading and finer conflict detection are deferred.
 
-See the current [snapshot samples and reproduction](../../docs/browser-validation.md#snapshot-samples)
-for Chrome/Firefox in both contexts, raw payload sizes and measured Wasm linear
-memory capacity. Capacity is not live/peak heap; single-sample timings are not
-latency guarantees, a minimum-stack claim or release-build benchmarks. The public
-[browser guide](../../docs/browser.md) includes SQL/KV quickstarts and support limits.
+Wasm linear memory capacity is not live or peak heap. Single-sample timings are
+not latency guarantees, minimum-stack claims, or release-build benchmarks. The public
+[browser guide](../../docs/browser.md) includes package builds and support limits.
+Use commit-specific browser evidence for measured results.
 
 Persistence follows the browser's IndexedDB completion/durability and eviction
 policies. Completion is not a power-loss guarantee or protection against site-data
 clearing. There is no automatic migration, quota reservation, memory fallback,
-keepalive loop or background retry. Browser-process/OS crash recovery is not
-validated. See the [real-browser harness](../../tests/browser/README.md).
+keepalive loop or background retry. Browser-process and OS crash recovery require
+explicit qualification; do not infer it from IndexedDB completion.
 
 ## Binding choice
 

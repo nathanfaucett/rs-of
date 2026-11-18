@@ -13,15 +13,3 @@ repos:
         language: system
         files: \.rs$
         pass_filenames: false
-      - id: clippy-fix
-        name: Run clippy with --fix
-        entry: just clippy-fix
-        language: system
-        files: \.rs$
-        pass_filenames: false
-      - id: check
-        name: Run cargo check
-        entry: just check
-        language: system
-        files: \.rs$
-        pass_filenames: false

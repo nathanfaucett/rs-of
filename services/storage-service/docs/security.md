@@ -1,34 +1,35 @@
-# Storage security and transport
+# Storage security invariants
 
-Current owner/database boundaries and Device routes: [shared control-plane databases](../../../docs/control-plane.md).
+These are required protections for current review and target implementation. They are not a blanket statement that every deployment or application flow is qualified. See [Storage design](design.md) for ownership and migration status.
 
-[Storage design](design.md) defines resource isolation; [system design](../../../docs/design.md) defines equal offline-first Nodes and owner boundaries. This is the confirmed target contract, not verified implementation behavior. Acceptance requires results recorded against the active tickets; no tests were rerun for this documentation migration.
+## Identity and Resource access
 
-## Local authorization
+Derive the `(User subject, Application)` namespace from validated IdP evidence. Check token signature, issuer, audience, use, lifetime, Principal state, and exact `read`/`write` action. Never accept a caller-supplied owner, actor header, or Application override as identity evidence.
 
-Storage API tokens authorize API actions, not mesh synchronization. Iroh endpoint keys identify transport peers, not Users or resource grants. No Device-key delegation, folder ACLs, or cross-user permissions are introduced.
+Endpoint keys identify transport peers, not Users or Resources. Device approval, endpoint allowlisting, pairing, catalog discovery, and Resource Selection are separate from Resource access. Management authorizes administration but does not own Device records.
 
-Every Node hosts IdP, Management, and Storage with persistent trusted local state. Management owns Device/endpoint lifecycle, selections, restrictions and admission policy; IdP owns identity/token-signing trust. Storage uses locally checked owner-service decisions, not a live central authority. Context repositories remain separate. Restart restores local trust without a freshness lease or peer contact; invalid/missing local evidence fails closed, while a partition alone does not.
+Do not trust handshake claims about Device owners, endpoints, selections, or Resource namespaces. Resolve the authenticated peer through current trusted Device state and validate the Resource through Storage's catalog and namespace rules.
 
-Derive local endpoint identity from the Node's endpoint and remote identity from the authenticated Iroh connection. Do not trust handshake owner/endpoint/selection claims or actor headers. Verify Installation, locally approved Devices and owners, both selections, restrictions, resource kind/ID, and subject/Application namespace. Discovery is not possession or permission. `of` restores persisted locally trusted approved/non-revoked membership into the shared `iroh-chain` endpoint allowlist and updates it on learned changes. `ofnet`'s connection/handshake allowlist enforcement is not resource authorization; purpose-specific pairing is not general access or domain approval.
+## Execution and reconnect
 
-Selection starts empty; concurrent deselection wins, and a causally later selection may restore sync. Revocations and restrictions block subsequent operations when learned locally. Temporary partition divergence is accepted; there is no immediate global revocation or remote erasure guarantee. Transfer/reset/deselection cleanup gates local reuse once learned, not an unaware offline peer's decisions.
+Authorize at the actual read, send, receive, import, and apply boundaries, not only during connection admission. Recheck after waits that can learn new policy. Failed local evaluation denies without mutation.
 
-## Execution boundaries
+Both peers evaluate their own trusted state. Existing connections receive no exemption. An admitted operation may finish; newly learned denial blocks later work. No freshness timer or live central authorization call substitutes for durable local trust and execution checks.
 
-Authorize before each actual apply operation through the generic execution hook exposed by the persistence/sync owner. This requirement does not prescribe a new trait. Admission, send/receive checks, and queued bytes do not authorize later mutation. Check API/resource reads, outbound writes, and queued socket writes at execution as well. Both peers independently check their local policy. An already-authorized in-flight operation may finish; newly learned denial blocks the next operation, even on an existing connection. Allowlist removal or another handshake is not a substitute for these checks. Failed local evaluation denies without mutation. Remote Management/IdP unreachability must not invalidate a Node's usable local trusted state.
+Preserve owner protocol integrity, atomic apply, earlier valid progress, actionable rejection, and cancellation cleanup. Network waits must not hold database write transactions. SQL text, parameters, results, tokens, private keys, and owner error details must not enter logs or redacted client failures.
 
-Do not add custom quotas, timers, deadlines, periodic authorization polling, or a 30-second freshness rule. Historical 5/10/30-second wrappers and numeric memory/frame/stage limits are observations of an older implementation, not requirements of this architecture. Retain owner protocol integrity validation, actionable rejection, atomicity, source/local data preservation, and cancellation cleanup.
+## Revocation and local copies
 
-## Ownership and acceptance
+Selection starts as desired replication state and never changes the Resource namespace. Deselection and managed local cleanup are not logical Resource deletion. Tombstones prevent deleted state from returning when stale peers reconnect.
 
-- `ofnet`/`iroh-chain` owns reusable endpoint/mesh/pairing mechanics, endpoint allowlist enforcement, and generic connections/routing; it does not own Installation/Device or resource policy.
-- `of` owns domain identity, policy, catalogs/namespaces, Installation/Device endpoint trust, local authorization, protocol-specific transport adapters wiring `ofdb`/`offs`, and runtime composition. It integrates local authorization with public execution seams, not internal persistence transactions.
-- `ofdb` owns SQL/KV persistence, CRDT sync, staging, batching, and cleanup. Consume public `ofdb-sql` and `ofdb-kv` only, never backend/internal crates.
-- `offs` owns filesystem persistence and synchronization, including managed-copy lifecycle, not transport. Do not retain a parallel filesystem transport in `offs` to support the old architecture.
+Device revocation prevents later authorized work when learned. It does not transfer Resource ownership, guarantee immediate global blocking, or remotely erase existing copies. Legacy single-User owner/transfer cleanup remains in current code but is target for removal, not evidence of completed migration.
 
-A Node uses one shared `iroh-chain` endpoint/router with persisted endpoint identity and local membership, not separate per-context networking stacks. Reuse existing `ofnet` APIs during filesystem adapter extraction; move genuinely generic missing pieces only on demonstrated need. Domain/protocol integration stays in `of`, with no blanket rewrite or new mandatory networking tracker. Mesh messages and direct byte streams are distinct; mesh forwarding does not authorize or establish transparent multihop SQL/KV/filesystem sync. A forwarded message's claimed source must not be confused with the authenticated connection peer. See [ofnet vocabulary and existing source interfaces](../../../docs/design.md#networking-composition-and-trust).
+## ofdb and transport boundaries
 
-Persistence owners test generic integrity, complete catalog/index atomicity, failed-batch rollback, prior valid progress, exact recovery, Tombstones, reconnect, cancellation cleanup, and writer progress. Network waits must not hold write transactions. `of` tests authorization integration through real local owner APIs and authenticated Iroh: learned revocation between receive/apply and enqueue/write, permission failure after a proven committed batch, allowed in-flight completion, offline restart, accepted partition divergence, and rejected impersonation. No global OAuth single-use partition guarantee is asserted.
+Consume only public `ofdb-sql` and `ofdb-kv` facades in the target: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Do not build service authorization on internal engine transactions or redb APIs. The current dependency migration is incomplete; see [ADR 0003](../../../docs/adr/0003-ofdb-facade-boundary.md).
 
-[Operational qualification](../../../docs/operations.md#qualification-boundary) distinguishes focused owner/HTTPS/frontend evidence from ongoing native qualification and full-Node/platform acceptance. [Public persistence](../../../docs/public-persistence.md) records consumed owner contracts and historical qualification; the ofdb/offs owner maps remain authoritative for generic guarantees, not a blanket assertion that all external work is still blocked or freshly rerun. Old transport-only checks, stub outages and historical freshness tests do not prove this contract. The [system security audit](../../../docs/security.md) preserves current credential/actor boundaries and unverified GUI/completion/restart limits.
+Filesystem metadata completion is not proof of Full-content backup. Passthrough reads require a currently authorized Full peer. WebSocket attachment is not proof of a completed owner exchange, durable replica identity, or backup.
+
+## Evidence boundary
+
+Focused tests do not qualify WAN behavior, real OS credential stores, rendered applications, every crash point, or multi-User shared Devices. Results in [e2e/runtime-validation.md](../../../e2e/runtime-validation.md) are commit-specific historical evidence and must not be presented as current without a new run.

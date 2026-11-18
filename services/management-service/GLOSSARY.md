@@ -1,11 +1,7 @@
-# Management
-
-The role-based access-control context of an Installation. Shared terms are defined in [the root glossary](../../GLOSSARY.md).
-
-## Language
+# Management glossary
 
 **Management Service**:
-The authority for roles, permissions, and User assignments. It authorizes actions in the IdP, Device, and Storage contexts, but does not own their records or lifecycle.
+The authority for roles, permissions, and assignments. It authorizes administration in other contexts but does not own their records, including Device records.
 
 **Permission**:
 A named action with Application or Installation scope.
@@ -14,7 +10,7 @@ A named action with Application or Installation scope.
 A group of explicit permissions whose assignments grant authority to a User.
 
 **Application-scoped Permission**:
-Authority for a named action within one Application; it grants no installation-wide authority.
+Authority for a named action within one Application. It grants no Installation-wide authority.
 
 **Installation-scoped Permission**:
-Authority for a named action across an Installation, including administration of its infrastructure identities.
+Authority for a named action across an Installation, including authorized infrastructure administration.

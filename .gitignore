@@ -3,6 +3,8 @@
 /.env*
 !/.env.example
 /.data
+/.scratch/
+/e2e/.results/
 
 /config/**/*.redb
 **/node_modules/
@@ -16,6 +18,7 @@
 **/artifacts/
 **/dist/
 **/.svelte-kit/
+**/__pycache__/
 storage-data.setup-host/
 
 !packages/sql-wasm/pkg

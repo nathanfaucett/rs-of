@@ -80,9 +80,9 @@ cannot invoke local destructive controls or retrieve bundled setup capabilities.
 
 ## Qualification
 
-See [ticket03](../../../.scratch/unified-owner-lifecycle/ticket03-validation.md) and
-[ticket04](../../../.scratch/unified-owner-lifecycle/ticket04-validation.md) for exact
-process/client checks and Cargo blockers. Owner contract and process suites own
-lifecycle semantics; mounted forms/IPC substitutes qualify frontend wiring, not a
-real Wry GUI, secure provider, OS trust installation, WAN or other platforms. No
-privileged trust operation was run for ticket04.
+Owner contract and process suites own lifecycle semantics. Mounted forms and IPC
+substitutes qualify frontend wiring, not a real Wry GUI, secure provider, OS trust
+installation, WAN, or other platforms. See [deployment limits](../../../docs/backend-deployments.md)
+and [system-test qualification](../../../tests/system/README.md). Record exact
+commit-specific commands and results in CI or E2E evidence rather than treating this
+contract as proof of acceptance.

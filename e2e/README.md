@@ -1,20 +1,22 @@
 # Real backend tests
 
-Run from the `of` repository. Keep `ofdb`, `ofnet`, and `offs` beside it. Use `ofdb` branch `backend-simplification` at `544b6270116ef73e7cab53b2a191bcad608146ba`; CI pins the same commit. Keep `offs` on `main`. No sibling aliases are required. Worktrees need the same layout. Do not remove task worktree directories.
+Run from the root of a single `nathanfaucett/rs-of` checkout. Do not check out or build sibling `rs-ofdb`, `rs-ofnet`, or `rs-offs` repositories. All required Rust, WASM, and TypeScript sources are in this repository.
 
 ## Prepare
 
-Use the Node version in `.nvmrc` and pnpm 12.4.1. Password-manager links to `../ofdb/packages/sql`; its compiled JS and WASM must exist. On a clean checkout, build that package with its documented Rust/wasm-pack versions. The CI workflow runs these steps. The checked-in `packages/sql-wasm` is a different, lower-level package; it does not replace the wrapper.
+Use the Node version in `.nvmrc`, pnpm 12.4.1, Rust 1.100 with the `wasm32-unknown-unknown` target, and wasm-pack 0.13.1. The backend also needs `pkg-config` and the D-Bus development package. On Debian or Ubuntu, install the native packages with `sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libdbus-1-dev`.
 
 ```sh
-pnpm --dir ../ofdb install --frozen-lockfile --ignore-scripts
-pnpm --dir ../ofdb --filter @ofsdk/sql run build:wasm
-pnpm --dir ../ofdb --filter @ofsdk/sql run build:esm
+rustup toolchain install 1.100 --profile minimal --target wasm32-unknown-unknown
+cargo install wasm-pack --version 0.13.1 --locked
+export RUSTUP_TOOLCHAIN=1.100
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm exec playwright install --with-deps chromium
 pnpm e2e:prepare
 cargo build --locked -p unified-server
 ```
+
+`pnpm e2e:prepare` builds the local `@ofsdk/sql` WASM, ESM, and browser outputs and the local `@ofsdk/file-system` WASM and TypeScript outputs before building the other required SDKs. Password-manager uses SQL directly and through `sync-sdk`; `sync-sdk` declares the file-system dependency. Neither application nor `sync-sdk` depends on `@ofsdk/net`, so e2e preparation does not build it.
 
 ## Run
 
@@ -31,9 +33,9 @@ Each app also has `pnpm test:e2e`. Run it from that app directory to select its 
 
 ## Lifecycle and isolation
 
-`backend.mjs` is the global setup for both runners. Vitest installs it on the Chromium instance only: installing the same setup on both the root and browser project starts two servers. By default it runs `cargo run --locked -p unified-server -- local ... --no-tls` on port 1355, with a fresh OS temporary directory. It waits for all four owner health routes. It reports build/process failures and missing health routes. The default deadline is 180 seconds, including Cargo; set `E2E_START_TIMEOUT_MS` for a slower first build. This is not a three-second startup benchmark.
+`backend.mjs` is the global setup for both runners. Vitest installs it on the Chromium instance only: installing the same setup on both the root and browser project starts two servers. By default it runs `cargo run --locked -p unified-server -- local ... --no-tls` on port 1355, with a fresh OS temporary directory. It waits for all four owner health routes. It reports build/process failures and missing health routes. The default deadline is 180 seconds, including Cargo; set `E2E_START_TIMEOUT_MS` for a slower first build. This is not a three-second startup benchmark. The launcher sets `RUST_MIN_STACK=67108864` by default because the current backend startup overflows a smaller stack; set the variable explicitly to override that test environment.
 
-To use an already-built executable, set `E2E_BACKEND_BIN` to its path, relative to the repository root or absolute. This still starts a new process and new temporary data; it never connects to an existing developer backend. For a build in the standard sibling layout:
+To use an already-built executable, set `E2E_BACKEND_BIN` to its path, relative to the repository root or absolute. This still starts a new process and new temporary data; it never connects to an existing developer backend. For the repository-local build above:
 
 ```sh
 E2E_BACKEND_BIN=./target/debug/unified-server pnpm test:e2e
@@ -63,6 +65,6 @@ Restored isolated native capability tests do not mock backend HTTP. Registration
 
 ## CI
 
-`.github/workflows/e2e.yml` checks out the sibling repositories plus the pinned qualified Rust dependency aliases, builds the linked SQL wrapper, installs Chromium, builds frontend dependencies and Rust, then runs both real test runners against that compiled binary. Each runner step executes after a successful build even if another runner fails; failures still fail the job. It has read-only repository permission, a bounded job, no stored checkout credentials, and failure artifacts. The pinned Rust dependency commits must be available from their remotes. The workflow does not bypass failures or substitute a fake server.
+`.github/workflows/e2e.yml` checks out only `nathanfaucett/rs-of`, installs Chromium, builds the local WASM and TypeScript dependencies and Rust backend, then runs both real test runners against that compiled binary. Each runner step executes after a successful build even if another runner fails; failures still fail the job. It has read-only repository permission, a bounded job, concurrency cancellation, no stored checkout credentials, and failure artifacts. The workflow does not bypass failures or substitute a fake server.
 
-See [runtime validation](runtime-validation.md) for the latest measured results and [coordinator blockers](backend-blockers.md) for concrete failing requests. The older `.scratch/backend-simplification/e2e-validation.md` records the pre-buildfix run. A test being listed or a frontend build passing does not qualify a real backend flow.
+See [runtime validation](runtime-validation.md) for recorded commit-specific results and [coordinator blockers](backend-blockers.md) for the corresponding failing requests. Historical task notes are not current qualification evidence. A test being listed or a frontend build passing does not qualify a real backend flow.

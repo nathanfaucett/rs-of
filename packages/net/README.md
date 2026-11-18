@@ -1,110 +1,52 @@
-# @ofsdk/net — Mesh Networking SDK
+# @ofsdk/net
 
-TypeScript/JavaScript SDK for `iroh-chain` mesh networking, built from `net/iroh-chain-wasm` via `wasm-pack`.
+Private workspace TypeScript wrapper for browser mesh networking. The WASM
+module is built from `net/iroh-chain-wasm`. This package is not published to npm.
 
-## Installation
+## Main exports
 
-```bash
-npm install @ofsdk/net
-# or
-pnpm add @ofsdk/net
-```
+- `Endpoint` owns the local endpoint, peer allowlist, and pairing operations.
+- `Mesh` sends and receives messages and opens streams. Obtain it from
+  `endpoint.mesh`.
+- `Stream` writes and reads bytes on a stream returned by `Mesh.openStream()`.
+
+See [`src/index.ts`](src/index.ts) for the supporting types and errors.
 
 ## Usage
 
-```typescript
-import { createNetClient, Message, EndpointId } from '@ofsdk/net';
+```ts
+import { Endpoint } from "@ofsdk/net";
 
-// Create client
-const net = await createNetClient();
+const endpoint = new Endpoint();
+await endpoint.ready;
 
-// Connect to trusted peer
-await net.connect(trustedPeerNodeAddr);
-
-// Send direct message
-await net.sendDirect(peerId, new Message(new TextEncoder().encode("hello")));
-
-// Broadcast to mesh
-await net.broadcast(new Message(new TextEncoder().encode("hello mesh")));
-
-// Subscribe to messages
-net.onMessage((msg) => {
-  console.log(`Received from ${msg.from}:`, new TextDecoder().decode(msg.payload));
+const unsubscribe = endpoint.mesh.onMessage((message) => {
+  console.log(new TextDecoder().decode(message.payload));
 });
+await endpoint.mesh.broadcast(new TextEncoder().encode("hello"));
 
-// Open byte stream
-const stream = await net.openStream(peerId);
-const writer = stream.writable.getWriter();
-await writer.write(new TextEncoder().encode("stream data"));
-await writer.close();
-
-// Pair with another device
-const approval = await net.pairWith(trustedPeer, {
-  installation: "my-installation",
-  deviceName: "My Device"
-});
+unsubscribe();
+await endpoint.close();
 ```
 
-## API
+Await `endpoint.ready` before reading `endpoint.id` or `endpoint.peers`.
 
-### `createNetClient(options?)`
+## Build and checks
 
-Creates a new mesh networking client.
+Run from the repository root:
 
-Options:
-- `memory?: boolean` — Use in-memory storage (for testing)
-- `dataDir?: string` — Persistent data directory
-
-### `NetClient`
-
-| Method | Description |
-|--------|-------------|
-| `connect(nodeAddr: string)` | Connect to a peer via node address |
-| `sendDirect(peerId: EndpointId, message: Message)` | Send direct message to peer |
-| `broadcast(message: Message)` | Broadcast message to all mesh peers |
-| `onMessage(handler: (msg: Message) => void)` | Subscribe to incoming messages |
-| `openStream(peerId: EndpointId)` | Open byte stream to peer |
-| `pairWith(peerId: EndpointId, offer: PairingOffer)` | Pair with another device |
-| `getEndpointId()` | Get local endpoint ID |
-| `getNodeAddr()` | Get local node address for sharing |
-
-### Types
-
-```typescript
-interface Message {
-  from: EndpointId;
-  payload: Uint8Array;
-  timestamp: number;
-}
-
-interface EndpointId {
-  toString(): string;
-}
-
-interface PairingOffer {
-  installation: string;
-  deviceName: string;
-}
-
-interface PairingApproval {
-  request: PairingOffer;
-  ownerSubject: EndpointId;
-  signature: string;
-}
+```sh
+pnpm install --frozen-lockfile
+pnpm --filter @ofsdk/net run build
+pnpm --filter @ofsdk/net run check
+pnpm --filter @ofsdk/net run lint
 ```
 
-## Building from Source
-
-```bash
-# Requires Rust toolchain (pinned in rust-toolchain.toml)
-cd net/iroh-chain-wasm
-wasm-pack build --target web --out-dir ../../packages/net/pkg
-```
-
-The `pkg/` directory is checked in for npm publishing.
+`build` builds the WASM module and TypeScript output. The generated `pkg/`,
+`esm/`, and `types/` directories are not tracked. This package has no `test`
+script.
 
 ## Related
 
-- [net/iroh-chain/README.md](../../net/iroh-chain/README.md) — Rust crate documentation
-- [net/README.md](../../net/README.md) — ofnet overview
-- [packages/README.md](../README.md) — All TypeScript SDK packages
+- [Rust mesh networking crate](../../net/iroh-chain/README.md)
+- [Package index](../README.md)

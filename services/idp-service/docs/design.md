@@ -1,45 +1,39 @@
 # IdP design
 
-The IdP supports standard OAuth 2.0 and OpenID Connect clients alongside key-based identity and key rotation. Key identity remains separate from the IdP signer and the token subject. Definitions live in [the IdP glossary](../GLOSSARY.md); Installation and equal-Node ownership are defined by [system design](../../../docs/design.md).
+The IdP provides conventional OAuth 2.0 and OpenID Connect. Definitions are in the [IdP glossary](../GLOSSARY.md); security invariants are in [local security](local-security.md). Exact HTTP routes and schemas belong to [the IdP OpenAPI contract](../../../openapi/idp.json).
 
-## OAuth and OpenID Connect
+The accepted target is the `rs-of` canonical monorepo, but migration is incomplete. See the [current-versus-target vision](../../../docs/goal.md), [target architecture](../../../docs/architecture.md), and [canonical monorepo ADR](../../../docs/adr/0001-canonical-monorepo.md).
 
-Use conventional OIDC, not self-issued OIDC. The IdP signs access and ID tokens with its approved signing keys. Self-issued OIDC requires a different relying-party trust model.
+## Ownership and local trust
 
-Use standard authorization, token, userinfo, discovery, JWKS, PKCE, and refresh-token surfaces. Key-based authentication is not a replacement for the OAuth/OIDC protocol, and password authentication is not excluded.
+IdP owns Users, credentials, Applications, OAuth Clients, grants, and Node Signer trust. The Device context owns Device records, endpoint identity, approval/revocation, and configuration. Management owns roles and permissions and authorizes administration; it does not own Device records.
 
-### Permission-gated public Client onboarding
+Each Node must evaluate identity, policy, signer approval, and grant state against persistent trusted local state. Bundled composition may call local owner services directly. Independent deployment uses authenticated service APIs. Neither mode may read another owner's repositories or require a live central authority for every operation.
 
-An authorized User may onboard an ordinary public Client for an Application identified by its stable `application.uri` (for example, `password-manager.aicacia.com`). The IdP issues a new Client ID; the supplied Application URI is neither a Client identity nor proof of authority. Registration requires explicit Installation permission and, when the Application is absent, separate Application-creation permission before writes. It does not grant same-Application administrative CRUD or replace User consent. Infrastructure provisioning remains a separate permission boundary. See [onboarding and consent-display security](local-security.md#owner-boundaries-and-administration).
+Missing, invalid, conflicted, or locally revoked trust denies. A network partition alone does not revoke valid local trust.
 
-The canonical browser entry is `GET /oauth2/auth`. Its `AuthorizationUiRequest` permits either a nonblank Client ID or onboarding with a nonblank `application_id` (the logical Application URI), matching JSON `registration.application.uri`, no supplied registration Client ID, `response_type=code`, and a valid redirect URI. It preserves the raw query, including registration, state, nonce and PKCE, when redirecting to the configured UI (`303 See Other`); it does not mutate owner state or issue codes. `POST /oauth2/auth` retains the strict `AuthorizationRequest` with required Client ID and normal authenticated consent/issuance validation.
+## OAuth Clients and consent
 
-Authenticated consent display uses the allowlisted `GET /oauth2/client/{client_id}` response, not the administrative registration GET. Client registration responses and consent metadata preserve canonical Application identity even when the Client homepage differs from the Application URI. Generated contracts and SDKs must be regenerated together for the new `ClientsRegister` action and `ClientConsentMetadata` operation before independent HTTPS evaluators or generated frontend callers can use them.
+Use standard discovery, authorization, token, UserInfo, JWKS, PKCE, and refresh-token behavior. Key-based authentication does not replace OAuth/OIDC.
 
-## Identity and keys
+Public Client onboarding is permission-gated administration, not proof of authority supplied by an Application URI. Registration requires the Installation-scoped Client-registration permission. Creating a previously unknown Application requires its separate creation permission before any write. Onboarding does not grant later administrative CRUD, infrastructure provisioning, or User consent.
 
-Principal setup and root rotation allocate metadata identities without producing entity master keys, derived private keys or public JWKs. Tokens bind the current Principal root UUID but are signed by the independent Node signer. Explicit cryptographic key APIs retain BIP32-style master/derived keys for callers that actually require them; keep that private material local and do not expose it to relying parties. Per-client key choices must not replace the canonical User identity.
+Consent display exposes only allowlisted public Client and Application metadata. Secrets, verifiers, private keys, and administrative grant settings stay excluded. User approval remains bound to the persisted Client, redirect URI, and scopes.
 
-Tokens identify the Principal by its stable entity ID, not a raw public key or user-selected per-client key. Key rotation need not change the Principal's identity. A stable entity subject does not promise pairwise unlinkability across clients.
+## Identity and Node Signers
 
-Keep private key material local. Public-key metadata alone is not signing capability. JWKS publishes approved IdP signing material, not user authentication keys. Private signing-key compromise affects issuer trust; Node Signer approval and revocation remain separate from User identity. Every Node uses an independent local private signer, not one shared private signer, as required by [system design](../../../docs/design.md#identity-and-grants). Approved public signer data can synchronize; revocation takes effect on each Node when learned.
+A token subject is a stable Principal identity, not a raw authentication key or transport endpoint. Root rotation changes key ancestry without requiring a new User subject.
 
-## Local trust and grant lifecycle
+Each Node has an independent Node Signer. Private signing capability remains local; only approved public signer data may synchronize. Preparing a signer does not approve a Device, and Device approval does not prepare or approve a signer. JWKS publishes approved signing keys, not User authentication secrets.
 
-Every Node may administer identity and perform OAuth/OIDC issuance and grant lifecycle operations after local actor/permission checks. Persist trusted identity, policy, approved signer state, and grant consumption so completed Nodes can operate and restart offline. There is no designated authority, privileged replica, promotion, or 30-second freshness requirement. Missing, invalid, or locally revoked trust denies; a partition by itself does not.
+Validate issuer, audience, token use, lifetime, signature, signer approval, Principal state, Client, scope, and requested permission. An actor header or authenticated transport endpoint is not a substitute for these checks.
 
-Authorization-code rows retain the public OAuth Client ID as `TEXT`, not the Client's internal UUID. The corrected initial schema applies to newly created databases; existing databases with a UUID `oauth2_authorization_codes.client_id` column require explicit schema recovery or reprovisioning, not merely a restart.
+## Grants during partitions
 
-Consume authorization codes and rotate refresh tokens atomically and durably on the executing Node. Concurrent local requests have one winner, including after reopen. Partitioned Nodes do not have a global single-use guarantee. Reconcile approved grant state on reconnect without claiming that eventual convergence prevented earlier duplicate consumption. Define synchronized records explicitly; raw secrets and private signing material are never shared.
+Consume authorization codes and rotate refresh tokens atomically and durably on the executing Node. Local concurrent requests have one winner, including after reopen.
 
-Check issuer, audience, use, lifetime, signature, approved signer, Principal, client, scope, and exact requested permission against trusted local state. An actor's identity is not the transport signer or a supplied header. Bundled administration uses local Management without HTTP/OAuth self-calls; independent IdP uses its authenticated HTTPS permission evaluator, never another owner's database.
+Two partitioned Nodes can consume separate local copies of the same grant. This design does not promise global single use or undo tokens already issued during a partition. Learned consumption or revocation denies later local operations. Raw codes, raw tokens, password verifiers, and private keys are never synchronization payloads.
 
-## Device membership and pairing
+## Current migration boundary
 
-Management owns Installation Device lifecycle and trusted endpoint bindings; IdP owns independent token-signing trust and active User identity. `of` composes authorized approval and persists each through its owner. On startup it restores that membership into the Node's one shared `iroh-chain` endpoint allowlist and updates the set as changes are learned. Restart does not require a reachable peer or expiring trust lease.
-
-Reuse `ofnet`/`iroh-chain` endpoint, pairing offer/reply, allowlist and routing mechanics rather than recreating them in IdP. Generic pairing admission is purpose-specific exchange, not Installation approval or general data/resource access. Check approver actor/action/target and Installation/Device/endpoint/independent signer binding before persisting membership. Endpoint admission is not token/Principal or resource authorization; learned revocation prevents subsequent operations even on existing connections through `of`'s execution checks. See [networking ownership, ofnet vocabulary and source interfaces](../../../docs/design.md#networking-composition-and-trust).
-
-## Implementation and acceptance
-
-[Current API contracts](../../../docs/api.md), [setup worker design](../../../docs/setup-workers.md) and [bounded qualification](../../../docs/operations.md#qualification-boundary) distinguish delivered owner/Create/Join seams from full acceptance. Superseded authority/replica tests do not qualify this design; native shared-host qualification remains ongoing, with rendered GUI/provider/platform acceptance unclaimed.
+Current code and generated contracts still contain legacy single-User Device owner/transfer terminology and behavior. The target removes that model in favor of Installation-level Devices that may hold authorized replicas for multiple Users and Applications. Do not treat existing legacy flows as evidence that the target model is implemented.

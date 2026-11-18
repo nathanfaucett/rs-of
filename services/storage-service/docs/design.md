@@ -1,35 +1,46 @@
 # Storage design
 
-Current owner/database boundaries and Device routes: [shared control-plane databases](../../../docs/control-plane.md).
+Storage provides offline-first database and filesystem Resources. Definitions are in the [Storage glossary](../GLOSSARY.md); required protections are in [security](security.md). Current source structure is not proof of target completion or runtime qualification.
 
-Storage provides offline-first database and filesystem resources. Definitions live in [the Storage glossary](../GLOSSARY.md); equal-Node ownership and synchronization requirements live in [system design](../../../docs/design.md). These are design requirements; [security and transport](security.md) distinguishes source-checked behavior from acceptance targets.
+## Target model
+
+The accepted `rs-of` target assigns ownership as follows:
+
+- Device owns Device records, endpoint identity, approval/revocation, and configuration.
+- Management owns roles and permissions and authorizes administration. It does not own Device records.
+- Storage owns Resource catalogs, Resource namespaces, and Resource access.
+- IdP owns User identity, OAuth/OIDC grants, and Node Signer trust.
+
+A Device is an Installation-level approved endpoint. With permission, it may hold replicas for multiple Users and Applications. Selection maps a Resource to a Device as desired replication state. It does not change Resource ownership or grant access by itself.
+
+Current code and contracts still contain the legacy single-User Device owner/transfer model. That model is target for removal. Current legacy cleanup or transfer flows must not be documented as shared-Device support or completed migration. See [target architecture](../../../docs/architecture.md) and [ADR 0002](../../../docs/adr/0002-shared-installation-devices.md).
 
 ## Resource isolation
 
-The Storage API owns multiple databases and filesystems per `(user subject, application_id)` namespace; OAuth Clients of the same Application share it. No other subject or Application may access or select those resources. Every file belongs to the namespace subject.
+Every database and filesystem belongs to one `(User subject, Application)` namespace. OAuth Clients of one Application share the User's namespace. Callers cannot select an arbitrary owner or Application override for API access.
 
-There are no cross-user grants, Unix permission bits, or Device-key delegation: they would add an authorization layer without another Principal who can use it. IdP-issued tokens bind subject, Application, audience, and API action limits such as read/write; these limits authorize API calls, not mesh synchronization. Iroh endpoints establish only transport identity. Services synchronize independently of user sign-in.
+Validate the token subject, Application, audience, lifetime, and required action on every request. Storage API actions do not authorize mesh replication. There are no Device-key delegation grants, folder ACLs, Unix permission bits, or implicit cross-User shares.
 
-## Device ownership and resource selection
+Catalog discovery does not prove local content possession or permission. Database IDs and Filesystem IDs are kind-specific. Deletion creates a Tombstone for the logical Resource; deselection concerns local desired replication state.
 
-The introducing User owns a Device. An approved Device may store their namespace by default unless an administrator restricts it, but selection starts empty. The owner may choose which of their namespace's whole resources it stores, subject to locally known administrator restrictions; they may always deselect. A `read`-only Storage token cannot enroll, select, deselect, or revoke.
+## Selection and replication
 
-Management owns Device enrollment, endpoint binding, ownership, approval/transfer/revocation, administrator storage limits and resource selection/deselection. IdP owns User identity and token-signing trust. A regular User needs a distinct Management API permission and a matching Device-owner subject to change selection; administrator authority is separate.
+Selection must remain within the Resource namespace and pass the required Device, Management, and Storage checks. Each peer evaluates its own trusted policy. Handshake claims about owners, endpoints, or selections are not evidence.
 
-Before selection, Management checks kind/ID/namespace against trusted local Storage catalog data through its owner API, with a Storage read token bound to the Management actor's subject and Application. Unknown or locally unverifiable resources fail closed; offline selection of locally trusted resources does not require a remote owner. The owner may still deselect without content access, but current Management Device ownership is required; a stale policy owner does not authorize it. Management does not open filesystem catalogs. Selections are recorded as synchronized control-plane state. Concurrent selection and deselection resolve to deselection; a causally later selection may restore synchronization.
+Both endpoint approval and Resource authorization are required. Endpoint allowlisting and pairing establish no general Resource access. Recheck authorization at send, receive, and apply boundaries, including on existing connections.
 
-## Synchronization admission
+An already admitted operation may finish. Learned revocation, deselection, restriction, or deletion blocks later operations. An unaware offline peer can temporarily act on stale trusted state; immediate global revocation is not promised.
 
-Both peers must select the resource in their own locally known policy views. Storage checks the Node's persistent trusted Management policy through its owner boundary; no live central authorization service is required. Management resolves locally approved endpoint identities through its own Device repository and checks matching owners, administrator restrictions, whole-resource selection, resource kind/ID, and namespace against authenticated Device IDs. Peer handshake selection claims cannot replace these checks. `of` binds authenticated endpoints to Installation Devices using persistent trusted local Management state and loads approved/non-revoked membership into the shared `iroh-chain` allowlist. `ofnet` enforces endpoint admission, not selection/resource authorization; pairing grants no general access. Policy may temporarily diverge during partitions; learned revocation/restriction prevents subsequent operations, including over existing connections; allowlist removal alone is not execution authorization.
+## Cleanup, Residency, and deletion
 
-Global catalog metadata is not exposed to all mesh Devices; a signed-in owner lists only resources in their subject/Application namespace, and background services retain only selected-resource metadata. Administrative records remain separate.
+Device revocation does not transfer Resource ownership or remotely erase copies. Deselection and authorized local cleanup can remove managed local bytes, but they cannot erase copies held by unaware or unrelated Devices.
 
-## Cleanup and persistence
+Full/Passthrough Residency is local filesystem policy, not Selection or synchronized ownership. Passthrough retains metadata, denies writes, and requires an authorized available Full peer for content reads. A mode acknowledgement does not prove that all content is available or erased.
 
-Revocation stops subsequent operations on a Node once learned but cannot erase bytes already copied. An authorized in-flight operation may finish. Once a Node learns an ownership transfer, it must clear old selections and runtime-managed local copies before new-owner use or synchronization resumes; cleanup or explicit reset must complete. An unaware offline Node may temporarily continue using its prior trusted local view. Management persists a local pending marker on learned ownership mismatch, clears old selections and restricts allowance. Storage coordinates public SQL/KV retirement and filesystem managed-copy removal; failure retains pending intent and successful phases are not rolled back. Unified revalidates native Management ownership before atomically rebinding the empty, restricted policy. Storage bearer and DATA checks deny pending cleanup/new-owner use. This does not implement setup/reset or a Node-wide IdP/Management bearer gate. See the [public-owner lifecycle contract](../../../docs/public-persistence.md#managed-copy-retirement-public-owner-handoff).
+## Persistence and deployment boundaries
 
-`of` owns catalog/policy decisions and cleanup orchestration. `ofdb` owns SQL/KV persistence, sync, stages, batches, and cleanup through public `ofdb-sql`/`ofdb-kv` only. `offs` owns filesystem persistence, sync, and local-copy cleanup, not transport. `ofnet`/`iroh-chain` owns reusable endpoint/mesh/pairing mechanics, endpoint allowlist enforcement and generic connections/routing. `of` owns domain/protocol-specific adapters wiring `ofdb`/`offs` and supplies locally checked authorization before each apply via a generic execution hook; no new trait or custom quota/timer/deadline is prescribed. Generic integrity, atomicity, cancellation cleanup, and valid-progress tests belong to persistence owners; domain authorization integration belongs in `of`.
+Storage owns domain catalogs and access decisions. ofdb owns SQL/KV persistence and synchronization; offs owns filesystem persistence and synchronization. Transport and domain adapters must not become alternate persistence engines.
 
-Use one shared Node `iroh-chain` endpoint/router with persisted endpoint identity and local trust. Direct protocol streams are distinct from mesh Broadcast/Direct Message; existing mesh forwarding is not transparent multihop database/filesystem sync. During of 02/offs 03 extraction, reuse existing `ofnet` mechanics and move only genuinely generic missing pieces on demonstrated need; domain trust, resource envelopes and protocol integration stay in `of`. No blanket networking rewrite or new mandatory tracker is required. See [source interfaces and ofnet glossary](../../../docs/design.md#networking-composition-and-trust).
+The target public ofdb boundary is only `ofdb-sql` and `ofdb-kv`: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Services must not import internal engine or redb crates. Current dependencies are not fully migrated. See [ADR 0003](../../../docs/adr/0003-ofdb-facade-boundary.md).
 
-Whole-resource Full/Passthrough residency persists as local domain policy; owner per-path rules remain process-local. Scoped Passthrough byte reads require a currently authorized reachable Full peer through the existing DATA session transport; writes deny and remote streams are unavailable. Resource deletion replicates a Tombstone; deselection removes only a local copy. Owner retirement fences are permanent. Causally later selection allocates a new data-root generation while preserving the logical ID/catalog, and old owner handles/scoped sessions stay revoked. A newer deselection cancels a pending reselection. Durable old-owner admission fences serialize with catalog creation during transfer; only the trusted host activates the current owner after completion. Incompatible persisted formats fail without migration or automatic deletion.
+One server process does not require one physical database file or one shared database host. Current deployment layouts and their limits are in [backend deployments](../../../docs/backend-deployments.md).

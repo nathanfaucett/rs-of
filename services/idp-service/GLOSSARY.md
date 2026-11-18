@@ -1,36 +1,31 @@
-# Identity Provider (IdP)
-
-The identity and OAuth/OIDC context hosted by each Node of an Installation. Shared terms are defined in [the root glossary](../../GLOSSARY.md). OAuth/OIDC and key identity are described in [IdP design](docs/design.md).
-
-## Language
+# Identity Provider glossary
 
 **Identity Provider (IdP)**:
-The OAuth 2.0 and OpenID Connect context for Users, credentials, Applications, OAuth Clients, grants and token-signing identity/trust. Device identities, endpoint-ID bindings and their lifecycle authority belong to Management.
+The OAuth 2.0 and OpenID Connect authority for Users, credentials, Applications, OAuth Clients, grants, and token-signing trust. Device records belong to the Device context.
 
 **Node Signer**:
-An approved token-signing identity held independently by one Node. It identifies the issuing Node, not the User or service Principal represented by a token, and does not itself approve a Device or transport endpoint.
-_Avoid_: Replica Signer
+An approved token-signing identity for one Node. Its private signing capability remains local. It is not a User, Device, endpoint, or Resource grant.
 
 **Canonical Issuer**:
-The stable public IdP URL identifying an Installation in OAuth/OIDC metadata and tokens, shared by its Nodes. A Node may serve requests at a different listener address without changing the Canonical Issuer.
+The stable public IdP URL that identifies an Installation in OAuth/OIDC metadata and tokens.
 
 **OAuth Client**:
-A concrete web, native, or machine integration for an Application, with a client identity, redirect URIs, grant and response types, allowed scopes, and authentication configuration. Multiple clients may access the Application's resources when authorized by the same User.
+A web, native, or machine integration for an Application, with its own client identity and authorization configuration. Multiple Clients may access one User/Application namespace when authorized.
 
 **OAuth Consent**:
-A User's approval for a client, redirect URI, and scope set. It determines whether authorization requires further user interaction.
+A User's approval for a Client, redirect URI, and scope set.
 
 **Authorization Code**:
-A short-lived OAuth credential consumed atomically once within a Node, without a global single-use guarantee during partitions, bound to its client, redirect URI, scopes, signing key, optional resource, PKCE challenge, and optional OIDC nonce.
+A short-lived OAuth credential bound to its Client, redirect URI, scopes, and optional PKCE and OIDC values.
 
 **Access Token**:
 A signed credential that authorizes an API request within its grant constraints.
 
 **ID Token**:
-A signed credential that conveys authenticated OIDC identity claims to a client.
+A signed credential that conveys authenticated OIDC identity claims to a Client.
 
 **Refresh Token**:
 A signed credential for obtaining replacement tokens under its original grant constraints.
 
 **Key**:
-Signing-key metadata describing its entity owner, derivation relationship and path, name, state, and validity period. Its public JWK may be published through JWKS.
+Signing-key metadata, including identity, derivation relationship, state, validity, and any publishable public JWK.

@@ -159,7 +159,7 @@ rustflags = [
 
 [env]
 CARGO_WORKSPACE_DIR = { value = ".", relative = true }
-RUST_MIN_STACK = "33554432"
+RUST_MIN_STACK = "67108864"
 
 [profile.test]
 lto = false

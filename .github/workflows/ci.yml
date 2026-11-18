@@ -10,6 +10,19 @@ permissions:
   contents: read
 
 jobs:
+  docs:
+    name: Documentation links
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check Markdown local links and anchors
+        run: python3 scripts/check_docs.py
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

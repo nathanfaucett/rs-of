@@ -1,114 +1,32 @@
-# offs — Offline-First Filesystem
+# `offs` — offline-first filesystem
 
-`file-system` stores data locally so reads and writes continue without network access.
+`offs` owns filesystem paths, metadata, content, persistence, history, and reconciliation. It does not own Installation identity, Device authorization, or generic network routing.
 
-`file-system` owns filesystem paths, metadata, content, persistence, and synchronization.
+## Device-local residency
 
-- **Full devices** — Retain metadata and content.
-- **Passthrough devices** — Retain metadata only; read content from an available selected Full peer; cannot write.
-- **Resource deletion** — A tombstone; device deselection removes only that device's local copy.
+- **Full** retains metadata and content.
+- **Passthrough** retains metadata and reads content from an authorized available Full provider. It cannot write.
+- **Resource deletion** creates a synchronized tombstone.
+- **Deselection** removes only the selected Device's local replica; it does not delete the logical Resource.
+
+Device approval and Resource Selection belong to the `of` Device and Storage contexts. See [target architecture](../docs/architecture.md).
 
 ## Crates
 
 | Crate | Purpose |
-|-------|---------|
-| `file-system` | Core filesystem — paths, metadata, content, persistence, sync |
-| `file-system-wasm` | WASM build for browser (wasm-pack, own Cargo.lock) |
+| --- | --- |
+| `file-system` | Core filesystem and synchronization contracts |
+| `file-system-wasm` | Browser WebAssembly bindings |
 
-## Features
+The TypeScript wrapper is `packages/file-system`. It is a private workspace package, not a published public SDK.
 
-| Feature | Description |
-|---------|-------------|
-| `std` | Standard library (default) |
-| `sync` | Enable synchronization protocol |
-
-## Quick Start
-
-```rust
-use file_system::{FileSystem, FileSystemConfig};
-
-// Open or create a filesystem
-let fs = FileSystem::open(FileSystemConfig {
-    path: "/data/my-fs".into(),
-    ..Default::default()
-}).await?;
-
-// Write a file
-fs.write("/hello.txt", b"Hello, world!").await?;
-
-// Read a file
-let content = fs.read("/hello.txt").await?;
-
-// List files
-let entries = fs.list("/").await?;
-```
-
-## Sync
-
-```rust
-use file_system::{FileSystem, SyncConfig};
-use iroh::Endpoint;
-
-let fs = FileSystem::open(config).await?;
-
-// Configure sync with a peer
-let sync_config = SyncConfig {
-    peer: endpoint.node_addr(),
-    // ... selection policies ...
-};
-
-// Start sync session
-let session = fs.sync(sync_config).await?;
-
-// Monitor progress
-while let Some(event) = session.next().await {
-    println!("Sync event: {:?}", event);
-}
-```
-
-## WASM
-
-The `file-system-wasm` crate is a standalone `wasm-pack` workspace (own `Cargo.lock`). It is **excluded** from the Cargo workspace. Build with:
+## Development
 
 ```bash
-cd fs/file-system-wasm
-wasm-pack build --target web
-```
-
-The generated `pkg/` is checked into `packages/file-system/` for npm publishing.
-
-## Testing
-
-```bash
-# Core filesystem
 cargo test -p file-system --all-targets
-
-# WASM (from fs/file-system-wasm)
-wasm-pack test --headless --firefox
+pnpm --filter @ofsdk/file-system run build
 ```
 
-## Architecture
+The WASM crate has its own lockfile and generated output. Build everything from this checkout; no sibling `offs` repository is required.
 
-```
-file-system
-  ├── paths (B-tree, UUIDv7 keys)
-  ├── metadata (size, mtime, permissions)
-  ├── content (chunked, deduplicated blobs)
-  ├── persistence (Redb, IndexedDB)
-  ├── sync (CRDT, tombstones, selection policies)
-  └── transport (Iroh streams via iroh-chain)
-```
-
-## Selection Policies
-
-Sync is governed by `device-service` selection policies:
-
-- **Selected resources** — Which databases/filesystems a device syncs
-- **Admin allowance** — Whether admin can override device selection
-- **Device state** — Approved, pending, revoked
-
-## Related
-
-- [db/README.md](../db/README.md) — Offline-first databases (`ofdb-sql`, `ofdb-kv`)
-- [net/README.md](../net/README.md) — Mesh networking (`iroh-chain`)
-- [packages/README.md](../packages/README.md) — TypeScript SDK packages
+Filesystem synchronization is not qualified by SQL tests or mesh connectivity alone. Full/Passthrough behavior needs real application and multi-Device acceptance before it is presented as complete.

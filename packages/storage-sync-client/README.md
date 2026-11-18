@@ -1,4 +1,4 @@
-# @ofsdk/sync-client
+# @ofsdk/storage-sync-client
 
 Browser WebSocket attach and transport for the Storage server SQL sync endpoint.
 No runtime dependencies. This package does **not** implement the ofdb SQL sync
@@ -7,7 +7,7 @@ engine, read a local database, or prove that data was backed up.
 ## Interface for app integration (ticket 02)
 
 ```ts
-import { SyncClient, type StoreIdentity } from "@ofsdk/sync-client";
+import { SyncClient, type StoreIdentity } from "@ofsdk/storage-sync-client";
 
 export function attachStore(
   storageApiUrl: string,
@@ -92,18 +92,18 @@ resource-transfer, durable-backup, or filesystem qualification.
 ## Checks
 
 ```sh
-pnpm --filter @ofsdk/sync-client test
-pnpm --filter @ofsdk/sync-client build
-pnpm --filter @ofsdk/sync-client lint
-pnpm --filter @ofsdk/sync-client format
-pnpm --filter @ofsdk/sync-client fixtures:check
+pnpm --filter @ofsdk/storage-sync-client test
+pnpm --filter @ofsdk/storage-sync-client build
+pnpm --filter @ofsdk/storage-sync-client lint
+pnpm --filter @ofsdk/storage-sync-client format
+pnpm --filter @ofsdk/storage-sync-client fixtures:check
 ```
 
 Protocol tests use an in-memory WebSocket and checked-in wire fixtures generated
 by **the actual Rust server types and FrameCodec**. `fixtures:check` compiles
 those definitions in a temporary standalone Cargo project and detects drift.
 It uses offline Cargo resolution and needs cached serde, uuid, postcard, and
-crc32fast packages plus a Rust toolchain. `pnpm --filter @ofsdk/sync-client
+crc32fast packages plus a Rust toolchain. `pnpm --filter @ofsdk/storage-sync-client
 fixtures` regenerates the fixtures; review changes against server behavior.
 
 Change assessment: small isolated package; moderate wire-parser/auth risk,
@@ -112,19 +112,16 @@ changed. Runtime dependencies: none. App integration remains ticket 02.
 
 ## Data-engine work required for ticket 02
 
-1. **SQL owner binding.** `db/sql/src/database.rs` exposes
-   `Database::synchronize_checked` (memory staging, including IndexedDB) and
-   `synchronize_with_stage_directory_checked` (native staging). The browser
-   owner tests in `ofdb/tests/browser/src/sql_sync.rs` open persistent databases
-   with `Database::open_indexeddb`. Publish a JS/WASM owner binding, not a second
-   SQL sync implementation. Its `ofdb_sql::SyncTransport` adapter delegates raw
+1. **SQL owner binding.** Use the existing checked SQL history exchange APIs in
+   `db/sql/src/history_session.rs`. `db/sql/src/database.rs` opens persistent
+   browser databases with `Database::open_indexeddb`. Publish a JS/WASM owner
+   binding, not a second SQL sync implementation. Its `ofdb_sql::SyncTransport`
+   adapter delegates raw
    owner `send(Vec<u8>)` / `receive()` to this session. Run as Initiator; keep
    the database identity, cancellation, and pre-apply checks with the owner.
    Return the owner `SyncResult` only after the full exchange succeeds. Earlier
    atomic applies can remain after a later failure; do not promise rollback.
-2. **Direction contract.** `db/sync/src/session.rs` rejects
-   non-Bidirectional unscoped sessions. Scoped sessions require complementary
-   directions (`SendOnly` / `ReceiveOnly`). The WS server currently uses default
+2. **Direction contract.** The WS server currently uses default
    unscoped Bidirectional config regardless of the attach request. Merely mapping
    Push to SendOnly in the client is not enough: the server and owner scope
    contract must be implemented together before promising push-only backup.

@@ -1,65 +1,59 @@
 # AGENTS.md
 
-For Domain information, see the [Domain Model](GLOSSARY.md).
+## Required reading
 
-## Refactoring Protocol
+Read in this order before planning:
 
-- ALWAYS choose rewriting and deleting over modifying or wrapping old code.
-- NEVER write glue code to support old versions or maintain past state.
-- ALWAYS clean up and purge any files, functions, or blocks rendered obsolete by new implementations.
+1. `README.md` for current support.
+2. `docs/goal.md` for the north-star workflow and priorities.
+3. `docs/architecture.md` for accepted target boundaries.
+4. `GLOSSARY-MAP.md` and the relevant context documents.
 
-## Patterns & Conventions
+Do not present target architecture as current behavior. Generated OpenAPI and current source establish implemented contracts; ADRs establish accepted decisions; `.scratch` contains temporary work only.
 
-- Default to `no_std`; enable `std` only when required (IO, threading, async runtimes).
-- Group Rust imports by namespace and order: std/core/alloc → external → internal (`crate`, `super`).
-- Prefer explicit imports and minimal dependencies.
-- Avoid glob imports and hard-coded absolute paths.
-- No non-essential comments; prefer refactoring over comments.
-- Prefer expect("message") over unwrap(); always provide a clear message explaining the invariant.
+## Source ownership
 
-## Module Organization
+`nathanfaucett/rs-of` is canonical. Never require sibling `ofdb`, `ofnet`, or `offs` checkouts or manually mirror changes into another source tree.
 
-- Keep modules minimal: `mod.rs` should only declare/re-export modules.
-- `lib.rs` and `mod.rs` must stay thin: crate-level attributes, `extern crate`, `pub use`, and `mod` declarations only.
-- Do not place implementation logic (structs, enums, `impl` blocks, free `fn`, constants, statics, type aliases, traits) directly in `lib.rs` or `mod.rs`.
-- If functionality is missing, create/update a sibling module (for example, `src/node.rs`) and wire it from `lib.rs`/`mod.rs`.
-- When adding behavior, create/update a dedicated module file (`src/<feature>.rs`) and re-export as needed.
+## Changes
 
-## Dependencies & Versioning
+- Fix root causes at the owning context. Reuse existing public interfaces and libraries.
+- Make the smallest complete change for the user outcome.
+- Delete code and documentation made obsolete by the change; do not leave parallel legacy guidance.
+- Do not rewrite by default. Preserve working behavior unless the task requires a contract change.
+- Make an explicit compatibility/migration decision for persisted data, public APIs, and wire protocols.
+- Update current docs, generated contracts, and tests with behavior changes.
+- Use GitHub Issues for durable work. Stable docs must not link to `.scratch`.
 
-- All new dependencies must use only `major.minor` in the version field.
-- Specify dependencies in full table form with `default-features = false` and enable only required features.
-- Group dependencies by logical category with a comment header, alphabetize within groups, and separate groups with a blank line.
+## Rust conventions
 
-## Code Style
+- Default to `no_std`; enable `std` only when required.
+- Use explicit imports and minimal dependencies. Order std/core/alloc, external, then internal imports.
+- Keep `lib.rs` and `mod.rs` thin. Put implementation in sibling modules.
+- Use only `pub` or private visibility; re-export public API from the crate/module root.
+- Dependencies use `major.minor`, full table form, `default-features = false`, and only required features.
+- Use `expect("clear invariant message")` instead of `unwrap()`.
+- Follow `rustfmt` and Clippy. Do not add comments that restate code.
 
-- Follow Rust's standard formatting and style guidelines.
-- Use `clippy` for linting and adhere to its recommendations.
-- Use `rustfmt` for consistent code formatting.
-- **Visibility**: Use only `pub` or no visibility (private). NEVER use `pub(crate)`, `pub(super)`, `pub(in path)`. Re-export public API from `lib.rs`/`mod.rs`.
+## Documentation
 
-## Testing
+- Keep glossaries limited to domain definitions.
+- Keep HTTP routes/payloads in OpenAPI and API signatures in Rustdoc/TypeScript declarations.
+- Keep current behavior, target design, and commit-specific evidence separate.
+- Avoid duplicated route tables, source inventories, and manually maintained status tables.
+- Run `just docs-check` for documentation changes.
 
-- Write unit tests for all public functions and critical internal logic.
-- Use integration tests for testing public API behavior and interactions between modules.
-- Use focused tests and checks while implementing changes.
-- Run `cargo hack test --feature-powerset --workspace --all-targets` as final validation after implementation is complete, not incrementally.
+## Validation
 
-## CRAP (Complexity, Risk, and Priority)
+Use focused tests while working. Select final validation by change and risk; see `CONTRIBUTING.md`.
 
-- Assess new features and changes for complexity, risk, and priority before implementation.
-- Run `just crap` as final validation after implementation is complete, not incrementally.
+- Rust behavior: focused tests plus the appropriate feature-powerset, Clippy, and CRAP checks.
+- TypeScript: filtered build, test, lint, and type check, then affected dependents.
+- Public contracts: OpenAPI/generated-client checks and real-owner tests.
+- Browser or synchronization behavior: real-backend browser tests; unit tests alone are insufficient.
 
-## Agent Skills
+Never claim an unrun check passed. Record failures and qualification limits.
 
-### Issue tracker
+## ADRs
 
-Issues live as Markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
-
-### Triage Labels
-
-Use the default canonical labels. See `docs/agents/triage-labels.md`.
-
-### Domain Docs
-
-Use a single-context `GLOSSARY.md` at the repo root and ADRs under `docs/adr/`. See `docs/agents/domain.md`.
+Use `docs/adr/` only for hard-to-reverse decisions with real alternatives and non-obvious rationale. Keep ADRs short. Do not use them for current behavior or task history.

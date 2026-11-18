@@ -18,6 +18,7 @@ help:
     @printf "  clean          Remove build artifacts\n"
     @printf "  doc            Build workspace documentation\n"
     @printf "  boundary-check Check server dependency boundaries\n"
+    @printf "  docs-check     Check Markdown local links and anchors\n"
     @printf "  sdk-build      Build TypeScript SDK packages\n"
     @printf "  build-wasm     Build all WASM crates for wasm32-unknown-unknown\n"
     @printf "  test-wasm      Run browser tests for WASM crates\n"
@@ -80,13 +81,18 @@ doc:
 boundary-check:
     python3 scripts/check_server_dependencies.py
 
+docs-check:
+    python3 scripts/check_docs.py
+
 # TypeScript/WASM
 npm-install:
     pnpm install --frozen-lockfile
 
 build-wasm:
-    cargo build -p iroh-chain-wasm -p file-system-wasm --target wasm32-unknown-unknown
-    cargo build --manifest-path db/wasm/Cargo.toml --target wasm32-unknown-unknown
+    pnpm --filter @ofsdk/sql run build:wasm
+    pnpm --filter @ofsdk/kv run build:wasm
+    pnpm --filter @ofsdk/file-system run build:wasm
+    pnpm --filter @ofsdk/net run build:wasm
 
 test-wasm:
     wasm-pack test --headless --chrome packages/sql/pkg packages/kv/pkg packages/net/pkg packages/file-system/pkg

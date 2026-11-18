@@ -1,200 +1,94 @@
-# of — Offline-First Identity, Storage, and Networking
+# of — Offline-first applications
 
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-MIT)
-![Test Status](https://github.com/aicacia/rs-of/actions/workflows/ci.yml/badge.svg)
+`of` builds local-first applications with OAuth 2.0 / OpenID Connect identity, user- and application-owned data, shared synchronization Devices, and durable offline storage.
 
-A monorepo for building offline-first applications with OAuth 2.0 / OpenID Connect identity, local-first databases and filesystems, and peer-to-peer mesh networking.
+The reference workflow is an encrypted password vault that works on one Device without an account and can later synchronize through a user-controlled Sync Server. See the [product goal and north-star workflow](docs/goal.md).
 
-## Components
+## Current status
 
-| Component             | Directory                                                                        | Description                                                                                                                                              |
-| --------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Identity & Access** | `services/idp-service`, `services/management-service`, `services/device-service` | OAuth/OIDC IdP, roles/permissions, device authority                                                                                                      |
-| **Storage**           | `services/storage-service`, `services/storage-server`                            | Authenticated database/filesystem APIs, WebSocket transport                                                                                              |
-| **Databases**         | [`db/`](db/README.md)                                                            | [`ofdb-sql`](db/README.md#ofdb-sql-relational-sql-engine) (relational, CRDT sync), [`ofdb-kv`](db/README.md#ofdb-kv-key-value-store) (Automerge history) |
-| **Filesystem**        | [`fs/`](fs/README.md)                                                            | [`file-system`](fs/README.md) — offline-first filesystem with sync                                                                                       |
-| **Networking**        | [`net/`](net/README.md)                                                          | [`iroh-chain`](net/README.md) — mesh networking, pairing, byte streams                                                                                   |
-| **TypeScript SDKs**   | [`packages/`](packages/README.md)                                                | WASM wrappers for `@ofsdk/sql`, `@ofsdk/kv`, `@ofsdk/net`, `@ofsdk/file-system`, etc.                                                                    |
+The repository is migrating to the [accepted target architecture](docs/architecture.md). Target design is not a claim of completed implementation.
 
-## Quick Start
+| Area | Current state |
+| --- | --- |
+| Local unified backend | Available for loopback development; mounts IdP, Management, Device, and Storage APIs |
+| OIDC and remote Storage SQL | Real-backend tests exist; current discovery/sign-in qualification is not established |
+| Local encrypted password vault | Development reference application, not a production password manager |
+| Shared multi-User Installation Devices | Accepted target; migration is incomplete |
+| Two-Device offline convergence | Not qualified |
+| Browser synchronization | Incomplete; do not infer support from transport packages alone |
+| Independent and desktop deployments | Retain implementation paths, but current end-to-end qualification is not established |
 
-### Local Development Backend
+Historical [E2E validation](e2e/runtime-validation.md) is commit-specific evidence, not a current release guarantee. CI is the source of current check status.
 
-```bash
-# Run unified server (all services in one process)
-just unified --data-dir .data --port 1355 --origin http://localhost:5173 --no-tls
-```
+## Local backend
 
-All four owners use one embedded database at `.data/unified.redb`:
-`/idp`, `/device`, `/management`, and `/storage`. Each exposes `/health`.
-
-- Local administrator: `admin@local.test` / `password`
-- Local sign-in client: `local-login`
-- Public PKCE clients: `app` (callback at origin `/callback`) and `password-manager` (port 5174, `/callback`)
-- Issuer: backend base + `/idp` (HTTP or HTTPS scheme)
-- CORS permits app and password-manager origins
-
-Omit `--no-tls` for HTTPS with self-signed certificate in `.data/tls/`.
-
-### TypeScript SDK
+Prerequisites are defined by `rust-toolchain.toml`, `Cargo.toml`, and `.nvmrc`. Install `just` and pnpm 12.4.1 for the full development workflow.
 
 ```bash
-# Install
-pnpm add @ofsdk/sdk
-
-# Or individual packages
-pnpm add @ofsdk/sql @ofsdk/kv @ofsdk/net @ofsdk/file-system
+just unified --data-dir .data --port 1355 \
+  --origin http://localhost:5173 --no-tls
 ```
 
-```typescript
-import {
-  createSqlClient,
-  createKvClient,
-  createNetClient,
-  createFileSystemClient,
-} from "@ofsdk/sdk";
+The server binds to loopback and exposes:
 
-// SQL database
-const sql = await createSqlClient({ memory: true });
-await sql.execute("CREATE TABLE users (id UUID PRIMARY KEY, name TEXT)");
+- `http://127.0.0.1:1355/idp`
+- `http://127.0.0.1:1355/management`
+- `http://127.0.0.1:1355/device`
+- `http://127.0.0.1:1355/storage`
 
-// KV store
-const kv = await createKvClient({ memory: true });
-await kv.set("session", { user: "alice", expiry: 3600000 });
+Each owner has a `/health` route. Local mode seeds test identities, including `admin@local.test` / `password`. Do not expose these credentials or the local listener to an untrusted network.
 
-// Mesh networking
-const net = await createNetClient();
-await net.connect(trustedPeer);
+Omit `--no-tls` to retain a self-signed development certificate under the data directory. This mode is not production deployment.
 
-// Filesystem
-const fs = await createFileSystemClient({ path: "/data" });
-await fs.write("/note.txt", new TextEncoder().encode("Hello offline!"));
-```
+## Repository map
 
-## Architecture
+| Path | Contents |
+| --- | --- |
+| `services/` | IdP, Management, Device, Storage, shared models, servers, and generated clients |
+| `db/` | `ofdb-sql` and `ofdb-kv`, their engines, persistence adapters, and sync protocols |
+| `fs/` | Offline-first filesystem |
+| `net/` | Iroh endpoint, pairing, mesh, and byte-stream support |
+| `packages/` | TypeScript clients and browser wrappers |
+| `apps/` | Main application and the small password-manager reference application |
+| `openapi/` | Generated HTTP contracts |
+| `e2e/` | Real-backend browser tests and commit-specific evidence |
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      of (this repo)                          │
-├──────────────────┬──────────────────┬───────────────────────┤
-│  services/       │  db/             │  fs/                   │
-│  ├── idp-service │  ├── sql         │  └── file-system      │
-│  ├── management  │  ├── kv          │  └── file-system-wasm │
-│  ├── device      │  ├── sync        │                        │
-│  ├── storage     │  ├── btree*      │  net/                  │
-│  └── servers     │  └── wasm        │  └── iroh-chain       │
-│                  │                  │  └── iroh-chain-wasm  │
-├──────────────────┴──────────────────┴───────────────────────┤
-│  packages/ (TypeScript SDKs)                                 │
-│  @ofsdk/sql, @ofsdk/kv, @ofsdk/net, @ofsdk/file-system...   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Service Ownership
-
-- **IdP** — Users, clients, tokens, signing keys, OAuth/OIDC
-- **Management** — Roles, permissions, assignments
-- **Device** — Devices, endpoints, approval/transfer/revocation, resource selection, admin restrictions, sync policy
-- **Storage** — Database/filesystem resource APIs, WebSocket transport
-- **ofdb** (in `db/`) — SQL/KV persistence, CRDT sync, staging, batching, cleanup
-- **offs** (in `fs/`) — Filesystem persistence/sync
-- **ofnet** (in `net/`) — Iroh endpoints, mesh/pairing, allowlist, connections/routing
-
-Each Node shares one `iroh-chain` endpoint/router. Endpoint identity and locally trusted membership are persisted and restored by `of`. See [networking composition and interfaces](docs/design.md#networking-composition-and-trust).
+This checkout is canonical. Do not copy changes to sibling `ofdb`, `ofnet`, or `offs` repositories.
 
 ## Development
 
-### Prerequisites
-
-- Rust 1.100+ (see `rust-toolchain.toml`)
-- Node.js 20+ (for TypeScript packages)
-- `wasm-pack` for WASM builds
-
-### Build
-
 ```bash
-# Rust workspace
+# Rust
 just build
-
-# TypeScript packages
-just npm-install
-just sdk-build
-
-# All tests
 just test
-```
-
-### Code Quality
-
-```bash
-# Format
-just fmt-check
-
-# Lint
 just clippy
-
-# CRAP (Complexity, Risk, and Priority)
 just crap
 
-# Boundary checks
-just boundary-check
+# Documentation
+just docs-check
 
-# Container contract test
-python3 scripts/test_container.py
+# TypeScript dependencies
+pnpm install --frozen-lockfile --ignore-scripts
+
+# Real-backend browser test preparation and tests
+pnpm e2e:prepare
+pnpm test:e2e
 ```
+
+Full browser preparation builds local WASM artifacts and generated clients. It needs `wasm-pack`, the `wasm32-unknown-unknown` Rust target, and browser dependencies. See [E2E setup](e2e/README.md) before running the complete suite.
+
+Use change-appropriate focused checks during development. See [Contributing](CONTRIBUTING.md).
 
 ## Documentation
 
-- [GLOSSARY.md](GLOSSARY.md) — Domain terminology (Endpoint, Peer, Mesh, Broadcast, Direct Message, Byte Stream, and all ofdb/offs terms)
-- [GLOSSARY-MAP.md](GLOSSARY-MAP.md) — Cross-references between contexts
-- [docs/design.md](docs/design.md) — System design
-- [docs/operations.md](docs/operations.md) — Operational qualification
-- [docs/backend-deployments.md](docs/backend-deployments.md) — Deployment boundaries
-
-### Component READMEs
-
-- [db/README.md](db/README.md) — Offline-first databases (`ofdb-sql`, `ofdb-kv`)
-- [fs/README.md](fs/README.md) — Offline-first filesystem (`file-system`)
-- [net/README.md](net/README.md) — Mesh networking (`iroh-chain`)
-- [packages/README.md](packages/README.md) — TypeScript SDK packages
-
-## Deployment
-
-### Unified Server (Recommended)
-
-Single binary, single database file, no external dependencies:
-
-```bash
-cargo run -p unified-server -- local --data-dir /var/lib/of --port 443 --origin https://app.example.com
-```
-
-### Independent Services
-
-Separate `idp-server`, `device-server`, `storage-server`, `management-server` deployment paths retain their existing configuration. See [configuration](config/README.md) and [operations](docs/operations.md).
-
-Run via portless for local HTTPS:
-
-```bash
-just idp
-just management
-just device
-just storage
-```
-
-### Docker
-
-```bash
-docker build -t of:latest .
-docker run -v /var/lib/of:/data -p 443:443 of:latest
-```
-
-The Docker image builds from this repo alone — no external repository checkouts required.
+- [Goal, north-star workflow, and milestones](docs/goal.md)
+- [Target architecture and ownership](docs/architecture.md)
+- [Deployment modes and limits](docs/backend-deployments.md)
+- [Browser storage and packages](docs/browser.md)
+- [Glossary map](GLOSSARY-MAP.md)
+- [Contributing](CONTRIBUTING.md)
+- [Real-backend tests](e2e/README.md)
 
 ## License
 
-Licensed under either of
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
-
-at your option.
+Licensed under either [Apache License 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at your option.
