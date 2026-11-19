@@ -1,8 +1,20 @@
-# Work tracking
+# Issue tracker: Local Markdown
 
-Use GitHub Issues for durable tasks, milestones, dependencies, review decisions, and status. Link each task to a milestone in `docs/goal.md` when it advances the product path.
+Issues and specifications for this repository live as tracked Markdown files in `.scratch/`.
 
-A task should state:
+## Conventions
+
+- Use one feature directory: `.scratch/<feature-slug>/`.
+- Store the specification at `.scratch/<feature-slug>/spec.md`.
+- Store implementation issues as `.scratch/<feature-slug>/issues/<NN>-<slug>.md`.
+- Number implementation issues from `01`; do not use one combined tickets file.
+- Record triage state as `Status: <triage-label>` near the top of each specification or issue.
+- Use the canonical labels in `triage-labels.md`.
+- Keep triage state separate from work status such as open, in progress, blocked, and resolved.
+- Append comments and conversation history under `## Comments`.
+- Link work to a milestone in `docs/goal.md` when it advances the product path.
+
+Each task should state:
 
 - User outcome.
 - Scope and non-goals.
@@ -10,18 +22,12 @@ A task should state:
 - Dependencies.
 - Current evidence or qualification limits.
 
-Use the canonical labels in `triage-labels.md`. Keep triage state separate from work status such as open, in progress, blocked, and resolved.
+## Publishing and reading
 
-## Temporary agent work
+When a skill says to publish to the issue tracker, create the appropriate specification or issue file under `.scratch/<feature-slug>/`.
 
-`.scratch/<feature>/` may contain a temporary specification, implementation notes, or local evidence. It is not the durable issue tracker and stable documentation must not link to it.
+When a skill says to fetch a ticket, read the referenced Markdown file.
 
-When a temporary specification is useful, keep it short and use separate fields:
+## Stable documentation
 
-```text
-Triage: ready-for-agent
-Work: open
-Blocked by: <issue references>
-```
-
-Delete or archive temporary material when its durable decisions and evidence have been moved to the appropriate issue, current topic document, ADR, or CI record.
+`.scratch` contains only the tracked local issue tracker. Use `.tmp/` for temporary analysis, generated reports, and evidence. Neither directory is stable project documentation. Stable documents must not link to either directory.

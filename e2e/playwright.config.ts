@@ -12,10 +12,10 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  outputDir: "./.results",
+  outputDir: `${root}.tmp/e2e-results`,
   reporter: [
     ["list"],
-    ["html", { outputFolder: `${root}.scratch/e2e-report`, open: "never" }],
+    ["html", { outputFolder: `${root}.tmp/e2e-report`, open: "never" }],
   ],
   use: { ...devices["Desktop Chrome"], trace: "retain-on-failure" },
   projects: [

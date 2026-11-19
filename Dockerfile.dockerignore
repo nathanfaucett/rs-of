@@ -3,6 +3,7 @@
 **/.git
 **/.worktrees
 **/.scratch
+**/.tmp
 **/target
 **/node_modules
 **/__pycache__

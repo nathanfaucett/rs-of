@@ -52,6 +52,7 @@ class ContainerContract(unittest.TestCase):
             ".git",
             ".worktrees",
             ".scratch",
+            ".tmp",
             "target",
             "node_modules",
             ".env*",

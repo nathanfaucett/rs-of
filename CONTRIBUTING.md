@@ -42,7 +42,7 @@ pnpm install --frozen-lockfile --ignore-scripts
 
 Root-cause fixes are preferred. Rewriting is not a default requirement. Public APIs, persisted data, and wire protocols need an explicit compatibility or migration decision; do not silently discard User data or retain unbounded compatibility glue.
 
-Use GitHub Issues for durable work and milestones. `.scratch` is only for temporary agent analysis, specifications, and evidence. Stable documentation must not depend on `.scratch`.
+Use the tracked local Markdown issue tracker in `.scratch/` for durable work and milestones. See `docs/agents/issue-tracker.md`. Use `.tmp/` for temporary agent analysis, generated reports, and evidence. Stable documentation must not depend on `.scratch` or `.tmp`.
 
 ## Documentation contract
 

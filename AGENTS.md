@@ -9,7 +9,21 @@ Read in this order before planning:
 3. `docs/architecture.md` for accepted target boundaries.
 4. `GLOSSARY-MAP.md` and the relevant context documents.
 
-Do not present target architecture as current behavior. Generated OpenAPI and current source establish implemented contracts; ADRs establish accepted decisions; `.scratch` contains temporary work only.
+Do not present target architecture as current behavior. Generated OpenAPI and current source establish implemented contracts; ADRs establish accepted decisions. Stable documentation must not link to `.scratch` or `.tmp`.
+
+## Agent skills
+
+### Issue tracker
+
+Tracked issues and specifications use local Markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use the multi-context layout rooted at `GLOSSARY-MAP.md`. See `docs/agents/domain.md`.
 
 ## Source ownership
 
@@ -23,7 +37,7 @@ Do not present target architecture as current behavior. Generated OpenAPI and cu
 - Do not rewrite by default. Preserve working behavior unless the task requires a contract change.
 - Make an explicit compatibility/migration decision for persisted data, public APIs, and wire protocols.
 - Update current docs, generated contracts, and tests with behavior changes.
-- Use GitHub Issues for durable work. Stable docs must not link to `.scratch`.
+- Use the tracked local Markdown issue tracker for durable work. See `docs/agents/issue-tracker.md`. Use `.tmp/` for temporary analysis, generated reports, and evidence. Stable docs must not link to `.scratch` or `.tmp`.
 
 ## Rust conventions
 

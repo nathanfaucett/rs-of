@@ -1,6 +1,6 @@
 # Ticket05 validation against integration 52ac21c7b
 
-Branch: `backend-simplification-e2e`; worktree `.scratch/worktrees/e2e`.
+Branch: `backend-simplification-e2e`; worktree `.tmp/worktrees/e2e`.
 The worktree was clean before integration merged by fast-forward to `52ac21c7b`. Nothing is merged back into integration.
 
 **Result: all 11 Playwright tests pass. Both real-backend Vitest suites executed; 8 tests pass and one encrypted-vault test remains blocked by a missing local WebSocket route. This is not an all-green ticket05 result.**
@@ -47,4 +47,4 @@ Root HEAD remained `52ac21c7b`; the coordinator owned the uncommitted desktop lo
 4. Hosted CI, browser HTTPS, desktop runtime, independent multi-node setup and broad Rust checks were not run by this frontend pass. The previous password-manager offline-unit/type-check failures were not repaired or removed; no new clean full-frontend-unit/type-check claim is made.
 5. Existing browser token local-storage persistence/security and explicit Application URI requirements remain as documented in the README.
 
-Logs are preserved under ignored `e2e/.scratch/`: `integration52-playwright-confirmed.log`, `integration52-vitest-final.log`, `integration52-websocket-final.log`, plus earlier build/failure attempts. Runner traces/screenshots contain local-test credentials and must be reviewed before publication. Task artifact and worktree directories remain in place.
+Logs are preserved under ignored `.tmp/e2e/`: `integration52-playwright-confirmed.log`, `integration52-vitest-final.log`, `integration52-websocket-final.log`, plus earlier build/failure attempts. Runner traces/screenshots contain local-test credentials and must be reviewed before publication. Task artifact and worktree directories remain in place.

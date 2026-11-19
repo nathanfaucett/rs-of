@@ -39,7 +39,7 @@ Required Rust-owner decision/repair: expose the supported authenticated SQL sync
 
 ## Reproduce
 
-Run serially from `.scratch/worktrees/e2e`:
+Run serially from `.tmp/worktrees/e2e`:
 
 ```sh
 E2E_BACKEND_BIN=../../../target/debug/unified-server pnpm test:e2e
@@ -47,7 +47,7 @@ E2E_BACKEND_BIN=../../../target/debug/unified-server pnpm test:backend
 E2E_BACKEND_BIN=../../../target/debug/unified-server pnpm --filter @ofsdk/password-manager test:backend
 ```
 
-Final logs: ignored `e2e/.scratch/integration52-playwright-confirmed.log`, `integration52-vitest-final.log`, and `integration52-websocket-final.log`.
+Final logs: ignored `.tmp/e2e/integration52-playwright-confirmed.log`, `integration52-vitest-final.log`, and `integration52-websocket-final.log`.
 
 ## Binary provenance
 

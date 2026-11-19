@@ -45,7 +45,7 @@ E2E_BACKEND_BIN=./target/debug/unified-server pnpm --filter @ofsdk/password-mana
 
 Teardown terminates the process group before removing only its temporary backend directory. Failed startup uses the same cleanup. The launcher refuses an occupied port. Do not run backend suites in parallel or reuse a developer backend. An external SIGKILL cannot run JavaScript teardown.
 
-The runner environment in `frontend-env.mjs` uses HTTP on `127.0.0.1`: app port 5173 and password-manager port 5174. Vitest uses these ports too, so real CORS checks apply. Password-manager also needs `PUBLIC_STORAGE_URL`, which its current sync code reads. These are public test URLs, not secrets. Only generated reports under `.scratch/e2e-results` and `.scratch/e2e-report` are ignored.
+The runner environment in `frontend-env.mjs` uses HTTP on `127.0.0.1`: app port 5173 and password-manager port 5174. Vitest uses these ports too, so real CORS checks apply. Password-manager also needs `PUBLIC_STORAGE_URL`, which its current sync code reads. These are public test URLs, not secrets. Only generated reports under `.tmp/e2e-results` and `.tmp/e2e-report` are ignored.
 
 ## Browser configuration and desktop isolation
 

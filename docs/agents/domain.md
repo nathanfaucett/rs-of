@@ -16,4 +16,4 @@ Use canonical glossary terms in issues, designs, tests, and output. Surface conf
 
 System topics live in `docs/`. Context topics live in `services/<context>-service/docs/` or the relevant component directory. Update current documents in place and link them from `GLOSSARY-MAP.md`.
 
-Do not use `.scratch` as stable documentation. Do not duplicate OpenAPI routes, generated API signatures, or historical status in domain documents.
+Do not use `.scratch` or `.tmp` as stable documentation. Do not duplicate OpenAPI routes, generated API signatures, or historical status in domain documents.

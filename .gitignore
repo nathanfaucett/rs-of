@@ -3,8 +3,7 @@
 /.env*
 !/.env.example
 /.data
-/.scratch/
-/e2e/.results/
+/.tmp/
 
 /config/**/*.redb
 **/node_modules/
