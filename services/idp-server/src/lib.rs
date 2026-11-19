@@ -50,6 +50,8 @@ pub use bootstrap::{BOOTSTRAP_ALPN, BootstrapProtocolHandler};
 #[cfg(feature = "cli")]
 pub use cli::run;
 pub use config::{AppConfig, ManagementPermissionConfig, PairingConfig};
+#[cfg(all(unix, feature = "independent"))]
+pub use independent_join::independent_join_openapi;
 pub use management_owner::{active_management_user, authorize_management_bearer};
 pub use management_permission_client::ManagementPermissionClient;
 

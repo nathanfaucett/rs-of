@@ -27,6 +27,8 @@ pub use config::AppConfig;
 #[cfg(all(unix, feature = "independent"))]
 pub use independent_create::serve_independent_create;
 #[cfg(all(unix, feature = "independent"))]
+pub use independent_join::independent_join_openapi;
+#[cfg(all(unix, feature = "independent"))]
 pub use independent_reset::reset_independent;
 pub use management_service::MANAGEMENT_APPLICATION_URI;
 pub use provisioning::{

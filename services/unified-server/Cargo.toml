@@ -21,6 +21,7 @@ required-features = ["cli"]
 default = ["cli"]
 independent-contracts = [
 
+    "idp-server/independent",
     "device-server/independent",
     "storage-server/independent",
     "server-common/independent",

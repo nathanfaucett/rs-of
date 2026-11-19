@@ -8,15 +8,15 @@ The reference workflow is an encrypted password vault that works on one Device w
 
 The repository is migrating to the [accepted target architecture](docs/architecture.md). Target design is not a claim of completed implementation.
 
-| Area | Current state |
-| --- | --- |
-| Local unified backend | Available for loopback development; mounts IdP, Management, Device, and Storage APIs |
-| OIDC and remote Storage SQL | Real-backend tests exist; current discovery/sign-in qualification is not established |
-| Local encrypted password vault | Development reference application, not a production password manager |
-| Shared multi-User Installation Devices | Accepted target; migration is incomplete |
-| Two-Device offline convergence | Not qualified |
-| Browser synchronization | Incomplete; do not infer support from transport packages alone |
-| Independent and desktop deployments | Retain implementation paths, but current end-to-end qualification is not established |
+| Area                                   | Current state                                                                                                   |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Local unified backend                  | Available for loopback development; mounts IdP, Management, Device, and Storage APIs                            |
+| OIDC and remote Storage SQL            | Discovery, consent/PKCE sign-in, session reload, and remote Storage SQL CRUD pass real-backend Playwright tests |
+| Local encrypted password vault         | Development reference application, not a production password manager                                            |
+| Shared multi-User Installation Devices | Accepted target; migration is incomplete                                                                        |
+| Two-Device offline convergence         | Not qualified                                                                                                   |
+| Browser synchronization                | Incomplete; do not infer support from transport packages alone                                                  |
+| Independent and desktop deployments    | Retain implementation paths, but current end-to-end qualification is not established                            |
 
 Historical [E2E validation](e2e/runtime-validation.md) is commit-specific evidence, not a current release guarantee. CI is the source of current check status.
 
@@ -41,16 +41,16 @@ Direct `cargo run -p unified-server -- local` serves plain HTTP on a fixed loopb
 
 ## Repository map
 
-| Path | Contents |
-| --- | --- |
-| `services/` | IdP, Management, Device, Storage, shared models, servers, and generated clients |
-| `db/` | `ofdb-sql` and `ofdb-kv`, their engines, persistence adapters, and sync protocols |
-| `fs/` | Offline-first filesystem |
-| `net/` | Iroh endpoint, pairing, mesh, and byte-stream support |
-| `packages/` | TypeScript clients and browser wrappers |
-| `apps/` | Main application and the small password-manager reference application |
-| `openapi/` | Generated HTTP contracts |
-| `e2e/` | Real-backend browser tests and commit-specific evidence |
+| Path        | Contents                                                                          |
+| ----------- | --------------------------------------------------------------------------------- |
+| `services/` | IdP, Management, Device, Storage, shared models, servers, and generated clients   |
+| `db/`       | `ofdb-sql` and `ofdb-kv`, their engines, persistence adapters, and sync protocols |
+| `fs/`       | Offline-first filesystem                                                          |
+| `net/`      | Iroh endpoint, pairing, mesh, and byte-stream support                             |
+| `packages/` | TypeScript clients and browser wrappers                                           |
+| `apps/`     | Main application and the small password-manager reference application             |
+| `openapi/`  | Generated HTTP contracts                                                          |
+| `e2e/`      | Real-backend browser tests and commit-specific evidence                           |
 
 This checkout is canonical. Do not copy changes to sibling `ofdb`, `ofnet`, or `offs` repositories.
 

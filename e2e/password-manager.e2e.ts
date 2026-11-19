@@ -3,7 +3,10 @@ import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
 import { signIn } from "./session";
 
 async function requestConsent(page: Page) {
-  await page.goto(`${passwordManagerURL}/login`);
+  await page.goto(passwordManagerURL);
+  await page
+    .getByRole("link", { name: "Sign in to sync", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Sign in with IdP", exact: true })
     .click();

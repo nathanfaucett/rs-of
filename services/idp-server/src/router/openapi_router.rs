@@ -8,20 +8,35 @@ use crate::RouterState;
 use super::openapi::{__path_openapi_json, openapi_json};
 use super::routes::active_user::{__path_active_user, active_user};
 use super::routes::administration::{
-    __path_create_application, __path_delete_application, __path_get_application,
-    __path_list_applications, __path_list_users, __path_update_application, create_application,
-    delete_application, get_application, list_applications, list_users, update_application,
+    __path_create_application, __path_create_user, __path_delete_application, __path_delete_user,
+    __path_get_application, __path_get_user, __path_list_applications, __path_list_client_keys,
+    __path_list_consents, __path_list_users, __path_reset_password, __path_revoke_client_keys,
+    __path_revoke_consent, __path_rotate_client_key, __path_set_user_blocked, __path_set_user_mfa,
+    __path_update_application, __path_update_user, create_application, create_user,
+    delete_application, delete_user, get_application, get_user, list_applications,
+    list_client_keys, list_consents, list_users, reset_password, revoke_client_keys,
+    revoke_consent, rotate_client_key, set_user_blocked, set_user_mfa, update_application,
+    update_user,
 };
 use super::routes::health::{__path_health, health};
+use super::routes::oauth2::approvals::{
+    __path_approve_for_user, __path_is_allowed_for_user, approve_for_user, is_allowed_for_user,
+};
 use super::routes::oauth2::auth::{
     __path_authorize_json, __path_authorize_query, authorize_json, authorize_query,
+};
+use super::routes::oauth2::client::{__path_get_client, get_client};
+use super::routes::oauth2::device::{
+    __path_device_auth, __path_device_verify, device_auth, device_verify,
 };
 use super::routes::oauth2::introspect::{__path_introspect, introspect};
 use super::routes::oauth2::register::{
     __path_delete_register, __path_get_register, __path_put_register, __path_register,
-    delete_register, get_register, put_register, register,
+    __path_rotate_client_secret, delete_register, get_register, put_register, register,
+    rotate_client_secret,
 };
 use super::routes::oauth2::revoke::{__path_revoke, revoke};
+use super::routes::oauth2::sessions::{__path_sessions_logout, sessions_logout};
 use super::routes::oauth2::token::{__path_token, token};
 use super::routes::replica_signers::{
     __path_enroll_replica_signer, __path_revoke_replica_signer, __path_rotate_replica_signer,
@@ -29,7 +44,9 @@ use super::routes::replica_signers::{
 };
 use super::routes::userinfo::{__path_userinfo, userinfo};
 use super::routes::version::{__path_version, version};
-use super::routes::well_known::{__path_jwks, jwks};
+use super::routes::well_known::{
+    __path_jwks, __path_openid_configuration, jwks, openid_configuration,
+};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -41,28 +58,48 @@ pub(crate) struct ApiDoc;
 fn routes() -> OpenApiRouter<RouterState> {
     OpenApiRouter::new()
         .routes(routes!(health))
-        .routes(routes!(version))
-        .routes(routes!(jwks))
-        .routes(routes!(userinfo))
         .routes(routes!(active_user))
-        .routes(routes!(authorize_json))
-        .routes(routes!(authorize_query))
-        .routes(routes!(token))
-        .routes(routes!(register))
-        .routes(routes!(get_register))
-        .routes(routes!(put_register))
-        .routes(routes!(delete_register))
-        .routes(routes!(revoke))
-        .routes(routes!(introspect))
-        .routes(routes!(create_application))
+        .routes(routes!(enroll_replica_signer))
+        .routes(routes!(rotate_replica_signer))
+        .routes(routes!(revoke_replica_signer))
         .routes(routes!(list_applications))
+        .routes(routes!(create_application))
         .routes(routes!(get_application))
         .routes(routes!(update_application))
         .routes(routes!(delete_application))
         .routes(routes!(list_users))
-        .routes(routes!(enroll_replica_signer))
-        .routes(routes!(rotate_replica_signer))
-        .routes(routes!(revoke_replica_signer))
+        .routes(routes!(create_user))
+        .routes(routes!(get_user))
+        .routes(routes!(update_user))
+        .routes(routes!(delete_user))
+        .routes(routes!(reset_password))
+        .routes(routes!(set_user_mfa))
+        .routes(routes!(set_user_blocked))
+        .routes(routes!(list_consents))
+        .routes(routes!(revoke_consent))
+        .routes(routes!(list_client_keys))
+        .routes(routes!(rotate_client_key))
+        .routes(routes!(revoke_client_keys))
+        .routes(routes!(authorize_json))
+        .routes(routes!(authorize_query))
+        .routes(routes!(is_allowed_for_user))
+        .routes(routes!(approve_for_user))
+        .routes(routes!(device_auth))
+        .routes(routes!(device_verify))
+        .routes(routes!(introspect))
+        .routes(routes!(register))
+        .routes(routes!(get_register))
+        .routes(routes!(get_client))
+        .routes(routes!(delete_register))
+        .routes(routes!(put_register))
+        .routes(routes!(rotate_client_secret))
+        .routes(routes!(token))
+        .routes(routes!(revoke))
+        .routes(routes!(sessions_logout))
+        .routes(routes!(version))
+        .routes(routes!(jwks))
+        .routes(routes!(openid_configuration))
+        .routes(routes!(userinfo))
 }
 
 /// Builds the complete production API document without provisioning runtime state.
@@ -133,8 +170,8 @@ mod tests {
                 .flat_map(|item| item.as_object().expect("path item").values())
                 .filter_map(|operation| operation["operationId"].as_str())
                 .collect::<Vec<_>>();
-            assert_eq!(operations.len(), 20, "complete IdP operation inventory");
-            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 20);
+            assert_eq!(operations.len(), 44, "complete IdP operation inventory");
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 44);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");
