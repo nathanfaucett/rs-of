@@ -1003,7 +1003,7 @@ fn translate_insert_values(
     bindings: &mut ParameterBindings<'_>,
 ) -> TranslateResult<Vec<Vec<QueryInsertValue>>> {
     let Some(source) = source else {
-        return Ok(vec![]);
+        return Ok(vec![vec![]]);
     };
     let ast::SetExpr::Values(values) = *source.body else {
         return Ok(vec![]);

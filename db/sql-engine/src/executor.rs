@@ -1149,7 +1149,9 @@ where
 {
     let schema = table_schema(transaction, reconciler, &insert.table).await?;
     let primary_key = uuid_primary_key(&schema);
-    let columns = if insert.columns.is_empty() {
+    let default_values =
+        insert.columns.is_empty() && matches!(insert.rows.as_slice(), [row] if row.is_empty());
+    let columns = if insert.columns.is_empty() && !default_values {
         schema
             .columns
             .iter()

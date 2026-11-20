@@ -151,7 +151,7 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         .expect("discard rejected write");
 
     let inserted = client
-        .execute_sql("INSERT INTO items VALUES (DEFAULT) RETURNING id", None)
+        .execute_sql("INSERT INTO items DEFAULT VALUES RETURNING id", None)
         .await
         .expect("generate the remote primary key");
     let generated = inserted[0].rows[0].values[0]

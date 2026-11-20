@@ -214,6 +214,7 @@ pub enum QueryInsertValue {
 pub struct QueryInsertValues {
     pub table: String,
     pub columns: Vec<String>,
+    /// One empty row with no named columns represents SQL `DEFAULT VALUES`.
     pub rows: Vec<Vec<QueryInsertValue>>,
     pub returning: Option<Vec<String>>,
     pub on_conflict_do_nothing: Option<Vec<String>>,

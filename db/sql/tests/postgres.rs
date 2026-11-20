@@ -7,6 +7,17 @@ use ofdb_sql::{
 };
 
 #[tokio::test]
+async fn default_values_remains_unsupported_by_postgres_adapter() {
+    let statements = SqlTranslator
+        .translate("INSERT INTO devices DEFAULT VALUES RETURNING id")
+        .await
+        .expect("parse DEFAULT VALUES");
+    let error =
+        PostgresStatement::translate(&statements[0]).expect_err("unchanged PostgreSQL rejection");
+    assert!(error.message.contains("empty INSERT"), "{error}");
+}
+
+#[tokio::test]
 async fn translates_owner_schema_and_bound_values() {
     let statements = SqlTranslator.translate("CREATE TABLE devices (id UUID PRIMARY KEY, data BLOB, created_at INTEGER); INSERT INTO devices (id, data, created_at) VALUES ('01890f4e-7c00-7000-8000-000000000001', NULL, 1700000000000)").await.expect("parse owner SQL");
     let ddl = PostgresStatement::translate(&statements[0]).expect("translate schema");

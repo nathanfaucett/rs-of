@@ -241,6 +241,31 @@ fn generated_keys_are_returned_and_ordinary_uuids_still_work() {
 
 #[cfg(feature = "in-memory")]
 #[test]
+fn default_values_inserts_one_row_with_generated_key_and_column_defaults() {
+    block_on(async {
+        let client = Database::in_memory().client();
+        let results = client.execute_sql(
+            "CREATE TABLE defaults (label TEXT DEFAULT 'configured', id UUID PRIMARY KEY); \
+             INSERT INTO defaults DEFAULT VALUES RETURNING label, id; SELECT label, id FROM defaults",
+            None,
+        ).await.expect("insert defaults");
+        let [row] = results[1].rows.as_slice() else {
+            panic!("expected one inserted row")
+        };
+        assert_eq!(row.values[0], Value::from("configured"));
+        assert_eq!(
+            row.values[1]
+                .as_uuid()
+                .expect("generated key")
+                .get_version_num(),
+            7
+        );
+        assert_eq!(results[2].rows, results[1].rows);
+    });
+}
+
+#[cfg(feature = "in-memory")]
+#[test]
 #[allow(
     clippy::significant_drop_tightening,
     reason = "rollback consumes the transaction"
