@@ -122,6 +122,61 @@ async fn write_offset_and_append_faults_preserve_content_revision_and_cleanup() 
 }
 
 #[tokio::test]
+async fn truncate_faults_preserve_content_revision_and_cleanup() {
+    for step in [
+        ContentStep::Write,
+        ContentStep::Sync,
+        ContentStep::Publish,
+        ContentStep::Metadata,
+    ] {
+        let root = root();
+        let filesystem = FileSystem::open(&root, 1_u8)
+            .await
+            .expect("filesystem opens");
+        filesystem
+            .set_residency("", Residency::Full)
+            .await
+            .expect("full residency");
+        let previous = filesystem
+            .write("file", b"original")
+            .await
+            .expect("initial content");
+        let previous_files = files(&root.join(".data"));
+        *filesystem.content_fault.lock().expect("fault lock") = Some(step);
+
+        assert!(
+            matches!(
+                filesystem.truncate("file", previous.meta.revision, 4).await,
+                Err(Error::Io(_))
+            ),
+            "{step:?}"
+        );
+        assert_eq!(
+            filesystem.read("file").await.expect("old complete content"),
+            b"original"
+        );
+        assert_eq!(
+            filesystem.revision("file").await.expect("old revision"),
+            previous.meta.revision
+        );
+        assert_eq!(
+            files(&root.join(".data")),
+            previous_files,
+            "no staging or uncommitted publication"
+        );
+
+        let revision = filesystem
+            .truncate("file", previous.meta.revision, 4)
+            .await
+            .expect("truncate retry");
+        assert_ne!(revision, previous.meta.revision);
+        assert_eq!(filesystem.read("file").await.expect("new content"), b"orig");
+        assert_eq!(files(&root.join(".data")).len(), previous_files.len() + 1);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+}
+
+#[tokio::test]
 async fn create_file_faults_leave_no_visible_entry_or_staging() {
     for step in [
         ContentStep::Write,

@@ -307,6 +307,26 @@ where
             .await
     }
 
+    /// Changes a file length if the expected revision is current.
+    ///
+    /// Extension fills new bytes with zeroes. The returned revision identifies the new content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for stale revisions, wrong file types, residency restrictions, or
+    /// content/storage failures.
+    pub async fn truncate(
+        &self,
+        path: &str,
+        expected_revision: Uuid,
+        length: u64,
+    ) -> Result<Uuid, Error> {
+        self.access()
+            .await?
+            .truncate(path, expected_revision, length)
+            .await
+    }
+
     /// Appends content to a file.
     ///
     /// # Errors
@@ -626,6 +646,41 @@ where
         Ok(length)
     }
 
+    pub async fn truncate(
+        &self,
+        path: &str,
+        expected_revision: Uuid,
+        length: u64,
+    ) -> Result<Uuid, Error> {
+        let _execution = self.owner.execution.lock().await;
+        file(path)?;
+        self.require_full(path)?;
+        let entry = self.entry(path).await?;
+        if entry.meta.kind == FileKind::Directory {
+            return Err(Error::IsDirectory);
+        }
+        if entry.meta.revision != expected_revision {
+            return Err(Error::StaleRevision);
+        }
+        usize::try_from(length).map_err(|_error| {
+            Error::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "content length is too large",
+            ))
+        })?;
+        let mut meta = entry.meta.clone();
+        meta.revision = Uuid::now_v7();
+        let revision = meta.revision;
+        let mut stage = self.stage(meta.file_id, meta.revision).await?;
+        stage.copy_from(meta.file_id, entry.meta.revision).await?;
+        self.stage_truncate(&mut *stage, length).await?;
+        self.stage_sync(&mut *stage).await?;
+        self.stage_publish(&mut *stage).await?;
+        self.put(path, meta).await?;
+        stage.commit();
+        Ok(revision)
+    }
+
     pub async fn append(&self, path: &str, content: &[u8]) -> Result<(), Error> {
         let _execution = self.owner.execution.lock().await;
         file(path)?;
@@ -938,6 +993,12 @@ where
         #[cfg(test)]
         self.content_checkpoint(ContentStep::Write)?;
         stage.write_end(bytes).await
+    }
+
+    async fn stage_truncate(&self, stage: &mut dyn StagedObject, length: u64) -> Result<(), Error> {
+        #[cfg(test)]
+        self.content_checkpoint(ContentStep::Write)?;
+        stage.truncate(length).await
     }
 
     async fn stage_sync(&self, stage: &mut dyn StagedObject) -> Result<(), Error> {

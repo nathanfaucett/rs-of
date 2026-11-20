@@ -200,6 +200,18 @@ impl Staged for SharedStage {
             Ok(())
         })
     }
+    fn truncate(&mut self, length: u64) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(async move {
+            let length = usize::try_from(length).map_err(error)?;
+            if length > self.bytes.len() {
+                self.bytes
+                    .try_reserve(length - self.bytes.len())
+                    .map_err(error)?;
+            }
+            self.bytes.resize(length, 0);
+            Ok(())
+        })
+    }
     fn sync(&mut self) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
             self.content

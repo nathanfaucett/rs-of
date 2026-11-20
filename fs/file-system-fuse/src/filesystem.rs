@@ -18,7 +18,7 @@ use file_system::{
     OpenRequest,
 };
 use fuse3::{
-    Errno, FileType, Result,
+    Errno, FileType, Result, SetAttr,
     path::{
         PathFilesystem, Request,
         reply::{
@@ -244,9 +244,64 @@ where
         })
     }
 
-    async fn open(&self, _request: Request, path: &OsStr, flags: u32) -> Result<ReplyOpen> {
-        reject_truncate(flags)?;
+    async fn setattr(
+        &self,
+        _request: Request,
+        path: Option<&OsStr>,
+        fh: Option<u64>,
+        set_attr: SetAttr,
+    ) -> Result<ReplyAttr> {
+        if set_attr.mode.is_some()
+            || set_attr.uid.is_some()
+            || set_attr.gid.is_some()
+            || set_attr.atime.is_some()
+            || set_attr.mtime.is_some()
+            || set_attr.ctime.is_some()
+        {
+            return Err(Errno::from(libc::ENOSYS));
+        }
+        let path = path.ok_or_else(Errno::new_not_exist)?;
         let path = relative_path(path)?;
+        let Some(size) = set_attr.size else {
+            return Ok(ReplyAttr {
+                ttl: NO_CACHE,
+                attr: self.state.attributes(&path).await?,
+            });
+        };
+        let _mutation = self.state.mutations.lock().await;
+        if let Some(fh) = fh {
+            let shared = self.state.file(fh).await?;
+            let mut guard = shared.lock().await;
+            let handle = guard.as_mut().ok_or_else(|| Errno::from(libc::EBADF))?;
+            handle.truncate(size).await.map_err(errno)?;
+            drop(guard);
+        } else {
+            let mut handle = self
+                .state
+                .file_system
+                .open_handle(OpenRequest {
+                    path: path.clone(),
+                    revision: None,
+                })
+                .await
+                .map_err(errno)?;
+            handle.truncate(size).await.map_err(errno)?;
+            handle.close().await.map_err(errno)?;
+        }
+        Ok(ReplyAttr {
+            ttl: NO_CACHE,
+            attr: self.state.attributes(&path).await?,
+        })
+    }
+
+    async fn open(&self, _request: Request, path: &OsStr, flags: u32) -> Result<ReplyOpen> {
+        let path = relative_path(path)?;
+        let truncate = flags & libc::O_TRUNC.unsigned_abs() != 0;
+        let _mutation = if truncate {
+            Some(self.state.mutations.lock().await)
+        } else {
+            None
+        };
         let entry = self
             .state
             .entry(&path)
@@ -255,7 +310,7 @@ where
         if entry.meta.kind == FileKind::Directory {
             return Err(Errno::from(libc::EISDIR));
         }
-        let handle = self
+        let mut handle = self
             .state
             .file_system
             .open_handle(OpenRequest {
@@ -264,6 +319,9 @@ where
             })
             .await
             .map_err(errno)?;
+        if truncate {
+            handle.truncate(0).await.map_err(errno)?;
+        }
         let fh = self.state.insert_file(handle).await?;
         Ok(ReplyOpen {
             fh,
@@ -279,7 +337,7 @@ where
         _mode: u32,
         flags: u32,
     ) -> Result<ReplyCreated> {
-        reject_truncate(flags)?;
+        let truncate = flags & libc::O_TRUNC.unsigned_abs() != 0;
         let parent_path = relative_path(parent)?;
         let path = child_path(parent, name)?;
         let _mutation = self.state.mutations.lock().await;
@@ -302,16 +360,19 @@ where
             }
             Err(error) => return Err(errno(error)),
         };
-        let attr = self.state.attributes(&path).await?;
-        let handle = self
+        let mut handle = self
             .state
             .file_system
             .open_handle(OpenRequest {
-                path,
+                path: path.clone(),
                 revision: Some(entry.meta.revision),
             })
             .await
             .map_err(errno)?;
+        if truncate {
+            handle.truncate(0).await.map_err(errno)?;
+        }
+        let attr = self.state.attributes(&path).await?;
         let fh = self.state.insert_file(handle).await?;
         Ok(ReplyCreated {
             ttl: NO_CACHE,
@@ -598,13 +659,6 @@ where
     }
 }
 
-fn reject_truncate(flags: u32) -> Result<()> {
-    if flags & libc::O_TRUNC.unsigned_abs() != 0 {
-        return Err(Errno::from(libc::ENOSYS));
-    }
-    Ok(())
-}
-
 fn reject_mutation_flags(flags: u32) -> Result<()> {
     let mutation_flags =
         (libc::O_APPEND | libc::O_CREAT | libc::O_EXCL | libc::O_TRUNC).unsigned_abs();
@@ -655,4 +709,93 @@ fn errno(error: Error) -> Errno {
         | Error::Metadata(_) => libc::EIO,
     };
     Errno::from(code)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{env, fs, time::UNIX_EPOCH};
+
+    use fuse3::Timestamp;
+    use uuid::Uuid;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn setattr_rejects_every_unsupported_component_before_size_mutation() {
+        let root = env::temp_dir().join(format!("offs-fuse-setattr-{}", Uuid::now_v7()));
+        let file_system = FileSystem::open(&root, 1_u8).await.expect("open");
+        file_system
+            .set_residency("", file_system::Residency::Full)
+            .await
+            .expect("full residency");
+        let original = file_system.write("file", b"original").await.expect("write");
+        let state = Arc::new(AdapterState::new(file_system.clone(), 0, 0, UNIX_EPOCH));
+        let adapter = FuseFileSystem::new(state);
+        let timestamp = Some(Timestamp::new(1, 0));
+        let requests = [
+            SetAttr {
+                size: Some(0),
+                mode: Some(0o600),
+                ..SetAttr::default()
+            },
+            SetAttr {
+                size: Some(0),
+                uid: Some(1),
+                ..SetAttr::default()
+            },
+            SetAttr {
+                size: Some(0),
+                gid: Some(1),
+                ..SetAttr::default()
+            },
+            SetAttr {
+                size: Some(0),
+                atime: timestamp,
+                ..SetAttr::default()
+            },
+            SetAttr {
+                size: Some(0),
+                mtime: timestamp,
+                ..SetAttr::default()
+            },
+            SetAttr {
+                size: Some(0),
+                ctime: timestamp,
+                ..SetAttr::default()
+            },
+        ];
+
+        for request in requests {
+            let result = adapter
+                .setattr(Request::default(), Some(OsStr::new("/file")), None, request)
+                .await;
+            assert!(matches!(result, Err(error) if error == Errno::from(libc::ENOSYS)));
+            assert_eq!(
+                file_system.read("file").await.expect("old bytes"),
+                b"original"
+            );
+            assert_eq!(
+                file_system.revision("file").await.expect("old revision"),
+                original.meta.revision
+            );
+        }
+
+        let reply = adapter
+            .setattr(
+                Request::default(),
+                Some(OsStr::new("/file")),
+                None,
+                SetAttr {
+                    size: Some(4),
+                    lock_owner: Some(7),
+                    ..SetAttr::default()
+                },
+            )
+            .await
+            .expect("size with lock context");
+        assert_eq!(reply.attr.size, 4);
+        assert_eq!(file_system.read("file").await.expect("new bytes"), b"orig");
+        drop(adapter);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
 }

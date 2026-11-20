@@ -171,6 +171,26 @@ where
         Ok(output.freeze())
     }
 
+    /// Changes the file length and advances this handle to the resulting Content Revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for stale revisions, wrong file types, residency restrictions, or
+    /// content/storage failures.
+    pub async fn truncate(&mut self, length: u64) -> Result<Uuid, Error>
+    where
+        PeerId: MaybeSend + MaybeSync,
+    {
+        let access = self.file_system.access().await?;
+        if self.kind == FileKind::Directory {
+            return Err(Error::IsDirectory);
+        }
+        let revision = access.truncate(&self.path, self.revision, length).await?;
+        self.revision = revision;
+        drop(access);
+        Ok(revision)
+    }
+
     /// Closes this local handle.
     ///
     /// # Errors

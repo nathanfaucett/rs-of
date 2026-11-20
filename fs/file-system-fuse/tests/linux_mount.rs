@@ -8,6 +8,7 @@ use std::{
         fs::{MetadataExt, PermissionsExt},
     },
     path::Path,
+    time::SystemTime,
 };
 
 use file_system::{FileSystem, Residency};
@@ -164,11 +165,10 @@ async fn linux_mount_supports_read_attributes_readdir_and_clean_unmount() {
             .raw_os_error(),
         Some(libc::EINVAL)
     );
+    fs::write(mountpoint.join("new.txt"), b"no").expect("create with truncation");
     assert_eq!(
-        fs::write(mountpoint.join("new.txt"), b"no")
-            .unwrap_err()
-            .raw_os_error(),
-        Some(libc::ENOSYS)
+        fs::read(mountpoint.join("new.txt")).expect("created bytes"),
+        b"no"
     );
     let writable = fs::OpenOptions::new()
         .write(true)
@@ -513,6 +513,163 @@ async fn linux_mount_creates_writes_appends_syncs_and_restarts() {
         .await
         .expect("second mount");
     assert_eq!(fs::read(&path).expect("restart mount read"), expected);
+    guard.unmount().await.expect("second unmount");
+    drop(reopened);
+    fs::remove_dir_all(backing).expect("backing cleanup");
+    fs::remove_dir_all(mountpoint).expect("mount cleanup");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
+#[allow(clippy::too_many_lines, reason = "one real-mount acceptance scenario")]
+async fn linux_mount_truncates_replaces_and_restarts() {
+    let unique = Uuid::now_v7();
+    let backing = env::temp_dir().join(format!("offs-fuse-truncate-backing-{unique}"));
+    let mountpoint = env::temp_dir().join(format!("offs-fuse-truncate-mount-{unique}"));
+    fs::create_dir(&mountpoint).expect("mountpoint");
+    let file_system = FileSystem::open(&backing, 1_u8).await.expect("open");
+    file_system
+        .set_residency("", Residency::Full)
+        .await
+        .expect("full root");
+    let original = file_system
+        .write("file.txt", b"original contents")
+        .await
+        .expect("original file");
+    let retained = file_system.clone();
+    let guard = mount(file_system, &mountpoint).await.expect("mount");
+    let path = mountpoint.join("file.txt");
+
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect("open with truncation");
+    assert_eq!(fs::metadata(&path).expect("empty metadata").len(), 0);
+    let opened = retained.entry("file.txt").await.expect("open truncation");
+    assert_eq!(opened.meta.file_id, original.meta.file_id);
+    assert_ne!(opened.meta.revision, original.meta.revision);
+
+    file.write_all(b"replacement")
+        .expect("write after open truncation");
+    file.sync_all().expect("sync replacement");
+    file.set_len(3).expect("descriptor shrink");
+    assert_eq!(fs::read(&path).expect("shrunk bytes"), b"rep");
+    file.seek(SeekFrom::Start(3)).expect("shrink write offset");
+    file.write_all(b"!").expect("write after shrink");
+    file.set_len(8).expect("descriptor extension");
+    assert_eq!(fs::read(&path).expect("extended bytes"), b"rep!\0\0\0\0");
+    file.seek(SeekFrom::Start(8))
+        .expect("extension write offset");
+    file.write_all(b"Z").expect("write after extension");
+    assert_eq!(
+        fs::read(&path).expect("post-extension write"),
+        b"rep!\0\0\0\0Z"
+    );
+
+    file.set_len(0).expect("zero length");
+    assert_eq!(fs::read(&path).expect("zero bytes"), b"");
+    file.set_len(4).expect("extend empty file");
+    file.seek(SeekFrom::Start(4))
+        .expect("empty extension offset");
+    file.write_all(b"X")
+        .expect("write after extending empty file");
+    assert_eq!(
+        fs::read(&path).expect("zero filled empty extension"),
+        b"\0\0\0\0X"
+    );
+    drop(file);
+
+    let path_string = CString::new(path.as_os_str().as_bytes()).expect("path string");
+    // SAFETY: `path_string` is terminated and remains live for the call.
+    let result = unsafe { libc::truncate(path_string.as_ptr(), 2) };
+    assert_eq!(result, 0, "path shrink: {}", io::Error::last_os_error());
+    assert_eq!(fs::read(&path).expect("path-shrunk bytes"), b"\0\0");
+    // SAFETY: `path_string` is terminated and remains live for the call.
+    let result = unsafe { libc::truncate(path_string.as_ptr(), 6) };
+    assert_eq!(result, 0, "path extension: {}", io::Error::last_os_error());
+    assert_eq!(
+        fs::read(&path).expect("path-extended bytes"),
+        b"\0\0\0\0\0\0"
+    );
+
+    fs::write(&path, b"editor replacement").expect("editor-style truncate and replace");
+    let expected = b"editor replacement";
+    assert_eq!(fs::read(&path).expect("editor replacement bytes"), expected);
+    let replaced = retained.entry("file.txt").await.expect("replacement entry");
+    assert_eq!(replaced.meta.file_id, original.meta.file_id);
+    fs::write(mountpoint.join("new.txt"), b"new file").expect("create with truncation flag");
+
+    assert_eq!(
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOSYS)
+    );
+    assert_eq!(fs::read(&path).expect("chmod preserves bytes"), expected);
+    assert_eq!(
+        retained
+            .revision("file.txt")
+            .await
+            .expect("chmod preserves revision"),
+        replaced.meta.revision
+    );
+    let attributes = fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .expect("attribute handle");
+    assert_eq!(
+        attributes
+            .set_times(
+                fs::FileTimes::new()
+                    .set_accessed(SystemTime::now())
+                    .set_modified(SystemTime::now()),
+            )
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOSYS)
+    );
+    assert_eq!(
+        fs::read(&path).expect("timestamps preserve bytes"),
+        expected
+    );
+    assert_eq!(
+        retained
+            .revision("file.txt")
+            .await
+            .expect("timestamps preserve revision"),
+        replaced.meta.revision
+    );
+    drop(attributes);
+
+    guard.unmount().await.expect("first unmount");
+    drop(retained);
+    let reopened = FileSystem::open(&backing, 1_u8).await.expect("reopen");
+    reopened
+        .set_residency("", Residency::Full)
+        .await
+        .expect("restore full root");
+    assert_eq!(
+        reopened.read("file.txt").await.expect("durable bytes"),
+        expected
+    );
+    assert_eq!(
+        reopened
+            .entry("file.txt")
+            .await
+            .expect("durable entry")
+            .meta,
+        replaced.meta
+    );
+    let guard = mount(reopened.clone(), &mountpoint)
+        .await
+        .expect("second mount");
+    assert_eq!(fs::read(&path).expect("restart mount read"), expected);
+    assert_eq!(
+        fs::read(mountpoint.join("new.txt")).expect("restart new file"),
+        b"new file"
+    );
     guard.unmount().await.expect("second unmount");
     drop(reopened);
     fs::remove_dir_all(backing).expect("backing cleanup");

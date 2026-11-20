@@ -81,6 +81,10 @@ impl Staged for StagedContent {
         })
     }
 
+    fn truncate(&mut self, length: u64) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(async move { self.file.set_len(length).map_err(Error::from) })
+    }
+
     fn sync(&mut self) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async { self.file.sync_all().map_err(Error::from) })
     }
