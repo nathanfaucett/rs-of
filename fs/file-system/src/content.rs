@@ -59,6 +59,8 @@ pub trait Staged: MaybeSend {
 
     fn write_end<'a>(&'a mut self, bytes: &'a [u8]) -> BoxFuture<'a, Result<(), Error>>;
 
+    fn truncate(&mut self, length: u64) -> BoxFuture<'_, Result<(), Error>>;
+
     fn sync(&mut self) -> BoxFuture<'_, Result<(), Error>>;
 
     fn publish(&mut self) -> BoxFuture<'_, Result<(), Error>>;

@@ -389,6 +389,29 @@ impl Staged for BrowserStaged {
         })
     }
 
+    fn truncate(&mut self, length: u64) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(async move {
+            let length = usize::try_from(length).map_err(|_error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "content length is too large",
+                )
+            })?;
+            if length > self.buffer.len() {
+                self.buffer
+                    .try_reserve(length - self.buffer.len())
+                    .map_err(|_error| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::OutOfMemory,
+                            "content length exceeds available memory",
+                        )
+                    })?;
+            }
+            self.buffer.resize(length, 0);
+            Ok(())
+        })
+    }
+
     fn sync<'a>(&'a mut self) -> BoxFuture<'a, Result<(), Error>> {
         Box::pin(async { Ok(()) })
     }
