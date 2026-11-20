@@ -47,6 +47,7 @@ where
     uid: u32,
     gid: u32,
     mount_time: SystemTime,
+    mutations: Mutex<()>,
     next_handle: AtomicU64,
     files: Mutex<BTreeMap<u64, SharedFileHandle<PeerId>>>,
     directories: Mutex<BTreeMap<u64, Vec<DirectoryEntryPlus>>>,
@@ -67,6 +68,7 @@ where
             uid,
             gid,
             mount_time,
+            mutations: Mutex::new(()),
             next_handle: AtomicU64::new(1),
             files: Mutex::new(BTreeMap::new()),
             directories: Mutex::new(BTreeMap::new()),
@@ -280,6 +282,7 @@ where
         reject_truncate(flags)?;
         let parent_path = relative_path(parent)?;
         let path = child_path(parent, name)?;
+        let _mutation = self.state.mutations.lock().await;
         self.state.require_directory(&parent_path).await?;
         let entry = match self.state.file_system.create_file(&path).await {
             Ok(entry) => entry,
@@ -317,6 +320,76 @@ where
             fh,
             flags: FOPEN_DIRECT_IO,
         })
+    }
+
+    async fn mkdir(
+        &self,
+        _request: Request,
+        parent: &OsStr,
+        name: &OsStr,
+        _mode: u32,
+        _umask: u32,
+    ) -> Result<ReplyEntry> {
+        let parent_path = relative_path(parent)?;
+        let path = child_path(parent, name)?;
+        let _mutation = self.state.mutations.lock().await;
+        self.state.require_directory(&parent_path).await?;
+        match self.state.file_system.entry(&path).await {
+            Ok(_entry) => return Err(Errno::from(libc::EEXIST)),
+            Err(Error::NotFound) => {}
+            Err(error) => return Err(errno(error)),
+        }
+        self.state
+            .file_system
+            .create_dir(&path)
+            .await
+            .map_err(errno)?;
+        Ok(ReplyEntry {
+            ttl: NO_CACHE,
+            attr: self.state.attributes(&path).await?,
+        })
+    }
+
+    async fn unlink(&self, _request: Request, parent: &OsStr, name: &OsStr) -> Result<()> {
+        let parent_path = relative_path(parent)?;
+        let path = child_path(parent, name)?;
+        let _mutation = self.state.mutations.lock().await;
+        self.state.require_directory(&parent_path).await?;
+        let entry = self
+            .state
+            .entry(&path)
+            .await?
+            .ok_or_else(Errno::new_not_exist)?;
+        if entry.meta.kind == FileKind::Directory {
+            return Err(Errno::from(libc::EISDIR));
+        }
+        self.state.file_system.delete(&path).await.map_err(errno)
+    }
+
+    async fn rmdir(&self, _request: Request, parent: &OsStr, name: &OsStr) -> Result<()> {
+        let parent_path = relative_path(parent)?;
+        let path = child_path(parent, name)?;
+        let _mutation = self.state.mutations.lock().await;
+        self.state.require_directory(&parent_path).await?;
+        let entry = self
+            .state
+            .entry(&path)
+            .await?
+            .ok_or_else(Errno::new_not_exist)?;
+        if entry.meta.kind != FileKind::Directory {
+            return Err(Errno::from(libc::ENOTDIR));
+        }
+        if !self
+            .state
+            .file_system
+            .list(&path)
+            .await
+            .map_err(errno)?
+            .is_empty()
+        {
+            return Err(Errno::from(libc::ENOTEMPTY));
+        }
+        self.state.file_system.delete(&path).await.map_err(errno)
     }
 
     async fn read(
