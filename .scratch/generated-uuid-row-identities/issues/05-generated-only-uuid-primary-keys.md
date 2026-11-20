@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work: resolved
+
 - [ ] Explicit UUIDv5 and UUIDv7 primary keys are rejected through SQL literals, bound parameters, typed whole-row inserts, and typed column/value inserts.
 - [ ] Rejection occurs before duplicate checks, Tombstone checks, ON CONFLICT branches, or persistence and uses a clear invalid-query error.
 - [ ] Omitted and DEFAULT primary keys generate distinct RFC-variant UUIDv7 values that are available through RETURNING and subsequent queries.
@@ -17,3 +19,7 @@
 - [ ] Current documentation removes explicit UUIDv5/v7 primary-key support and states generated-only insertion and fresh-store requirements.
 - [ ] KV, the independent PostgreSQL backend, and the generic Automerge actor model remain unchanged.
 - [ ] Focused SQL engine, Automerge, SQL Client, remote, synchronization, and affected service tests pass, followed by required formatting and focused Clippy checks.
+
+## Comments
+
+Implementation integrated. On the integration tip, `cargo test -p ofdb-sql --features sql,redb,validated-history,remote,server --test client --test remote` passed 12 tests with one pre-existing ignore. The engine ticket run passed 107 focused tests with seven ignores before review follow-ups. Review added batch preflight, staged row validation, and `DEFAULT VALUES`. Formatting and documentation checks passed. Broader service, Clippy, feature, and CRAP qualifications are tracked under issue 06.
