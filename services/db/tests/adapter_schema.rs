@@ -101,12 +101,9 @@ async fn cross_owner_transaction_commit_and_rollback() {
     )
     .await
     .expect("insert user");
-    txn.execute_sql(
-        "INSERT INTO devices (id, owner_subject) VALUES (CAST('00000000-0000-7000-8000-000000000002' AS UUID), 'owner')",
-        None,
-    )
-    .await
-    .expect("insert device");
+    txn.execute_sql("INSERT INTO devices (owner_subject) VALUES ('owner')", None)
+        .await
+        .expect("insert device");
     txn.commit().await.expect("commit cross-owner");
 
     let mut txn = client.transaction().await.expect("txn");

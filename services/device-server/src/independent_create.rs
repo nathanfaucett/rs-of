@@ -106,7 +106,11 @@ impl Record {
         Self {
             version: 2,
             client: Id::now_v7(),
-            device: Id::now_v7(),
+            device: if purpose == "create" {
+                Id::nil()
+            } else {
+                Id::now_v7()
+            },
             create: (purpose == "create").then(|| CreateSeed {
                 role: Id::now_v7(),
                 permissions: INITIAL_ADMINISTRATOR_ACTIONS
@@ -127,7 +131,10 @@ impl Record {
         }
     }
     fn validate(&self) -> io::Result<()> {
-        let mut ids = vec![self.client, self.device];
+        let mut ids = vec![self.client];
+        if self.create.is_none() || self.complete || !self.device.is_nil() {
+            ids.push(self.device);
+        }
         if let Some(seed) = &self.create {
             if seed.permissions.len() != INITIAL_ADMINISTRATOR_ACTIONS.len() {
                 return Err(io::Error::other("invalid retained administrator seed"));
@@ -586,14 +593,15 @@ async fn provision(
     .provision_initial_administrator(user, seed.role, &permissions)
     .await
     .map_err(io::Error::other)?;
-    crate::provisioning::provision_initial_device(
+    record.device = crate::provisioning::provision_initial_device(
         opened.client.clone(),
-        record.device,
+        (!record.device.is_nil()).then_some(record.device),
         user,
         record.endpoint.as_deref().expect("endpoint"),
         &command.intent.node,
     )
     .await?;
+    control.write_record(&record)?;
     verify(opened, &record).await?;
     log::debug!(
         "Independent setup owner=device purpose=create phase=semantic-seed elapsed_ms={}",

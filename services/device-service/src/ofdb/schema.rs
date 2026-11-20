@@ -69,13 +69,16 @@ pub async fn validate_device(client: &ofdb_sql::Client) -> Result<(), ofdb_sql::
     client
         .row_conflicts_batch("devices", core::slice::from_ref(&key))
         .await?;
+    let policy_key = ofdb_sql::Row::new(vec![ofdb_sql::Value::Text(
+        ofdb_sql::Uuid::nil().to_string(),
+    )]);
     client
-        .row_conflict_values("device_selection_policies", &key)
+        .row_conflict_values("device_selection_policies", &policy_key)
         .await?;
     let mut transaction = client.transaction().await?;
     transaction.row_conflicts("devices", &key).await?;
     transaction
-        .row_conflict_values("device_selection_policies", &key)
+        .row_conflict_values("device_selection_policies", &policy_key)
         .await?;
     transaction.rollback().await
 }

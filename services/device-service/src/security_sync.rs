@@ -28,6 +28,7 @@ pub fn public_device_columns(table: &str) -> Option<&'static [&'static str]> {
             "selected_kind",
             "selected_id",
             "admin_allowed",
+            "device_key",
         ],
         "device_resource_selections" => &[
             "id",

@@ -148,7 +148,7 @@ async fn exchange_history() {
         (&*idp_b, &*management_b, local_client_b, member_b, "b"),
     ] {
         sql(database, &format!("INSERT INTO local_client_credentials (client_id, credential_id, secret_hash) VALUES (CAST('{client}' AS UUID), CAST('{}' AS UUID), 'private-client-{label}')", Id::now_v7())).await;
-        sql(management, &format!("INSERT INTO local_device_enrollments (device_id, pairing_accepting_public_key) VALUES (CAST('{device}' AS UUID), 'private-enrollment-{label}')")).await;
+        sql(management, &format!("INSERT INTO local_device_enrollments (device_id, pairing_accepting_public_key) VALUES ('{device}', 'private-enrollment-{label}')")).await;
     }
     let grant_client = Id::now_v7();
     let grant = |token: &str| idp_service::repo::oauth2_refresh_token_repo::OAuth2RefreshToken {
@@ -314,8 +314,8 @@ async fn exchange_history() {
     ] {
         assert_eq!(sql(database, &format!("SELECT secret_hash FROM local_client_credentials WHERE client_id = CAST('{own_client}' AS UUID)")).await[0].rows[0].values, vec![Value::Text(format!("private-client-{label}"))]);
         assert!(sql(database, &format!("SELECT secret_hash FROM local_client_credentials WHERE client_id = CAST('{other_client}' AS UUID)")).await[0].rows.is_empty());
-        assert_eq!(sql(management, &format!("SELECT pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = CAST('{own_device}' AS UUID)")).await[0].rows[0].values, vec![Value::Text(format!("private-enrollment-{label}"))]);
-        assert!(sql(management, &format!("SELECT device_id FROM local_device_enrollments WHERE device_id = CAST('{other_device}' AS UUID)")).await[0].rows.is_empty());
+        assert_eq!(sql(management, &format!("SELECT pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = '{own_device}'")).await[0].rows[0].values, vec![Value::Text(format!("private-enrollment-{label}"))]);
+        assert!(sql(management, &format!("SELECT device_id FROM local_device_enrollments WHERE device_id = '{other_device}'")).await[0].rows.is_empty());
     }
     let unsigned = SecurityProtocol::new(
         server_a.clone(),
@@ -428,8 +428,8 @@ async fn exchange_history() {
         (&management_a, member_a, member_b, "a"),
         (&management_b, member_b, member_a, "b"),
     ] {
-        assert_eq!(sql(database, &format!("SELECT pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = CAST('{own}' AS UUID)")).await[0].rows[0].values, vec![Value::Text(format!("private-enrollment-{label}"))]);
-        assert!(sql(database, &format!("SELECT device_id FROM local_device_enrollments WHERE device_id = CAST('{other}' AS UUID)")).await[0].rows.is_empty(), "Management public sync never copies local enrollments");
+        assert_eq!(sql(database, &format!("SELECT pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = '{own}'")).await[0].rows[0].values, vec![Value::Text(format!("private-enrollment-{label}"))]);
+        assert!(sql(database, &format!("SELECT device_id FROM local_device_enrollments WHERE device_id = '{other}'")).await[0].rows.is_empty(), "Management public sync never copies local enrollments");
     }
     eprintln!(
         "security fixture {:?}: Management namespace exchange complete",
