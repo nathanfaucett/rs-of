@@ -367,10 +367,6 @@ async fn peer_session_preserves_generated_keys_and_applies_later_edits() {
     let a = Database::in_memory();
     let b = Database::in_memory();
     let staging = tempfile::tempdir().expect("session staging directory");
-    b.client()
-        .execute_sql("CREATE TABLE items (id UUID PRIMARY KEY, label TEXT)", None)
-        .await
-        .expect("initialize receiver schema for scoped exchange");
     let inserted = a
         .client()
         .execute_sql(
@@ -408,28 +404,22 @@ async fn peer_session_preserves_generated_keys_and_applies_later_edits() {
             tokio::join!(
                 async {
                     let mut transport = left;
-                    a.exchange_history(
+                    a.exchange_resource_history(
                         &mut transport,
                         &config,
                         SyncRole::Initiator,
                         staging.path(),
-                        &["items"],
-                        |_, _, _| Ok(()),
-                        |_| Ok(()),
                         || async { Ok(()) },
                     )
                     .await
                 },
                 async {
                     let mut transport = right;
-                    b.exchange_history(
+                    b.exchange_resource_history(
                         &mut transport,
                         &config,
                         SyncRole::Responder,
                         staging.path(),
-                        &["items"],
-                        |_, _, _| Ok(()),
-                        |_| Ok(()),
                         || async { Ok(()) },
                     )
                     .await

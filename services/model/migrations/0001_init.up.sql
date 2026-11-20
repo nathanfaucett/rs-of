@@ -300,10 +300,14 @@ CREATE TABLE IF NOT EXISTS resources (
     namespace_id UUID NOT NULL,
     kind TEXT NOT NULL,
     name TEXT,
-    deleted BOOLEAN NOT NULL DEFAULT FALSE,
     PRIMARY KEY (namespace_id, id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS resources_id ON resources (id);
+CREATE TABLE IF NOT EXISTS database_resource_tombstones (
+    namespace_id UUID NOT NULL,
+    resource_id UUID NOT NULL,
+    PRIMARY KEY (namespace_id, resource_id)
+);
 CREATE TABLE IF NOT EXISTS databases (
     id UUID PRIMARY KEY,
     resource_id UUID NOT NULL,

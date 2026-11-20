@@ -622,6 +622,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn independently_registered_database_stays_deleted_after_catalog_reconciliation() {
+        use crate::database_catalog::DatabaseCatalog;
+        use ofdb_sql::Database;
+
+        let left = Database::in_memory();
+        let right = Database::in_memory();
+        let scope = Scope {
+            subject: "owner",
+            application: of_model::id::Id::now_v7(),
+        };
+        let id = of_model::id::Id::now_v7();
+        db::ofdb::up(&left.client()).await.expect("left schema");
+        let left_catalog = DatabaseCatalog::with_client(std::env::temp_dir(), left.client())
+            .expect("left catalog");
+        assert!(
+            left_catalog
+                .register_selected(&scope, id)
+                .expect("register on left")
+        );
+        assert!(left_catalog.delete(&scope, id).expect("delete on left"));
+
+        // The later independent creation has the greater Logical Row ID.
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        db::ofdb::up(&right.client()).await.expect("right schema");
+        let right_catalog = DatabaseCatalog::with_client(std::env::temp_dir(), right.client())
+            .expect("right catalog");
+        assert!(
+            right_catalog
+                .register_selected(&scope, id)
+                .expect("register on right")
+        );
+
+        right
+            .import_history(left.export_history().await.expect("left history"))
+            .await
+            .expect("reconcile independent catalog rows");
+        assert!(
+            right_catalog
+                .is_tombstoned(&scope, id)
+                .expect("read deletion")
+        );
+        assert!(right_catalog.list(&scope).expect("list catalog").is_empty());
+        assert!(
+            !right_catalog
+                .register_selected(&scope, id)
+                .expect("deny re-registration")
+        );
+    }
+
+    #[tokio::test]
     async fn creation_key_preserves_domain_identity_in_generated_catalog_rows() {
         let root = std::env::temp_dir().join(format!("catalog-{}", of_model::id::Id::now_v7()));
         let scope = Scope {
