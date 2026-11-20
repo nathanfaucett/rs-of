@@ -94,17 +94,17 @@ pub enum FileServiceError {
 
 pub type FileFuture<'a, T> = BoxFuture<'a, T>;
 
-pub struct LocalFileHandle<'a, PeerId>
+pub struct LocalFileHandle<PeerId>
 where
     PeerId: Clone + Debug + Ord + serde::Serialize + DeserializeOwned + 'static,
 {
-    file_system: &'a FileSystem<PeerId>,
+    file_system: FileSystem<PeerId>,
     pub(crate) path: String,
     pub(crate) revision: Uuid,
     kind: FileKind,
 }
 
-impl<PeerId> fmt::Debug for LocalFileHandle<'_, PeerId>
+impl<PeerId> fmt::Debug for LocalFileHandle<PeerId>
 where
     PeerId: Clone + Debug + Ord + serde::Serialize + DeserializeOwned + 'static,
 {
@@ -117,18 +117,18 @@ where
     }
 }
 
-impl<'a, PeerId> LocalFileHandle<'a, PeerId>
+impl<PeerId> LocalFileHandle<PeerId>
 where
     PeerId: Clone + Debug + Ord + serde::Serialize + DeserializeOwned + 'static,
 {
-    pub(crate) const fn new(
-        file_system: &'a FileSystem<PeerId>,
+    pub(crate) fn new(
+        file_system: &FileSystem<PeerId>,
         path: String,
         revision: Uuid,
         kind: FileKind,
     ) -> Self {
         Self {
-            file_system,
+            file_system: file_system.clone(),
             path,
             revision,
             kind,
@@ -198,7 +198,7 @@ pub trait FileHandle<PeerId>: MaybeSend + MaybeSync {
     fn close(self: Box<Self>) -> FileFuture<'static, Result<(), Self::Error>>;
 }
 
-impl<PeerId> FileHandle<PeerId> for LocalFileHandle<'_, PeerId>
+impl<PeerId> FileHandle<PeerId> for LocalFileHandle<PeerId>
 where
     PeerId:
         Clone + Debug + Ord + serde::Serialize + DeserializeOwned + MaybeSend + MaybeSync + 'static,

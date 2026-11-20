@@ -435,6 +435,54 @@ async fn write_at_requires_current_revision_and_preserves_offset_semantics() {
 }
 
 #[tokio::test]
+async fn local_content_len_reports_current_revision_bytes() {
+    let root = root();
+    let file_system = FileSystem::open(&root, 7_u8).await.unwrap();
+    full(&file_system).await;
+    file_system.write("file.txt", b"hello").await.unwrap();
+
+    assert_eq!(file_system.local_content_len("file.txt").await.unwrap(), 5);
+    file_system.write("file.txt", b"hello world").await.unwrap();
+    assert_eq!(file_system.local_content_len("file.txt").await.unwrap(), 11);
+    file_system.create_dir("dir").await.unwrap();
+    assert!(matches!(
+        file_system.local_content_len("dir").await,
+        Err(Error::IsDirectory)
+    ));
+    file_system
+        .set_residency("file.txt", Residency::Passthrough)
+        .await
+        .unwrap();
+    assert!(matches!(
+        file_system.local_content_len("file.txt").await,
+        Err(Error::ContentUnavailable)
+    ));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn local_file_handle_owns_a_filesystem_clone() {
+    let root = root();
+    let file_system = FileSystem::open(&root, 7_u8).await.unwrap();
+    full(&file_system).await;
+    file_system.write("file.txt", b"hello").await.unwrap();
+    let mut handle = file_system
+        .open_handle(OpenRequest {
+            path: "file.txt".to_owned(),
+            revision: None,
+        })
+        .await
+        .unwrap();
+
+    drop(file_system);
+
+    assert_eq!(handle.read(1, 3).await.unwrap(), Bytes::from_static(b"ell"));
+    handle.close().await.unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn local_file_handle_supports_offset_io_and_scans() {
     let root = root();
     let file_system = FileSystem::open(&root, 7_u8).await.unwrap();

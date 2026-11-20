@@ -16,6 +16,7 @@ Device approval and Resource Selection belong to the `of` Device and Storage con
 | Crate | Purpose |
 | --- | --- |
 | `file-system` | Core filesystem and synchronization contracts |
+| `file-system-fuse` | Linux read-only FUSE mounts for Full-residency File Systems |
 | `file-system-wasm` | Browser WebAssembly bindings |
 
 The TypeScript wrapper is `packages/file-system`. It is a private workspace package, not a published public SDK.
@@ -30,3 +31,7 @@ pnpm --filter @ofsdk/file-system run build
 The WASM crate has its own lockfile and generated output. Build everything from this checkout; no sibling `offs` repository is required.
 
 Filesystem synchronization is not qualified by SQL tests or mesh connectivity alone. Full/Passthrough behavior needs real application and multi-Device acceptance before it is presented as complete.
+
+## Linux FUSE mounts
+
+`file-system-fuse` mounts an already opened File System only when the root and every entry are Full-resident and all current content is locally retained. It supports lookup, attributes, offset reads, and directory iteration with explicit unmount. Mutations, Passthrough retrieval, non-Linux platforms, and complete POSIX behavior are unsupported. See the [adapter overview](file-system-fuse/README.md) for mount prerequisites and exact limits.

@@ -19,7 +19,7 @@ use ofdb_platform::{MaybeSend, MaybeSync};
 use crate::{
     Error, FileKind, FileMeta, OperationControl, RemoteOperation, Residency,
     content::{ContentObject, StagedObject},
-    file_service::{ScanPage, scan_page},
+    file_service::{LocalFileHandle, ScanPage, scan_page},
     managed_copy::{ManagedCopy, Storage},
     path::{directory, file},
     residency::ResidencyRules,
@@ -230,7 +230,7 @@ where
     pub async fn open_handle(
         &self,
         request: crate::OpenRequest,
-    ) -> Result<crate::LocalFileHandle<'_, PeerId>, Error> {
+    ) -> Result<crate::LocalFileHandle<PeerId>, Error> {
         self.access().await?.open_handle(request).await
     }
 
@@ -241,6 +241,15 @@ where
     /// Returns an error for an invalid or missing path or a storage failure.
     pub async fn entry(&self, path: &str) -> Result<Entry<PeerId>, Error> {
         self.access().await?.entry(path).await
+    }
+
+    /// Returns the locally retained content length without fetching remote content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid path, wrong file type, unavailable content, or storage failure.
+    pub async fn local_content_len(&self, path: &str) -> Result<u64, Error> {
+        self.access().await?.local_content_len(path).await
     }
 
     /// Reads a complete file.
@@ -379,7 +388,7 @@ where
     }
 }
 
-impl<'a, PeerId> FileSystemAccess<'a, PeerId>
+impl<PeerId> FileSystemAccess<'_, PeerId>
 where
     PeerId: Clone + Debug + Ord + Serialize + DeserializeOwned + MaybeSend + MaybeSync + 'static,
 {
@@ -431,7 +440,7 @@ where
     pub async fn open_handle(
         &self,
         request: crate::OpenRequest,
-    ) -> Result<crate::LocalFileHandle<'a, PeerId>, Error> {
+    ) -> Result<crate::LocalFileHandle<PeerId>, Error> {
         let entry = self.entry(&request.path).await?;
         let revision = self.revision(&request.path).await?;
         if request
@@ -440,7 +449,7 @@ where
         {
             return Err(Error::StaleRevision);
         }
-        Ok(crate::file_service::LocalFileHandle::new(
+        Ok(LocalFileHandle::new(
             self.file_system,
             request.path,
             revision,
@@ -460,6 +469,17 @@ where
                 meta,
             })
             .ok_or(Error::NotFound)
+    }
+
+    pub async fn local_content_len(&self, path: &str) -> Result<u64, Error> {
+        let _execution = self.owner.execution.lock().await;
+        let entry = self.entry(path).await?;
+        if entry.meta.kind == FileKind::Directory {
+            return Err(Error::IsDirectory);
+        }
+        self.content_store()
+            .content_len(entry.meta.file_id, entry.meta.revision)
+            .await
     }
 
     pub async fn read(&self, path: &str) -> Result<Vec<u8>, Error> {
