@@ -78,8 +78,7 @@ impl JoinHistoryContext {
             Self::Device => {
                 crate::security_sync::public_device_columns(table)
                     .is_some_and(|columns| columns.contains(&column))
-                    && (table != "devices"
-                        || crate::security_candidates::permits_device_value(column, value))
+                    && crate::security_candidates::permits_device_value(table, column, value)
             }
         }
     }
@@ -512,7 +511,7 @@ fn validate_candidate(
 ) -> Result<(), String> {
     let candidate = crate::security_candidates::JoinCandidate {
         member_id: approval.request.member_id,
-        device_id: approval.request.device_id,
+        device_id: approval.device_id,
         endpoint: &approval.request.endpoint_id,
         owner: approval.owner_subject,
         public_signer: &approval.request.public_signer,
@@ -527,7 +526,7 @@ fn validate_candidate(
         JoinHistoryContext::Device => crate::security_candidates::validate_device_history(
             view,
             &[crate::security_candidates::PeerBinding {
-                member: approval.request.device_id,
+                member: approval.device_id,
                 endpoint: approval.request.endpoint_id.clone(),
                 owner: approval.owner_subject,
             }],

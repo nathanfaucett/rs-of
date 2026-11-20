@@ -70,6 +70,9 @@ pub mod validators {
                 .execute_sql(&format!("SELECT 1 FROM {} LIMIT 1", table.name()), None)
                 .await?;
         }
+        client
+            .execute_sql("SELECT policy_kind, application_id, policy_id, incarnation FROM rbac_revocations LIMIT 0", None)
+            .await?;
         Ok(())
     }
 
@@ -157,13 +160,58 @@ pub mod validators {
     /// Checks for conflicts across the given security rows.
     async fn clear(engine: &Client, rows: &[SecurityRow]) -> Result<bool, QueryError> {
         for group in rows.chunk_by(|left, right| left.table == right.table) {
-            let keys = group.iter().map(SecurityRow::key).collect::<Vec<_>>();
-            if engine
-                .row_conflicts_batch(group[0].table.name(), &keys)
-                .await?
-                .iter()
-                .any(|conflicts| !conflicts.is_empty())
-            {
+            let table = group[0].table;
+            let component = match table {
+                SecurityTable::User => "created_at",
+                SecurityTable::Credential => "user_id",
+                _ => {
+                    let keys = group.iter().map(SecurityRow::key).collect::<Vec<_>>();
+                    if engine
+                        .row_conflicts_batch(table.name(), &keys)
+                        .await?
+                        .iter()
+                        .any(|conflicts| !conflicts.is_empty())
+                    {
+                        return Ok(false);
+                    }
+                    continue;
+                }
+            };
+            // Resolve the public UUID and inspect the composite key in one snapshot.
+            let mut transaction = engine.transaction().await?;
+            let result: Result<bool, QueryError> = async {
+                for row in group {
+                    let selected = transaction
+                        .translate_and_execute(
+                            &format!(
+                                "SELECT {component} FROM {} WHERE id = CAST('{}' AS UUID)",
+                                table.name(),
+                                row.id
+                            ),
+                            &ofdb_sql::SqlTranslator,
+                        )
+                        .await?;
+                    match selected[0].rows.as_slice() {
+                        [] => (),
+                        [selected] => {
+                            let key =
+                                Row::new(vec![Value::Uuid(row.id), selected.values[0].clone()]);
+                            if !transaction
+                                .row_conflicts(table.name(), &key)
+                                .await?
+                                .is_empty()
+                            {
+                                return Ok(false);
+                            }
+                        }
+                        _ => return Ok(false),
+                    }
+                }
+                Ok(true)
+            }
+            .await;
+            transaction.rollback().await?;
+            if !result? {
                 return Ok(false);
             }
         }

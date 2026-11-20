@@ -10,10 +10,12 @@ use ofdb_sql::QueryExpr;
 use ofdb_sql::QueryExprValue;
 use ofdb_sql::QueryFrom;
 use ofdb_sql::QueryInsert;
+use ofdb_sql::QueryParams;
 use ofdb_sql::QuerySelect;
 use ofdb_sql::QueryUpdate;
 use ofdb_sql::QueryUpdateAssignment;
 use ofdb_sql::Row;
+use ofdb_sql::SqlTranslator;
 use ofdb_sql::Statement;
 use ofdb_sql::Uuid;
 use ofdb_sql::Value;
@@ -59,7 +61,7 @@ impl DbDeviceRepo {
     /// Commits only Management state; an exact retry never replaces or revives a Device.
     pub async fn enroll_approved_exact(
         &self,
-        device_id: Id,
+        request_id: Id,
         owner: Id,
         name: &str,
         endpoint: &str,
@@ -68,7 +70,7 @@ impl DbDeviceRepo {
         let public_key: iroh::EndpointId = endpoint
             .parse()
             .map_err(|_| DeviceError::InvalidInput("invalid Device endpoint ID".into()))?;
-        if device_id.get_version_num() != 7
+        if request_id.get_version_num() != 7
             || owner.is_nil()
             || name.trim().is_empty()
             || name.len() > 256
@@ -81,34 +83,38 @@ impl DbDeviceRepo {
         }
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let result = async {
+            let key = Row::new(vec![Value::Text(request_id.to_string())]);
+            let bindings = transaction.translate_and_execute_with_params(
+                "SELECT device_id FROM local_device_join_bindings WHERE request_id = ?",
+                Some(&QueryParams::Positional(key.values.clone())),
+                &SqlTranslator,
+            ).await.map_err(db_error)?;
+            if !transaction.row_conflicts("local_device_join_bindings", &key).await.map_err(db_error)?.is_empty() {
+                return Err(DeviceError::InvalidInput("conflicted Device Join request".into()));
+            }
+            let retained = match bindings[0].rows.as_slice() {
+                [] => None,
+                [row] => match row.values.as_slice() {
+                    [Value::Uuid(id)] => Some(*id),
+                    _ => return Err(DeviceError::InvalidInput("invalid Device Join binding".into())),
+                },
+                _ => return Err(DeviceError::InvalidInput("ambiguous Device Join binding".into())),
+            };
             let Query::Select(mut query) = select() else {
                 unreachable!("Device query is a Select")
             };
-            query.predicate = Some(QueryExpr::Or(
-                Box::new(equals("id", Value::Uuid(device_id))),
-                Box::new(equals("public_key", Value::Text(endpoint.to_owned()))),
-            ));
-            let results = transaction
-                .execute(vec![Statement::Query(Query::Select(query))])
-                .await
-                .map_err(db_error)?;
+            let by_endpoint = equals("public_key", Value::Text(endpoint.to_owned()));
+            query.predicate = Some(if let Some(id) = retained {
+                QueryExpr::Or(Box::new(equals("id", Value::Uuid(id))), Box::new(by_endpoint))
+            } else {
+                by_endpoint
+            });
+            let results = transaction.execute(vec![Statement::Query(Query::Select(query))]).await.map_err(db_error)?;
             let rows = results[0].rows_as::<DeviceRow>().map_err(row_error)?;
-            for table in [TABLE, "local_device_enrollments"] {
-                if !transaction
-                    .row_conflicts(table, &Row::new(vec![Value::Uuid(device_id)]))
-                    .await
-                    .map_err(db_error)?
-                    .is_empty()
-                {
-                    return Err(DeviceError::InvalidInput(
-                        "conflicted Device enrollment".into(),
-                    ));
-                }
-            }
-            let row = match rows.as_slice() {
-                [] => {
+            let row = match (retained, rows.as_slice()) {
+                (None, []) => {
                     let row = DeviceRow {
-                        id: device_id,
+                        id: Id::nil(),
                         owner_subject: owner.to_string(),
                         name: name.to_owned(),
                         public_key: endpoint.to_owned(),
@@ -122,18 +128,16 @@ impl DbDeviceRepo {
                         created_at: now,
                         updated_at: now,
                     };
-                    transaction
-                        .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                            table: TABLE.into(),
-                            row: row.clone().into(),
-                            returning: None,
-                        }))])
-                        .await
-                        .map_err(db_error)?;
+                    let row = Self::insert_generated_device(&mut transaction, row).await?;
+                    transaction.translate_and_execute_with_params(
+                        "INSERT INTO local_device_join_bindings (request_id, device_id) VALUES (?, ?)",
+                        Some(&QueryParams::Positional(vec![Value::Text(request_id.to_string()), Value::Uuid(row.id)])),
+                        &SqlTranslator,
+                    ).await.map_err(db_error)?;
                     row
                 }
-                [row]
-                    if row.id == device_id
+                (Some(id), [row])
+                    if row.id == id
                         && row.owner_subject == owner.to_string()
                         && row.name == name
                         && row.public_key == endpoint
@@ -148,6 +152,11 @@ impl DbDeviceRepo {
                     ));
                 }
             };
+            for table in [TABLE, "local_device_enrollments"] {
+                if !transaction.row_conflicts(table, &device_key(table, row.id)).await.map_err(db_error)?.is_empty() {
+                    return Err(DeviceError::InvalidInput("conflicted Device enrollment".into()));
+                }
+            }
             row.try_into()
         }
         .await;
@@ -211,7 +220,7 @@ impl DbDeviceRepo {
                 }
                 for table in [TABLE, "local_device_enrollments"] {
                     if !transaction
-                        .row_conflicts(table, &Row::new(vec![Value::Uuid(device_id)]))
+                        .row_conflicts(table, &device_key(table, device_id))
                         .await
                         .map_err(db_error)?
                         .is_empty()
@@ -267,7 +276,7 @@ impl DbDeviceRepo {
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         for table in [TABLE, "local_device_enrollments"] {
             if !transaction
-                .row_conflicts(table, &Row::new(vec![Value::Uuid(device_id)]))
+                .row_conflicts(table, &device_key(table, device_id))
                 .await
                 .map_err(db_error)?
                 .is_empty()
@@ -311,6 +320,45 @@ impl DbDeviceRepo {
         Ok(true)
     }
 
+    async fn insert_generated_device(
+        transaction: &mut ofdb_sql::Transaction,
+        mut row: DeviceRow,
+    ) -> DeviceResult<DeviceRow> {
+        let values: Row = row.clone().into();
+        let result = transaction
+            .translate_and_execute_with_params(
+                "INSERT INTO devices (owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                Some(&QueryParams::Positional(values.values.into_iter().skip(1).collect())),
+                &SqlTranslator,
+            )
+            .await
+            .map_err(db_error)?;
+        let Some(Value::Uuid(id)) = result
+            .first()
+            .and_then(|result| result.rows.first())
+            .and_then(|row| row.values.first())
+        else {
+            return Err(DeviceError::InvalidInput(
+                "missing generated Device ID".into(),
+            ));
+        };
+        row.id = *id;
+        Ok(row)
+    }
+
+    async fn insert_device(&self, row: DeviceRow) -> DeviceResult<Device> {
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let row = Self::insert_generated_device(&mut transaction, row).await?;
+        if row.state == DeviceState::Pending {
+            transaction
+                .execute(vec![Statement::Query(local_enrollment_insert(&row))])
+                .await
+                .map_err(db_error)?;
+        }
+        transaction.commit().await.map_err(db_error)?;
+        row.try_into()
+    }
+
     async fn records(&self) -> DeviceResult<Vec<DeviceRow>> {
         let mut results = self
             .engine
@@ -324,7 +372,7 @@ impl DbDeviceRepo {
             .map_err(row_error)?;
         for row in &mut rows {
             let results = self.engine.translate_and_execute(
-                &format!("SELECT enrollment_code_hash, enrollment_expires_at, pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = CAST('{}' AS UUID)", row.id),
+                &format!("SELECT enrollment_code_hash, enrollment_expires_at, pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = '{}'", row.id),
                 &ofdb_sql::SqlTranslator,
             ).await.map_err(db_error)?;
             if let Some(local) = results[0].rows.first() {
@@ -360,7 +408,10 @@ impl DbDeviceRepo {
             .is_empty()
             && self
                 .engine
-                .row_conflicts("local_device_enrollments", &Row::new(vec![Value::Uuid(id)]))
+                .row_conflicts(
+                    "local_device_enrollments",
+                    &device_key("local_device_enrollments", id),
+                )
                 .await
                 .map_err(db_error)?
                 .is_empty()
@@ -420,7 +471,7 @@ impl DeviceRepo for DbDeviceRepo {
             DeviceState::Pending
         };
         let row = DeviceRow {
-            id: Id::now_v7(),
+            id: Id::nil(),
             owner_subject,
             name,
             public_key,
@@ -434,23 +485,7 @@ impl DeviceRepo for DbDeviceRepo {
             created_at: now.timestamp(),
             updated_at: now.timestamp(),
         };
-        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
-        transaction
-            .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                table: TABLE.into(),
-                row: row.clone().into(),
-                returning: None,
-            }))])
-            .await
-            .map_err(db_error)?;
-        if row.state == DeviceState::Pending {
-            transaction
-                .execute(vec![Statement::Query(local_enrollment_insert(&row))])
-                .await
-                .map_err(db_error)?;
-        }
-        transaction.commit().await.map_err(db_error)?;
-        row.try_into()
+        self.insert_device(row).await
     }
 
     async fn create_pairing(
@@ -473,7 +508,7 @@ impl DeviceRepo for DbDeviceRepo {
             .ok_or_else(|| DeviceError::InvalidInput("approving device has no owner".into()))?;
         let now = now();
         let row = DeviceRow {
-            id: Id::now_v7(),
+            id: Id::nil(),
             owner_subject,
             name,
             public_key,
@@ -487,23 +522,7 @@ impl DeviceRepo for DbDeviceRepo {
             created_at: now.timestamp(),
             updated_at: now.timestamp(),
         };
-        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
-        transaction
-            .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                table: TABLE.into(),
-                row: row.clone().into(),
-                returning: None,
-            }))])
-            .await
-            .map_err(db_error)?;
-        if row.state == DeviceState::Pending {
-            transaction
-                .execute(vec![Statement::Query(local_enrollment_insert(&row))])
-                .await
-                .map_err(db_error)?;
-        }
-        transaction.commit().await.map_err(db_error)?;
-        row.try_into()
+        self.insert_device(row).await
     }
 
     async fn pending_pairing(&self, device_id: Id) -> DeviceResult<Option<(Device, String)>> {
@@ -927,11 +946,20 @@ impl From<DeviceRow> for Row {
     }
 }
 
+#[must_use]
+pub fn device_key(table: &str, id: Id) -> Row {
+    Row::new(vec![if table == TABLE {
+        Value::Uuid(id)
+    } else {
+        Value::Text(id.to_string())
+    }])
+}
+
 fn local_enrollment_insert(row: &DeviceRow) -> Query {
     Query::Insert(QueryInsert {
         table: "local_device_enrollments".into(),
         row: Row::new(vec![
-            Value::Uuid(row.id),
+            Value::Text(row.id.to_string()),
             row.enrollment_code_hash
                 .clone()
                 .map_or(Value::Null, Value::Blob),
@@ -956,7 +984,9 @@ fn local_enrollment_delete(id: Id) -> Query {
                 "local_device_enrollments".into(),
                 "device_id".into(),
             )))),
-            Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Uuid(id)))),
+            Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Text(
+                id.to_string(),
+            )))),
         )),
         returning: None,
     })
@@ -1056,9 +1086,11 @@ mod tests {
                 .await,
             Err(of_model::device_error::DeviceError::InvalidInput(_))
         ));
-        repo.enroll_approved_exact(device, owner, "Joining", &endpoint, 1)
+        let device = repo
+            .enroll_approved_exact(device, owner, "Joining", &endpoint, 1)
             .await
-            .expect("exact Management enrollment");
+            .expect("exact Management enrollment")
+            .id;
         repo.check_pending_approved_binding(device, owner, "Joining", &endpoint)
             .await
             .expect("matching import");
@@ -1135,6 +1167,19 @@ mod tests {
                 .await
                 .expect("store local pairing")
                 .id;
+            let rows = database
+                .export_history()
+                .await
+                .expect("export Device history");
+            for id in [pending, paired] {
+                assert_eq!(id.get_version_num(), 7);
+                assert!(rows.iter().any(|unit| matches!(&unit.key,
+                    ofdb_sql_history::SyncKey::Row { table, row } if table == "devices" && row == &id
+                )));
+                assert!(!rows.iter().any(|unit| matches!(&unit.key,
+                    ofdb_sql_history::SyncKey::Row { table, row } if table == "local_device_enrollments" && row == &id
+                )));
+            }
             let public = database
                 .client()
                 .translate_and_execute("SELECT * FROM devices", &ofdb_sql::SqlTranslator)

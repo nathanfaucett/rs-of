@@ -50,6 +50,12 @@ struct Record {
     complete: bool,
 }
 impl Record {
+    fn approved_device_id(&self) -> Id {
+        self.approval
+            .as_ref()
+            .map_or(self.device, |approval| approval.device_id)
+    }
+
     fn validate_operation(&self, intent: &IndependentCreateIntent) -> io::Result<()> {
         self.validate()?;
         if intent.purpose == "create" {
@@ -82,7 +88,7 @@ impl Record {
         if let Some(approval) = &self.approval {
             approval.verify()?;
             if approval.request.operation != *intent
-                || approval.request.device_id != self.device
+                || approval.request.request_id != self.device
                 || Some(approval.request.endpoint_id.as_str()) != self.endpoint.as_deref()
                 || Some(approval.owner_subject) != self.user
                 || self.source.as_ref().map(serde_json::to_value).transpose()?
@@ -106,7 +112,11 @@ impl Record {
         Self {
             version: 2,
             client: Id::now_v7(),
-            device: Id::now_v7(),
+            device: if purpose == "create" {
+                Id::nil()
+            } else {
+                Id::now_v7()
+            },
             create: (purpose == "create").then(|| CreateSeed {
                 role: Id::now_v7(),
                 permissions: INITIAL_ADMINISTRATOR_ACTIONS
@@ -127,7 +137,10 @@ impl Record {
         }
     }
     fn validate(&self) -> io::Result<()> {
-        let mut ids = vec![self.client, self.device];
+        let mut ids = vec![self.client];
+        if self.create.is_none() || self.complete || !self.device.is_nil() {
+            ids.push(self.device);
+        }
         if let Some(seed) = &self.create {
             if seed.permissions.len() != INITIAL_ADMINISTRATOR_ACTIONS.len() {
                 return Err(io::Error::other("invalid retained administrator seed"));
@@ -306,7 +319,8 @@ async fn verify_identity(engine: &DeviceStore, record: &Record) -> io::Result<St
         .await
         .map_err(io::Error::other)?
         .ok_or_else(|| io::Error::other("current approved Management endpoint missing"))?;
-    if device.id != record.device || (!record.complete && device.owner_subject != user.to_string())
+    if device.id != record.approved_device_id()
+        || (!record.complete && device.owner_subject != user.to_string())
     {
         return Err(io::Error::other("Management endpoint binding changed"));
     }
@@ -325,11 +339,11 @@ async fn verify(engine: &DeviceStore, record: &Record) -> io::Result<()> {
     let owner_subject = verify_identity(engine, record).await?;
     let policies = DbSelectionPolicyRepo::new(engine.client.clone());
     if policies
-        .local_cleanup_pending(record.device)
+        .local_cleanup_pending(record.approved_device_id())
         .await
         .map_err(io::Error::other)?
         || !policies
-            .get(record.device, &owner_subject, Id::nil())
+            .get(record.approved_device_id(), &owner_subject, Id::nil())
             .await
             .map_err(io::Error::other)?
             .is_some_and(|policy| policy.admin_allowed)
@@ -586,14 +600,15 @@ async fn provision(
     .provision_initial_administrator(user, seed.role, &permissions)
     .await
     .map_err(io::Error::other)?;
-    crate::provisioning::provision_initial_device(
+    record.device = crate::provisioning::provision_initial_device(
         opened.client.clone(),
-        record.device,
+        (!record.device.is_nil()).then_some(record.device),
         user,
         record.endpoint.as_deref().expect("endpoint"),
         &command.intent.node,
     )
     .await?;
+    control.write_record(&record)?;
     verify(opened, &record).await?;
     log::debug!(
         "Independent setup owner=device purpose=create phase=semantic-seed elapsed_ms={}",

@@ -111,7 +111,8 @@ async fn approved_enrollment_preserves_exact_identity_and_denies_replacement_or_
         .enroll_approved_exact(id, owner, "Joining Node", &endpoint, 123)
         .await
         .expect("exact approved enrollment");
-    assert_eq!(enrolled.id, id);
+    assert_ne!(enrolled.id, id);
+    assert_eq!(enrolled.id.get_version_num(), 7);
     assert_eq!(enrolled.owner_subject, owner.to_string());
     assert_eq!(enrolled.created_at.timestamp(), 123);
     assert_eq!(
@@ -173,9 +174,11 @@ async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revoca
     let owner = Id::now_v7();
     let endpoint = iroh::SecretKey::generate().public().to_string();
     let id = Id::now_v7();
-    repo.enroll_approved_exact(id, owner, "Joining Node", &endpoint, 123)
+    let device_id = repo
+        .enroll_approved_exact(id, owner, "Joining Node", &endpoint, 123)
         .await
-        .expect("approved binding");
+        .expect("approved binding")
+        .id;
     for mutation in [
         "UPDATE devices SET state = 0",
         "UPDATE devices SET state = 1, revoked_at = 1",
@@ -184,7 +187,7 @@ async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revoca
         engine
             .client()
             .translate_and_execute(
-                &format!("{mutation} WHERE id = CAST('{id}' AS UUID)"),
+                &format!("{mutation} WHERE id = CAST('{device_id}' AS UUID)"),
                 &ofdb_sql::SqlTranslator,
             )
             .await
@@ -218,9 +221,11 @@ async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_v
     let id = Id::now_v7();
     let owner = Id::now_v7();
     let endpoint = iroh::SecretKey::generate().public().to_string();
-    repo.enroll_approved_exact(id, owner, "Joining Node", &endpoint, 123)
+    let device_id = repo
+        .enroll_approved_exact(id, owner, "Joining Node", &endpoint, 123)
         .await
-        .expect("approved binding");
+        .expect("approved binding")
+        .id;
     let right = ofdb_sql::Database::in_memory();
     right
         .import_history(left.export_history().await.expect("initial native history"))
@@ -231,7 +236,7 @@ async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_v
             .client()
             .translate_and_execute(
                 &format!(
-                    "UPDATE devices SET address = '{address}' WHERE id = CAST('{id}' AS UUID)"
+                    "UPDATE devices SET address = '{address}' WHERE id = CAST('{device_id}' AS UUID)"
                 ),
                 &ofdb_sql::SqlTranslator,
             )
@@ -250,7 +255,7 @@ async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_v
             .client()
             .row_conflicts(
                 "devices",
-                &ofdb_sql::Row::new(vec![ofdb_sql::Value::Uuid(id)])
+                &ofdb_sql::Row::new(vec![ofdb_sql::Value::Uuid(device_id)])
             )
             .await
             .expect("conflicted fixture")

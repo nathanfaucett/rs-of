@@ -622,6 +622,164 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn independently_registered_database_stays_deleted_after_catalog_reconciliation() {
+        use crate::database_catalog::DatabaseCatalog;
+        use ofdb_sql::Database;
+
+        let left = Database::in_memory();
+        let right = Database::in_memory();
+        let scope = Scope {
+            subject: "owner",
+            application: of_model::id::Id::now_v7(),
+        };
+        let id = of_model::id::Id::now_v7();
+        db::ofdb::up(&left.client()).await.expect("left schema");
+        let left_catalog = DatabaseCatalog::with_client(std::env::temp_dir(), left.client())
+            .expect("left catalog");
+        assert!(
+            left_catalog
+                .register_selected(&scope, id)
+                .expect("register on left")
+        );
+        assert!(left_catalog.delete(&scope, id).expect("delete on left"));
+
+        // The later independent creation has the greater Logical Row ID.
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        db::ofdb::up(&right.client()).await.expect("right schema");
+        let right_catalog = DatabaseCatalog::with_client(std::env::temp_dir(), right.client())
+            .expect("right catalog");
+        assert!(
+            right_catalog
+                .register_selected(&scope, id)
+                .expect("register on right")
+        );
+
+        right
+            .import_history(left.export_history().await.expect("left history"))
+            .await
+            .expect("reconcile independent catalog rows");
+        assert!(
+            right_catalog
+                .is_tombstoned(&scope, id)
+                .expect("read deletion")
+        );
+        assert!(right_catalog.list(&scope).expect("list catalog").is_empty());
+        assert!(
+            !right_catalog
+                .register_selected(&scope, id)
+                .expect("deny re-registration")
+        );
+    }
+
+    #[tokio::test]
+    async fn creation_key_preserves_domain_identity_in_generated_catalog_rows() {
+        let root = std::env::temp_dir().join(format!("catalog-{}", of_model::id::Id::now_v7()));
+        let scope = Scope {
+            subject: "owner",
+            application: of_model::id::Id::now_v7(),
+        };
+        let database = db::adapters::EmbeddedDatabase::open(&root)
+            .await
+            .expect("host");
+        let runtime =
+            DatabaseRuntime::with_shared(database.storage(), database.client()).expect("runtime");
+        let resource = runtime
+            .ensure(&scope, "create-once", Some("first".into()))
+            .expect("reserve Resource");
+        assert_eq!(resource.id.get_version_num(), 5);
+        assert_eq!(
+            runtime
+                .ensure(&scope, "create-once", Some("ignored".into()))
+                .expect("repeat reservation"),
+            resource
+        );
+
+        let catalog = &database.database;
+        let history = catalog.export_history().await.expect("catalog history");
+        let mut tables = Vec::new();
+        for unit in &history {
+            let ofdb_sql::history::SyncKey::Row { table, row } = &unit.key;
+            if matches!(table.as_str(), "namespaces" | "resources" | "databases") {
+                assert_eq!(row.get_version_num(), 7, "{table} Logical Row identity");
+                assert_ne!(*row, resource.id);
+                tables.push(table.as_str());
+            }
+        }
+        tables.sort();
+        assert_eq!(tables, ["databases", "namespaces", "resources"]);
+
+        let peer_root = root.with_extension("peer.redb");
+        let peer = ofdb_sql::Database::open(&peer_root).expect("fresh peer catalog");
+        peer.import_history(history)
+            .await
+            .expect("replicate catalog rows");
+        let peer_catalog =
+            crate::database_catalog::DatabaseCatalog::with_client(peer_root.clone(), peer.client())
+                .expect("peer catalog");
+        assert_eq!(
+            peer_catalog.list(&scope).expect("replicated Resource"),
+            [resource.clone()]
+        );
+        assert_eq!(
+            catalog.history_manifest().await.expect("source identities"),
+            peer.history_manifest().await.expect("peer identities")
+        );
+        drop(peer_catalog);
+        drop(peer);
+        fs::remove_file(peer_root).expect("remove peer fixture");
+
+        let other_owner = Scope {
+            subject: "other",
+            application: scope.application,
+        };
+        assert!(
+            runtime
+                .list(&other_owner)
+                .expect("isolated owner")
+                .is_empty()
+        );
+        assert!(
+            runtime
+                .delete(&scope, resource.id)
+                .expect("delete Resource")
+        );
+        drop(runtime);
+        drop(database);
+        let database = db::adapters::EmbeddedDatabase::open(&root)
+            .await
+            .expect("restart host");
+        let runtime = DatabaseRuntime::with_shared(database.storage(), database.client())
+            .expect("restart runtime");
+        assert!(
+            runtime
+                .is_tombstoned(&scope, resource.id)
+                .expect("retained Tombstone")
+        );
+        assert!(
+            runtime
+                .list(&scope)
+                .expect("deleted Resource not listed")
+                .is_empty()
+        );
+        assert_eq!(
+            runtime
+                .ensure(&scope, "create-once", None)
+                .expect_err("Tombstone blocks reservation")
+                .kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        assert!(
+            runtime
+                .open_selected(&scope, resource.id)
+                .expect("Tombstone blocks Selection")
+                .is_none()
+        );
+        drop(runtime);
+        drop(database);
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[tokio::test]
     async fn shared_resources_restart_and_retire_without_sidecars_or_host_loss() {
         let root =
             std::env::temp_dir().join(format!("shared-resource-{}", of_model::id::Id::now_v7()));

@@ -24,7 +24,7 @@ use crate::{
     device_repo::DeviceRepo,
     replica::DbDeviceRepo,
     security_policy::SecurityContext,
-    security_protocol::test_fixtures::{enroll, sql},
+    security_protocol::test_fixtures::{enroll, insert_device, sql},
 };
 
 struct ExtraMember {
@@ -72,15 +72,13 @@ async fn seed(database: &Arc<Database>) -> ExtraMember {
 }
 
 async fn seed_device(database: &Database) -> Id {
-    let member = Id::now_v7();
     let endpoint = iroh::SecretKey::generate().public();
     let Value::Text(owner) =
         &sql(database, "SELECT owner_subject FROM devices LIMIT 1").await[0].rows[0].values[0]
     else {
         panic!("fixture owner")
     };
-    sql(database, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{owner}', 'extra', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
-    member
+    insert_device(database, owner, endpoint, "extra").await
 }
 
 #[tokio::test]

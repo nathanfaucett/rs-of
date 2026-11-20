@@ -132,20 +132,38 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         .expect("inspections did not close transaction");
 
     let params = QueryParams::Positional(vec![Value::Uuid(id)]);
-    client
-        .translate_and_execute_with_params(
-            "INSERT INTO items VALUES ($1)",
-            Some(&params),
-            &SqlTranslator,
-        )
+    let error = client
+        .execute_sql("INSERT INTO items VALUES ($1)", Some(&params))
         .await
-        .expect("execute parameterized translator query remotely");
+        .expect_err("reject a bound UUID primary key remotely");
+    assert_eq!(error.kind, QueryErrorKind::Rejected);
+    assert!(error.message.contains("UUID primary keys are generated"));
+    let mut transaction = client.transaction().await.expect("begin remote write");
+    let error = transaction
+        .execute_sql("INSERT INTO items VALUES ($1)", Some(&params))
+        .await
+        .expect_err("reject a bound UUID primary key in the remote transaction");
+    assert_eq!(error.kind, QueryErrorKind::Rejected);
+    assert!(error.message.contains("UUID primary keys are generated"));
+    transaction
+        .rollback()
+        .await
+        .expect("discard rejected write");
+
+    let inserted = client
+        .execute_sql("INSERT INTO items DEFAULT VALUES RETURNING id", None)
+        .await
+        .expect("generate the remote primary key");
+    let generated = inserted[0].rows[0].values[0]
+        .as_uuid()
+        .expect("generated UUID");
+    assert_eq!(generated.get_version_num(), 7);
     let typed = client
         .translate_and_select::<_, IdRow>("SELECT id FROM items", &SqlTranslator)
         .await
         .expect("decode typed remote row");
     assert_eq!(typed.len(), 1);
-    assert_eq!(typed[0].0, id);
+    assert_eq!(&typed[0].0, generated);
     assert!(
         client
             .translate_and_select::<_, IdRow>(
@@ -170,15 +188,15 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         .execute_sql("CREATE TABLE atomic_items (id UUID PRIMARY KEY)", None)
         .await
         .expect("create batch rollback table");
-    let duplicate_batch = "INSERT INTO atomic_items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID)); INSERT INTO atomic_items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID))";
+    let invalid_batch = "INSERT INTO atomic_items VALUES (DEFAULT); INSERT INTO atomic_items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID))";
     let batch_error = client
-        .execute_sql(duplicate_batch, None)
+        .execute_sql(invalid_batch, None)
         .await
-        .expect_err("reject duplicate row in batch");
+        .expect_err("reject supplied key in batch");
     let local_error = database_client
-        .execute_sql(duplicate_batch, None)
+        .execute_sql(invalid_batch, None)
         .await
-        .expect_err("reject duplicate local batch");
+        .expect_err("reject supplied key in local batch");
     assert_eq!(batch_error.kind, QueryErrorKind::Rejected);
     assert_eq!(batch_error.kind, local_error.kind);
     let rows = client
@@ -199,10 +217,7 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         .await
         .expect("begin remote transaction");
     transaction
-        .execute_sql(
-            "INSERT INTO transaction_items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abd' AS UUID))",
-            None,
-        )
+        .execute_sql("INSERT INTO transaction_items VALUES (DEFAULT)", None)
         .await
         .expect("write in remote transaction");
     let rows = transaction
@@ -226,7 +241,7 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         .expect("begin remote transaction");
     transaction
         .translate_and_execute(
-            "INSERT INTO transaction_items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abe' AS UUID))",
+            "INSERT INTO transaction_items VALUES (DEFAULT)",
             &SqlTranslator,
         )
         .await

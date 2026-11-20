@@ -205,6 +205,13 @@ impl PostgresStatement {
     }
 
     fn insert_values(&mut self, insert: &QueryInsertValues) -> Result<String, QueryError> {
+        // DEFAULT VALUES remains unsupported by this adapter.
+        if insert.rows.is_empty()
+            || (insert.columns.is_empty()
+                && matches!(insert.rows.as_slice(), [row] if row.is_empty()))
+        {
+            return Err(unsupported("empty INSERT"));
+        }
         let mut rows = Vec::new();
         for row in &insert.rows {
             let values = row
@@ -215,9 +222,6 @@ impl PostgresStatement {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             rows.push(format!("({})", values.join(", ")));
-        }
-        if rows.is_empty() {
-            return Err(unsupported("empty INSERT"));
         }
         let mut sql = format!(
             "INSERT INTO {}{} VALUES {}",

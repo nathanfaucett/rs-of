@@ -1,6 +1,6 @@
 import {
-  type JsChangeEvent as KvChangeEvent,
   JsPushSyncTransport,
+  type JsChangeEvent as KvChangeEvent,
   type KvChangeSubscription,
   type Client as KvClient,
   Database as KvDatabase,
@@ -153,9 +153,7 @@ export class KvPeerNetwork {
             continue;
           }
 
-          const others = [...this.peers.values()].filter(
-            (p) => p.id !== peer.id && p.online,
-          );
+          const others = [...this.peers.values()].filter((p) => p.id !== peer.id && p.online);
           for (const target of others) {
             if (aborted || !peer.online || !target.online) break;
             await this.syncPair(peer, target);
@@ -188,9 +186,7 @@ export class KvPeerNetwork {
   }
 
   private async syncWithAll(source: KvPeer): Promise<void> {
-    const others = [...this.peers.values()].filter(
-      (p) => p.id !== source.id && p.online,
-    );
+    const others = [...this.peers.values()].filter((p) => p.id !== source.id && p.online);
     for (const target of others) {
       await this.syncPair(source, target);
     }

@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work: resolved
+
 - [ ] IdP insertion paths omit single-UUID primary keys or use DEFAULT and consume generated UUIDv7 values through RETURNING where required.
 - [ ] Creation methods that accept stable public IDs preserve their idempotent domain behavior without using those IDs as single-UUID Logical Row identities.
 - [ ] Local seeded Users, Credentials, permissions, and signer-related records retain stable public identity and sign-in behavior across fresh initialization and restart.
@@ -13,3 +15,7 @@
 - [ ] OAuth authorization, refresh, consent, and credential workflows remain covered by public service and repository tests.
 - [ ] Fresh-store and updated-Replica synchronization tests pass; no migration or compatibility path is added.
 - [ ] Focused IdP service tests and required formatting and lint checks pass.
+
+## Comments
+
+Implementation integrated. IdP service, OAuth/Replica, fresh snapshot, and security projection tests passed. The IdP server suite had 11 schema/translator failures whose baseline was not confirmed. The feature powerset failed on no-default-features imports, and the focused CRAP run reported 46 functions above threshold.

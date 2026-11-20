@@ -14,7 +14,7 @@ use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
 use ofdb_sql_history::SyncMessage;
 use tokio_util::sync::CancellationToken;
 
-use super::test_fixtures::{enroll, sql};
+use super::test_fixtures::{enroll, insert_device, sql};
 use super::{
     AuthorizedSecurityTransport, Handshake, Response, SECURITY_STREAM_KIND, SecurityContext,
     SecurityProtocol,
@@ -59,10 +59,8 @@ impl Fixture {
         allowed.add(source.endpoint().id());
         let peer = Server::new(peer, allowed);
         let actor = Id::now_v7();
-        let member = Id::now_v7();
-        let peer_member = Id::now_v7();
         let key = Id::now_v7();
-        {
+        let (member, peer_member) = {
             let idp = Arc::new(Database::open(root.join("source-idp.redb")).expect("native IdP"));
             db::ofdb::up(&idp.client()).await.expect("IdP schema");
             sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
@@ -72,13 +70,10 @@ impl Fixture {
             crate::ofdb::schema::up(&management)
                 .await
                 .expect("Management schema");
-            for (member, key, endpoint) in [
-                (member, key, source.endpoint().id()),
-                (peer_member, Id::now_v7(), peer.endpoint().id()),
-            ] {
-                sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
-                enroll(idp.clone(), member, endpoint, key).await;
-            }
+            let member = insert_device(&management, &actor.to_string(), source.endpoint().id(), "node").await;
+            enroll(idp.clone(), member, source.endpoint().id(), key).await;
+            let peer_member = insert_device(&management, &actor.to_string(), peer.endpoint().id(), "node").await;
+            enroll(idp.clone(), peer_member, peer.endpoint().id(), Id::now_v7()).await;
             ManagementService::new(
                 DbPermissionRepo::new(idp.client()),
                 DbRoleRepo::new(idp.client()),
@@ -95,7 +90,8 @@ impl Fixture {
             )
             .await
             .expect("explicit local context grants");
-        }
+            (member, peer_member)
+        };
         std::fs::copy(root.join("source-idp.redb"), root.join("peer-idp.redb"))
             .expect("copy verifier-free approved baseline");
         std::fs::copy(

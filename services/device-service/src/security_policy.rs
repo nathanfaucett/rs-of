@@ -130,7 +130,7 @@ impl SecurityHistory {
                 if !columns.contains(&column) {
                     return Err(format!("unknown device column: {table}.{column}"));
                 }
-                if !permits_device_value(column, value) {
+                if !security_candidates::permits_device_value(table, column, value) {
                     return Err(format!("invalid device value: {table}.{column}"));
                 }
                 Ok(())
@@ -164,7 +164,7 @@ impl SecurityHistory {
                 let bindings = approval
                     .map(|a| {
                         vec![PeerBinding {
-                            member: a.member_id,
+                            member: a.device_id,
                             endpoint: a.endpoint.to_owned(),
                             owner: a.owner,
                         }]
@@ -200,22 +200,6 @@ fn permits_installation(table: &str, column: &str, value: &Value, installation: 
 
 fn permits_device_table(table: &str) -> bool {
     PUBLIC_DEVICE_TABLES.contains(&table)
-}
-
-fn permits_device_value(column: &str, value: &Value) -> bool {
-    match (column, value) {
-        (_, Value::Null) => true,
-        ("id", Value::Uuid(id)) => !id.is_nil() && id.get_version_num() == 7,
-        ("id", Value::Text(id)) => {
-            Id::parse_str(id).is_ok_and(|id| !id.is_nil() && id.get_version_num() == 7)
-        }
-        (
-            "state" | "approved_at" | "revoked_at" | "created_at" | "updated_at",
-            Value::Integer(_),
-        ) => true,
-        ("owner_subject" | "name" | "public_key" | "address", Value::Text(_)) => true,
-        _ => false,
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

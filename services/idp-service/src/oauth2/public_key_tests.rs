@@ -33,40 +33,18 @@ use std::sync::Arc;
 
 async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) {
     let engine = Arc::new(ofdb_sql::Database::in_memory());
-    up(&engine.client())
+    let mut history = source.export_history().await.expect("read fixture history");
+    history.retain(|unit| {
+        let ofdb_sql::SyncKey::Row { table, .. } = &unit.key;
+        !matches!(
+            table.as_str(),
+            "credentials" | "local_client_credentials" | "local_credential_secrets"
+        )
+    });
+    engine
+        .import_history(history)
         .await
-        .expect("initialize independent schema");
-    for table in [
-        "applications",
-        "clients",
-        "users",
-        "keys",
-        "idp_replica_members",
-        "idp_replica_signers",
-        "oauth2_refresh_tokens",
-        "oauth2_authorization_codes",
-    ] {
-        let rows = source
-            .client()
-            .translate_and_execute(&format!("SELECT * FROM {table}"), &SqlTranslator)
-            .await
-            .expect("copy trusted fixture records")
-            .remove(0)
-            .rows;
-        for row in rows {
-            engine
-                .client()
-                .execute(vec![Statement::Query(Query::Insert(
-                    ofdb_sql::QueryInsert {
-                        table: table.into(),
-                        row,
-                        returning: None,
-                    },
-                ))])
-                .await
-                .expect("copy records without private signer");
-        }
-    }
+        .expect("import public verifier fixture");
     let keys = Arc::new(KeyService::new(
         DbKeyRepo::new(engine.client()),
         TestPrivateKeyRepo::default(),
@@ -322,6 +300,11 @@ async fn token_verification_requires_no_management_device_tables() {
     let (source, service, client, principal) = setup().await;
     let token = issue(&service, &client, &principal).await.access_token.0;
     let (engine, verifier) = public_verifier(&source).await;
+    engine
+        .client()
+        .execute_sql("DROP TABLE devices", None)
+        .await
+        .expect("remove the unused Device table from the shared fixture schema");
     assert!(
         engine
             .client()

@@ -37,24 +37,24 @@ fn table_state_observation_preserves_defaults_tombstones_conflicts_and_freshness
     block_on(async {
         let kernel = InMemoryKernel::new();
         let database = engine::Engine::new(kernel.clone(), AutomergeRowCodec::new());
-        database
+        let inserted = database
             .translate_and_execute(
                 "CREATE TABLE items (id UUID PRIMARY KEY, label TEXT); \
                  CREATE TABLE empty_items (id UUID PRIMARY KEY, label TEXT); \
-                 INSERT INTO items VALUES \
-                 (CAST('018f0f8e-7b6d-7c4a-8f12-000000000001' AS UUID), 'base'), \
-                 (CAST('018f0f8e-7b6d-7c4a-8f12-000000000002' AS UUID), 'base')",
+                 INSERT INTO items (label) VALUES ('base'), ('base') RETURNING id",
                 &sql_translator::SqlTranslator,
             )
             .await
             .expect("live and empty table fixture");
+        let first = *inserted[2].rows[0].values[0].as_uuid().expect("first key");
+        let second = *inserted[2].rows[1].values[0].as_uuid().expect("second key");
         let codec = AutomergeRowCodec::new();
         let competitor = AutomergeRowCodec::new();
         let mut transaction = kernel
             .transaction()
             .await
             .expect("concurrent row transaction");
-        for key in [id(1), id(2)] {
+        for key in [first, second] {
             let left = codec
                 .encode_row(
                     &transaction,
@@ -83,7 +83,7 @@ fn table_state_observation_preserves_defaults_tombstones_conflicts_and_freshness
             }
         }
         codec
-            .delete_row(&mut transaction, "items", &id(2))
+            .delete_row(&mut transaction, "items", &second)
             .await
             .expect("tombstone conflicted row");
         transaction
@@ -113,13 +113,13 @@ fn table_state_observation_preserves_defaults_tombstones_conflicts_and_freshness
         assert_eq!(observed.name, "items");
         assert_eq!(observed.columns, vec!["id", "label", "extra"]);
         assert_eq!(observed.rows.len(), 2);
-        for key in [id(1), id(2)] {
+        for key in [first, second] {
             let row = observed
                 .rows
                 .iter()
                 .find(|row| row.id == key)
                 .expect("all rows retained");
-            assert_eq!(row.deleted, key == id(2));
+            assert_eq!(row.deleted, key == second);
             assert_eq!(row.row.values.len(), 3);
             assert_eq!(row.row.values[0], Value::Uuid(key));
             assert_eq!(row.row.values[2], Value::from("current-default"));
@@ -174,22 +174,24 @@ fn table_state_observation_rejects_malformed_losing_values_even_on_tombstones() 
             ] {
                 let kernel = InMemoryKernel::new();
                 let database = engine::Engine::new(kernel.clone(), AutomergeRowCodec::new());
-                database
+                let inserted = database
                     .translate_and_execute(
                         "CREATE TABLE items (id UUID PRIMARY KEY, label TEXT); \
-                         INSERT INTO items VALUES \
-                         (CAST('018f0f8e-7b6d-7c4a-8f12-000000000001' AS UUID), 'base')",
+                         INSERT INTO items (label) VALUES ('base') RETURNING id",
                         &sql_translator::SqlTranslator,
                     )
                     .await
                     .expect("valid row fixture");
+                let key = *inserted[1].rows[0].values[0]
+                    .as_uuid()
+                    .expect("generated key");
                 let codec = AutomergeRowCodec::new();
                 let mut transaction = kernel
                     .transaction()
                     .await
                     .expect("malformed conflict transaction");
                 let state = codec
-                    .export_state(&transaction, "items", id(1), usize::MAX)
+                    .export_state(&transaction, "items", key, usize::MAX)
                     .await
                     .expect("existing state")
                     .expect("row document");
@@ -219,12 +221,12 @@ fn table_state_observation_rejects_malformed_losing_values_even_on_tombstones() 
                     "the malformed value must be a losing conflict"
                 );
                 codec
-                    .merge_state(&mut transaction, "items", id(1), &document.save())
+                    .merge_state(&mut transaction, "items", key, &document.save())
                     .await
                     .expect("visible safe value remains decodable");
                 if deleted {
                     codec
-                        .delete_row(&mut transaction, "items", &id(1))
+                        .delete_row(&mut transaction, "items", &key)
                         .await
                         .expect("tombstone hostile row");
                 }
@@ -495,8 +497,7 @@ fn catalog_snapshot_limit_zero_preserves_aggregate_validation_and_metadata() {
         database
             .translate_and_execute(
                 "CREATE TABLE items (id UUID PRIMARY KEY, value TEXT); \
-                 INSERT INTO items VALUES \
-                 (CAST('018f0f8e-7b6d-7c4a-8f12-000000000001' AS UUID), 'good')",
+                 INSERT INTO items (value) VALUES ('good')",
                 &sql_translator::SqlTranslator,
             )
             .await
@@ -568,10 +569,8 @@ fn catalog_snapshot_read_batches_keep_table_schemas_and_observe_writes() {
             .translate_and_execute(
                 "CREATE TABLE items (id UUID PRIMARY KEY, value TEXT); \
                  CREATE TABLE other (id UUID PRIMARY KEY, amount INTEGER); \
-                 INSERT INTO items VALUES \
-                 (CAST('018f0f8e-7b6d-7c4a-8f12-000000000001' AS UUID), 'good'); \
-                 INSERT INTO other VALUES \
-                 (CAST('018f0f8e-7b6d-7c4a-8f12-000000000002' AS UUID), 42)",
+                 INSERT INTO items (value) VALUES ('good'); \
+                 INSERT INTO other (amount) VALUES (42)",
                 &sql_translator::SqlTranslator,
             )
             .await
@@ -682,7 +681,7 @@ fn catalog_snapshot_select_decodes_malformed_nonmatching_rows() {
     block_on(async {
         let kernel = InMemoryKernel::new();
         let database = engine::Engine::new(kernel.clone(), AutomergeRowCodec::new());
-        database.translate_and_execute("CREATE TABLE items (id UUID PRIMARY KEY, value TEXT); INSERT INTO items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-000000000001' AS UUID), 'good')", &sql_translator::SqlTranslator).await.expect("valid target row and catalog");
+        database.translate_and_execute("CREATE TABLE items (id UUID PRIMARY KEY, value TEXT); INSERT INTO items (value) VALUES ('good')", &sql_translator::SqlTranslator).await.expect("valid target row and catalog");
         let mut transaction = kernel
             .transaction()
             .await
@@ -799,7 +798,7 @@ fn catalog_snapshot_select_decodes_malformed_nonmatching_rows() {
             "SELECT * FROM items",
             "SELECT * FROM items WHERE value = 'good' LIMIT 0",
             "SELECT value FROM items LIMIT 0; SELECT * FROM items WHERE value = 'good' LIMIT 0",
-            "SELECT value FROM items LIMIT 0; SELECT value FROM items WHERE id = CAST('018f0f8e-7b6d-7c4a-8f12-000000000001' AS UUID)",
+            "SELECT value FROM items LIMIT 0; SELECT value FROM items WHERE value = 'good'",
         ] {
             let error = database
                 .translate_and_execute(sql, &sql_translator::SqlTranslator)
@@ -809,9 +808,95 @@ fn catalog_snapshot_select_decodes_malformed_nonmatching_rows() {
                 matches!(error, engine::EngineError::Custom(message) if message == "Logical row column is not encoded bytes")
             );
         }
-        let error = database.translate_and_execute("SELECT value FROM items WHERE id = CAST('018f0f8e-7b6d-7c4a-8f12-000000000001' AS UUID)", &sql_translator::SqlTranslator).await.expect_err("SELECT must decode every live row before filtering");
+        let error = database
+            .translate_and_execute(
+                "SELECT value FROM items WHERE value = 'good'",
+                &sql_translator::SqlTranslator,
+            )
+            .await
+            .expect_err("SELECT must decode every live row before filtering");
         assert!(
             matches!(error, engine::EngineError::Custom(message) if message == "Logical row column is not encoded bytes")
+        );
+    });
+}
+
+#[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential synchronization operations"
+)]
+fn native_change_keeps_the_generated_snapshot_identity() {
+    block_on(async {
+        let writer = engine::Engine::new(InMemoryKernel::new(), AutomergeRowCodec::new());
+        let reader = engine::Engine::new(InMemoryKernel::new(), AutomergeRowCodec::new());
+        let translator = sql_translator::SqlTranslator;
+        let schema = "CREATE TABLE items (id UUID PRIMARY KEY, value TEXT)";
+        writer
+            .translate_and_execute(schema, &translator)
+            .await
+            .expect("writer schema");
+        reader
+            .translate_and_execute(schema, &translator)
+            .await
+            .expect("reader schema");
+        let inserted = writer
+            .translate_and_execute(
+                "INSERT INTO items (value) VALUES ('before') RETURNING id",
+                &translator,
+            )
+            .await
+            .expect("generated writer key");
+        let key = *inserted[0].rows[0].values[0].as_uuid().expect("UUID key");
+        let snapshot = writer
+            .read_transaction(|codec, tx| {
+                Box::pin(async move { codec.export_state(tx, "items", key, usize::MAX).await })
+            })
+            .await
+            .expect("export snapshot")
+            .expect("snapshot");
+        reader
+            .mutate_transaction("items", key, |codec, tx, _| {
+                Box::pin(async move {
+                    let row = codec.merge_state(tx, "items", key, &snapshot).await?;
+                    Ok(((), row))
+                })
+            })
+            .await
+            .expect("restore snapshot");
+        writer
+            .translate_and_execute("UPDATE items SET value = 'after'", &translator)
+            .await
+            .expect("writer update");
+        let updated = writer
+            .read_transaction(|codec, tx| {
+                Box::pin(async move { codec.export_state(tx, "items", key, usize::MAX).await })
+            })
+            .await
+            .expect("export changed document")
+            .expect("document");
+        let mut document = AutoCommit::load(&updated).expect("Automerge snapshot");
+        let [head] = document.get_heads().try_into().expect("one head");
+        let change = document.get_change_by_hash(&head).expect("native change");
+        let change_id = engine::DocumentChangeId(head.0.to_vec());
+        let legacy = Uuid::parse_str("018f0f8e-7b6d-5c4a-8f12-000000000001").expect("legacy UUID");
+        assert!(matches!(
+            reader
+                .apply_inbound_change("items", legacy, &change_id, change.raw_bytes())
+                .await,
+            Err(engine::EngineError::InvalidQuery(_))
+        ));
+        reader
+            .apply_inbound_change("items", key, &change_id, change.raw_bytes())
+            .await
+            .expect("apply native change to peer key");
+        let rows = reader
+            .translate_and_execute("SELECT id, value FROM items", &translator)
+            .await
+            .expect("read peer row");
+        assert_eq!(
+            rows[0].rows,
+            vec![Row::new(vec![Value::Uuid(key), Value::from("after")])]
         );
     });
 }

@@ -78,9 +78,10 @@ pub trait NodeJoinApprovalExt: Sized {
     fn signed_by(
         identity: &crate::device_identity::DeviceIdentity,
         request: NodeJoinRequest,
+        device_id: Id,
         owner_subject: Id,
     ) -> io::Result<Self>;
-    fn payload(request: &NodeJoinRequest, owner: Id) -> io::Result<Vec<u8>>;
+    fn payload(request: &NodeJoinRequest, device_id: Id, owner: Id) -> io::Result<Vec<u8>>;
     fn verify(&self, expected: &NodeJoinRequest) -> io::Result<()>;
 }
 
@@ -88,27 +89,34 @@ impl NodeJoinApprovalExt for NodeJoinApproval {
     fn signed_by(
         identity: &crate::device_identity::DeviceIdentity,
         request: NodeJoinRequest,
+        device_id: Id,
         owner_subject: Id,
     ) -> io::Result<Self> {
-        let payload = Self::payload(&request, owner_subject)?;
+        let payload = Self::payload(&request, device_id, owner_subject)?;
         Ok(Self {
             request,
+            device_id,
             owner_subject,
             signature: URL_SAFE_NO_PAD.encode(identity.sign(&payload).to_bytes()),
         })
     }
 
-    fn payload(request: &NodeJoinRequest, owner: Id) -> io::Result<Vec<u8>> {
+    fn payload(request: &NodeJoinRequest, device_id: Id, owner: Id) -> io::Result<Vec<u8>> {
         Ok(serde_json::to_vec(&(
             "of.equal-node-join-approval.v1",
             request,
+            device_id,
             owner,
         ))?)
     }
 
     fn verify(&self, expected: &NodeJoinRequest) -> io::Result<()> {
         expected.validate()?;
-        if self.request != *expected || self.owner_subject.is_nil() {
+        if self.request != *expected
+            || self.device_id.get_version_num() != 7
+            || self.device_id == expected.member_id
+            || self.owner_subject.is_nil()
+        {
             return Err(invalid(
                 "approval does not bind the exact persisted join request and owner",
             ));
@@ -118,8 +126,11 @@ impl NodeJoinApprovalExt for NodeJoinApproval {
             .decode(&self.signature)
             .map_err(io::Error::other)?;
         let signature = Signature::try_from(signature.as_slice()).map_err(io::Error::other)?;
-        peer.verify(&Self::payload(expected, self.owner_subject)?, &signature)
-            .map_err(io::Error::other)
+        peer.verify(
+            &Self::payload(expected, self.device_id, self.owner_subject)?,
+            &signature,
+        )
+        .map_err(io::Error::other)
     }
 }
 

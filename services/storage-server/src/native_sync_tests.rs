@@ -9,7 +9,7 @@ use storage_service::{database_runtime::{DatabaseRuntime}, scoped_file_system::{
 use tokio_util::sync::CancellationToken;
 
 use crate::{StorageSyncDirection, StorageSyncRequest, idp_client::{IdpClient}, replication_runtime::{StorageReplicationRuntime}};
-use crate::execution_test_support::{DomainNode, IrohPair, TestDirectory, approved_signers, sql};
+use crate::execution_test_support::{DomainNode, IrohPair, TestDirectory, sql};
 
 struct Namespace { owner: String, application: Id }
 impl of_model::storage::namespace::StorageNamespace for Namespace {
@@ -22,20 +22,15 @@ async fn user_driven_native_sync_persists_sql_and_kv_at_reopened_destination() {
     tokio::time::timeout(std::time::Duration::from_secs(60), async {
         let root = TestDirectory::new();
         let pair = IrohPair::new().await;
-        let owner = Id::now_v7();
-        let devices = [Id::now_v7(), Id::now_v7()];
-        let signers = approved_signers(devices);
-        let nodes = [
-            DomainNode::new(root.0.join("left"), owner, devices, pair.ids(), &signers).await,
-            DomainNode::new(root.0.join("right"), owner, devices, pair.ids(), &signers).await,
-        ];
+        let nodes = DomainNode::pair(&root.0, pair.ids()).await;
+        let owner = nodes[0].owner;
         let scope = Namespace { owner: owner.to_string(), application: Id::now_v7() };
         let paths = [root.0.join("data-left"), root.0.join("data-right")];
         let databases = paths.each_ref().map(|path| Arc::new(DatabaseRuntime::new(path.clone()).expect("persistent owner")));
         let (resource, source) = databases[0].create(&scope, Some("Notes".into())).expect("source database");
         let selection = SelectedResource { owner_subject: scope.owner.clone(), application_id: scope.application.to_string(), kind: "database".into(), resource_id: resource.id.to_string() };
         for node in &nodes { node.select(&selection).await; }
-        sql(&source, &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'native-kept')", Id::now_v7())).await;
+        sql(&source, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('native-kept')").await;
         let source_kv = databases[0].open_kv_selected(&scope, resource.id).expect("source KV").expect("selected KV owner");
         source_kv.client().set("documents/body", ofdb_kv::Value::Text("real-kv-body".into()), None).await.expect("write local KV");
         let stop = CancellationToken::new();
@@ -81,7 +76,7 @@ async fn user_driven_native_sync_persists_sql_and_kv_at_reopened_destination() {
         driver.synchronize("current-user-token", request.clone(), async { Ok(pair.endpoints[1].addr()) }).await.expect("full SQL + KV owner completion");
         assert_eq!(source_kv.client().get("documents/from-right").await.expect("reverse KV apply"), Some(ofdb_kv::Value::Text("right-body".into())));
         let destination_sql = databases[1].open_selected(&scope, resource.id).expect("destination SQL").expect("selected SQL");
-        sql(&destination_sql, &format!("INSERT INTO documents VALUES (CAST('{}' AS UUID), 'right-kept')", Id::now_v7())).await;
+        sql(&destination_sql, "INSERT INTO documents (value) VALUES ('right-kept')").await;
         driver.synchronize("current-user-token", request.clone(), async { Ok(pair.endpoints[1].addr()) }).await.expect("reverse SQL exchange");
         let source_rows = source.client().translate_and_execute("SELECT value FROM documents ORDER BY value", &ofdb_sql::SqlTranslator).await.expect("reverse SQL apply");
         assert_eq!(source_rows[0].rows.iter().map(|row| row.values[0].clone()).collect::<Vec<_>>(), [ofdb_sql::Value::Text("native-kept".into()), ofdb_sql::Value::Text("right-kept".into())]);

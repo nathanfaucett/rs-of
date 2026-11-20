@@ -89,13 +89,15 @@ impl Fixture {
 
     fn approval(&self) -> NodeJoinApproval {
         let owner_subject = Id::now_v7();
+        let device_id = Id::now_v7();
         NodeJoinApproval {
+            device_id,
             request: self.request.clone(),
             owner_subject,
             signature: URL_SAFE_NO_PAD.encode(
                 self.peer_secret
                     .sign(
-                        &NodeJoinApproval::payload(&self.request, owner_subject)
+                        &NodeJoinApproval::payload(&self.request, device_id, owner_subject)
                             .expect("approval payload"),
                     )
                     .to_bytes(),
@@ -267,8 +269,12 @@ async fn incoming_join_admission_is_pinned_and_bootstrap_requires_matching_verif
     forged.signature = URL_SAFE_NO_PAD.encode(
         SecretKey::generate()
             .sign(
-                &NodeJoinApproval::payload(&fixture.request, forged.owner_subject)
-                    .expect("payload"),
+                &NodeJoinApproval::payload(
+                    &fixture.request,
+                    forged.device_id,
+                    forged.owner_subject,
+                )
+                .expect("payload"),
             )
             .to_bytes(),
     );
@@ -278,8 +284,12 @@ async fn incoming_join_admission_is_pinned_and_bootstrap_requires_matching_verif
         fixture
             .peer_secret
             .sign(
-                &NodeJoinApproval::payload(&mismatch.request, mismatch.owner_subject)
-                    .expect("payload"),
+                &NodeJoinApproval::payload(
+                    &mismatch.request,
+                    mismatch.device_id,
+                    mismatch.owner_subject,
+                )
+                .expect("payload"),
             )
             .to_bytes(),
     );

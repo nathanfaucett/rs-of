@@ -16,6 +16,7 @@ pub enum PublicSecurityTable {
     Permissions,
     RolePermissions,
     ApplicationUserRoles,
+    RbacRevocations,
 }
 
 impl PublicSecurityTable {
@@ -36,6 +37,7 @@ impl PublicSecurityTable {
             Self::Permissions => "permissions",
             Self::RolePermissions => "role_permissions",
             Self::ApplicationUserRoles => "application_user_roles",
+            Self::RbacRevocations => "rbac_revocations",
         }
     }
 
@@ -44,7 +46,9 @@ impl PublicSecurityTable {
     pub const fn columns(self) -> &'static [&'static str] {
         match self {
             Self::Roles | Self::Permissions => &[
+                "row_id",
                 "id",
+                "incarnation",
                 "application_id",
                 "name",
                 "description",
@@ -52,6 +56,7 @@ impl PublicSecurityTable {
                 "created_at",
                 "updated_at",
             ],
+            Self::RbacRevocations => &["policy_kind", "application_id", "policy_id", "incarnation"],
             Self::RolePermissions => &[
                 "id",
                 "role_id",
@@ -219,7 +224,13 @@ impl PublicSecurityTable {
     }
 
     fn nullable(self, column: &str) -> bool {
-        if column == "id" {
+        if self == Self::RbacRevocations
+            || matches!(column, "id" | "row_id" | "incarnation")
+            || matches!(
+                (self, column),
+                (Self::Users, "created_at") | (Self::Credentials, "user_id")
+            )
+        {
             return false;
         }
         match self {
@@ -237,6 +248,12 @@ impl PublicSecurityTable {
         if matches!(column, "mfa_totp_secret" | "mfa_webauthn_credentials") {
             return false;
         }
+        if column == "policy_kind" {
+            return matches!(value.as_str(), Some("roles" | "permissions"));
+        }
+        if column == "incarnation" {
+            return value.as_i64().is_some_and(|number| number >= 0);
+        }
         if column == "public_jwk" {
             return value.as_str().is_some_and(permits_public_jwk);
         }
@@ -247,7 +264,8 @@ impl PublicSecurityTable {
         }
         let uuid = matches!(
             column,
-            "id" | "blocked_by"
+            "id" | "row_id"
+                | "blocked_by"
                 | "credential_id"
                 | "parent_id"
                 | "entity_id"
@@ -258,6 +276,7 @@ impl PublicSecurityTable {
                 | "key_id"
                 | "role_id"
                 | "permission_id"
+                | "policy_id"
         ) || (column == "client_id"
             && matches!(self, Self::AuthorizationCodes | Self::RefreshTokens));
         if uuid {
@@ -268,10 +287,22 @@ impl PublicSecurityTable {
                     let installation_scope = column == "application_id"
                         && matches!(
                             self,
-                            Self::Roles | Self::Permissions | Self::ApplicationUserRoles
+                            Self::Roles
+                                | Self::Permissions
+                                | Self::ApplicationUserRoles
+                                | Self::RbacRevocations
                         );
+                    let generated_key = column == "row_id"
+                        || (column == "id"
+                            && !matches!(
+                                self,
+                                Self::Users | Self::Credentials | Self::Roles | Self::Permissions
+                            ));
+                    let grant_ref = matches!(column, "role_id" | "permission_id");
                     (installation_scope || !id.is_nil())
-                        && (column != "id" || id.get_version_num() == 7)
+                        && (!grant_ref
+                            || (id.get_version_num() == 5 && id.as_bytes()[8] & 0xc0 == 0x80))
+                        && (!generated_key || id.get_version_num() == 7)
                 });
         }
         let integer = matches!(
@@ -347,6 +378,7 @@ pub const PUBLIC_IDENTITY_POLICY_TABLES: &[PublicSecurityTable] = &[
     PublicSecurityTable::Permissions,
     PublicSecurityTable::RolePermissions,
     PublicSecurityTable::ApplicationUserRoles,
+    PublicSecurityTable::RbacRevocations,
 ];
 
 #[must_use]
@@ -466,6 +498,30 @@ mod tests {
     }
 
     #[test]
+    fn public_domain_ids_need_not_be_uuid_v7() {
+        let domain_id = serde_json::json!("01900000-0000-5000-8000-000000000001");
+        for table in [PublicSecurityTable::Users, PublicSecurityTable::Credentials] {
+            let mut record: serde_json::Map<_, _> = table
+                .columns()
+                .iter()
+                .map(|column| ((*column).into(), serde_json::Value::Null))
+                .collect();
+            record.insert("id".into(), domain_id.clone());
+            if table == PublicSecurityTable::Users {
+                record.insert("created_at".into(), serde_json::json!(1));
+            } else {
+                record.insert("user_id".into(), domain_id.clone());
+            }
+            assert!(table.permits_record(&record), "{table:?} domain ID");
+            record.insert(
+                "id".into(),
+                serde_json::json!("00000000-0000-0000-0000-000000000000"),
+            );
+            assert!(!table.permits_record(&record), "{table:?} nil ID");
+        }
+    }
+
+    #[test]
     fn projections_require_complete_typed_records() {
         let table = PublicSecurityTable::Users;
         let mut record: serde_json::Map<alloc::string::String, serde_json::Value> = table
@@ -477,10 +533,8 @@ mod tests {
             "id".into(),
             serde_json::json!("01900000-0000-7000-8000-000000000001"),
         );
-        assert!(
-            table.permits_record(&record),
-            "complete nullable SQL projection"
-        );
+        record.insert("created_at".into(), serde_json::json!(1));
+        assert!(table.permits_record(&record), "complete SQL projection");
         for column in table.columns() {
             let mut incomplete = record.clone();
             incomplete.remove(*column);
@@ -534,12 +588,19 @@ mod tests {
                     "{table:?} missing actual column {}",
                     column.name
                 );
-                let value = if matches!(
+                let value = if column.name == "policy_kind" {
+                    serde_json::json!("roles")
+                } else if matches!(column.name.as_str(), "role_id" | "permission_id") {
+                    serde_json::json!(of_model::id::Id::new_v5(
+                        &of_model::id::Id::NAMESPACE_URL,
+                        b"grant"
+                    ))
+                } else if matches!(
                     column.name.as_str(),
                     "mfa_totp_secret" | "mfa_webauthn_credentials"
                 ) {
                     serde_json::Value::Null
-                } else if matches!(column.name.as_str(), "id" | "blocked_by")
+                } else if matches!(column.name.as_str(), "id" | "row_id" | "blocked_by")
                     || column.name.ends_with("_id")
                         && !["installation_id", "endpoint_id", "software_id"]
                             .contains(&column.name.as_str())
@@ -548,6 +609,7 @@ mod tests {
                     serde_json::json!(of_model::id::Id::now_v7())
                 } else if column.name.ends_with("_at")
                     || [
+                        "incarnation",
                         "active",
                         "blocked",
                         "sex",

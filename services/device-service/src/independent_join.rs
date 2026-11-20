@@ -16,7 +16,7 @@ use crate::device_identity::DeviceIdentity;
 pub struct IndependentJoinRequest {
     pub operation: IndependentCreateIntent,
     #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
-    pub device_id: Id,
+    pub request_id: Id,
     #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
     pub member_id: Id,
     pub endpoint_id: String,
@@ -44,11 +44,11 @@ impl IndependentJoinRequest {
         if self.operation.issuer != self.source.issuer
             || self.endpoint_id == self.source.endpoint
             || endpoint.to_string() != self.endpoint_id
-            || self.device_id.get_version_num() != 7
+            || self.request_id.get_version_num() != 7
             || self.member_id.get_version_num() != 7
             || key.get_version_num() != 7
-            || self.device_id == self.member_id
-            || self.device_id == key
+            || self.request_id == self.member_id
+            || self.request_id == key
             || self.member_id == key
         {
             return Err(io::Error::other("invalid independent Join binding"));
@@ -63,6 +63,8 @@ impl IndependentJoinRequest {
 pub struct IndependentJoinApproval {
     pub request: IndependentJoinRequest,
     #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
+    pub device_id: Id,
+    #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
     pub owner_subject: Id,
     pub signature: String,
 }
@@ -72,6 +74,7 @@ impl IndependentJoinApproval {
         Ok(serde_json::to_vec(&(
             "of.independent-join-approval.v1",
             &self.request,
+            self.device_id,
             self.owner_subject,
         ))?)
     }
@@ -79,6 +82,7 @@ impl IndependentJoinApproval {
     pub fn sign(
         identity: &DeviceIdentity,
         request: IndependentJoinRequest,
+        device_id: Id,
         owner_subject: Id,
     ) -> io::Result<Self> {
         request.validate()?;
@@ -87,6 +91,7 @@ impl IndependentJoinApproval {
         }
         let mut approval = Self {
             request,
+            device_id,
             owner_subject,
             signature: String::new(),
         };
@@ -118,8 +123,12 @@ impl IndependentJoinApproval {
 
     pub fn verify(&self) -> io::Result<()> {
         self.request.validate()?;
-        if self.owner_subject.is_nil() {
-            return Err(io::Error::other("approval owner missing"));
+        if self.owner_subject.is_nil()
+            || self.device_id.get_version_num() != 7
+            || self.device_id == self.request.request_id
+            || self.device_id == self.request.member_id
+        {
+            return Err(io::Error::other("invalid approval Device or owner"));
         }
         let peer: EndpointId = self
             .request

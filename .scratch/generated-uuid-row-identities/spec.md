@@ -1,7 +1,7 @@
 # Generate UUIDv7 Logical Row identities internally
 
 Status: ready-for-agent
-Work: open
+Work: resolved
 Milestone: M2 — Single-Node encrypted synchronization
 Dependencies: None identified.
 
@@ -97,3 +97,7 @@ Replication between updated Databases continues to transfer peer-generated UUIDv
 The investigation confirmed the current explicit UUIDv5/v7 contract and the connection among primary keys, Logical Row identities, document identities, and reconstruction actor derivation. It did not include a runtime reproduction of data corruption. Tests should establish the new external contract without claiming an unobserved failure mechanism.
 
 The current monorepo history contains no earlier design rationale for explicit UUIDv5 support beyond the implemented public contract. Removing that contract is an intentional breaking change authorized by the no-compatibility decision.
+
+## Comments
+
+Implementation is integrated on `integration/generated-uuid-row-identities`. Full qualification is still open. See the individual issues for checks that passed, failed, or were not completed. Existing stores and histories require fresh initialization.

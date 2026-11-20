@@ -49,14 +49,14 @@ for (const handle of ["Client", "Transaction"]) {
             handle === "Client" ? owner : await owner.transaction();
           try {
             await client.executeRaw(
-              "CREATE TABLE typed_values (id UUID PRIMARY KEY, text TEXT, empty_text TEXT, cipher BLOB, empty_blob BLOB, lo INTEGER, hi INTEGER, f FLOAT, b BOOLEAN, n TEXT, j JSON)",
+              "CREATE TABLE typed_values (id UUID PRIMARY KEY, ref UUID, text TEXT, empty_text TEXT, cipher BLOB, empty_blob BLOB, lo INTEGER, hi INTEGER, f FLOAT, b BOOLEAN, n TEXT, j JSON)",
             );
             await client.executeRaw(
-              "INSERT INTO typed_values VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+              "INSERT INTO typed_values (ref,text,empty_text,cipher,empty_blob,lo,hi,f,b,n,j) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
               values,
             );
             const rows = await client.execute(
-              "SELECT id,text,empty_text,cipher,empty_blob,lo,hi,f,b,n,j FROM typed_values",
+              "SELECT ref,text,empty_text,cipher,empty_blob,lo,hi,f,b,n,j FROM typed_values",
               (row: any) => row,
             );
             const converted = await client.execute(
@@ -82,7 +82,7 @@ for (const handle of ["Client", "Transaction"]) {
       );
       expect(result.rows).toEqual([
         {
-          id: values[0],
+          ref: values[0],
           text: values[1],
           empty_text: values[2],
           cipher: values[3],

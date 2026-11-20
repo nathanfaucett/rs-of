@@ -2,14 +2,14 @@
 
 use std::time::{Duration, Instant};
 
-use ofdb_sql::{Database, Row, Uuid, Value};
+use ofdb_sql::{Database, QueryParams, Row, Value};
 
 #[tokio::test]
 async fn native_select_reuses_current_catalog_within_fixed_budget() {
     let directory = tempfile::tempdir().expect("native SELECT catalog store");
     let database = Database::open(directory.path().join("select.redb")).expect("native database");
     let client = database.client();
-    client.execute_sql("CREATE TABLE items (id UUID PRIMARY KEY, value INTEGER); INSERT INTO items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID), 1)", None).await.expect("SELECT target");
+    let inserted = client.execute_sql("CREATE TABLE items (id UUID PRIMARY KEY, value INTEGER); INSERT INTO items (value) VALUES (1) RETURNING id", None).await.expect("SELECT target");
     let fields = (0..200)
         .map(|index| format!("field_{index} TEXT"))
         .collect::<Vec<_>>()
@@ -21,9 +21,13 @@ async fn native_select_reuses_current_catalog_within_fixed_budget() {
         )
         .await
         .expect("representative current catalog");
+    let params = QueryParams::Positional(inserted[1].rows[0].values.clone());
     let started = Instant::now();
     for _ in 0..512 {
-        let result = client.execute_sql("SELECT value FROM items WHERE id = CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID)", None).await.expect("public predicate SELECT");
+        let result = client
+            .execute_sql("SELECT value FROM items WHERE id = $1", Some(&params))
+            .await
+            .expect("public predicate SELECT");
         assert_eq!(result[0].rows, vec![Row::from([1])]);
     }
     let elapsed = started.elapsed();
@@ -39,7 +43,7 @@ async fn native_conflict_checks_reuse_raw_table_catalog_within_budget() {
     let directory = tempfile::tempdir().expect("native raw catalog store");
     let database = Database::open(directory.path().join("raw.redb")).expect("native database");
     let client = database.client();
-    client.execute_sql("CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID))", None).await.expect("catalog target row");
+    let inserted = client.execute_sql("CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items VALUES (DEFAULT) RETURNING id", None).await.expect("catalog target row");
     for index in 0..256 {
         client
             .execute_sql(
@@ -49,9 +53,7 @@ async fn native_conflict_checks_reuse_raw_table_catalog_within_budget() {
             .await
             .expect("table catalog entry");
     }
-    let key = Row::new(vec![Value::Uuid(
-        Uuid::parse_str("018f0f8e-7b6d-7c4a-8f12-123456789abc").expect("target key"),
-    )]);
+    let key = inserted[1].rows[0].clone();
     let started = Instant::now();
     for _ in 0..512 {
         assert_eq!(
@@ -75,7 +77,7 @@ async fn native_conflict_checks_with_many_tables_keep_fixed_budget() {
     let directory = tempfile::tempdir().expect("native table catalog store");
     let database = Database::open(directory.path().join("tables.redb")).expect("native database");
     let client = database.client();
-    client.execute_sql("CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID))", None).await.expect("catalog target row");
+    let inserted = client.execute_sql("CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items VALUES (DEFAULT) RETURNING id", None).await.expect("catalog target row");
     for index in 0..128 {
         client
             .execute_sql(
@@ -85,9 +87,7 @@ async fn native_conflict_checks_with_many_tables_keep_fixed_budget() {
             .await
             .expect("independent table catalog entry");
     }
-    let key = Row::new(vec![Value::Uuid(
-        Uuid::parse_str("018f0f8e-7b6d-7c4a-8f12-123456789abc").expect("target key"),
-    )]);
+    let key = inserted[1].rows[0].clone();
     let started = Instant::now();
     for _ in 0..512 {
         assert_eq!(
@@ -111,7 +111,7 @@ async fn native_conflict_checks_with_large_catalog_keep_fixed_budget() {
     let directory = tempfile::tempdir().expect("native conflict store");
     let database = Database::open(directory.path().join("conflict.redb")).expect("native database");
     let client = database.client();
-    client.execute_sql("CREATE TABLE items (id UUID PRIMARY KEY, value INTEGER); INSERT INTO items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID), 1)", None).await.expect("conflict-free row");
+    let inserted = client.execute_sql("CREATE TABLE items (id UUID PRIMARY KEY, value INTEGER); INSERT INTO items (value) VALUES (1) RETURNING id", None).await.expect("conflict-free row");
     let fields = (0..200)
         .map(|index| format!("field_{index} TEXT"))
         .collect::<Vec<_>>()
@@ -123,9 +123,7 @@ async fn native_conflict_checks_with_large_catalog_keep_fixed_budget() {
         )
         .await
         .expect("large current catalog");
-    let key = Row::new(vec![Value::Uuid(
-        Uuid::parse_str("018f0f8e-7b6d-7c4a-8f12-123456789abc").expect("row key"),
-    )]);
+    let key = inserted[1].rows[0].clone();
     let started = Instant::now();
     for _ in 0..512 {
         assert_eq!(
@@ -157,11 +155,11 @@ async fn native_select_with_large_catalog_keeps_scan_within_budget() {
         .await
         .expect("item catalog");
     let values = (0..512)
-        .map(|index| format!("(CAST('018f0f8e-7b6d-7c4a-8f12-{index:012x}' AS UUID), {index})"))
+        .map(|index| format!("({index})"))
         .collect::<Vec<_>>()
         .join(", ");
     client
-        .execute_sql(&format!("INSERT INTO items VALUES {values}"), None)
+        .execute_sql(&format!("INSERT INTO items (value) VALUES {values}"), None)
         .await
         .expect("scan inventory");
     let fields = (0..200)
@@ -208,13 +206,10 @@ async fn native_scans_observe_catalog_changes_defaults_and_tombstones_per_operat
     let path = directory.path().join("catalog.redb");
     let database = Database::open(&path).expect("native database");
     let client = database.client();
-    client
+    let inserted = client
         .execute_sql(
             "CREATE TABLE items (id UUID PRIMARY KEY, value INTEGER); \
-             INSERT INTO items VALUES \
-             (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID), 1), \
-             (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abd' AS UUID), 2), \
-             (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abe' AS UUID), 3)",
+             INSERT INTO items (value) VALUES (1), (2), (3) RETURNING id",
             None,
         )
         .await
@@ -244,9 +239,7 @@ async fn native_scans_observe_catalog_changes_defaults_and_tombstones_per_operat
             .rows,
         expected
     );
-    let key = Row::new(vec![Value::Uuid(
-        Uuid::parse_str("018f0f8e-7b6d-7c4a-8f12-123456789abc").expect("retained row"),
-    )]);
+    let key = inserted[1].rows[0].clone();
     assert_eq!(
         transaction
             .row_conflicts("items", &key)
@@ -278,10 +271,7 @@ async fn native_scans_observe_catalog_changes_defaults_and_tombstones_per_operat
         [] as [ofdb_sql::Row; 0]
     );
     client
-        .execute_sql(
-            "INSERT INTO items (id) VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abf' AS UUID))",
-            None,
-        )
+        .execute_sql("INSERT INTO items (id) VALUES (DEFAULT)", None)
         .await
         .expect("new layout row");
     assert_eq!(

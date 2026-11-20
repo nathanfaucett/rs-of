@@ -296,7 +296,7 @@ impl IndependentJoinSource {
             .await
             .map_err(|_| denied())?
             .ok_or_else(denied)?;
-        if device.id != request.device_id
+        if device.id != approval.device_id
             || device.name != request.operation.node
             || device.owner_subject != approval.owner_subject.to_string()
         {
@@ -568,9 +568,11 @@ async fn approve_work(source: &IndependentJoinSource, job: ApprovalWork) -> Resu
     if request.endpoint_id != offer.remote_id.to_string() {
         return Err(StatusCode::FORBIDDEN);
     }
-    let approval = IndependentJoinApproval::sign(&source.identity, request, owner)
-        .map_err(|_| StatusCode::FORBIDDEN)?;
-    let reply = serde_json::to_vec(&approval).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    // UUIDs and signatures have fixed wire lengths; check the limit before enrollment.
+    let preview =
+        IndependentJoinApproval::sign(&source.identity, request.clone(), Id::nil(), owner)
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+    let reply = serde_json::to_vec(&preview).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if reply.len() > iroh_chain::MAX_PAIRING_PAYLOAD_LENGTH {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -578,26 +580,29 @@ async fn approve_work(source: &IndependentJoinSource, job: ApprovalWork) -> Resu
         .duration_since(UNIX_EPOCH)
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
         .as_secs() as i64;
-    DbDeviceRepo::new(source.engine.clone())
+    let device = DbDeviceRepo::new(source.engine.clone())
         .enroll_approved_exact(
-            approval.request.device_id,
+            request.request_id,
             owner,
-            &approval.request.operation.node,
-            &approval.request.endpoint_id,
+            &request.operation.node,
+            &request.endpoint_id,
             now,
         )
         .await
         .map_err(|_| StatusCode::CONFLICT)?;
+    let approval = IndependentJoinApproval::sign(&source.identity, request, device.id, owner)
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+    let reply = serde_json::to_vec(&approval).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let policies = DbSelectionPolicyRepo::new(source.engine.clone());
     if policies
-        .get(approval.request.device_id, &owner.to_string(), Id::nil())
+        .get(approval.device_id, &owner.to_string(), Id::nil())
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
         .is_none()
     {
         policies
             .set_prevalidated(SelectionPolicy {
-                device_id: approval.request.device_id,
+                device_id: approval.device_id,
                 owner_subject: owner.to_string(),
                 application_id: None,
                 selected_kind: None,

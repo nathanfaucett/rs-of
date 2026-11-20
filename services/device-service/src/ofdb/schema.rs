@@ -31,6 +31,7 @@ pub async fn validate_device(client: &ofdb_sql::Client) -> Result<(), ofdb_sql::
             "local_device_enrollments",
             "device_id, enrollment_code_hash, enrollment_expires_at, pairing_accepting_public_key",
         ),
+        ("local_device_join_bindings", "request_id, device_id"),
         (
             "local_device_copy_cleanup",
             "device_id, cleanup_id, completed",
@@ -43,6 +44,7 @@ pub async fn validate_device(client: &ofdb_sql::Client) -> Result<(), ofdb_sql::
             "device_resource_selections",
             "id, device_id, owner_subject, application_id, selected_kind, selected_id, selected",
         ),
+        ("device_selection_denials", "id, selection_id"),
     ] {
         client
             .translate_and_execute(
@@ -69,13 +71,16 @@ pub async fn validate_device(client: &ofdb_sql::Client) -> Result<(), ofdb_sql::
     client
         .row_conflicts_batch("devices", core::slice::from_ref(&key))
         .await?;
+    let policy_key = ofdb_sql::Row::new(vec![ofdb_sql::Value::Text(
+        ofdb_sql::Uuid::nil().to_string(),
+    )]);
     client
-        .row_conflict_values("device_selection_policies", &key)
+        .row_conflict_values("device_selection_policies", &policy_key)
         .await?;
     let mut transaction = client.transaction().await?;
     transaction.row_conflicts("devices", &key).await?;
     transaction
-        .row_conflict_values("device_selection_policies", &key)
+        .row_conflict_values("device_selection_policies", &policy_key)
         .await?;
     transaction.rollback().await
 }

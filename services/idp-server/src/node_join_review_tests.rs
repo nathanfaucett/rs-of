@@ -109,6 +109,7 @@ async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation
             .transport_identity()
             .expect("fixture transport"),
         request.clone(),
+        Id::now_v7(),
         fixture.owner,
     )
     .expect("prospective signed approval");
@@ -127,7 +128,7 @@ async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation
         "signed reply exceeds that same pairing limit"
     );
     fixture.state.engine.translate_and_execute(
-        "CREATE TABLE IF NOT EXISTS local_node_join_intents (id UUID PRIMARY KEY, binding TEXT NOT NULL)", &SqlTranslator,
+        "CREATE TABLE IF NOT EXISTS local_node_join_intents (id TEXT PRIMARY KEY, binding TEXT NOT NULL)", &SqlTranslator,
     ).await.expect("empty local intent fixture");
     let bearer = authorize_join(&fixture).await;
     let router = fixture.server.router(BootstrapProtocolHandler);

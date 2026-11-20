@@ -1,3 +1,4 @@
+use super::insert::generated_id;
 use crate::repo::{OAuth2RefreshToken, OAuth2RefreshTokenRepo, RepoError, RepoResult};
 use db::ofdb::validators::SecurityRow;
 use db::ofdb::validators::SecurityTable;
@@ -82,9 +83,7 @@ impl OAuth2RefreshTokenRepo for DbOAuth2RefreshTokenRepo {
         } else {
             None
         };
-        let id = Id::now_v7();
         let row = Row::new(vec![
-            Value::Uuid(id),
             Value::Text(token_hash(&token.token)),
             Value::Uuid(token.client_id),
             Value::Uuid(token.user_id),
@@ -142,10 +141,11 @@ impl OAuth2RefreshTokenRepo for DbOAuth2RefreshTokenRepo {
                 return Err(invalid_grant());
             }
         }
-        transaction
+        let results = transaction
             .execute(vec![insert(row)])
             .await
             .map_err(db_error)?;
+        let id = generated_id(&results)?;
         transaction.commit().await.map_err(db_error)?;
         if let Some(id) = previous_id {
             self.ensure_clear(id).await?;
@@ -181,7 +181,7 @@ fn insert(row: Row) -> Statement {
     Statement::Query(Query::Insert(QueryInsert {
         table: TABLE.into(),
         row,
-        returning: None,
+        returning: Some(vec!["id".into()]),
     }))
 }
 fn update(name: &str, now: i64, predicate: QueryExpr) -> Statement {

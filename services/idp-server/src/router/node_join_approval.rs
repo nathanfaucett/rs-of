@@ -94,8 +94,10 @@ impl RouterState {
             .map_err(io::Error::other)?;
         self.verify_node_join_approving_device(&request.approving_peer)
             .await?;
-        let approval = NodeJoinApproval::signed_by(self.transport_identity()?, request, owner)?;
-        let reply = serde_json::to_vec(&approval)?;
+        // UUIDs and signatures have fixed wire lengths; reject oversized replies before writing.
+        let identity = self.transport_identity()?;
+        let preview = NodeJoinApproval::signed_by(identity, request.clone(), Id::nil(), owner)?;
+        let reply = serde_json::to_vec(&preview)?;
         if reply.len() > MAX_PAIRING_PAYLOAD_LENGTH {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -111,12 +113,13 @@ impl RouterState {
         if self.authorize_node_join_approver(bearer).await? != owner {
             return Err(invalid("enrollment approver differs from approved owner"));
         }
-        self.verify_node_join_approving_device(&approval.request.approving_peer)
+        self.verify_node_join_approving_device(&request.approving_peer)
             .await?;
         log::debug!(target: "setup_timeout", "seam=enrollment phase=transaction_begin elapsed_ms={}", started.elapsed().as_millis());
-        let result = self.enroll_node_join(&approval.request, owner, now).await;
+        let result = self.enroll_node_join(&request, owner, now).await;
         log::debug!(target: "setup_timeout", "seam=enrollment phase=transaction_end elapsed_ms={} successful={} error_kind={:?}", started.elapsed().as_millis(), result.is_ok(), result.as_ref().err().map(io::Error::kind));
-        result?;
+        let device_id = result?;
+        let approval = NodeJoinApproval::signed_by(identity, request, device_id, owner)?;
         log::debug!(target: "setup_timeout", "seam=enrollment phase=verification_begin elapsed_ms={}", started.elapsed().as_millis());
         self.verify_node_join_enrollment(&approval).await?;
         log::debug!(target: "setup_timeout", "seam=enrollment phase=verification_end elapsed_ms={}", started.elapsed().as_millis());
@@ -139,7 +142,7 @@ impl RouterState {
             .await
             .map_err(io::Error::other)?
             .ok_or_else(|| invalid("approved enrollment Device is unavailable"))?;
-        if device.id != request.member_id
+        if device.id != approval.device_id
             || device.owner_subject != approval.owner_subject.to_string()
             || device.name != request.name
         {
@@ -232,8 +235,9 @@ impl RouterState {
         request: &NodeJoinRequest,
         owner: Id,
         now: i64,
-    ) -> io::Result<()> {
-        self.management_devices()?
+    ) -> io::Result<Id> {
+        let device = self
+            .management_devices()?
             .enroll_approved_exact(
                 request.member_id,
                 owner,
@@ -266,7 +270,7 @@ impl RouterState {
         };
         let mut transaction = self.engine.transaction().await.map_err(io::Error::other)?;
         let result = async {
-            persist_join_intent(&mut transaction, request, owner).await?;
+            persist_join_intent(&mut transaction, request, device.id, owner).await?;
             DbReplicaSignerRepo::enroll_in_transaction(&mut transaction, &membership, &signer)
                 .await
                 .map_err(|error| match error {
@@ -302,7 +306,10 @@ impl RouterState {
         }
         .await;
         match result {
-            Ok(()) => transaction.commit().await.map_err(io::Error::other),
+            Ok(()) => {
+                transaction.commit().await.map_err(io::Error::other)?;
+                Ok(device.id)
+            }
             Err(error) => {
                 transaction.rollback().await.map_err(io::Error::other)?;
                 Err(error)
@@ -314,18 +321,19 @@ impl RouterState {
 async fn persist_join_intent(
     transaction: &mut Transaction,
     request: &NodeJoinRequest,
+    device_id: Id,
     owner: Id,
 ) -> io::Result<()> {
     transaction.translate_and_execute(
-        "CREATE TABLE IF NOT EXISTS local_node_join_intents (id UUID PRIMARY KEY, binding TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS local_node_join_intents (id TEXT PRIMARY KEY, binding TEXT NOT NULL)",
         &SqlTranslator,
     ).await.map_err(io::Error::other)?;
-    let binding =
-        String::from_utf8(NodeJoinApproval::payload(request, owner)?).map_err(io::Error::other)?;
+    let binding = String::from_utf8(NodeJoinApproval::payload(request, device_id, owner)?)
+        .map_err(io::Error::other)?;
     let rows = transaction
         .translate_and_execute(
             &format!(
-                "SELECT binding FROM local_node_join_intents WHERE id = CAST('{}' AS UUID)",
+                "SELECT binding FROM local_node_join_intents WHERE id = '{}'",
                 request.member_id,
             ),
             &SqlTranslator,
@@ -334,9 +342,17 @@ async fn persist_join_intent(
         .map_err(io::Error::other)?;
     match rows[0].rows.as_slice() {
         [] => {
-            transaction.translate_and_execute(&format!(
-                "INSERT INTO local_node_join_intents (id, binding) VALUES (CAST('{}' AS UUID), {})", request.member_id, text(&binding),
-            ), &SqlTranslator).await.map_err(io::Error::other)?;
+            transaction
+                .translate_and_execute(
+                    &format!(
+                        "INSERT INTO local_node_join_intents (id, binding) VALUES ('{}', {})",
+                        request.member_id,
+                        text(&binding),
+                    ),
+                    &SqlTranslator,
+                )
+                .await
+                .map_err(io::Error::other)?;
         }
         [row] if row.values == [Value::Text(binding)] => (),
         _ => {
@@ -348,7 +364,7 @@ async fn persist_join_intent(
     require_clear(
         transaction,
         "local_node_join_intents",
-        &Row::new(vec![Value::Uuid(request.member_id)]),
+        &Row::new(vec![Value::Text(request.member_id.to_string())]),
     )
     .await
 }

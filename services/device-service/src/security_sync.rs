@@ -4,6 +4,7 @@ pub const PUBLIC_DEVICE_TABLES: &[&str] = &[
     "devices",
     "device_selection_policies",
     "device_resource_selections",
+    "device_selection_denials",
 ];
 
 #[must_use]
@@ -28,6 +29,7 @@ pub fn public_device_columns(table: &str) -> Option<&'static [&'static str]> {
             "selected_kind",
             "selected_id",
             "admin_allowed",
+            "device_key",
         ],
         "device_resource_selections" => &[
             "id",
@@ -38,6 +40,7 @@ pub fn public_device_columns(table: &str) -> Option<&'static [&'static str]> {
             "selected_id",
             "selected",
         ],
+        "device_selection_denials" => &["id", "selection_id"],
         _ => return None,
     })
 }
@@ -89,6 +92,51 @@ mod tests {
         assert_eq!(crate::security_sync::public_device_columns("unknown"), None);
     }
 
+    #[cfg(feature = "ofdb")]
+    #[test]
+    fn device_owner_validates_denial_identity_and_binding() {
+        use crate::security_policy::SecurityHistory;
+        use ofdb_sql::history::{
+            SyncCandidateView, SyncRowView, SyncTableView, SyncValidationDirection,
+        };
+        use ofdb_sql::{Row, Uuid, Value};
+
+        let event = Uuid::now_v7();
+        let selection = Uuid::new_v5(&Uuid::NAMESPACE_URL, b"selection");
+        let owner = SecurityHistory::Devices;
+        let table = "device_selection_denials";
+        assert!(
+            owner
+                .validate_value(table, "selection_id", &Value::Uuid(event), "fixture")
+                .is_err()
+        );
+        assert!(
+            owner
+                .validate_value(table, "selection_id", &Value::Uuid(selection), "fixture")
+                .is_ok()
+        );
+        let mut view = SyncCandidateView {
+            direction: SyncValidationDirection::Incoming,
+            candidates: vec![],
+            tables: vec![SyncTableView {
+                name: table.into(),
+                columns: vec!["id".into(), "selection_id".into()],
+                rows: vec![SyncRowView {
+                    id: event,
+                    row: Row::new(vec![Value::Uuid(event), Value::Uuid(selection)]),
+                    deleted: false,
+                    conflicts: vec![],
+                }],
+            }],
+        };
+        assert!(owner.validate_candidate(&view, "fixture", None).is_ok());
+        view.tables[0].rows[0].row.values[1] = Value::Null;
+        assert!(owner.validate_candidate(&view, "fixture", None).is_err());
+        view.tables[0].rows[0].row.values[1] = Value::Uuid(selection);
+        view.tables[0].rows[0].id = Uuid::now_v7();
+        assert!(owner.validate_candidate(&view, "fixture", None).is_err());
+    }
+
     #[test]
     fn policy_sync_is_context_local_and_explicitly_allowlisted() {
         assert!(permits_device_table("devices"));
@@ -107,6 +155,7 @@ mod tests {
             "local_client_credentials",
             "local_credential_secrets",
             "local_device_enrollments",
+            "local_device_join_bindings",
             "unknown",
         ] {
             assert!(!permits_device_table(table));

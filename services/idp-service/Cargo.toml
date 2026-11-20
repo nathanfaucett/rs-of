@@ -101,6 +101,7 @@ ofdb-sql = { path = "../../db/sql", default-features = false, features = [
     "remote",
     "server",
     "sql",
+    "validated-history",
 ] }
 
 # Existing test dependencies

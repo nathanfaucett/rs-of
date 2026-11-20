@@ -23,6 +23,8 @@ pub struct NodeJoinRequest {
 pub struct NodeJoinApproval {
     pub request: NodeJoinRequest,
     #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
+    pub device_id: Id,
+    #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
     pub owner_subject: Id,
     pub signature: String,
 }

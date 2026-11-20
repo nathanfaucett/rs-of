@@ -144,7 +144,7 @@ impl SecurityProtocol {
         let approval = owner.node_join_anchor()?;
         DbDeviceRepo::new(self.management.clone().client())
             .check_pending_approved_binding(
-                approval.request.member_id,
+                approval.device_id,
                 approval.owner_subject,
                 &approval.request.name,
                 &approval.request.endpoint_id,
@@ -395,7 +395,7 @@ impl SecurityProtocol {
             .await
             .map_err(denied)?
             .ok_or_else(|| denied("bootstrap requires exact approved Device"))?;
-        if device.id != request.member_id
+        if device.id != approval.device_id
             || approval.owner_subject.is_nil()
             || device.owner_subject != approval.owner_subject.to_string()
             || device.name != request.name
@@ -592,7 +592,7 @@ impl SecurityProtocol {
     {
         let candidate = JoinCandidate {
             member_id: approval.request.member_id,
-            device_id: approval.request.member_id,
+            device_id: approval.device_id,
             endpoint: &approval.request.endpoint_id,
             owner: approval.owner_subject,
             public_signer: &approval.request.public_signer,

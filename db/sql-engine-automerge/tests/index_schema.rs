@@ -172,20 +172,17 @@ fn insert_reuses_current_table_schema_for_each_additional_index() {
                     .await
                     .expect("three additional non-unique indexes");
             }
-            let row = Row::new(vec![
-                Value::Uuid(Uuid::now_v7()),
-                Value::from("inserted"),
-                Value::Integer(7),
-            ]);
+            let row = Row::new(vec![Value::from("inserted"), Value::Integer(7)]);
             reads.scans.store(0, Ordering::Relaxed);
-            database
+            let inserted = database
                 .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                     table: "items".into(),
-                    row: row.clone(),
-                    returning: None,
+                    row,
+                    returning: Some(vec!["*".into()]),
                 }))])
                 .await
                 .expect("public INSERT maintains current indexes");
+            let row = &inserted[0].rows[0];
             let scans = reads.scans.load(Ordering::Relaxed);
             assert!(
                 scans > 0,
@@ -233,31 +230,25 @@ fn insert_reuses_current_table_schema_for_each_additional_index() {
 fn index_updates_use_fresh_schema_after_ddl_in_the_same_batch() {
     block_on(async {
         let (database, _, _) = fixture().await;
-        let initial = Uuid::now_v7();
-        database
+        let initial = database
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: "items".into(),
-                row: Row::new(vec![
-                    Value::Uuid(initial),
-                    Value::from("before"),
-                    Value::Integer(1),
-                ]),
-                returning: None,
+                row: Row::new(vec![Value::from("before"), Value::Integer(1)]),
+                returning: Some(vec!["id".into()]),
             }))])
             .await
             .expect("earlier operation uses its current schema");
-        let later = Uuid::now_v7();
-        database
+        let later = database
             .translate_and_execute(
-                &format!(
-                    "ALTER TABLE items ADD COLUMN fresh TEXT DEFAULT 'current'; \
-                     CREATE INDEX items_fresh ON items (fresh, label); \
-                     INSERT INTO items VALUES (CAST('{later}' AS UUID), 'after', 2, 'later')"
-                ),
+                "ALTER TABLE items ADD COLUMN fresh TEXT DEFAULT 'current'; \
+                 CREATE INDEX items_fresh ON items (fresh, label); \
+                 INSERT INTO items (label, amount, fresh) VALUES ('after', 2, 'later') RETURNING id",
                 &SqlTranslator,
             )
             .await
             .expect("mixed DDL/write batch observes each operation's current schema");
+        let initial = initial[0].rows[0].values[0].clone();
+        let later = later[2].rows[0].values[0].clone();
         for (id, label, amount, fresh) in [
             (initial, "before", 1, "current"),
             (later, "after", 2, "later"),
@@ -271,7 +262,7 @@ fn index_updates_use_fresh_schema_after_ddl_in_the_same_batch() {
                     .await
                     .expect("index uses fresh field positions and defaults"),
                 Some(Row::new(vec![
-                    Value::Uuid(id),
+                    id,
                     Value::from(label),
                     Value::Integer(amount),
                     Value::from(fresh)
@@ -339,11 +330,7 @@ fn index_updates_validate_a_competing_winner_in_its_own_table() {
         database
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: "items".into(),
-                row: Row::new(vec![
-                    Value::Uuid(Uuid::now_v7()),
-                    Value::from("inserted"),
-                    Value::Integer(7),
-                ]),
+                row: Row::new(vec![Value::from("inserted"), Value::Integer(7)]),
                 returning: None,
             }))])
             .await
@@ -467,7 +454,7 @@ fn index_schema_rechecks_exact_field_identity_and_complete_current_catalog() {
                 .index_schema("items_order")
                 .await
                 .expect_err("fresh index schema must reject changed field evidence");
-            let mut values = vec![Value::Uuid(Uuid::now_v7()), Value::from("new row")];
+            let mut values = vec![Value::from("new row")];
             if !["deleted", "table"].contains(&mutation) {
                 values.push(Value::Integer(7));
             }

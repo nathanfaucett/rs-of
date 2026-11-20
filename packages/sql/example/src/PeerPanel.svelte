@@ -26,9 +26,7 @@ let {
 let showDeleteDialog = $state(false);
 
 function getStatusClass(): string {
-  return peer.online
-    ? "bg-green-100 text-green-800"
-    : "bg-red-100 text-red-800";
+  return peer.online ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800";
 }
 
 function getStatusText(): string {
@@ -36,9 +34,7 @@ function getStatusText(): string {
 }
 
 function getToggleClass(): string {
-  return peer.online
-    ? "bg-orange-600 hover:bg-orange-700"
-    : "bg-green-600 hover:bg-green-700";
+  return peer.online ? "bg-orange-600 hover:bg-orange-700" : "bg-green-600 hover:bg-green-700";
 }
 
 function getToggleText(): string {

@@ -30,6 +30,10 @@ export interface NodeJoinApproval {
   /**
    *
    */
+  deviceId: string;
+  /**
+   *
+   */
   ownerSubject: string;
   /**
    *
@@ -45,6 +49,13 @@ export interface NodeJoinApproval {
  * Check if a given object implements the NodeJoinApproval interface.
  */
 export function instanceOfNodeJoinApproval(value: object): value is NodeJoinApproval {
+  if (
+    (!("deviceId" in (value as Record<string, any>)) &&
+      !("device_id" in (value as Record<string, any>))) ||
+    ((value as Record<string, any>)["deviceId"] === undefined &&
+      (value as Record<string, any>)["device_id"] === undefined)
+  )
+    return false;
   if (
     (!("ownerSubject" in (value as Record<string, any>)) &&
       !("owner_subject" in (value as Record<string, any>))) ||
@@ -68,13 +79,14 @@ export function NodeJoinApprovalFromJSONTyped(
   if (
     json &&
     typeof json === "object" &&
-    Object.keys(json).some((key) => !["owner_subject", "request", "signature"].includes(key))
+    Object.keys(json).some((key) => !["device_id", "owner_subject", "request", "signature"].includes(key))
   )
     throw new Error("Unexpected NodeJoinApproval field");
   if (json == null) {
     return json;
   }
   return {
+    deviceId: json["device_id"],
     ownerSubject: json["owner_subject"],
     request: NodeJoinRequestFromJSON(json["request"]),
     signature: json["signature"],
@@ -94,6 +106,7 @@ export function NodeJoinApprovalToJSONTyped(
   }
 
   return {
+    device_id: value["deviceId"],
     owner_subject: value["ownerSubject"],
     request: NodeJoinRequestToJSON(value["request"]),
     signature: value["signature"],

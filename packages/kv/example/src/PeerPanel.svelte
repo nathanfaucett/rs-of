@@ -1,49 +1,45 @@
 <script lang="ts">
-    interface PeerLike {
-        id: string;
-        name: string;
-        online: boolean;
-        syncing: boolean;
-        lastSync: string;
-        error: string;
-        recordCount?: number;
-    }
+interface PeerLike {
+  id: string;
+  name: string;
+  online: boolean;
+  syncing: boolean;
+  lastSync: string;
+  error: string;
+  recordCount?: number;
+}
 
-    let {
-        peer,
-        canRemove,
-        onToggleOnline,
-        onRemove,
-        children,
-    }: {
-        peer: PeerLike;
-        canRemove: boolean;
-        onToggleOnline: (id: string, online: boolean) => void;
-        onRemove: (id: string) => void;
-        children?: import("svelte").Snippet;
-    } = $props();
+let {
+  peer,
+  canRemove,
+  onToggleOnline,
+  onRemove,
+  children,
+}: {
+  peer: PeerLike;
+  canRemove: boolean;
+  onToggleOnline: (id: string, online: boolean) => void;
+  onRemove: (id: string) => void;
+  children?: import("svelte").Snippet;
+} = $props();
 
-    let showDeleteDialog = $state(false);
+let showDeleteDialog = $state(false);
 
-    function getStatusClass(): string {
-        return peer.online
-            ? "bg-green-100 text-green-800"
-            : "bg-red-100 text-red-800";
-    }
+function getStatusClass(): string {
+  return peer.online ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800";
+}
 
-    function getStatusText(): string {
-        return peer.online ? "Online" : "Offline";
-    }
+function getStatusText(): string {
+  return peer.online ? "Online" : "Offline";
+}
 
-    function getToggleClass(): string {
-        return peer.online
-            ? "bg-orange-600 hover:bg-orange-700"
-            : "bg-green-600 hover:bg-green-700";
-    }
+function getToggleClass(): string {
+  return peer.online ? "bg-orange-600 hover:bg-orange-700" : "bg-green-600 hover:bg-green-700";
+}
 
-    function getToggleText(): string {
-        return peer.online ? "Go Offline" : "Go Online";
-    }
+function getToggleText(): string {
+  return peer.online ? "Go Offline" : "Go Online";
+}
 </script>
 
 <div class="rounded-lg border border-gray-300 bg-gray-50 p-3">

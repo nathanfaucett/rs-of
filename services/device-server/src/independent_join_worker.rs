@@ -62,7 +62,7 @@ pub(super) async fn provision(
         };
         request.validate()?;
         if request.operation != command.intent
-            || request.device_id != record.device
+            || request.request_id != record.device
             || request.endpoint_id != identity.endpoint_id().to_string()
         {
             return Err(io::Error::other("local Join request binding mismatch"));

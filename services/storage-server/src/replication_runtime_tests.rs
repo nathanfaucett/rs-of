@@ -267,14 +267,7 @@ impl Fixture {
     }
 
     async fn policy_changed(&self) {
-        sql(
-            &self.policy,
-            &format!(
-                "INSERT INTO events VALUES (CAST('{}' AS UUID))",
-                Id::now_v7()
-            ),
-        )
-        .await;
+        sql(&self.policy, "INSERT INTO events VALUES (DEFAULT)").await;
     }
 
     async fn close(self) {
@@ -321,15 +314,12 @@ fn database_changes_from_higher_id_and_new_peers_catch_up_then_stay_idle() {
         let mut fixture = Fixture::new().await;
         let (_, databases, kv) = fixture.database().await;
         fixture.start();
-        sql(&databases[1], &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'initial')", Id::now_v7())).await;
+        sql(&databases[1], "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('initial')").await;
         fixture.peers(true);
         until(|| has_row(&databases[0], "initial")).await;
         sql(
             &databases[1],
-            &format!(
-                "INSERT INTO documents VALUES (CAST('{}' AS UUID), 'higher')",
-                Id::now_v7()
-            ),
+            "INSERT INTO documents (value) VALUES ('higher')",
         )
         .await;
         until(|| has_row(&databases[0], "higher")).await;
@@ -360,7 +350,7 @@ fn database_changes_from_higher_id_and_new_peers_catch_up_then_stay_idle() {
 async fn failed_job_reconnects_without_a_new_write_or_inventory_notification() {
     let mut fixture = Fixture::new().await;
     let (_, databases, _) = fixture.database().await;
-    sql(&databases[1], &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'retry')", Id::now_v7())).await;
+    sql(&databases[1], "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('retry')").await;
     for accepting in &fixture.accepting {
         accepting.store(false, Ordering::SeqCst);
     }
@@ -389,10 +379,7 @@ async fn failed_job_reconnects_without_a_new_write_or_inventory_notification() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     sql(
         &databases[1],
-        &format!(
-            "INSERT INTO documents VALUES (CAST('{}' AS UUID), 'rejoined')",
-            Id::now_v7()
-        ),
+        "INSERT INTO documents (value) VALUES ('rejoined')",
     )
     .await;
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -686,14 +673,7 @@ async fn configuration_self_write_finishes_then_coalesces_without_read_commit_lo
         let owner_subject = owner.clone();
         async move {
             if first {
-                sql(
-                    &policy,
-                    &format!(
-                        "INSERT INTO events VALUES (CAST('{}' AS UUID))",
-                        Id::now_v7()
-                    ),
-                )
-                .await;
+                sql(&policy, "INSERT INTO events VALUES (DEFAULT)").await;
                 gate.pause().await;
                 completed.store(true, Ordering::SeqCst);
             }

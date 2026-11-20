@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work: resolved
+
 - [ ] Role, permission, role-permission, and user-role inserts obtain generated UUIDv7 primary keys through the SQL Client.
 - [ ] Idempotent create-with-ID and provisioning operations preserve public domain semantics without supplying a single-UUID Logical Row identity.
 - [ ] Selection persistence uses generated internal identities and suitable natural or composite keys for conflict targets and stable lookup.
@@ -13,3 +15,7 @@
 - [ ] Authorization, initial administrator provisioning, Selection, revocation, restart, and synchronization tests pass through public Management interfaces.
 - [ ] Fresh initialization requires no migration, new storage version, or new protocol version.
 - [ ] Focused Management service tests and required formatting and lint checks pass.
+
+## Comments
+
+Implementation integrated. All seven Management service tests passed, including independent provisioning, grant convergence, and recreation without stale grants. The server suite reproduced a baseline SQL translator failure. Authenticated owner transport and full feature and coverage qualification remain open.

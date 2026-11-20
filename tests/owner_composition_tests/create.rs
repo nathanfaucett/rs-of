@@ -1120,7 +1120,6 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
         "unknown",
     ] {
         let endpoint = iroh::SecretKey::generate().public().to_string();
-        let device = Id::now_v7();
         if case == "pending" {
             devices
                 .create(
@@ -1134,10 +1133,11 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
                 .await
                 .expect("pending Device is not approval");
         } else if case != "unknown" {
-            devices
-                .enroll_approved_exact(device, owner, case, &endpoint, 1)
+            let device = devices
+                .enroll_approved_exact(Id::now_v7(), owner, case, &endpoint, 1)
                 .await
-                .expect("Management-only approved endpoint; no IdP signer is enrolled");
+                .expect("Management-only approved endpoint; no IdP signer is enrolled")
+                .id;
             policies
                 .set_prevalidated(SelectionPolicy {
                     device_id: device,

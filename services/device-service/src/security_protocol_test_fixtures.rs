@@ -22,6 +22,16 @@ pub(super) async fn sql(database: &Database, statement: &str) -> Vec<ofdb_sql::Q
         .expect("public SQL fixture")
 }
 
+pub(super) async fn insert_device(
+    database: &Database,
+    owner: &str,
+    endpoint: iroh::EndpointId,
+    name: &str,
+) -> Id {
+    let results = sql(database, &format!("INSERT INTO devices (owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES ('{owner}', '{name}', '{endpoint}', 'local', 1, 1, 1, 1) RETURNING id")).await;
+    ofdb_sql::decode(&results[0].rows[0].values[0], "id").expect("generated Device ID")
+}
+
 pub(super) async fn enroll(idp: Arc<Database>, member: Id, endpoint: iroh::EndpointId, key: Id) {
     DbReplicaSignerRepo::new(idp.client())
         .enroll(

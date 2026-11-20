@@ -21,7 +21,7 @@ use storage_service::{
 use tokio_util::sync::CancellationToken;
 
 use super::{FILESYSTEM_STREAM_KIND, FrameAuthorizer, IrohFileTransport, IrohResourceDescriptor};
-use crate::execution_test_support::{DomainNode, Gate, IrohPair, TestDirectory, approved_signers};
+use crate::execution_test_support::{DomainNode, Gate, IrohPair, TestDirectory};
 
 struct Scope {
     owner: String,
@@ -62,27 +62,8 @@ impl Fixture {
     async fn new() -> Self {
         let directory = TestDirectory::new();
         let peers = IrohPair::new().await;
-        let owner = Id::now_v7();
-        let devices = [Id::now_v7(), Id::now_v7()];
-        let signers = approved_signers(devices);
-        let nodes = [
-            DomainNode::new(
-                directory.0.join("left"),
-                owner,
-                devices,
-                peers.ids(),
-                &signers,
-            )
-            .await,
-            DomainNode::new(
-                directory.0.join("right"),
-                owner,
-                devices,
-                peers.ids(),
-                &signers,
-            )
-            .await,
-        ];
+        let nodes = DomainNode::pair(&directory.0, peers.ids()).await;
+        let owner = nodes[0].owner;
         let scope = Scope {
             owner: owner.to_string(),
             application: Id::now_v7(),

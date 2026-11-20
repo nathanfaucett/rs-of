@@ -17,6 +17,7 @@ use ofdb_sql::Row;
 use ofdb_sql::Statement;
 use ofdb_sql::Uuid;
 use ofdb_sql::Value;
+use ofdb_sql::{QueryParams, Transaction};
 
 use of_model::device_error::DeviceError;
 
@@ -24,7 +25,7 @@ use crate::device_repo::DeviceRepo;
 
 use of_model::device_error::DeviceResult;
 
-use crate::ofdb::device_repo::DbDeviceRepo;
+use crate::ofdb::device_repo::{DbDeviceRepo, device_key};
 
 const TABLE: &str = "device_selection_policies";
 const RESOURCE_TABLE: &str = "device_resource_selections";
@@ -105,9 +106,10 @@ impl DbSelectionPolicyRepo {
         resource_id: Uuid,
     ) -> DeviceResult<bool> {
         let id = resource_selection_id(device_id, owner_subject, application_id, kind, resource_id);
+        let key = resource_key(device_id, owner_subject, application_id, kind, resource_id);
         let conflicts = self
             .engine
-            .row_conflict_values(RESOURCE_TABLE, &key(id))
+            .row_conflict_values(RESOURCE_TABLE, &key)
             .await
             .map_err(db_error)?;
         if !conflicts.is_empty() {
@@ -119,176 +121,159 @@ impl DbSelectionPolicyRepo {
                 resolutions.push((column, Value::Bool(false)));
             }
             self.engine
-                .resolve_row(RESOURCE_TABLE, &key(id), resolutions)
+                .resolve_row(RESOURCE_TABLE, &key, resolutions)
                 .await
                 .map_err(db_error)?;
         }
-        let mut results = self
-            .engine
-            .execute(vec![Statement::Query(Query::Select(QuerySelect {
-                from: resource_from(),
-                projection: [
-                    "id",
-                    "device_id",
-                    "owner_subject",
-                    "application_id",
-                    "selected_kind",
-                    "selected_id",
-                    "selected",
-                ]
-                .into_iter()
-                .map(resource_column)
-                .collect(),
-                distinct: false,
-                predicate: Some(resource_equals("id", Value::Uuid(id))),
-                aggregates: vec![],
-                group_by: vec![],
-                order_by: vec![],
-                text_concats: vec![],
-
-                limit: None,
-                offset: None,
-                having: None,
-            }))])
-            .await
-            .map_err(db_error)?;
-        let rows = results
-            .pop()
-            .ok_or_else(|| invalid("missing resource selection query result"))?
-            .rows_as::<ResourceSelection>()
-            .map_err(|error| invalid(error.to_string()))?;
-        Ok(rows.into_iter().any(|selection| {
-            selection.id == id
-                && selection.device_id == device_id
-                && selection.owner_subject == owner_subject
-                && selection.application_id == application_id
-                && selection.selected_kind == kind
-                && selection.selected_id == resource_id
-                && selection.selected
-        }))
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let selected = Self::resource_selected_in(&mut transaction, &key, id).await;
+        transaction.rollback().await.map_err(db_error)?;
+        selected
     }
 
-    async fn set_resource_selected(&self, policy: &SelectionPolicy) -> DeviceResult<()> {
-        let (Some(application_id), Some(kind), Some(resource_id)) = (
+    async fn resource_selected_in(
+        transaction: &mut Transaction,
+        key: &Row,
+        id: Uuid,
+    ) -> DeviceResult<bool> {
+        if Self::has_denial(transaction, id).await?
+            || !transaction
+                .row_conflicts(RESOURCE_TABLE, key)
+                .await
+                .map_err(db_error)?
+                .is_empty()
+        {
+            return Ok(false);
+        }
+        let results = transaction.execute_sql(
+            "SELECT device_id, owner_subject, application_id, selected_kind, selected_id, selected FROM device_resource_selections WHERE id = $1",
+            Some(&uuid_param(id)),
+        ).await.map_err(db_error)?;
+        let mut expected = key.clone();
+        expected.values.push(Value::Bool(true));
+        Ok(results[0].rows.as_slice() == [expected])
+    }
+
+    async fn has_denial(transaction: &mut Transaction, id: Uuid) -> DeviceResult<bool> {
+        let results = transaction
+            .execute_sql(
+                "SELECT id FROM device_selection_denials WHERE selection_id = $1 LIMIT 1",
+                Some(&uuid_param(id)),
+            )
+            .await
+            .map_err(db_error)?;
+        Ok(!results[0].rows.is_empty())
+    }
+
+    async fn set_resource_selected(
+        transaction: &mut Transaction,
+        policy: &SelectionPolicy,
+    ) -> DeviceResult<()> {
+        let (Some(application), Some(kind), Some(resource)) = (
             policy.application_id,
             policy.selected_kind.as_deref(),
             policy.selected_id,
         ) else {
             return Ok(());
         };
-        if self
-            .resource_selected(
-                policy.device_id,
-                &policy.owner_subject,
-                application_id,
-                kind,
-                resource_id,
-            )
-            .await?
-        {
-            return Ok(());
-        }
         let id = resource_selection_id(
             policy.device_id,
             &policy.owner_subject,
-            application_id,
+            application,
             kind,
-            resource_id,
+            resource,
         );
-        let exists = !self
-            .engine
-            .row_conflicts(RESOURCE_TABLE, &key(id))
+        if !transaction
+            .row_conflicts(
+                RESOURCE_TABLE,
+                &resource_key(
+                    policy.device_id,
+                    &policy.owner_subject,
+                    application,
+                    kind,
+                    resource,
+                ),
+            )
             .await
             .map_err(db_error)?
             .is_empty()
-            || self.resource_selection_exists(id).await?;
-        let query = if exists {
-            Query::Update(QueryUpdate {
-                from: resource_from(),
-                assignments: vec![assignment_for(
-                    RESOURCE_TABLE,
-                    "selected",
-                    Value::Bool(true),
-                )],
-                predicate: Some(resource_equals("id", Value::Uuid(id))),
-                returning: None,
-            })
-        } else {
-            Query::Insert(QueryInsert {
-                table: RESOURCE_TABLE.into(),
-                row: Row::new(vec![
-                    Value::Uuid(id),
-                    Value::Uuid(policy.device_id),
-                    Value::Text(policy.owner_subject.clone()),
-                    Value::Uuid(application_id),
-                    Value::Text(kind.to_owned()),
-                    Value::Uuid(resource_id),
-                    Value::Bool(true),
-                ]),
-                returning: None,
-            })
-        };
-        self.engine
-            .execute(vec![Statement::Query(query)])
+        {
+            return Err(invalid("conflicted resource selection"));
+        }
+        let params = QueryParams::Positional(vec![
+            Value::Uuid(id),
+            Value::Uuid(policy.device_id),
+            Value::Text(policy.owner_subject.clone()),
+            Value::Uuid(application),
+            Value::Text(kind.to_owned()),
+            Value::Uuid(resource),
+        ]);
+        transaction.execute_sql(
+            "INSERT INTO device_resource_selections (id, device_id, owner_subject, application_id, selected_kind, selected_id, selected) VALUES ($1, $2, $3, $4, $5, $6, true) ON CONFLICT (device_id, owner_subject, application_id, selected_kind, selected_id) DO UPDATE SET selected = true",
+            Some(&params),
+        ).await.map_err(db_error)?;
+        // Each deletion addresses a row in this transaction's snapshot, not a future deny.
+        transaction
+            .execute_sql(
+                "DELETE FROM device_selection_denials WHERE selection_id = $1",
+                Some(&uuid_param(id)),
+            )
             .await
             .map_err(db_error)?;
         Ok(())
     }
 
-    async fn resource_selection_exists(&self, id: Uuid) -> DeviceResult<bool> {
-        let mut results = self
-            .engine
-            .execute(vec![Statement::Query(Query::Select(QuerySelect {
-                from: resource_from(),
-                projection: [
-                    "id",
-                    "device_id",
-                    "owner_subject",
-                    "application_id",
-                    "selected_kind",
-                    "selected_id",
-                    "selected",
-                ]
-                .into_iter()
-                .map(resource_column)
-                .collect(),
-                distinct: false,
-                predicate: Some(resource_equals("id", Value::Uuid(id))),
-                aggregates: vec![],
-                group_by: vec![],
-                order_by: vec![],
-                text_concats: vec![],
-
-                limit: None,
-                offset: None,
-                having: None,
-            }))])
+    async fn deny_resources(
+        transaction: &mut Transaction,
+        column: &str,
+        id: Uuid,
+    ) -> DeviceResult<bool> {
+        let results = transaction
+            .execute_sql(
+                &format!("SELECT id FROM device_resource_selections WHERE {column} = $1"),
+                Some(&uuid_param(id)),
+            )
             .await
             .map_err(db_error)?;
-        Ok(!results
-            .pop()
-            .ok_or_else(|| invalid("missing resource selection query result"))?
-            .rows
-            .is_empty())
+        for row in &results[0].rows {
+            transaction
+                .execute_sql(
+                    "INSERT INTO device_selection_denials (selection_id) VALUES ($1)",
+                    Some(&QueryParams::Positional(row.values.clone())),
+                )
+                .await
+                .map_err(db_error)?;
+        }
+        Ok(!results[0].rows.is_empty())
+    }
+
+    async fn policy_in(
+        transaction: &mut Transaction,
+        device_id: Uuid,
+    ) -> DeviceResult<Option<SelectionPolicy>> {
+        if !transaction
+            .row_conflicts(TABLE, &key(device_id))
+            .await
+            .map_err(db_error)?
+            .is_empty()
+        {
+            return Err(invalid("conflicted selection policy"));
+        }
+        let results = transaction
+            .execute(vec![Statement::Query(policy_query(device_id))])
+            .await
+            .map_err(db_error)?;
+        Ok(results[0]
+            .rows_as::<SelectionPolicy>()
+            .map_err(|error| invalid(error.to_string()))?
+            .into_iter()
+            .next())
     }
 
     async fn raw_record(&self, device_id: Uuid) -> DeviceResult<Option<SelectionPolicy>> {
         let mut results = self
             .engine
-            .execute(vec![Statement::Query(Query::Select(QuerySelect {
-                from: from(),
-                projection: COLUMNS.into_iter().map(column).collect(),
-                distinct: false,
-                predicate: Some(equals("device_id", Value::Uuid(device_id))),
-                aggregates: vec![],
-                group_by: vec![],
-                order_by: vec![],
-                text_concats: vec![],
-
-                limit: None,
-                offset: None,
-                having: None,
-            }))])
+            .execute(vec![Statement::Query(policy_query(device_id))])
             .await
             .map_err(db_error)?;
         let rows = results
@@ -481,7 +466,16 @@ impl DbSelectionPolicyRepo {
                     return Err(invalid("invalid resource selection binding"));
                 }
                 let conflicts = transaction
-                    .row_conflict_values(RESOURCE_TABLE, &key(selection.id))
+                    .row_conflict_values(
+                        RESOURCE_TABLE,
+                        &resource_key(
+                            device_id,
+                            &selection.owner_subject,
+                            selection.application_id,
+                            &selection.selected_kind,
+                            selection.selected_id,
+                        ),
+                    )
                     .await
                     .map_err(db_error)?;
                 for (column, values) in &conflicts {
@@ -490,7 +484,10 @@ impl DbSelectionPolicyRepo {
                     }
                 }
                 // A concurrent deselection is denial evidence, never permission.
-                if selection.selected && conflicts.is_empty() {
+                if selection.selected
+                    && conflicts.is_empty()
+                    && !Self::has_denial(&mut transaction, selection.id).await?
+                {
                     if selection.owner_subject != owner_subject {
                         return Err(invalid("selected resource owner mismatch"));
                     }
@@ -545,7 +542,11 @@ impl DbSelectionPolicyRepo {
             } else {
                 Query::Insert(QueryInsert {
                     table: "local_device_copy_cleanup".into(),
-                    row: Row::new(vec![Value::Uuid(device_id), cleanup_id, Value::Bool(false)]),
+                    row: Row::new(vec![
+                        Value::Text(device_id.to_string()),
+                        cleanup_id,
+                        Value::Bool(false),
+                    ]),
                     returning: None,
                 })
             };
@@ -555,31 +556,20 @@ impl DbSelectionPolicyRepo {
                 .map_err(db_error)?;
         }
         transaction
-            .execute(vec![
-                Statement::Query(Query::Update(QueryUpdate {
-                    from: from(),
-                    assignments: vec![
-                        assignment("admin_allowed", Value::Bool(false)),
-                        assignment("application_id", Value::Null),
-                        assignment("selected_kind", Value::Null),
-                        assignment("selected_id", Value::Null),
-                    ],
-                    predicate: Some(equals("device_id", Value::Uuid(device_id))),
-                    returning: None,
-                })),
-                Statement::Query(Query::Update(QueryUpdate {
-                    from: resource_from(),
-                    assignments: vec![assignment_for(
-                        RESOURCE_TABLE,
-                        "selected",
-                        Value::Bool(false),
-                    )],
-                    predicate: Some(resource_equals("device_id", Value::Uuid(device_id))),
-                    returning: None,
-                })),
-            ])
+            .execute(vec![Statement::Query(Query::Update(QueryUpdate {
+                from: from(),
+                assignments: vec![
+                    assignment("admin_allowed", Value::Bool(false)),
+                    assignment("application_id", Value::Null),
+                    assignment("selected_kind", Value::Null),
+                    assignment("selected_id", Value::Null),
+                ],
+                predicate: Some(equals("device_id", Value::Uuid(device_id))),
+                returning: None,
+            }))])
             .await
             .map_err(db_error)?;
+        Self::deny_resources(&mut transaction, "device_id", device_id).await?;
         transaction.commit().await.map_err(db_error)?;
         Ok(
             of_model::device::selection_policy::OwnerPolicyObservation::PendingCleanup {
@@ -695,7 +685,7 @@ impl DbSelectionPolicyRepo {
         if let Some((endpoint, _)) = endpoint {
             for table in ["devices", "local_device_enrollments"] {
                 if !transaction
-                    .row_conflicts(table, &key(device_id))
+                    .row_conflicts(table, &device_key(table, device_id))
                     .await
                     .map_err(db_error)?
                     .is_empty()
@@ -863,92 +853,104 @@ impl DbSelectionPolicyRepo {
         {
             return Err(invalid("invalid selection policy"));
         }
-        let old = self.record(policy.device_id).await?;
-        if let Some(old) = &old {
-            if old.owner_subject != policy.owner_subject {
-                return Err(invalid("selection policy owner mismatch"));
-            }
-            if old.application_id.is_some() != old.selected_kind.is_some()
-                || old.selected_kind.is_some() != old.selected_id.is_some()
-            {
-                return Err(invalid("incomplete selection policy"));
-            }
-            if policy.selected_id.is_some() && !old.admin_allowed {
-                return Err(invalid("administrator has restricted selection"));
-            }
+        self.resolve_convergent_conflicts(policy.device_id).await?;
+        if let (Some(application), Some(kind), Some(resource)) = (
+            policy.application_id,
+            policy.selected_kind.as_deref(),
+            policy.selected_id,
+        ) {
+            self.resource_selected(
+                policy.device_id,
+                &policy.owner_subject,
+                application,
+                kind,
+                resource,
+            )
+            .await?;
         }
-        let selection_unchanged = old.as_ref().is_some_and(|old| {
-            old.application_id == policy.application_id
-                && old.selected_kind == policy.selected_kind
-                && old.selected_id == policy.selected_id
-        });
-        let query = if selection_unchanged {
-            None
-        } else if old.is_some() {
-            Some(Query::Update(QueryUpdate {
-                from: from(),
-                assignments: vec![
-                    assignment(
-                        "application_id",
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let update = async {
+            let old = Self::policy_in(&mut transaction, policy.device_id).await?;
+            if let Some(old) = &old {
+                if old.owner_subject != policy.owner_subject {
+                    return Err(invalid("selection policy owner mismatch"));
+                }
+                if old.application_id.is_some() != old.selected_kind.is_some()
+                    || old.selected_kind.is_some() != old.selected_id.is_some()
+                {
+                    return Err(invalid("incomplete selection policy"));
+                }
+                if policy.selected_id.is_some() && !old.admin_allowed {
+                    return Err(invalid("administrator has restricted selection"));
+                }
+            }
+            let selection_unchanged = old.as_ref().is_some_and(|old| {
+                old.application_id == policy.application_id
+                    && old.selected_kind == policy.selected_kind
+                    && old.selected_id == policy.selected_id
+            });
+            let query = if selection_unchanged {
+                None
+            } else if old.is_some() {
+                Some(Query::Update(QueryUpdate {
+                    from: from(),
+                    assignments: vec![
+                        assignment(
+                            "application_id",
+                            policy.application_id.map_or(Value::Null, Value::Uuid),
+                        ),
+                        assignment(
+                            "selected_kind",
+                            policy
+                                .selected_kind
+                                .clone()
+                                .map_or(Value::Null, Value::Text),
+                        ),
+                        assignment(
+                            "selected_id",
+                            policy.selected_id.map_or(Value::Null, Value::Uuid),
+                        ),
+                    ],
+                    predicate: Some(equals("device_id", Value::Uuid(policy.device_id))),
+                    returning: None,
+                }))
+            } else {
+                Some(Query::Insert(QueryInsert {
+                    table: TABLE.into(),
+                    row: Row::new(vec![
+                        Value::Uuid(policy.device_id),
+                        Value::Text(policy.owner_subject.clone()),
                         policy.application_id.map_or(Value::Null, Value::Uuid),
-                    ),
-                    assignment(
-                        "selected_kind",
                         policy
                             .selected_kind
                             .clone()
                             .map_or(Value::Null, Value::Text),
-                    ),
-                    assignment(
-                        "selected_id",
                         policy.selected_id.map_or(Value::Null, Value::Uuid),
-                    ),
-                ],
-                predicate: Some(equals("device_id", Value::Uuid(policy.device_id))),
-                returning: None,
-            }))
-        } else {
-            Some(Query::Insert(QueryInsert {
-                table: TABLE.into(),
-                row: Row::new(vec![
-                    Value::Uuid(policy.device_id),
-                    Value::Text(policy.owner_subject.clone()),
-                    policy.application_id.map_or(Value::Null, Value::Uuid),
-                    policy
-                        .selected_kind
-                        .clone()
-                        .map_or(Value::Null, Value::Text),
-                    policy.selected_id.map_or(Value::Null, Value::Uuid),
-                    Value::Bool(policy.admin_allowed),
-                ]),
-                returning: None,
-            }))
-        };
-        if let Some(query) = query {
-            self.engine
-                .execute(vec![Statement::Query(query)])
-                .await
-                .map_err(db_error)?;
-        }
-        self.clear(policy.device_id).await?;
-        if policy.selected_id.is_none() {
-            self.engine
-                .execute(vec![Statement::Query(Query::Update(QueryUpdate {
-                    from: resource_from(),
-                    assignments: vec![assignment_for(
-                        RESOURCE_TABLE,
-                        "selected",
-                        Value::Bool(false),
-                    )],
-                    predicate: Some(resource_equals("device_id", Value::Uuid(policy.device_id))),
+                        Value::Bool(policy.admin_allowed),
+                        Value::Text(policy.device_id.to_string()),
+                    ]),
                     returning: None,
-                }))])
-                .await
-                .map_err(db_error)?;
+                }))
+            };
+            if let Some(query) = query {
+                transaction
+                    .execute(vec![Statement::Query(query)])
+                    .await
+                    .map_err(db_error)?;
+            }
+            if policy.selected_id.is_none() {
+                Self::deny_resources(&mut transaction, "device_id", policy.device_id).await?;
+            } else {
+                Self::set_resource_selected(&mut transaction, &policy).await?;
+            }
             Ok(())
-        } else {
-            self.set_resource_selected(&policy).await
         }
+        .await;
+        if update.is_err() {
+            transaction.rollback().await.map_err(db_error)?;
+            return update;
+        }
+        transaction.commit().await.map_err(db_error)
     }
 
     // Caller must validate permission to change the admin restriction.
@@ -1000,32 +1002,34 @@ impl DbSelectionPolicyRepo {
         kind: &str,
         resource_id: Uuid,
     ) -> DeviceResult<bool> {
-        let Some(policy) = self.record(device_id).await? else {
-            return Ok(false);
-        };
-        if owner_subject.is_empty() || policy.owner_subject != owner_subject {
-            return Ok(false);
-        }
-        if !self
-            .resource_selected(device_id, owner_subject, application_id, kind, resource_id)
+        self.resolve_convergent_conflicts(device_id).await?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let outcome = async {
+            let Some(policy) = Self::policy_in(&mut transaction, device_id).await? else {
+                return Ok(false);
+            };
+            if owner_subject.is_empty() || policy.owner_subject != owner_subject {
+                return Ok(false);
+            }
+            let id =
+                resource_selection_id(device_id, owner_subject, application_id, kind, resource_id);
+            if !Self::resource_selected_in(
+                &mut transaction,
+                &resource_key(device_id, owner_subject, application_id, kind, resource_id),
+                id,
+            )
             .await?
-        {
-            return Ok(false);
+            {
+                return Ok(false);
+            }
+            Self::deny_resources(&mut transaction, "id", id).await
         }
-        let id = resource_selection_id(device_id, owner_subject, application_id, kind, resource_id);
-        self.engine
-            .execute(vec![Statement::Query(Query::Update(QueryUpdate {
-                from: resource_from(),
-                assignments: vec![assignment_for(
-                    RESOURCE_TABLE,
-                    "selected",
-                    Value::Bool(false),
-                )],
-                predicate: Some(resource_equals("id", Value::Uuid(id))),
-                returning: None,
-            }))])
-            .await
-            .map_err(db_error)?;
+        .await;
+        if !matches!(outcome, Ok(true)) {
+            transaction.rollback().await.map_err(db_error)?;
+            return outcome;
+        }
+        transaction.commit().await.map_err(db_error)?;
         Ok(true)
     }
 
@@ -1065,23 +1069,17 @@ impl DbSelectionPolicyRepo {
                 .map_err(db_error)?;
             self.clear(device_id).await?;
         }
-        self.record(device_id)
-            .await?
-            .ok_or_else(|| invalid("selection policy not found"))?;
-
-        self.engine
-            .execute(vec![
-                Statement::Query(Query::Update(QueryUpdate {
-                    from: resource_from(),
-                    assignments: vec![assignment_for(
-                        RESOURCE_TABLE,
-                        "selected",
-                        Value::Bool(false),
-                    )],
-                    predicate: Some(resource_equals("device_id", Value::Uuid(device_id))),
-                    returning: None,
-                })),
-                Statement::Query(Query::Update(QueryUpdate {
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let update = async {
+            if !Self::policy_in(&mut transaction, device_id)
+                .await?
+                .is_some_and(|policy| policy.owner_subject == owner_subject)
+            {
+                return Ok(false);
+            }
+            Self::deny_resources(&mut transaction, "device_id", device_id).await?;
+            transaction
+                .execute(vec![Statement::Query(Query::Update(QueryUpdate {
                     from: from(),
                     assignments: ["application_id", "selected_kind", "selected_id"]
                         .into_iter()
@@ -1089,11 +1087,25 @@ impl DbSelectionPolicyRepo {
                         .collect(),
                     predicate: Some(equals("device_id", Value::Uuid(device_id))),
                     returning: None,
-                })),
-            ])
-            .await
-            .map_err(db_error)?;
-        self.clear(device_id).await?;
+                }))])
+                .await
+                .map_err(db_error)?;
+            if !transaction
+                .row_conflicts(TABLE, &key(device_id))
+                .await
+                .map_err(db_error)?
+                .is_empty()
+            {
+                return Err(invalid("conflicted selection policy"));
+            }
+            Ok(true)
+        }
+        .await;
+        if !matches!(update, Ok(true)) {
+            transaction.rollback().await.map_err(db_error)?;
+            return update;
+        }
+        transaction.commit().await.map_err(db_error)?;
         Ok(true)
     }
 }
@@ -1107,7 +1119,27 @@ fn db_error(error: ofdb_sql::QueryError) -> DeviceError {
 }
 
 fn key(id: Uuid) -> Row {
-    Row::new(vec![Value::Uuid(id)])
+    Row::new(vec![Value::Text(id.to_string())])
+}
+
+fn resource_key(
+    device_id: Uuid,
+    owner_subject: &str,
+    application_id: Uuid,
+    kind: &str,
+    resource_id: Uuid,
+) -> Row {
+    Row::new(vec![
+        Value::Uuid(device_id),
+        Value::Text(owner_subject.to_owned()),
+        Value::Uuid(application_id),
+        Value::Text(kind.to_owned()),
+        Value::Uuid(resource_id),
+    ])
+}
+
+fn uuid_param(id: Uuid) -> QueryParams {
+    QueryParams::Positional(vec![Value::Uuid(id)])
 }
 
 fn resource_selection_id(
@@ -1339,16 +1371,35 @@ mod tests {
             .expect("Management schema");
         let repo = DbSelectionPolicyRepo::new(first.clone().client());
         let device = Uuid::now_v7();
-        repo.set_prevalidated(SelectionPolicy {
+        let policy = SelectionPolicy {
             device_id: device,
             owner_subject: "owner".into(),
             application_id: Some(Uuid::now_v7()),
             selected_kind: Some("database".into()),
             selected_id: Some(Uuid::now_v7()),
             admin_allowed: true,
-        })
-        .await
-        .expect("select resource");
+        };
+        for _ in 0..2 {
+            repo.set_prevalidated(policy.clone())
+                .await
+                .expect("select resource");
+        }
+        let selections = first
+            .export_history()
+            .await
+            .expect("export Device history")
+            .into_iter()
+            .filter_map(|unit| match unit.key {
+                ofdb_sql_history::SyncKey::Row { table, row }
+                    if table == "device_resource_selections" =>
+                {
+                    Some(row)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(selections.len(), 1, "reselection retains one Logical Row");
+        assert_eq!(selections[0].get_version_num(), 7);
         sync_replica(&first, &second).await;
         first
             .client()
@@ -1375,7 +1426,7 @@ mod tests {
         first
             .client()
             .translate_and_execute(
-                "UPDATE device_resource_selections SET owner_subject = 'alice'",
+                "UPDATE device_resource_selections SET id = CAST('01890f4e-7c00-7000-8000-000000000001' AS UUID)",
                 &ofdb_sql::SqlTranslator,
             )
             .await
@@ -1383,7 +1434,7 @@ mod tests {
         second
             .client()
             .translate_and_execute(
-                "UPDATE device_resource_selections SET owner_subject = 'bob'",
+                "UPDATE device_resource_selections SET id = CAST('01890f4e-7c00-7000-8000-000000000002' AS UUID)",
                 &ofdb_sql::SqlTranslator,
             )
             .await
@@ -1393,6 +1444,165 @@ mod tests {
             repo.observe_owner_prevalidated(device, "owner")
                 .await
                 .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn independent_selection_cannot_erase_deselection_and_can_be_reselected() {
+        let (left, right) = (Database::in_memory(), Database::in_memory());
+        let policy = SelectionPolicy {
+            device_id: Uuid::now_v7(),
+            owner_subject: "owner".into(),
+            application_id: Some(Uuid::now_v7()),
+            selected_kind: Some("database".into()),
+            selected_id: Some(Uuid::now_v7()),
+            admin_allowed: true,
+        };
+        let a = DbSelectionPolicyRepo::new(left.client());
+        let b = DbSelectionPolicyRepo::new(right.client());
+        crate::ofdb::schema::up(&left).await.expect("left schema");
+        a.set_prevalidated(policy.clone())
+            .await
+            .expect("left selection");
+        assert!(
+            a.deselect_resource_owned(
+                policy.device_id,
+                "owner",
+                policy.application_id.expect("application"),
+                "database",
+                policy.selected_id.expect("resource")
+            )
+            .await
+            .expect("deselect on left")
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        crate::ofdb::schema::up(&right).await.expect("right schema");
+        b.set_prevalidated(policy.clone())
+            .await
+            .expect("independent later selection");
+        exchange_device_history(&left, &right).await;
+        for repo in [&a, &b] {
+            assert!(
+                repo.selected_resources_for_device(policy.device_id)
+                    .await
+                    .expect("list selections")
+                    .is_empty()
+            );
+            assert!(
+                matches!(repo.observe_owner_prevalidated(policy.device_id, "owner").await.expect("owner observation"), OwnerPolicyObservation::Ready { resources, .. } if resources.is_empty())
+            );
+        }
+        b.set_prevalidated(policy.clone())
+            .await
+            .expect("reselect after observing deny");
+        exchange_device_history(&right, &left).await;
+        for repo in [&a, &b] {
+            assert_eq!(
+                repo.selected_resources_for_device(policy.device_id)
+                    .await
+                    .expect("list after reselect")
+                    .len(),
+                1
+            );
+        }
+        // Both peers now observe the Selection. A removes only its own next denial.
+        for repo in [&a, &b] {
+            assert!(
+                repo.deselect_resource_owned(
+                    policy.device_id,
+                    "owner",
+                    policy.application_id.expect("application"),
+                    "database",
+                    policy.selected_id.expect("resource")
+                )
+                .await
+                .expect("concurrent deselection")
+            );
+        }
+        a.set_prevalidated(policy.clone())
+            .await
+            .expect("reselect without observing the other deny");
+        exchange_device_history(&left, &right).await;
+        for repo in [&a, &b] {
+            assert!(
+                repo.selected_resources_for_device(policy.device_id)
+                    .await
+                    .expect("unobserved deny remains live")
+                    .is_empty()
+            );
+        }
+        a.set_prevalidated(policy.clone())
+            .await
+            .expect("reselect after observing both denials");
+        exchange_device_history(&left, &right).await;
+        for repo in [&a, &b] {
+            assert_eq!(
+                repo.selected_resources_for_device(policy.device_id)
+                    .await
+                    .expect("converged reselect")
+                    .len(),
+                1
+            );
+        }
+    }
+
+    async fn exchange_device_history(left: &Database, right: &Database) {
+        use crate::security_policy::SecurityHistory;
+        use ofdb_sql::history::{SessionConfig, SyncRole, SyncTransport};
+        use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+
+        struct Channel(UnboundedSender<Vec<u8>>, UnboundedReceiver<Vec<u8>>);
+        impl SyncTransport for Channel {
+            type Error = &'static str;
+            async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
+                self.0.send(frame).map_err(|_| "closed")
+            }
+            async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
+                self.1.recv().await.ok_or("closed")
+            }
+        }
+        let (a, rx_a) = unbounded_channel();
+        let (b, rx_b) = unbounded_channel();
+        let config = SessionConfig::default();
+        let owner = SecurityHistory::Devices;
+        let tables = owner.tables();
+        let exchange = |database: &Database, role, mut channel: Channel| {
+            let database = database.clone();
+            let config = &config;
+            let tables = &tables;
+            async move {
+                database
+                    .exchange_history(
+                        &mut channel,
+                        config,
+                        role,
+                        std::env::temp_dir(),
+                        tables,
+                        |table, column, value| {
+                            owner.validate_value(table, column, value, "fixture")
+                        },
+                        |view| {
+                            owner
+                                .validate_candidate(view, "fixture", None)
+                                .map_err(|error| error.to_string())
+                        },
+                        || async { Ok(()) },
+                    )
+                    .await
+            }
+        };
+        let (a_result, b_result) =
+            tokio::time::timeout(std::time::Duration::from_secs(15), async {
+                tokio::join!(
+                    exchange(left, SyncRole::Initiator, Channel(a, rx_b)),
+                    exchange(right, SyncRole::Responder, Channel(b, rx_a))
+                )
+            })
+            .await
+            .expect("Device exchange completes");
+        assert!(
+            a_result.is_ok() && b_result.is_ok(),
+            "{a_result:?}; {b_result:?}"
         );
     }
 
@@ -2644,7 +2854,10 @@ fn policy_query(device_id: Uuid) -> Query {
         from: from(),
         projection: COLUMNS.into_iter().map(column).collect(),
         distinct: false,
-        predicate: Some(equals("device_id", Value::Uuid(device_id))),
+        predicate: Some(QueryExpr::And(
+            Box::new(equals("device_id", Value::Uuid(device_id))),
+            Box::new(equals("device_key", Value::Text(device_id.to_string()))),
+        )),
         aggregates: vec![],
         group_by: vec![],
         order_by: vec![],
@@ -2661,8 +2874,8 @@ fn cleanup_device(device_id: Uuid) -> QueryExpr {
             "local_device_copy_cleanup".into(),
             "device_id".into(),
         )))),
-        Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Uuid(
-            device_id,
+        Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Text(
+            device_id.to_string(),
         )))),
     )
 }

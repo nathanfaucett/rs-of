@@ -685,7 +685,7 @@ async fn receipt_boundary() {
     devices
         .rename(
             &received.owner_subject.to_string(),
-            binding.member_id,
+            received.device_id,
             "Changed Node".into(),
         )
         .await
@@ -707,7 +707,7 @@ async fn receipt_boundary() {
     devices
         .rename(
             &received.owner_subject.to_string(),
-            binding.member_id,
+            received.device_id,
             request.name.clone(),
         )
         .await
