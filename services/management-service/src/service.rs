@@ -512,10 +512,8 @@ where
     }
 }
 
-#[cfg(all(test, feature = "replica"))]
+#[cfg(all(test, feature = "ofdb"))]
 mod tests {
-    use std::sync::Arc;
-
     use of_model::id::Id;
 
     use crate::service::ManagementService;
@@ -527,13 +525,59 @@ mod tests {
     use db::ofdb::up;
 
     #[tokio::test]
+    async fn reselecting_a_revoked_resource_restores_one_selection() {
+        let engine = ofdb_sql::Database::in_memory();
+        up(&engine.client())
+            .await
+            .expect("initialize policy schema");
+        let service = ManagementService::new(
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
+        );
+        let (device, resource, application) = (Id::now_v7(), Id::now_v7(), Id::now_v7());
+        service
+            .select_resource(device, resource, application, "user's subject")
+            .await
+            .expect("select the Resource");
+        service
+            .deselect_resource(device, resource)
+            .await
+            .expect("revoke the Selection");
+        assert!(
+            !service
+                .has_selection(device, resource)
+                .await
+                .expect("lookup")
+        );
+        service
+            .select_resource(device, resource, application, "user's subject")
+            .await
+            .expect("restore the Selection");
+        let selections = service
+            .list_device_selections(device)
+            .await
+            .expect("list Selections");
+        assert_eq!(selections.len(), 1);
+        assert_eq!(selections[0].owner_subject, "user's subject");
+        assert_eq!(
+            selections,
+            service
+                .list_resource_sync_targets(resource)
+                .await
+                .expect("list targets")
+        );
+    }
+
+    #[tokio::test]
     async fn initial_administrator_has_explicit_client_registration_permission() {
         use of_model::idp::contract::permission_evaluation::{
             IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
             PermissionTarget,
         };
-        let engine = Arc::new(ofdb_sql::Database::in_memory());
-        up(&engine).await.expect("initialize policy schema");
+        let engine = ofdb_sql::Database::in_memory();
+        up(&engine.client())
+            .await
+            .expect("initialize policy schema");
         let service = ManagementService::new(
             DbPermissionRepo::new(engine.client()),
             DbRoleRepo::new(engine.client()),
@@ -582,14 +626,90 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ensure_rbac_records_retry_by_stable_id_and_reject_conflicts() {
-        let engine = Arc::new(ofdb_sql::Database::in_memory());
-        up(&engine).await.expect("initialize management schema");
+    async fn recreating_a_role_does_not_restore_old_grants() {
+        let engine = ofdb_sql::Database::in_memory();
+        up(&engine.client())
+            .await
+            .expect("initialize policy schema");
         let service = ManagementService::new(
             DbPermissionRepo::new(engine.client()),
             DbRoleRepo::new(engine.client()),
         );
-        let role_id = Id::now_v7();
+        let (application, role, user) = (Id::now_v7(), Id::now_v7(), Id::now_v7());
+        service
+            .ensure_role(role, application, "role", None)
+            .await
+            .expect("create role");
+        service
+            .add_role_to_user(application, user, role)
+            .await
+            .expect("grant role");
+        service
+            .delete_role_by_id(application, role)
+            .await
+            .expect("delete role");
+        service
+            .ensure_role(role, application, "replacement", None)
+            .await
+            .expect("create replacement");
+        assert!(
+            service
+                .list_user_roles(application, user)
+                .await
+                .expect("list assigned roles")
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn ordinary_creates_return_persisted_uuidv7_ids() {
+        let engine = ofdb_sql::Database::in_memory();
+        up(&engine.client())
+            .await
+            .expect("initialize policy schema");
+        let service = ManagementService::new(
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
+        );
+        let application = Id::now_v7();
+        let role = service
+            .create_role(application, "operator", None)
+            .await
+            .expect("create role");
+        let permission = service
+            .create_permission(application, "operate", None)
+            .await
+            .expect("create permission");
+        assert_eq!(role.id.get_version_num(), 7);
+        assert_eq!(permission.id.get_version_num(), 7);
+        assert_ne!(role.id, permission.id);
+        assert_eq!(
+            service
+                .find_role_by_id(application, role.id)
+                .await
+                .expect("find role"),
+            Some(role)
+        );
+        assert_eq!(
+            service
+                .find_permission_by_id(application, permission.id)
+                .await
+                .expect("find permission"),
+            Some(permission)
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_rbac_records_retry_by_stable_id_and_reject_conflicts() {
+        let engine = ofdb_sql::Database::in_memory();
+        up(&engine.client())
+            .await
+            .expect("initialize management schema");
+        let service = ManagementService::new(
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
+        );
+        let role_id = Id::parse_str("6c1566bd-5f64-4b04-9bc6-52a1b70930aa").expect("domain ID");
         let application_id = Id::now_v7();
         assert!(
             service
@@ -606,8 +726,10 @@ mod tests {
             .ensure_role(role_id, application_id, "administrator", None)
             .await
             .expect("retry returns the same role");
+        assert_eq!(created.id, role_id);
         assert_eq!(created, retried);
-        let permission_id = Id::now_v7();
+        let permission_id =
+            Id::parse_str("d3496cc3-b3b5-4fe5-99e0-83db03d281b0").expect("domain ID");
         let permission = service
             .ensure_permission(permission_id, application_id, "test-permission", None)
             .await
@@ -616,6 +738,7 @@ mod tests {
             .ensure_permission(permission_id, application_id, "test-permission", None)
             .await
             .expect("retry returns the same permission");
+        assert_eq!(permission.id, permission_id);
         assert_eq!(permission, retried);
         let conflicting = service
             .ensure_permission(permission_id, application_id, "conflicting-name", None)
