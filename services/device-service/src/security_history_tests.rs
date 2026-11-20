@@ -195,8 +195,7 @@ impl Pair {
         let member_b = Id::now_v7();
         let key_a = Id::now_v7();
         let key_b = Id::now_v7();
-        let row = Id::now_v7();
-        {
+        let row = {
             let idp = Arc::new(
                 Database::open(root.join("baseline-idp.redb")).expect("open public baseline"),
             );
@@ -224,7 +223,8 @@ impl Pair {
                 sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
                 enroll(idp.clone(), member, endpoint, key).await;
             }
-            sql(&idp, &format!("INSERT INTO keys (id, derivation_index, public_jwk) VALUES (CAST('{row}' AS UUID), 0, '{}')", public_jwk("baseline"))).await;
+            let inserted = sql(&idp, &format!("INSERT INTO keys (derivation_index, public_jwk) VALUES (0, '{}') RETURNING id", public_jwk("baseline"))).await;
+            let row: Id = ofdb_sql::decode(&inserted[0].rows[0].values[0], "id").expect("generated key ID");
             ManagementService::new(
                 DbPermissionRepo::new(idp.client()),
                 DbRoleRepo::new(idp.client()),
@@ -241,7 +241,8 @@ impl Pair {
             )
             .await
             .expect("explicit current local sync grant");
-        }
+            row
+        };
         for node in ["a", "b", "fork"] {
             std::fs::copy(
                 root.join("baseline-idp.redb"),
@@ -736,8 +737,8 @@ async fn marker3_rejects_private_jwk_in_an_unvalidated_full_state() {
                     } else {
                         (pair.idp_b.clone(), pair.idp_a.clone())
                     };
-                    pair.row = Id::now_v7();
-                    sql(&source, &format!("INSERT INTO keys (id, derivation_index, public_jwk) VALUES (CAST('{}' AS UUID), 1, '{}')", pair.row, public_jwk("unseen-key"))).await;
+                    let inserted = sql(&source, &format!("INSERT INTO keys (derivation_index, public_jwk) VALUES (1, '{}') RETURNING id", public_jwk("unseen-key"))).await;
+                    pair.row = ofdb_sql::decode(&inserted[0].rows[0].values[0], "id").expect("generated key ID");
                     if matches!(variant, Poison::LosingConflict) {
                         let fork = Database::open(pair.root.join("fork-idp.redb")).expect("unseen row's independent fork");
                         sync_fixture(&source, &fork).await;
@@ -845,7 +846,7 @@ async fn marker3_rejects_overwritten_raw_grant_hashes_in_both_directions_and_rol
                     } else {
                         (pair.idp_b.clone(), pair.idp_a.clone())
                     };
-                    sql(&source, &format!("INSERT INTO {table} (id, {column}) VALUES (CAST('{}' AS UUID), 'must-never-leave-this-node'); UPDATE {table} SET {column} = '{}'", Id::now_v7(), "a".repeat(64))).await;
+                    sql(&source, &format!("INSERT INTO {table} ({column}) VALUES ('must-never-leave-this-node'); UPDATE {table} SET {column} = '{}'", "a".repeat(64))).await;
                     let before = sql(&recipient, &format!("SELECT * FROM {table}")).await[0].rows.clone();
                     pair.serve(matches!(role, SyncRole::Responder));
                     let connection = pair.connect().await;
@@ -872,7 +873,7 @@ async fn marker3_valid_public_key_and_hash_histories_remain_syncable() {
     tokio::time::timeout(Duration::from_secs(120), async {
         let mut pair = Pair::new().await;
         let approved = public_jwk("rotated-public");
-        sql(&pair.idp_a, &format!("UPDATE keys SET public_jwk = '{approved}' WHERE id = CAST('{}' AS UUID); INSERT INTO oauth2_authorization_codes (id, code_hash) VALUES (CAST('{}' AS UUID), '{}'); INSERT INTO oauth2_refresh_tokens (id, token_hash) VALUES (CAST('{}' AS UUID), '{}')", pair.row, Id::now_v7(), "a".repeat(64), Id::now_v7(), "b".repeat(64))).await;
+        sql(&pair.idp_a, &format!("UPDATE keys SET public_jwk = '{approved}' WHERE id = CAST('{}' AS UUID); INSERT INTO oauth2_authorization_codes (code_hash) VALUES ('{}'); INSERT INTO oauth2_refresh_tokens (token_hash) VALUES ('{}')", pair.row, "a".repeat(64), "b".repeat(64))).await;
         pair.serve(true);
         let connection = pair.connect().await;
         pair.protocol_a.synchronize(&connection, SecurityContext::Idp).await.expect("valid public key/history/hash values pass the same production validator");

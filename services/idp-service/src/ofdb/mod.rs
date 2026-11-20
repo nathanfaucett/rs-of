@@ -5,6 +5,7 @@ mod observation_test_kernel;
 
 pub(crate) mod application_repo;
 pub(crate) mod client_repo;
+mod insert;
 pub(crate) mod key_repo;
 pub(crate) mod local_identity;
 pub(crate) mod oauth2_authorization_code_repo;

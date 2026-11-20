@@ -36,6 +36,8 @@ Transport authorization uses the authenticated connection peer and current Devic
 
 Persist the bindings required for offline restart. Missing or contradictory retained evidence fails closed. Do not delete journals, append random permission identities, replace signers, or infer missing setup modes during startup.
 
+The SQL Database generates UUIDv7 Logical Row identities. A predetermined User subject or Credential ID remains a public domain identifier, separate from the generated row identity. Replicas retain the generated row identity. This schema requires a fresh store; it does not upgrade existing IdP stores.
+
 Unsupported retained state requires an explicit supported recovery or a deliberate fresh root. A restart is not a migration, and a permission-schema change is not proof that older Installations were upgraded safely.
 
 ## Qualification boundary

@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY,
+    id UUID NOT NULL,
     handle TEXT,
     name TEXT,
     given_name TEXT,
@@ -13,14 +13,16 @@ CREATE TABLE IF NOT EXISTS users (
     birthdate TEXT,
     zoneinfo TEXT,
     locale TEXT,
-    created_at INTEGER,
+    created_at INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER,
     mfa_totp_secret TEXT,
     mfa_webauthn_credentials TEXT,
     blocked INTEGER NOT NULL DEFAULT 0,
     blocked_at INTEGER,
-    blocked_by UUID
+    blocked_by UUID,
+    PRIMARY KEY (id, created_at)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS users_id ON users (id);
 CREATE UNIQUE INDEX IF NOT EXISTS users_handle ON users (handle);
 
 CREATE TABLE IF NOT EXISTS user_emails (
@@ -46,17 +48,19 @@ CREATE TABLE IF NOT EXISTS user_phone_numbers (
 CREATE UNIQUE INDEX IF NOT EXISTS user_phone_numbers_user_phone ON user_phone_numbers (user_id, phone_number);
 
 CREATE TABLE IF NOT EXISTS credentials (
-    id UUID PRIMARY KEY,
-    user_id UUID,
+    id UUID NOT NULL,
+    user_id UUID NOT NULL,
     kind TEXT,
     active INTEGER,
     revoked_at INTEGER,
     created_at INTEGER,
-    updated_at INTEGER
+    updated_at INTEGER,
+    PRIMARY KEY (id, user_id)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS credentials_id ON credentials (id);
 
 CREATE TABLE IF NOT EXISTS local_credential_secrets (
-    credential_id UUID PRIMARY KEY,
+    credential_id TEXT PRIMARY KEY,
     secret_hash TEXT NOT NULL
 );
 
@@ -119,10 +123,12 @@ CREATE TABLE IF NOT EXISTS clients (
 CREATE UNIQUE INDEX IF NOT EXISTS clients_client_id ON clients (client_id);
 
 CREATE TABLE IF NOT EXISTS local_client_credentials (
-    client_id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY,
+    client_id UUID NOT NULL,
     credential_id UUID NOT NULL,
     secret_hash TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS local_client_credentials_client_id ON local_client_credentials (client_id);
 
 CREATE TABLE IF NOT EXISTS oauth2_authorization_codes (
     id UUID PRIMARY KEY,

@@ -18,10 +18,11 @@ use crate::{
     repo::{client_repo::ClientRepo, key_service::KeyService},
 };
 
+use super::super::insert::{generated_id, generated_insert};
 use super::super::observation_test_kernel::{CatalogReads, CountingKernel};
 
 use super::{
-    ClientRow, DbClientRepo, Query, QueryInsert, Row, Statement, Value, local_credential_insert,
+    ClientRow, DbClientRepo, Row, Statement, Value, local_credential_insert,
     tests::TestPrivateKeyRepo,
 };
 
@@ -53,6 +54,9 @@ impl Fixture {
         for statement in migration.split(';').map(str::trim).filter(|statement| {
             statement.starts_with("CREATE TABLE IF NOT EXISTS clients (")
                 || statement.starts_with("CREATE TABLE IF NOT EXISTS local_client_credentials (")
+                || statement.starts_with(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS local_client_credentials_client_id ",
+                )
         }) {
             engine
                 .translate_and_execute(statement, &ofdb_sql::SqlTranslator)
@@ -61,7 +65,7 @@ impl Fixture {
         }
         let now = Utc::now();
         let client = Client {
-            id: Id::now_v7(),
+            id: Id::nil(),
             application_id: Id::now_v7(),
             client_id: "observation-client".into(),
             client_secret_hash: "first-local-verifier".into(),
@@ -87,20 +91,7 @@ impl Fixture {
             created_at: now,
             updated_at: now,
         };
-        let revision = Id::now_v7();
-        let mut metadata = ClientRow::from(&client);
-        metadata.credential_id = Some(revision);
-        engine
-            .execute(vec![
-                Statement::Query(Query::Insert(QueryInsert {
-                    table: "clients".into(),
-                    row: metadata.into(),
-                    returning: None,
-                })),
-                Statement::Query(local_credential_insert(&client, revision)),
-            ])
-            .await
-            .expect("native client and matching credential fixture");
+        let client = insert(&engine, client).await;
         let socket = directory.join("sql.sock");
         let (stop, stopped) = oneshot::channel();
         let serving = Server::unix(&socket, EngineExecutor::new(engine.clone()));
@@ -152,24 +143,16 @@ impl Fixture {
         .expect("fixture SQL mutation");
     }
 
-    async fn insert(&self, client: &Client) {
-        let revision = Id::now_v7();
-        let mut metadata = ClientRow::from(client);
-        metadata.credential_id = Some(revision);
-        self.engine
-            .execute(vec![
-                Statement::Query(Query::Insert(QueryInsert {
-                    table: "clients".into(),
-                    row: metadata.into(),
-                    returning: None,
-                })),
-                Statement::Query(local_credential_insert(client, revision)),
-            ])
-            .await
-            .expect("additional client fixture");
+    async fn fixture_row_id(&self, table: &str, client: Id) -> Id {
+        if table == "clients" {
+            return client;
+        }
+        let results = self.engine.translate_and_execute(&format!("SELECT id FROM local_client_credentials WHERE client_id = CAST('{client}' AS UUID)"), &ofdb_sql::SqlTranslator).await.expect("look up local fixture key");
+        generated_id(&results).expect("local fixture key")
     }
 
     async fn conflict(&self, table: &str, id: Id, column: usize) {
+        let id = self.fixture_row_id(table, id).await;
         let left = AutomergeRowCodec::new();
         let right = AutomergeRowCodec::new();
         let mut transaction = self.kernel.transaction().await.expect("conflict fixture");
@@ -202,6 +185,31 @@ impl Fixture {
         let _ = self.stop.take().expect("server shutdown sender").send(());
         (&mut self.server).await.expect("SQL server shutdown");
     }
+}
+
+async fn insert(engine: &Engine<CountingKernel, AutomergeRowCodec>, client: Client) -> Client {
+    let revision = Id::now_v7();
+    let mut metadata = ClientRow::from(&client);
+    metadata.credential_id = Some(revision);
+    let results = engine
+        .execute(vec![Statement::Query(generated_insert(
+            "clients",
+            metadata.into(),
+            true,
+        ))])
+        .await
+        .expect("insert fixture client");
+    let client = Client {
+        id: generated_id(&results).expect("fixture client ID"),
+        ..client
+    };
+    engine
+        .execute(vec![Statement::Query(local_credential_insert(
+            &client, revision,
+        ))])
+        .await
+        .expect("insert fixture credential");
+    client
 }
 
 impl Drop for Fixture {
@@ -356,7 +364,7 @@ async fn next_lookup_observes_client_revocation() {
 #[tokio::test]
 async fn both_conflict_checks_deny_and_next_lookup_observes_resolution() {
     for (table, column, name) in [
-        ("local_client_credentials", 2, "secret_hash"),
+        ("local_client_credentials", 3, "secret_hash"),
         ("clients", 6, "client_name"),
     ] {
         let fixture = Fixture::new().await;
@@ -404,7 +412,9 @@ async fn both_conflict_checks_deny_and_next_lookup_observes_resolution() {
             .engine
             .resolve_row(
                 table,
-                &Row::new(vec![Value::Uuid(fixture.client.id)]),
+                &Row::new(vec![Value::Uuid(
+                    fixture.fixture_row_id(table, fixture.client.id).await,
+                )]),
                 vec![(name.into(), Value::from("resolved"))],
             )
             .await
@@ -431,9 +441,8 @@ async fn both_conflict_checks_deny_and_next_lookup_observes_resolution() {
 async fn pagination_hydrates_before_skipping_but_clears_only_selected_metadata() {
     let fixture = Fixture::new().await;
     let mut second = fixture.client.clone();
-    second.id = Id::now_v7();
     second.client_id = "second-client".into();
-    fixture.insert(&second).await;
+    insert(&fixture.engine, second).await;
     let listed = fixture.repo.list_clients(0, 2).await.expect("initial page");
     assert_eq!(listed.len(), 2);
     let skipped = listed[0].id;
@@ -449,7 +458,7 @@ async fn pagination_hydrates_before_skipping_but_clears_only_selected_metadata()
     assert_eq!(page[0].client_secret_hash, "first-local-verifier");
     assert!(fixture.repo.list_clients(0, 1).await.is_err());
     fixture
-        .conflict("local_client_credentials", skipped, 2)
+        .conflict("local_client_credentials", skipped, 3)
         .await;
     assert!(
         fixture.repo.list_clients(1, 1).await.is_err(),

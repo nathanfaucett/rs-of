@@ -261,8 +261,7 @@ impl DbReplicaSignerRepo {
 
         let jwk = serde_json::to_string(&signer.public_jwk).map_err(RepoError::other)?;
         let insert_member = format!(
-            "INSERT INTO idp_replica_members (id, installation_id, member_id, endpoint_id, issuer, approved_at, revoked_at) VALUES (CAST('{}' AS UUID), {}, CAST('{}' AS UUID), {}, {}, {}, NULL)",
-            ofdb_sql::Uuid::now_v7(),
+            "INSERT INTO idp_replica_members (installation_id, member_id, endpoint_id, issuer, approved_at, revoked_at) VALUES ({}, CAST('{}' AS UUID), {}, {}, {}, NULL)",
             text(&membership.installation_id),
             membership.member_id,
             text(&membership.endpoint_id),
@@ -270,8 +269,7 @@ impl DbReplicaSignerRepo {
             membership.approved_at,
         );
         let insert_signer = format!(
-            "INSERT INTO idp_replica_signers (id, member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at) VALUES (CAST('{}' AS UUID), CAST('{}' AS UUID), CAST('{}' AS UUID), CAST('{}' AS UUID), {}, {}, {}, NULL, {})",
-            ofdb_sql::Uuid::now_v7(),
+            "INSERT INTO idp_replica_signers (member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at) VALUES (CAST('{}' AS UUID), CAST('{}' AS UUID), CAST('{}' AS UUID), {}, {}, {}, NULL, {})",
             signer.member_id,
             signer.member_id,
             signer.key_id,
@@ -340,8 +338,8 @@ impl DbReplicaSignerRepo {
             transaction
                 .translate_and_execute(
                     &format!(
-                        "INSERT INTO idp_replica_signers (id, member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at) VALUES (CAST('{}' AS UUID), CAST('{}' AS UUID), CAST('{}' AS UUID), CAST('{}' AS UUID), {}, {}, {}, NULL, {})",
-                        ofdb_sql::Uuid::now_v7(), signer.member_id, signer.member_id, signer.key_id, text(&signer.issuer), text(&jwk), approved_at,
+                        "INSERT INTO idp_replica_signers (member_id, active_member_id, key_id, issuer, public_jwk, approved_at, revoked_at, expires_at) VALUES (CAST('{}' AS UUID), CAST('{}' AS UUID), CAST('{}' AS UUID), {}, {}, {}, NULL, {})",
+                        signer.member_id, signer.member_id, signer.key_id, text(&signer.issuer), text(&jwk), approved_at,
                         signer.expires_at.map_or_else(|| "NULL".to_owned(), |expires| expires.to_string()),
                     ),
                     &SqlTranslator,
@@ -554,6 +552,11 @@ mod tests {
         up(&engine.client())
             .await
             .expect("initialize public IdP schema");
+        execute(
+            &engine,
+            "DROP TABLE devices; DROP TABLE local_device_enrollments",
+        )
+        .await;
         let (mut member, mut signer) = records();
         member.member_id = Id::now_v7();
         signer.member_id = member.member_id;
@@ -812,14 +815,15 @@ mod tests {
         legacy_devices(&engine).await;
         let repo = DbReplicaSignerRepo::new(engine.client());
         let expected = vec![(member.clone(), signer)];
-        let devices = [
-            (member.member_id, "endpoint-key"),
-            (Id::now_v7(), "unrelated-endpoint-key"),
-        ];
-        for (id, endpoint) in devices {
-            execute(&engine, &format!(
-                "INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{id}' AS UUID), 'owner', 'Device', '{endpoint}', 'local', 1, 1, NULL, 1, 2)"
-            )).await;
+        let mut devices = Vec::new();
+        for endpoint in ["endpoint-key", "unrelated-endpoint-key"] {
+            let results = engine.client().execute_sql(&format!(
+                "INSERT INTO devices (owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES ('owner', 'Device', '{endpoint}', 'local', 1, 1, NULL, 1, 2) RETURNING id"
+            ), None).await.expect("insert unrelated Device fixture");
+            devices.push((
+                super::super::insert::generated_id(&results).expect("Device fixture ID"),
+                endpoint,
+            ));
         }
         for assignment in [
             "owner_subject = '  '",
@@ -836,8 +840,8 @@ mod tests {
             "state = 1, revoked_at = 11",
             "created_at = 9223372036854775807",
         ] {
-            for (id, _) in devices {
-                for (reset_id, endpoint) in devices {
+            for (id, _) in &devices {
+                for (reset_id, endpoint) in &devices {
                     execute(&engine, &format!(
                         "UPDATE devices SET owner_subject = 'owner', name = 'Device', public_key = '{endpoint}', address = 'local', state = 1, approved_at = 1, revoked_at = NULL, created_at = 1, updated_at = 2 WHERE id = CAST('{reset_id}' AS UUID)"
                     )).await;
@@ -863,7 +867,7 @@ mod tests {
         execute(&engine, "DROP INDEX devices_public_key").await;
         for state in [0, 1, 2] {
             execute(&engine, &format!(
-                "INSERT INTO devices (id, owner_subject, public_key, state) VALUES (CAST('{}' AS UUID), 'owner', 'endpoint-key', {state})", Id::now_v7()
+                "INSERT INTO devices (owner_subject, public_key, state) VALUES ('owner', 'endpoint-key', {state})"
             )).await;
         }
         assert_eq!(
@@ -1087,7 +1091,7 @@ mod tests {
                 .remove(0)
                 .rows
                 .remove(0);
-            row.values[0] = Value::Uuid(Id::now_v7());
+            row.values.remove(0);
             engine
                 .client()
                 .execute(vec![ofdb_sql::Statement::Query(ofdb_sql::Query::Insert(

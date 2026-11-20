@@ -1,3 +1,4 @@
+use super::insert::{generated_id, generated_insert};
 use crate::repo::{KeyRepo, RepoError, RepoResult};
 use chrono::{DateTime, Utc};
 use db::ofdb::validators::allows_authentication;
@@ -13,7 +14,6 @@ use ofdb_sql::QueryDelete;
 use ofdb_sql::QueryExpr;
 use ofdb_sql::QueryExprValue;
 use ofdb_sql::QueryFrom;
-use ofdb_sql::QueryInsert;
 use ofdb_sql::QuerySelect;
 use ofdb_sql::QueryUpdate;
 use ofdb_sql::QueryUpdateAssignment;
@@ -251,7 +251,7 @@ impl KeyRepo for DbKeyRepo {
         let now = Utc::now();
         let now = DateTime::from_timestamp(now.timestamp(), 0).expect("valid timestamp");
         let key = Key {
-            id: Id::now_v7(),
+            id: Id::nil(),
             parent_id,
             entity_type,
             entity_id,
@@ -269,14 +269,19 @@ impl KeyRepo for DbKeyRepo {
             created_at: now,
             updated_at: now,
         };
-        self.engine
-            .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                table: TABLE.into(),
-                row: KeyRow::from(&key).into(),
-                returning: None,
-            }))])
+        let results = self
+            .engine
+            .execute(vec![Statement::Query(generated_insert(
+                TABLE,
+                KeyRow::from(&key).into(),
+                true,
+            ))])
             .await
             .map_err(db_error)?;
+        let key = Key {
+            id: generated_id(&results)?,
+            ..key
+        };
         Ok(key)
     }
 }

@@ -107,9 +107,10 @@ impl Fixture {
         .expect("fixture SQL mutation");
     }
 
-    async fn key(&self, id: Id, entity: Id, parent: Option<Id>, created: i64) {
+    async fn key(&self, entity: Id, parent: Option<Id>, created: i64) -> Id {
         let parent = parent.map_or("NULL".into(), |id| format!("CAST('{id}' AS UUID)"));
-        self.sql(&format!("INSERT INTO keys (id, parent_id, entity_type, entity_id, derivation_path, derivation_index, hardened, name, revoked_at, expires_at, created_at, updated_at, public_jwk) VALUES (CAST('{id}' AS UUID), {parent}, 0, CAST('{entity}' AS UUID), 'm/0', 0, 1, 'fixture', NULL, NULL, {created}, {created}, NULL)")).await;
+        let results = self.engine.translate_and_execute(&format!("INSERT INTO keys (parent_id, entity_type, entity_id, derivation_path, derivation_index, hardened, name, revoked_at, expires_at, created_at, updated_at, public_jwk) VALUES ({parent}, 0, CAST('{entity}' AS UUID), 'm/0', 0, 1, 'fixture', NULL, NULL, {created}, {created}, NULL) RETURNING id"), &ofdb_sql::SqlTranslator).await.expect("create fixture key");
+        super::insert::generated_id(&results).expect("fixture key identity")
     }
 
     async fn conflict(&self, table: &str, id: Id, column: usize, values: [ofdb_sql::Value; 2]) {
@@ -253,15 +254,14 @@ impl Drop for Fixture {
 #[tokio::test]
 async fn key_read_preserves_every_decoded_field() {
     let fixture = Fixture::new().await;
-    let id = Id::now_v7();
     let parent = Id::now_v7();
     let entity = Id::now_v7();
+    let id = fixture.key(entity, Some(parent), 10).await;
     let (_, signer) = fixture.trust().await;
     let mut public = signer.public_jwk;
     public.kid = id.to_string();
     let encoded = serde_json::to_string(&public).expect("public JWK JSON");
     let future = Utc::now().timestamp() + 3600;
-    fixture.key(id, entity, Some(parent), 10).await;
     fixture.sql(&format!("UPDATE keys SET derivation_path = 'm/7/42', derivation_index = 42, hardened = 0, name = 'Decoded key', public_jwk = '{encoded}', revoked_at = {future}, expires_at = {future}, updated_at = 20 WHERE id = CAST('{id}' AS UUID)")).await;
     let expected = of_model::idp::model::key::Key {
         id,
@@ -291,9 +291,8 @@ async fn key_read_preserves_every_decoded_field() {
 #[tokio::test]
 async fn singleton_key_read_reuses_one_native_catalog() {
     let fixture = Fixture::new().await;
-    let id = Id::now_v7();
-    fixture
-        .key(id, Id::now_v7(), None, Utc::now().timestamp())
+    let id = fixture
+        .key(Id::now_v7(), None, Utc::now().timestamp())
         .await;
     fixture.reads.reset();
     let key = DbKeyRepo::new(fixture.remote.clone())
@@ -335,13 +334,13 @@ async fn key_read_methods_each_observe_a_fresh_catalog_and_rotation() {
     let fixture = Fixture::new().await;
     let repo = DbKeyRepo::new(fixture.remote.clone());
     let entity = Id::now_v7();
-    let old = Id::now_v7();
-    let new = Id::now_v7();
-    fixture.key(old, entity, None, 10).await;
-    for expected in [old, new] {
-        if expected == new {
-            fixture.key(new, entity, None, 20).await;
-        }
+    let old = fixture.key(entity, None, 10).await;
+    for expected in [old, Id::nil()] {
+        let expected = if expected == old {
+            old
+        } else {
+            fixture.key(entity, None, 20).await
+        };
         fixture.reads.reset();
         assert_eq!(
             repo.find_by_id(expected)
@@ -394,14 +393,10 @@ async fn key_reads_filter_current_revocation_expiry_and_entity_before_clearance(
     let fixture = Fixture::new().await;
     let repo = DbKeyRepo::new(fixture.remote.clone());
     let entity = Id::now_v7();
-    let active = Id::now_v7();
-    let revoked = Id::now_v7();
-    let expired = Id::now_v7();
-    let other = Id::now_v7();
-    for id in [active, revoked, expired] {
-        fixture.key(id, entity, None, 10).await;
-    }
-    fixture.key(other, Id::now_v7(), None, 10).await;
+    let active = fixture.key(entity, None, 10).await;
+    let revoked = fixture.key(entity, None, 10).await;
+    let expired = fixture.key(entity, None, 10).await;
+    let other = fixture.key(Id::now_v7(), None, 10).await;
     let now = Utc::now().timestamp();
     fixture.sql(&format!("UPDATE keys SET revoked_at = {now} WHERE id = CAST('{revoked}' AS UUID); UPDATE keys SET expires_at = {now} WHERE id = CAST('{expired}' AS UUID); UPDATE keys SET revoked_at = {} , expires_at = {} WHERE id = CAST('{active}' AS UUID)", now + 3600, now + 3600)).await;
     for id in [revoked, expired, other] {
@@ -484,12 +479,9 @@ async fn older_root_and_child_conflicts_deny_before_latest_root_selection() {
         let fixture = Fixture::new().await;
         let repo = DbKeyRepo::new(fixture.remote.clone());
         let entity = Id::now_v7();
-        let old = Id::now_v7();
-        let new = Id::now_v7();
-        let child = Id::now_v7();
-        fixture.key(old, entity, None, 10).await;
-        fixture.key(new, entity, None, 20).await;
-        fixture.key(child, entity, Some(new), 30).await;
+        let old = fixture.key(entity, None, 10).await;
+        let new = fixture.key(entity, None, 20).await;
+        let child = fixture.key(entity, Some(new), 30).await;
         assert_eq!(
             repo.find_active_entity_root_key(EntityType::User, entity)
                 .await
@@ -560,10 +552,8 @@ async fn unrelated_malformed_key_rows_refuse_all_reads_and_release_admission() {
     let fixture = Fixture::new().await;
     let repo = DbKeyRepo::new(fixture.remote.clone());
     let entity = Id::now_v7();
-    let good = Id::now_v7();
-    let bad = Id::now_v7();
-    fixture.key(good, entity, None, 10).await;
-    fixture.key(bad, Id::now_v7(), None, 10).await;
+    let good = fixture.key(entity, None, 10).await;
+    let bad = fixture.key(Id::now_v7(), None, 10).await;
     for (bad_value, repair) in [
         ("public_jwk = 'malformed'", "public_jwk = NULL"),
         ("entity_type = 99", "entity_type = 0"),
@@ -622,7 +612,7 @@ async fn empty_and_deleted_keys_are_fresh_on_the_next_call() {
             .expect("empty entity")
             .is_empty()
     );
-    fixture.key(id, entity, None, 10).await;
+    let id = fixture.key(entity, None, 10).await;
     assert!(repo.find_by_id(id).await.expect("new key").is_some());
     repo.delete_by_entity_type_and_id(EntityType::User, entity)
         .await

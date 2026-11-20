@@ -1,3 +1,4 @@
+use super::insert::{generated_id, generated_insert};
 use chrono::{DateTime, Timelike, Utc};
 use db::ofdb::validators::SecurityRow;
 use db::ofdb::validators::SecurityTable;
@@ -12,7 +13,6 @@ use ofdb_sql::QueryColumn;
 use ofdb_sql::QueryExpr;
 use ofdb_sql::QueryExprValue;
 use ofdb_sql::QueryFrom;
-use ofdb_sql::QueryInsert;
 use ofdb_sql::QuerySelect;
 use ofdb_sql::QueryUpdate;
 use ofdb_sql::QueryUpdateAssignment;
@@ -125,7 +125,7 @@ impl OAuth2AuthorizationCodeRepo for DbOAuth2AuthorizationCodeRepo {
     ) -> RepoResult<OAuth2AuthorizationCode> {
         let now = now();
         let code = OAuth2AuthorizationCode {
-            id: Id::now_v7(),
+            id: Id::nil(),
             code: generate_random_string::<32>(),
             client_id,
             key_id,
@@ -140,14 +140,19 @@ impl OAuth2AuthorizationCodeRepo for DbOAuth2AuthorizationCodeRepo {
             created_at: now,
             updated_at: now,
         };
-        self.engine
-            .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                table: TABLE.into(),
-                row: AuthorizationCodeRow::from(&code).into(),
-                returning: None,
-            }))])
+        let results = self
+            .engine
+            .execute(vec![Statement::Query(generated_insert(
+                TABLE,
+                AuthorizationCodeRow::from(&code).into(),
+                true,
+            ))])
             .await
             .map_err(db_error)?;
+        let code = OAuth2AuthorizationCode {
+            id: generated_id(&results)?,
+            ..code
+        };
         self.ensure_clear(code.id).await?;
         Ok(code)
     }

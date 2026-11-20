@@ -219,7 +219,12 @@ impl PublicSecurityTable {
     }
 
     fn nullable(self, column: &str) -> bool {
-        if column == "id" {
+        if column == "id"
+            || matches!(
+                (self, column),
+                (Self::Users, "created_at") | (Self::Credentials, "user_id")
+            )
+        {
             return false;
         }
         match self {
@@ -477,10 +482,8 @@ mod tests {
             "id".into(),
             serde_json::json!("01900000-0000-7000-8000-000000000001"),
         );
-        assert!(
-            table.permits_record(&record),
-            "complete nullable SQL projection"
-        );
+        record.insert("created_at".into(), serde_json::json!(1));
+        assert!(table.permits_record(&record), "complete SQL projection");
         for column in table.columns() {
             let mut incomplete = record.clone();
             incomplete.remove(*column);
