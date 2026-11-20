@@ -1,3 +1,4 @@
+use alloc::{string::String, vec::Vec};
 /*
  * LIDP Device API
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovedDeviceEndpoints {
     #[serde(rename = "endpointIds")]
@@ -18,8 +19,7 @@ pub struct ApprovedDeviceEndpoints {
 }
 
 impl ApprovedDeviceEndpoints {
-    #[must_use]
-    pub const fn new(endpoint_ids: Vec<String>) -> Self {
-        Self { endpoint_ids }
+    pub fn new(endpoint_ids: Vec<String>) -> ApprovedDeviceEndpoints {
+        ApprovedDeviceEndpoints { endpoint_ids }
     }
 }

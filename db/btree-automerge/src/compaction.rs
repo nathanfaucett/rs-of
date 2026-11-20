@@ -11,11 +11,11 @@ pub fn hash_hashes<I>(hashes: I) -> [u8; 32]
 where
     I: IntoIterator<Item = [u8; 32]>,
 {
-    let mut hasher = Sha256::new();
-    for hash in hashes {
-        hasher.update(hash);
+    let mut sha256 = Sha256::new();
+    for digest in hashes {
+        sha256.update(digest);
     }
-    let result = hasher.finalize();
+    let result = sha256.finalize();
     let mut out = [0u8; 32];
     out.copy_from_slice(&result);
     out
@@ -59,6 +59,11 @@ impl CompactionPolicy for ThresholdPolicy {
     }
 }
 
+/// Replaces a document's retained changes with one snapshot.
+///
+/// # Errors
+///
+/// Returns an error when reading, inserting, or removing storage entries fails.
 pub async fn run_compaction<T>(
     tx: &mut T,
     doc_id: &DocumentId,

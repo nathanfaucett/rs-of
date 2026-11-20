@@ -299,9 +299,9 @@ impl LocalCopyPolicy {
         let path = match &self.storage {
             PolicyStorage::Kv(store) => {
                 return crate::persistence::run(async {
-                    let value = serde_json::to_value(policy).map_err(io::Error::other)?;
+                    let value = serde_json::to_vec(policy).map_err(io::Error::other)?;
                     store
-                        .set("policy", ofdb_kv::Value::Json(value.into()), None)
+                        .set("policy", ofdb_kv::Value::Blob(value), None)
                         .await
                         .map_err(crate::persistence::error)
                 });
@@ -333,6 +333,9 @@ impl LocalCopyPolicy {
                         .map_err(crate::persistence::error)?
                     {
                         None => Ok(CopyPolicy::default()),
+                        Some(ofdb_kv::Value::Blob(value)) => {
+                            serde_json::from_slice(&value).map_err(io::Error::other)
+                        }
                         Some(ofdb_kv::Value::Json(value)) => serde_json::from_value(
                             serde_json::Value::try_from(value)
                                 .map_err(crate::persistence::error)?,

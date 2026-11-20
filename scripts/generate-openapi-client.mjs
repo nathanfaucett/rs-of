@@ -174,6 +174,14 @@ function generate(name, language, output) {
     }
   }
   if (language === "rust") {
+    const manifest = path.join(output, "Cargo.toml");
+    let manifestSource = readFileSync(manifest, "utf8").replace(
+      'of-model = { path = "../model", default-features = false }',
+      'of-model = { path = "../model", default-features = false, features = ["std"] }',
+    );
+    if (!manifestSource.includes("[lints]"))
+      manifestSource += "\n[lints]\nworkspace = true\n";
+    writeFileSync(manifest, manifestSource);
     const closed = new Set(
       Object.entries(document.components?.schemas || {})
         .filter(([, schema]) => schema.additionalProperties === false)
@@ -192,6 +200,14 @@ function generate(name, language, output) {
       ),
     );
     const apis = path.join(output, "src/apis");
+    const apiIndex = path.join(apis, "mod.rs");
+    writeFileSync(
+      apiIndex,
+      readFileSync(apiIndex, "utf8").replace(
+        /^mod support;$/m,
+        "pub mod support;",
+      ),
+    );
     for (const file of readdirSync(apis).filter((file) =>
       file.endsWith("_api.rs"),
     )) {
@@ -306,13 +322,13 @@ try {
     run("rustfmt", ["--edition", "2024", path.join(shared, "mod.rs")]);
     replacements.push([
       shared,
-      path.join(root, "crates/model/src/http", modelOwner),
+      path.join(root, "services/model/src/http", modelOwner),
     ]);
     const crateName =
       name === "storage" ? "storage-api-client" : `${name}-client`;
     replacements.push([
       path.join(rust, name),
-      path.join(root, "crates", crateName),
+      path.join(root, "services", crateName),
     ]);
   }
   for (const name of names) {
@@ -364,8 +380,6 @@ try {
     run("cargo", [
       "fmt",
       "--check",
-      "-p",
-      "of-model",
       ...crateNames.flatMap((crateName) => ["-p", `of-${crateName}`]),
     ]);
     run("cargo", ["fetch"]);

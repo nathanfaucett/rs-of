@@ -28,8 +28,9 @@ impl Default for SqlValue {
     }
 }
 ///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Type {
     #[serde(rename = "null")]
     #[default]
@@ -47,4 +48,3 @@ pub enum Type {
     #[serde(rename = "blob")]
     Blob,
 }
-

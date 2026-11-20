@@ -34,8 +34,9 @@ async fn management_serves_only_permission_contract() {
             .as_object()
             .expect("paths")
             .keys()
-            .all(|path| !path.starts_with("/device")
-                && !path.starts_with("/replication")
-                && !path.starts_with("/node-joins"))
+            .all(|path| path == "/devices/{device_id}/sync-selections"
+                || (!path.starts_with("/device")
+                    && !path.starts_with("/replication")
+                    && !path.starts_with("/node-joins")))
     );
 }

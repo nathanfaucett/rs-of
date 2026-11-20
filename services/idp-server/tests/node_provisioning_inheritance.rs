@@ -15,7 +15,7 @@ use std::{
 };
 
 use bip32::DerivationPath;
-use idp_server::{AppConfig, OwnerProvisioner};
+use idp_server::AppConfig;
 use idp_service::{
     oauth2::node_signer::NodeSignerBinding,
     repo::{error::RepoResult, private_key_repo::PrivateKeyRepo},
@@ -130,8 +130,8 @@ async fn completed_signer_operation_releases_lock_before_inheriting_child_exec()
                 return Err(io::ErrorKind::WriteZero.into());
             }
             Ok(())
-        });
-    }
+        })
+    };
     let worker_owner = Arc::clone(&owner);
     let worker_binding = binding.clone();
     let worker = thread::spawn(move || worker_owner.prepare_node_signer(&worker_binding));

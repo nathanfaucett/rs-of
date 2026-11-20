@@ -111,6 +111,9 @@ utoipa = { version = "5.5", default-features = false, features = ["macros"] }
 utoipa-axum = { version = "0.2", default-features = false }
 
 [dev-dependencies]
+ofdb-sql = { path = "../../db/sql", default-features = false, features = [
+    "server",
+] }
 
 # Time
 chrono = { version = "0.4", default-features = false, features = [

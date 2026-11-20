@@ -1,5 +1,5 @@
 /*
- * OAuth Server
+ * LIDP IdP API
  *
  * OIDC / OAuth 2.x server implementation
  *
@@ -12,10 +12,8 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum JwsAlgorithm {
     #[serde(rename = "RS256")]
-    #[default]
     Rs256,
     #[serde(rename = "RS384")]
     Rs384,
@@ -57,3 +55,8 @@ impl core::fmt::Display for JwsAlgorithm {
     }
 }
 
+impl Default for JwsAlgorithm {
+    fn default() -> JwsAlgorithm {
+        Self::Rs256
+    }
+}

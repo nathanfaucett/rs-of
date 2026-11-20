@@ -1,11 +1,12 @@
 import { expect } from "vitest";
 
-export const backendURL = "http://127.0.0.1:1355";
+export const backendURL = import.meta.env.VITE_E2E_BACKEND_URL;
 
 export async function json(response: Response) {
-  expect(response.ok, `${response.url}: ${response.status} ${await response.clone().text()}`).toBe(
-    true
-  );
+  expect(
+    response.ok,
+    `${response.url}: ${response.status} ${await response.clone().text()}`,
+  ).toBe(true);
   return response.json();
 }
 
@@ -20,6 +21,6 @@ export async function session() {
         password: "password",
         scope: "openid profile email",
       }),
-    })
+    }),
   );
 }

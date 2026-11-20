@@ -27,6 +27,7 @@ wasm = [
 
 [dependencies]
 # internal dependencies
+platform = { version = "0.1", path = "../platform", package = "ofdb-platform", default-features = false }
 value = { version = "0.1", path = "../value", package = "ofdb-value", default-features = false, features = [
 ] }
 schema = { version = "0.1", path = "../sql-schema", package = "ofdb-sql-schema", default-features = false, features = [

@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use futures::{future::FutureExt, stream::StreamExt};
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use of_model::contract::replication::SelectedResource;
@@ -421,12 +422,9 @@ async fn policy_deselection_cleans_local_copies_without_peers_and_reselection_is
     let old = databases[0]
         .sync_changes()
         .expect("old generation subscription");
-    let mut old = old;
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while old.changed().await.is_ok() {}
-    })
-    .await
-    .expect("old store generation retired");
+    tokio::time::timeout(Duration::from_secs(5), old.closed())
+        .await
+        .expect("old store generation retired");
     fixture
         .selected
         .lock()
@@ -500,7 +498,7 @@ async fn filesystem_resources_have_independent_persistent_sessions() {
         left.write("denied.txt", b"denied")
             .await
             .expect("local content remains writable");
-        assert!(right.entry("denied.txt").await.is_err());
+        right.entry("denied.txt").await.unwrap_err();
     }
     fixture.allowed.store(true, Ordering::SeqCst);
     fixture.policy_changed().await;
@@ -614,7 +612,7 @@ async fn cloned_peer_store_add_remove_reconfigures_without_host_notifications() 
     let peers = fixture
         .servers
         .iter()
-        .map(|server| server.peers().clone())
+        .map(iroh_chain::Server::peers)
         .collect::<Vec<_>>();
     fixture.start();
     until(|| async { fixture.calls.load(Ordering::SeqCst) >= 2 }).await;
@@ -746,7 +744,12 @@ async fn wait_for_kv(store: &ofdb_kv::Database, key: &str, expected: ofdb_kv::Va
             {
                 return;
             }
-            changes.changed().await.expect("KV subscription stays open");
+            if changes.events().next().await.is_none() {
+                assert!(
+                    changes.closed().now_or_never().is_none(),
+                    "KV subscription stays open"
+                );
+            }
         }
     })
     .await
@@ -937,7 +940,7 @@ fn responder_only_peer_removal_cancels_persistent_filesystem_session() {
             .await
             .expect("local write");
         tokio::time::sleep(Duration::from_millis(250)).await;
-        assert!(files[1].entry("after.txt").await.is_err());
+        files[1].entry("after.txt").await.unwrap_err();
         fixture.servers[1]
             .peers()
             .add(fixture.servers[0].endpoint().id());
@@ -1048,7 +1051,7 @@ fn invalidation_and_feed_closure_fence_sessions_while_configuration_is_blocked()
                 .write("after.txt", b"after")
                 .await
                 .expect("local data remains writable");
-            assert!(files[1].entry("after.txt").await.is_err());
+            files[1].entry("after.txt").await.unwrap_err();
             gate.release();
             fixture.close().await;
         }

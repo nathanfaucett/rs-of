@@ -6,6 +6,10 @@ use uuid::Uuid;
 use value::Row;
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn warmed_catalog_rejects_changed_bytes_even_under_the_same_storage_key() {
     block_on(async {
         let kernel = InMemoryKernel::new();
@@ -51,6 +55,10 @@ fn warmed_catalog_rejects_changed_bytes_even_under_the_same_storage_key() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn warmed_catalog_observes_metadata_changes_and_rejects_malformed_metadata() {
     block_on(async {
         let kernel = InMemoryKernel::new();

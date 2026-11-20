@@ -11,7 +11,7 @@ async function handleLogin() {
   busy = true;
   try {
     await authState.login();
-  } catch (e) {
+  } catch {
     // Error handled by authState.error
   } finally {
     busy = false;

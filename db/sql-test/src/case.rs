@@ -24,7 +24,7 @@ pub enum ExpectedError {
 
 impl ExpectedError {
     #[must_use]
-    pub fn matches(&self, error: &engine::EngineError) -> bool {
+    pub fn matches(self, error: &engine::EngineError) -> bool {
         let message = error.to_string().to_lowercase();
         match self {
             Self::SyntaxError => {
@@ -200,6 +200,7 @@ impl TestCaseBuilder {
         }
     }
 
+    #[must_use]
     pub fn setup<I, S>(mut self, statements: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -209,11 +210,13 @@ impl TestCaseBuilder {
         self
     }
 
+    #[must_use]
     pub fn step(mut self, node: impl Into<NodeId>, sql: impl Into<Cow<'static, str>>) -> Self {
         self.steps.push(Step::sql(node, sql));
         self
     }
 
+    #[must_use]
     pub fn step_failing(
         mut self,
         node: impl Into<NodeId>,
@@ -224,6 +227,7 @@ impl TestCaseBuilder {
         self
     }
 
+    #[must_use]
     pub fn step_expect_query(
         mut self,
         node: impl Into<NodeId>,
@@ -236,10 +240,12 @@ impl TestCaseBuilder {
         self
     }
 
+    #[must_use]
     pub fn step_root(self, sql: impl Into<Cow<'static, str>>) -> Self {
         self.step(0, sql)
     }
 
+    #[must_use]
     pub fn expect_query(
         mut self,
         query: impl Into<Cow<'static, str>>,
@@ -250,6 +256,7 @@ impl TestCaseBuilder {
         self
     }
 
+    #[must_use]
     pub fn expect_node_query(
         mut self,
         node: impl Into<NodeId>,

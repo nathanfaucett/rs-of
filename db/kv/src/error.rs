@@ -62,7 +62,7 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             #[cfg(not(any(
                 feature = "remote",
@@ -72,7 +72,7 @@ impl fmt::Display for Error {
                 feature = "sync",
                 feature = "server"
             )))]
-            Self::Unconfigured => formatter.write_str("KV facade has no enabled features"),
+            Self::Unconfigured => f.write_str("KV facade has no enabled features"),
             #[cfg(any(
                 feature = "in-memory",
                 feature = "redb",
@@ -80,15 +80,15 @@ impl fmt::Display for Error {
                 feature = "sync"
             ))]
             Self::Storage { kind, message } => {
-                write!(formatter, "KV storage error ({kind:?}): {message}")
+                write!(f, "KV storage error ({kind:?}): {message}")
             }
             #[cfg(feature = "remote")]
-            Self::Connect(message) => write!(formatter, "KV connection error: {message}"),
+            Self::Connect(message) => write!(f, "KV connection error: {message}"),
             #[cfg(feature = "remote")]
-            Self::Transport(message) => write!(formatter, "KV transport error: {message}"),
+            Self::Transport(message) => write!(f, "KV transport error: {message}"),
             #[cfg(feature = "remote")]
             Self::Query { kind, message } => {
-                write!(formatter, "KV query error ({kind:?}): {message}")
+                write!(f, "KV query error ({kind:?}): {message}")
             }
             #[cfg(any(
                 feature = "remote",
@@ -96,13 +96,16 @@ impl fmt::Display for Error {
                 feature = "redb",
                 feature = "indexeddb"
             ))]
-            Self::Timeout => formatter.write_str("KV request deadline exceeded"),
+            Self::Timeout => f.write_str("KV request deadline exceeded"),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for Error {}
+use std::{error::Error as StdError, io};
+
+#[cfg(feature = "std")]
+impl StdError for Error {}
 
 #[cfg(any(
     feature = "in-memory",
@@ -131,8 +134,8 @@ impl From<btree::BTreeError> for Error {
 }
 
 #[cfg(feature = "std")]
-impl From<std::io::Error> for Error {
-    fn from(error: std::io::Error) -> Self {
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
         Self::Storage {
             kind: ErrorKind::Storage,
             message: error.to_string(),

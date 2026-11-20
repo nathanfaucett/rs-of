@@ -326,7 +326,7 @@ export function parsePersonalJson(
         empty(item.archivedDate, `${path}/archivedDate`);
         empty(item.reprompt, `${path}/reprompt`, false, true);
         const id = crypto.randomUUID();
-        let importSource;
+        let importSource: Secret["importSource"];
         if (item.id !== undefined) {
             const source = nonblank(item.id, `${path}/id`);
             if (sourceIds.has(source))
@@ -344,7 +344,7 @@ export function parsePersonalJson(
                     `${path}/folderId`,
                     "Missing or ambiguous folder reference.",
                 );
-            else folderId = folderMap.get(item.folderId)!;
+            else folderId = folderMap.get(item.folderId) ?? null;
         }
         if (item.favorite !== undefined && typeof item.favorite !== "boolean")
             issue(`${path}/favorite`, "Expected a boolean.");

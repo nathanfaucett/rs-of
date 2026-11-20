@@ -6,6 +6,11 @@ use value::{FromRow, FromRowError};
 use crate::QueryResult;
 
 impl QueryResult {
+    /// Decodes every row using the result column names.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a required column is missing or a value cannot be decoded.
     pub fn rows_as<T>(&self) -> Result<Vec<T>, FromRowError>
     where
         T: FromRow,

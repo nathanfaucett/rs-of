@@ -1,3 +1,5 @@
+use core::{fmt::Display, future::ready, mem::take, pin::Pin, slice::from_ref};
+
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
@@ -12,23 +14,26 @@ use platform::{MaybeSend, MaybeSync};
 use engine::{
     DocumentSummary, ENGINE_INDEX_FIELDS_STORAGE, ENGINE_INDICES_STORAGE,
     ENGINE_TABLE_FIELDS_STORAGE, ENGINE_TABLES_STORAGE, Engine, EngineError, Kernel,
-    KernelTransaction, MutationSummary, Uuid, validate_row_id,
+    KernelTransaction, MutationSummary, Uuid, catalog_table_for_storage, validate_row_id,
 };
 use futures::{FutureExt, StreamExt, pin_mut};
+use postcard::experimental::serialized_size;
 use thiserror::Error;
 use value::Value;
 
 use crate::pre_apply::{ApplyError, Check, CheckFuture, check_apply};
 use crate::scope::TableScope;
 use crate::{
-    PROTOCOL_VERSION, SyncHello, SyncIncrementalChange, SyncKey, SyncManifest, SyncMessage,
-    SyncRowCodec, SyncRowInventory, SyncSnapshotRequest, SyncStage, SyncStageFactory,
-    SyncStateUnit, SyncTransport,
+    MemorySyncStageFactory, PROTOCOL_VERSION, SyncCandidateView, SyncHello, SyncIncrementalChange,
+    SyncKey, SyncManifest, SyncMessage, SyncRowCodec, SyncRowInventory, SyncSelection,
+    SyncSnapshotRequest, SyncStage, SyncStageFactory, SyncStateUnit, SyncTransport,
+    SyncValidationDirection,
+    candidate::{CandidateValidator, read_candidate_view},
 };
 
 // Construct outside the caller's poll frame without erasing conditional auto-Send.
 #[inline(never)]
-fn sync_stage<F: core::future::Future>(make: impl FnOnce() -> F) -> core::pin::Pin<Box<F>> {
+fn sync_stage<F: Future>(make: impl FnOnce() -> F) -> Pin<Box<F>> {
     Box::pin(make())
 }
 
@@ -106,6 +111,11 @@ pub enum SyncError<E> {
     RemoteAbort(String),
 }
 
+/// Synchronizes history using an in-memory stage.
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, staging, validation, or engine failure.
 pub async fn synchronize<K, R, T>(
     engine: &Engine<K, R>,
     transport: &mut T,
@@ -115,15 +125,19 @@ pub async fn synchronize<K, R, T>(
 where
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
-    let factory = crate::MemorySyncStageFactory::new(config.max_session_bytes);
+    let factory = MemorySyncStageFactory::new(config.max_session_bytes);
     synchronize_with_stage_factory(engine, transport, config, role, &factory).await
 }
 
 /// Unchecked sync: the caller is responsible for admission of every atomic apply.
 /// Production callers with changing authorization or cancellation use the checked variant.
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, staging, validation, or engine failure.
 pub async fn synchronize_with_stage_factory<K, R, T, F>(
     engine: &Engine<K, R>,
     transport: &mut T,
@@ -134,17 +148,22 @@ pub async fn synchronize_with_stage_factory<K, R, T, F>(
 where
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
     F: SyncStageFactory,
     F::Stage: 'static,
 {
     synchronize_with_stage_factory_checked(engine, transport, config, role, stage_factory, || {
-        core::future::ready(Ok(()))
+        ready(Ok(()))
     })
     .await
 }
 
+/// Synchronizes with a caller stage and pre-apply check.
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, staging, validation, or engine failure.
 pub async fn synchronize_with_stage_factory_checked<K, R, T, F, Q, U>(
     engine: &Engine<K, R>,
     transport: &mut T,
@@ -155,11 +174,11 @@ pub async fn synchronize_with_stage_factory_checked<K, R, T, F, Q, U>(
 ) -> Result<SyncResult, SyncError<T::Error>>
 where
     Q: FnMut() -> U + MaybeSend,
-    U: core::future::Future<Output = Result<(), String>> + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
     F: SyncStageFactory,
     F::Stage: 'static,
 {
@@ -178,27 +197,35 @@ where
     .await
 }
 
-/// Checked selected discovery. Both peers must use this entry point. Capture each
-/// peer's pending work before calling; acknowledge only on success. All is required
+/// Checked selected discovery. Both peers must use this entry point.
+///
+/// Capture each peer's pending work before calling; acknowledge only on success. All is required
 /// on bootstrap/reconnect/gaps. Remote-only commits require caller-driven wakeups.
 /// Selection is not an authorization scope; scoped validators remain separate APIs.
-#[allow(clippy::too_many_arguments)]
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, staging, validation, or engine failure.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "sync orchestration keeps protocol inputs explicit"
+)]
 pub async fn synchronize_selected_with_stage_factory_checked<K, R, T, F, Q, U>(
     engine: &Engine<K, R>,
     transport: &mut T,
     config: &SessionConfig,
     role: SyncRole,
     stage_factory: &F,
-    selection: crate::SyncSelection,
+    selection: SyncSelection,
     check: Q,
 ) -> Result<SyncResult, SyncError<T::Error>>
 where
     Q: FnMut() -> U + MaybeSend,
-    U: core::future::Future<Output = Result<(), String>> + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
     F: SyncStageFactory,
     F::Stage: 'static,
 {
@@ -246,7 +273,15 @@ where
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "sync orchestration keeps protocol inputs explicit"
+)]
+/// Synchronizes selected tables with a pre-apply check.
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, staging, validation, or engine failure.
 pub async fn synchronize_tables_with_stage_factory_checked<K, R, T, F, Q, U>(
     engine: &Engine<K, R>,
     transport: &mut T,
@@ -258,11 +293,11 @@ pub async fn synchronize_tables_with_stage_factory_checked<K, R, T, F, Q, U>(
 ) -> Result<SyncResult, SyncError<T::Error>>
 where
     Q: FnMut() -> U + MaybeSend,
-    U: core::future::Future<Output = Result<(), String>> + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
     F: SyncStageFactory,
     F::Stage: 'static,
 {
@@ -279,7 +314,15 @@ where
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "sync orchestration keeps protocol inputs explicit"
+)]
+/// Synchronizes selected tables with value validation and a pre-apply check.
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, staging, validation, or engine failure.
 pub async fn synchronize_tables_with_stage_factory_validated_checked<K, R, T, F, V, Q, U>(
     engine: &Engine<K, R>,
     transport: &mut T,
@@ -293,11 +336,11 @@ pub async fn synchronize_tables_with_stage_factory_validated_checked<K, R, T, F,
 where
     V: Fn(&str, &str, &Value) -> Result<(), String> + MaybeSend + MaybeSync,
     Q: FnMut() -> U + MaybeSend,
-    U: core::future::Future<Output = Result<(), String>> + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
     F: SyncStageFactory,
     F::Stage: 'static,
 {
@@ -317,7 +360,15 @@ where
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "sync orchestration keeps protocol inputs explicit"
+)]
+/// Synchronizes selected tables with candidate and pre-apply validation.
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, staging, validation, or engine failure.
 pub async fn synchronize_tables_with_stage_factory_candidate_validated_checked<
     K,
     R,
@@ -340,13 +391,13 @@ pub async fn synchronize_tables_with_stage_factory_candidate_validated_checked<
 ) -> Result<SyncResult, SyncError<T::Error>>
 where
     V: Fn(&str, &str, &Value) -> Result<(), String> + MaybeSend + MaybeSync,
-    C: Fn(&crate::SyncCandidateView) -> Result<(), String> + MaybeSend + MaybeSync,
+    C: Fn(&SyncCandidateView) -> Result<(), String> + MaybeSend + MaybeSync,
     Q: FnMut() -> U + MaybeSend,
-    U: core::future::Future<Output = Result<(), String>> + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
     F: SyncStageFactory,
     F::Stage: 'static,
 {
@@ -366,7 +417,10 @@ where
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "sync orchestration keeps protocol inputs explicit"
+)]
 async fn synchronize_tables_validators_checked<K, R, T, F, V, Q, U>(
     engine: &Engine<K, R>,
     transport: &mut T,
@@ -375,17 +429,17 @@ async fn synchronize_tables_validators_checked<K, R, T, F, V, Q, U>(
     stage_factory: &F,
     tables: &[&str],
     validate: V,
-    validate_candidate: Option<&crate::candidate::CandidateValidator<'_>>,
+    validate_candidate: Option<&CandidateValidator<'_>>,
     check: Q,
 ) -> Result<SyncResult, SyncError<T::Error>>
 where
     V: Fn(&str, &str, &Value) -> Result<(), String> + MaybeSend + MaybeSync,
     Q: FnMut() -> U + MaybeSend,
-    U: core::future::Future<Output = Result<(), String>> + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
     F: SyncStageFactory,
     F::Stage: 'static,
 {
@@ -439,7 +493,14 @@ where
     .await
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "sync orchestration keeps protocol inputs explicit"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one session coordinates manifest, inventory, changes, and recovery"
+)]
 async fn synchronize_scoped<K, R, T, F, Q, U>(
     engine: &Engine<K, R>,
     transport: &mut T,
@@ -448,15 +509,15 @@ async fn synchronize_scoped<K, R, T, F, Q, U>(
     stage_factory: &F,
     mut check: Q,
     mut scope: Option<TableScope<'_>>,
-    selection: Option<crate::SyncSelection>,
+    selection: Option<SyncSelection>,
 ) -> Result<SyncResult, SyncError<T::Error>>
 where
     Q: FnMut() -> U + MaybeSend,
-    U: core::future::Future<Output = Result<(), String>> + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
     F: SyncStageFactory,
     F::Stage: 'static,
 {
@@ -580,7 +641,7 @@ where
         }
     };
 
-    let local_requests = core::mem::take(&mut received.requests);
+    let local_requests = take(&mut received.requests);
     let remote_requests = exchange_snapshot_requests(transport, role, &local_requests).await?;
 
     let recovery = with_engine_abort(
@@ -636,12 +697,12 @@ where
     };
 
     Ok(SyncResult {
-        sent_units: sent.snapshots + sent_recovery,
         received_units: received.snapshots + received_recovery,
-        sent_changes: sent.changes,
+        sent_units: sent.snapshots + sent_recovery,
         received_changes: received.changes + retried_changes,
-        sent_snapshots: sent.snapshots + sent_recovery,
+        sent_changes: sent.changes,
         received_snapshots: received.snapshots + received_recovery,
+        sent_snapshots: sent.snapshots + sent_recovery,
     })
 }
 
@@ -661,38 +722,38 @@ struct Received {
     snapshots: usize,
     changes: usize,
     requests: Vec<SyncSnapshotRequest>,
-    received_bytes: usize,
+    bytes: usize,
 }
 
 async fn discover<K, R>(
     engine: &Engine<K, R>,
     max_bytes: usize,
     scope: Option<&TableScope<'_>>,
-    selection: Option<crate::SyncSelection>,
+    selection: Option<SyncSelection>,
 ) -> Result<Vec<(SyncKey, DocumentSummary)>, EngineError>
 where
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
 {
-    let mut selection = selection.unwrap_or(crate::SyncSelection::All);
-    if let crate::SyncSelection::Selected { tables, rows } = &selection {
+    let mut selection = selection.unwrap_or(SyncSelection::All);
+    if let SyncSelection::Selected { tables, rows } = &selection {
         for key in rows {
             let SyncKey::Row { table, row } = key;
             validate_row_id(table, row)?;
         }
         if tables
             .iter()
-            .any(|table| engine::catalog_table_for_storage(table).is_some())
+            .any(|table| catalog_table_for_storage(table).is_some())
             || rows.iter().any(|key| {
                 let SyncKey::Row { table, .. } = key;
-                engine::catalog_table_for_storage(table).is_some()
+                catalog_table_for_storage(table).is_some()
             })
         {
-            selection = crate::SyncSelection::All;
+            selection = SyncSelection::All;
         }
     }
     let (tables, mut keys) = match selection {
-        crate::SyncSelection::All => {
+        SyncSelection::All => {
             let mut tables = Vec::from([
                 String::from(ENGINE_TABLES_STORAGE),
                 String::from(ENGINE_TABLE_FIELDS_STORAGE),
@@ -706,7 +767,7 @@ where
             }
             (tables, BTreeSet::new())
         }
-        crate::SyncSelection::Selected { tables, rows } => (tables, rows.into_iter().collect()),
+        SyncSelection::Selected { tables, rows } => (tables, rows.into_iter().collect()),
     };
     let scope_keys = scope.map(|scope| (scope.names.clone(), scope.keys.clone()));
     engine
@@ -763,6 +824,11 @@ where
         .await
 }
 
+/// Builds a manifest for the current history.
+///
+/// # Errors
+///
+/// Returns an error for storage, history reconstruction, or budget failure.
 pub async fn sync_manifest_for<K, R>(engine: &Engine<K, R>) -> Result<SyncManifest, EngineError>
 where
     K: Kernel,
@@ -789,6 +855,11 @@ where
     ))
 }
 
+/// Exports current state units.
+///
+/// # Errors
+///
+/// Returns an error for storage, history reconstruction, validation, or budget failure.
 pub async fn export_sync_state_for<K, R>(
     engine: &Engine<K, R>,
 ) -> Result<Vec<SyncStateUnit>, EngineError>
@@ -877,11 +948,11 @@ where
                         }
                     }
                 }
-                let view = crate::candidate::read_candidate_view(
+                let view = read_candidate_view(
                     codec,
                     transaction,
                     units.iter().map(|unit| unit.key.clone()).collect(),
-                    crate::SyncValidationDirection::Outgoing,
+                    SyncValidationDirection::Outgoing,
                     candidate_tables,
                 )
                 .await?;
@@ -891,7 +962,7 @@ where
     })
     .await?;
     if let Some(scope) = scope {
-        scope.validate_candidates(&view)?;
+        scope.validate_candidates(view.as_ref())?;
     }
     units.sort_unstable_by(|left, right| left.key.cmp(&right.key));
     if let Some(scope) = scope {
@@ -905,6 +976,10 @@ where
 
 /// Direct unchecked apply. The caller must authorize each atomic catalog/data apply;
 /// use checked sync for received production operations with changing decisions.
+///
+/// # Errors
+///
+/// Returns an error for validation, storage, or history application failure.
 pub async fn apply_sync_state_for<K, R>(
     engine: &Engine<K, R>,
     unit: SyncStateUnit,
@@ -917,7 +992,12 @@ where
 }
 
 /// Direct unchecked apply; this batch may contain multiple atomic operations.
+///
 /// The caller is responsible for authorizing each operation; prefer checked sync.
+///
+/// # Errors
+///
+/// Returns an error for validation, storage, or history application failure.
 pub async fn apply_sync_state_batch_for<K, R>(
     engine: &Engine<K, R>,
     batch: Vec<SyncStateUnit>,
@@ -933,12 +1013,16 @@ where
         None,
         false,
         None,
-        &mut || Box::pin(core::future::ready(Ok(()))),
+        &mut || Box::pin(ready(Ok(()))),
     )
     .await
     .map_err(ApplyError::into_engine)
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "received batches share validation, application, and retry state"
+)]
 async fn apply_received_batch<K, R>(
     engine: &Engine<K, R>,
     snapshots: Arc<Vec<SyncStateUnit>>,
@@ -1057,7 +1141,7 @@ where
                     engine,
                     Arc::clone(&snapshots),
                     Arc::clone(&changes),
-                    core::mem::take(&mut batch),
+                    take(&mut batch),
                     scope,
                     check,
                 ))
@@ -1078,6 +1162,10 @@ where
     Ok(())
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one data batch shares candidate validation and atomic application"
+)]
 async fn apply_data_row_batch<K, R>(
     engine: &Engine<K, R>,
     snapshots: Arc<Vec<SyncStateUnit>>,
@@ -1123,11 +1211,11 @@ where
                             mutations.record_table(&table);
                         }
                     }
-                    let view = crate::candidate::read_candidate_view(
+                    let view = read_candidate_view(
                         codec,
                         transaction,
                         candidates,
-                        crate::SyncValidationDirection::Incoming,
+                        SyncValidationDirection::Incoming,
                         candidate_tables,
                     )
                     .await?;
@@ -1136,7 +1224,7 @@ where
             },
             |view| {
                 if let Some(scope) = scope {
-                    scope.validate_candidates(view)?;
+                    scope.validate_candidates(view.as_ref())?;
                 }
                 Ok(())
             },
@@ -1148,7 +1236,7 @@ where
 
 const fn sync_state_unit_estimate(unit: &SyncStateUnit) -> usize {
     let SyncKey::Row { table, row } = &unit.key;
-    core::mem::size_of::<SyncStateUnit>()
+    size_of::<SyncStateUnit>()
         .saturating_add(table.len())
         .saturating_add(row_identity_estimate(row))
         .saturating_add(unit.state.len())
@@ -1156,7 +1244,7 @@ const fn sync_state_unit_estimate(unit: &SyncStateUnit) -> usize {
 }
 
 const fn sync_incremental_change_estimate(change: &SyncIncrementalChange) -> usize {
-    core::mem::size_of::<SyncIncrementalChange>()
+    size_of::<SyncIncrementalChange>()
         .saturating_add(change.table.len())
         .saturating_add(row_identity_estimate(&change.row))
         .saturating_add(change.id.0.len())
@@ -1218,6 +1306,10 @@ where
     Ok(())
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "catalog validation checks state, changes, and dependency order"
+)]
 async fn validate_catalog<T, R>(
     codec: &R,
     transaction: &T,
@@ -1555,6 +1647,11 @@ fn validate_state_batch(batch: &[SyncStateUnit]) -> Result<(), EngineError> {
 }
 
 /// Direct unchecked apply; caller authorization is required for each atomic operation.
+/// Applies incremental changes without a pre-apply check.
+///
+/// # Errors
+///
+/// Returns an error for validation, storage, or history application failure.
 pub async fn apply_incremental_changes_for<K, R>(
     engine: &Engine<K, R>,
     batch: &[SyncIncrementalChange],
@@ -1570,7 +1667,7 @@ where
         None,
         false,
         None,
-        &mut || Box::pin(core::future::ready(Ok(()))),
+        &mut || Box::pin(ready(Ok(()))),
     )
     .await
     .map_err(ApplyError::into_engine)
@@ -1597,8 +1694,7 @@ fn inventory_for(
             continue;
         }
         let SyncKey::Row { table, row } = key;
-        let size = postcard::experimental::serialized_size(&(table, row, &summary.changes))
-            .map_err(EngineError::custom)?;
+        let size = serialized_size(&(table, row, &summary.changes)).map_err(EngineError::custom)?;
         if size > MAX_MESSAGE_BYTES.saturating_sub(used) {
             // Missing inventories already select snapshots; no wire-format change is needed.
             continue;
@@ -1619,8 +1715,8 @@ async fn exchange_inventories<T>(
     local: Vec<SyncRowInventory>,
 ) -> Result<Vec<SyncRowInventory>, SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     let message = SyncMessage::Inventory(local);
     match role {
@@ -1640,8 +1736,8 @@ async fn receive_inventory<T>(
     transport: &mut T,
 ) -> Result<Vec<SyncRowInventory>, SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     match receive_message(transport).await?.0 {
         SyncMessage::Inventory(inventory) => Ok(inventory),
@@ -1650,6 +1746,10 @@ where
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "outbound construction shares inventory comparison and candidate validation"
+)]
 async fn build_outbound<K, R>(
     engine: &Engine<K, R>,
     summaries: Vec<(SyncKey, DocumentSummary)>,
@@ -1724,14 +1824,14 @@ where
                     let view = if changes.is_empty() {
                         None
                     } else {
-                        crate::candidate::read_candidate_view(
+                        read_candidate_view(
                             codec,
                             transaction,
                             Vec::from([SyncKey::Row {
                                 table: table_for_export,
                                 row,
                             }]),
-                            crate::SyncValidationDirection::Outgoing,
+                            SyncValidationDirection::Outgoing,
                             candidate_tables,
                         )
                         .await?
@@ -1741,7 +1841,7 @@ where
             })
             .await?;
         if let Some(scope) = scope {
-            scope.validate_candidates(&view)?;
+            scope.validate_candidates(view.as_ref())?;
         }
         if let Some(changes) = changes.filter(|changes| !changes.is_empty()) {
             for change in &changes {
@@ -1806,21 +1906,20 @@ async fn send_batches<T, U>(
     message: fn(Vec<U>) -> SyncMessage,
 ) -> Result<(), SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
-    U: serde::Serialize + Clone,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
+    U: serde::Serialize + Clone + MaybeSync,
 {
-    let header = postcard::experimental::serialized_size(&message(Vec::new()))
+    let header = serialized_size(&message(Vec::new()))
         .map_err(|error| SyncError::Protocol(error.to_string()))?
         - 1;
     let mut start = 0;
     let mut bytes = 0;
     for (index, unit) in units.iter().enumerate() {
-        let size = postcard::experimental::serialized_size(unit)
-            .map_err(|error| SyncError::Protocol(error.to_string()))?;
+        let size = serialized_size(unit).map_err(|error| SyncError::Protocol(error.to_string()))?;
         let count = index - start + 1;
-        let prefix = postcard::experimental::serialized_size(&count)
-            .map_err(|error| SyncError::Protocol(error.to_string()))?;
+        let prefix =
+            serialized_size(&count).map_err(|error| SyncError::Protocol(error.to_string()))?;
         if index > start
             && (count > batch_size || header + prefix + bytes + size > MAX_MESSAGE_BYTES)
         {
@@ -1842,8 +1941,8 @@ async fn send_outbound<T>(
     batch_size: usize,
 ) -> Result<TransferCount, SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     send_batches(
         transport,
@@ -1872,8 +1971,8 @@ async fn exchange_snapshot_requests<T>(
     local: &[SyncSnapshotRequest],
 ) -> Result<Vec<SyncSnapshotRequest>, SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     let message = SyncMessage::RequestSnapshots(local.to_vec());
     match role {
@@ -1893,8 +1992,8 @@ async fn receive_snapshot_requests<T>(
     transport: &mut T,
 ) -> Result<Vec<SyncSnapshotRequest>, SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     match receive_message(transport).await?.0 {
         SyncMessage::RequestSnapshots(requests) => Ok(requests),
@@ -1964,11 +2063,11 @@ where
                     }
                 }
                 let candidates = snapshots.iter().map(|unit| unit.key.clone()).collect();
-                let view = crate::candidate::read_candidate_view(
+                let view = read_candidate_view(
                     codec,
                     transaction,
                     candidates,
-                    crate::SyncValidationDirection::Outgoing,
+                    SyncValidationDirection::Outgoing,
                     candidate_tables,
                 )
                 .await?;
@@ -1977,7 +2076,7 @@ where
         })
         .await?;
     if let Some(scope) = scope {
-        scope.validate_candidates(&view)?;
+        scope.validate_candidates(view.as_ref())?;
         for snapshot in &snapshots {
             scope.clone().validate(engine, snapshot).await?;
         }
@@ -1991,14 +2090,18 @@ async fn send_snapshots<T>(
     batch_size: usize,
 ) -> Result<usize, SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     send_batches(transport, snapshots, batch_size, SyncMessage::State).await?;
     send_message(transport, &SyncMessage::Done).await?;
     Ok(snapshots.len())
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "recovery receives, stages, and validates one remote history"
+)]
 async fn receive_recovery<K, R, T, F>(
     engine: &Engine<K, R>,
     transport: &mut T,
@@ -2013,10 +2116,10 @@ async fn receive_recovery<K, R, T, F>(
 where
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
     F: SyncStageFactory,
-    F::Error: core::fmt::Display,
+    F::Error: Display,
     F::Stage: 'static,
 {
     let mut stage = stage_factory
@@ -2025,7 +2128,7 @@ where
         .map_err(|error| SyncError::Staging(error.to_string()))?;
     let mut remaining = requested.iter().cloned().collect::<BTreeSet<_>>();
     let mut count = 0;
-    let mut received_bytes = received.received_bytes;
+    let mut received_bytes = received.bytes;
     loop {
         let (message, message_bytes) = receive_message(transport).await?;
         received_bytes = account_message(
@@ -2065,7 +2168,7 @@ where
             _ => return Err(SyncError::UnexpectedMessage),
         }
     }
-    received.received_bytes = received_bytes;
+    received.bytes = received_bytes;
     if let Err(error) = validate_recovery_complete(&remaining) {
         let _ = send_message(
             transport,
@@ -2114,6 +2217,10 @@ where
     Ok((count, 0))
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "catalog stages apply in one ordered transaction"
+)]
 async fn apply_catalog_stages<K, R, S>(
     engine: &Engine<K, R>,
     stages: Vec<S>,
@@ -2148,9 +2255,12 @@ where
                         match message {
                             SyncMessage::State(units) => {
                                 for unit in units {
-                                    validate_state_batch(core::slice::from_ref(&unit))?;
+                                    validate_state_batch(from_ref(&unit))?;
                                     let SyncKey::Row { table, .. } = &unit.key;
-                                    if catalog_order(table) != (stage_index % 4) as u8 {
+                                    if catalog_order(table)
+                                        != u8::try_from(stage_index % 4)
+                                            .expect("four catalog stages")
+                                    {
                                         return Err(EngineError::custom(
                                             "Staged catalog state has an invalid apply order",
                                         ));
@@ -2161,7 +2271,10 @@ where
                             }
                             SyncMessage::Changes(changes) => {
                                 for change in changes {
-                                    if catalog_order(&change.table) != (stage_index % 4) as u8 {
+                                    if catalog_order(&change.table)
+                                        != u8::try_from(stage_index % 4)
+                                            .expect("four catalog stages")
+                                    {
                                         return Err(EngineError::custom(
                                             "Staged catalog change has an invalid apply order",
                                         ));
@@ -2194,6 +2307,10 @@ struct StagedDataApply {
     requests: Vec<SyncSnapshotRequest>,
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "staged data applies snapshots and changes with consistent checks"
+)]
 async fn apply_staged_data<K, R, S>(
     engine: &Engine<K, R>,
     stage: &mut S,
@@ -2242,7 +2359,7 @@ where
                         let completed = apply_staged_snapshot_batch(
                             engine,
                             manifest,
-                            core::mem::take(&mut pending_snapshots),
+                            take(&mut pending_snapshots),
                             scope,
                             check,
                         )
@@ -2282,7 +2399,7 @@ where
                     let completed = apply_staged_change_batch(
                         engine,
                         manifest,
-                        core::mem::take(&mut pending_changes),
+                        take(&mut pending_changes),
                         scope,
                         check,
                     )
@@ -2300,7 +2417,7 @@ where
         let completed = apply_staged_snapshot_batch(
             engine,
             manifest,
-            core::mem::take(&mut pending_snapshots),
+            take(&mut pending_snapshots),
             scope,
             check,
         )
@@ -2308,14 +2425,9 @@ where
         merge_staged_apply(&mut applied, completed);
     }
     if !pending_changes.is_empty() {
-        let completed = apply_staged_change_batch(
-            engine,
-            manifest,
-            core::mem::take(&mut pending_changes),
-            scope,
-            check,
-        )
-        .await?;
+        let completed =
+            apply_staged_change_batch(engine, manifest, take(&mut pending_changes), scope, check)
+                .await?;
         merge_staged_apply(&mut applied, completed);
     }
     Ok(applied)
@@ -2481,6 +2593,10 @@ fn snapshot_request(unit: &SyncStateUnit) -> SyncSnapshotRequest {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "outbound reception owns staging, ordering, and completion checks"
+)]
 async fn receive_outbound<K, R, T, F>(
     engine: &Engine<K, R>,
     transport: &mut T,
@@ -2493,17 +2609,17 @@ async fn receive_outbound<K, R, T, F>(
 where
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
     F: SyncStageFactory,
-    F::Error: core::fmt::Display,
+    F::Error: Display,
     F::Stage: 'static,
 {
     let mut count = Received {
         snapshots: 0,
         changes: 0,
         requests: Vec::new(),
-        received_bytes: 0,
+        bytes: 0,
     };
     let mut catalog_stages = Vec::with_capacity(8);
     for _ in 0..8 {
@@ -2532,9 +2648,9 @@ where
     let mut current_change_ids = BTreeSet::new();
     loop {
         let (message, message_bytes) = receive_message(transport).await?;
-        count.received_bytes = account_message(
+        count.bytes = account_message(
             transport,
-            count.received_bytes,
+            count.bytes,
             message_bytes,
             retained_message_bytes(&message),
             max_session_bytes,
@@ -2595,9 +2711,9 @@ where
                             .as_ref()
                             .is_some_and(|current| current != &key)
                         {
-                            let record = postcard::to_allocvec(&SyncMessage::Changes(
-                                core::mem::take(&mut current_changes),
-                            ))
+                            let record = postcard::to_allocvec(&SyncMessage::Changes(take(
+                                &mut current_changes,
+                            )))
                             .map_err(|error| SyncError::Protocol(error.to_string()))?;
                             data_change_stage
                                 .append(record)
@@ -2663,7 +2779,7 @@ where
                         sync_stage(|| apply_catalog_stages(engine, catalog_stages, manifest, check))
                             .await
                 {
-                    return abort(transport, error, String::from("catalog batch")).await;
+                    return abort(transport, error, "catalog batch").await;
                 }
                 let staged_snapshots = match apply_staged_data(
                     engine,
@@ -2677,7 +2793,7 @@ where
                 {
                     Ok(applied) => applied,
                     Err(error) => {
-                        return abort(transport, error, String::from("data state batch")).await;
+                        return abort(transport, error, "data state batch").await;
                     }
                 };
                 count.snapshots = catalog_snapshots + staged_snapshots.snapshots;
@@ -2695,7 +2811,7 @@ where
                 {
                     Ok(applied) => applied,
                     Err(error) => {
-                        return abort(transport, error, String::from("data change batch")).await;
+                        return abort(transport, error, "data change batch").await;
                     }
                 };
                 count.changes = catalog_changes + staged_changes.changes;
@@ -2717,24 +2833,24 @@ where
     }
 }
 
-async fn abort<T>(
+fn abort<T>(
     transport: &mut T,
     error: ApplyError,
-    context: String,
-) -> Result<Received, SyncError<T::Error>>
+    context: &str,
+) -> impl Future<Output = Result<Received, SyncError<T::Error>>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     let reason = format!("{error} ({context})");
     let _ = send_message(transport, &SyncMessage::Abort(reason)).now_or_never();
-    Err(error.into())
+    ready(Err(error.into()))
 }
 
 async fn exchange_hello<T>(transport: &mut T, role: SyncRole) -> Result<(), SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     let hello = SyncMessage::Hello(SyncHello {
         protocol_version: PROTOCOL_VERSION,
@@ -2771,8 +2887,8 @@ async fn exchange_manifest_value<T>(
     manifest: SyncManifest,
 ) -> Result<SyncManifest, SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     let message = SyncMessage::Manifest(manifest);
     match role {
@@ -2790,8 +2906,8 @@ where
 
 async fn receive_manifest<T>(transport: &mut T) -> Result<SyncManifest, SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     match receive_message(transport).await?.0 {
         SyncMessage::Manifest(manifest) => {
@@ -2803,26 +2919,26 @@ where
     }
 }
 
-async fn with_engine_abort<T, O>(
+fn with_engine_abort<T, O>(
     transport: &mut T,
     result: Result<O, EngineError>,
-) -> Result<O, SyncError<T::Error>>
+) -> impl Future<Output = Result<O, SyncError<T::Error>>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
-    match result {
+    ready(match result {
         Ok(output) => Ok(output),
         Err(error) => {
             let _ = send_message(transport, &SyncMessage::Abort(error.to_string())).now_or_never();
             Err(error.into())
         }
-    }
+    })
 }
 
 const fn incremental_change_estimate(change: &SyncIncrementalChange) -> usize {
     let identity_bytes = change.row.as_bytes().len();
-    core::mem::size_of::<SyncIncrementalChange>()
+    size_of::<SyncIncrementalChange>()
         .saturating_add(change.table.len())
         .saturating_add(identity_bytes)
         .saturating_add(change.id.0.len())
@@ -2854,7 +2970,7 @@ fn retained_message_bytes(message: &SyncMessage) -> usize {
     match message {
         SyncMessage::State(units) => units.iter().fold(0usize, |used, unit| {
             let SyncKey::Row { table, row } = &unit.key;
-            used.saturating_add(core::mem::size_of::<SyncStateUnit>())
+            used.saturating_add(size_of::<SyncStateUnit>())
                 .saturating_add(
                     unit.state
                         .len()
@@ -2866,7 +2982,7 @@ fn retained_message_bytes(message: &SyncMessage) -> usize {
                 .saturating_add(128)
         }),
         SyncMessage::Changes(changes) => changes.iter().fold(0usize, |used, change| {
-            used.saturating_add(core::mem::size_of::<SyncIncrementalChange>())
+            used.saturating_add(size_of::<SyncIncrementalChange>())
                 .saturating_add(
                     change
                         .table
@@ -2879,7 +2995,7 @@ fn retained_message_bytes(message: &SyncMessage) -> usize {
                 .saturating_add(128)
         }),
         SyncMessage::RequestSnapshots(requests) => requests.iter().fold(0usize, |used, request| {
-            used.saturating_add(core::mem::size_of::<SyncSnapshotRequest>())
+            used.saturating_add(size_of::<SyncSnapshotRequest>())
                 .saturating_add(
                     request
                         .table
@@ -2892,27 +3008,27 @@ fn retained_message_bytes(message: &SyncMessage) -> usize {
     }
 }
 
-async fn account_message<T>(
+fn account_message<T>(
     transport: &mut T,
     used: usize,
     message_bytes: usize,
     retained_bytes: usize,
     max: usize,
-) -> Result<usize, SyncError<T::Error>>
+) -> impl Future<Output = Result<usize, SyncError<T::Error>>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     let size = used
         .saturating_add(message_bytes)
         .saturating_add(retained_bytes);
-    if size > max {
+    ready(if size > max {
         let error = SyncError::SessionTooLarge { size, max };
         let _ = send_message(transport, &SyncMessage::Abort(error.to_string())).now_or_never();
         Err(error)
     } else {
         Ok(size)
-    }
+    })
 }
 
 async fn send_message<T>(
@@ -2920,11 +3036,10 @@ async fn send_message<T>(
     message: &SyncMessage,
 ) -> Result<(), SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
-    let size = postcard::experimental::serialized_size(message)
-        .map_err(|error| SyncError::Protocol(error.to_string()))?;
+    let size = serialized_size(message).map_err(|error| SyncError::Protocol(error.to_string()))?;
     if size > MAX_MESSAGE_BYTES {
         let error = SyncError::MessageTooLarge {
             size,
@@ -2942,8 +3057,8 @@ where
 
 async fn receive_message<T>(transport: &mut T) -> Result<(SyncMessage, usize), SyncError<T::Error>>
 where
-    T: SyncTransport,
-    T::Error: core::fmt::Display,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
 {
     let frame = transport.receive().await.map_err(SyncError::Transport)?;
     if frame.len() > MAX_MESSAGE_BYTES {
@@ -2964,14 +3079,25 @@ mod test_support;
 
 #[cfg(test)]
 mod tests {
-    use alloc::{collections::BTreeSet, string::String, vec, vec::Vec};
+    use alloc::{
+        collections::{BTreeMap, BTreeSet},
+        string::String,
+        sync::Arc,
+        vec,
+        vec::Vec,
+    };
 
-    use core::sync::atomic::{AtomicUsize, Ordering};
+    use core::{
+        future::ready,
+        slice::from_ref,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
     use engine::{
         ENGINE_INDEX_FIELDS_STORAGE, ENGINE_INDICES_STORAGE, ENGINE_TABLE_FIELDS_STORAGE,
         ENGINE_TABLES_STORAGE, Uuid,
     };
     use futures::executor::block_on;
+    use postcard::experimental::serialized_size;
 
     use super::test_support::TestCodec;
     use super::{
@@ -2982,7 +3108,7 @@ mod tests {
     };
     use crate::SyncIncrementalChange;
     use crate::{
-        PROTOCOL_VERSION, SyncChangeId, SyncHello, SyncKey, SyncManifest, SyncMessage,
+        PROTOCOL_VERSION, StateDigest, SyncChangeId, SyncHello, SyncKey, SyncManifest, SyncMessage,
         SyncRowInventory, SyncSnapshotRequest, SyncStateUnit, SyncTransport,
     };
     use engine::{
@@ -2998,13 +3124,13 @@ mod tests {
     impl SyncTransport for Transport {
         type Error = &'static str;
 
-        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
-            self.inbound.take().ok_or("no inbound frame")
+        fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
+            ready(self.inbound.take().ok_or("no inbound frame"))
         }
 
-        async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
+        fn send(&mut self, frame: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
             self.outbound = Some(frame);
-            Ok(())
+            ready(Ok(()))
         }
     }
 
@@ -3016,20 +3142,20 @@ mod tests {
     impl SyncTransport for RecordingTransport {
         type Error = &'static str;
 
-        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
-            Err("send-only transport")
+        fn receive(&mut self) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send {
+            ready(Err("send-only transport"))
         }
 
-        async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
+        fn send(&mut self, frame: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
             assert!(frame.len() <= MAX_MESSAGE_BYTES);
             self.frames.push(frame);
-            Ok(())
+            ready(Ok(()))
         }
     }
 
     struct CountingKernel {
         inner: InMemoryKernel,
-        reads: alloc::sync::Arc<AtomicUsize>,
+        reads: Arc<AtomicUsize>,
     }
 
     impl Kernel for CountingKernel {
@@ -3048,7 +3174,7 @@ mod tests {
                 row: Uuid::from_bytes([1; 16]),
             },
             DocumentSummary {
-                digest: crate::StateDigest::from_parts(b"history", b""),
+                digest: StateDigest::from_parts(b"history", b""),
                 metadata: Vec::new(),
                 changes,
             },
@@ -3171,7 +3297,7 @@ mod tests {
         block_on(async {
             let kernel = CountingKernel {
                 inner: InMemoryKernel::new(),
-                reads: alloc::sync::Arc::new(AtomicUsize::new(0)),
+                reads: Arc::new(AtomicUsize::new(0)),
             };
             let mut tx = kernel.inner.transaction().await.expect("seed transaction");
             tx.ensure_table("__test_changes")
@@ -3183,7 +3309,7 @@ mod tests {
                     .expect("seed change");
             }
             tx.commit().await.expect("commit history");
-            let reads = kernel.reads.clone();
+            let reads = Arc::clone(&kernel.reads);
             let engine = Engine::new(kernel, TestCodec);
             let (key, summary) = history(
                 [9, 2, 7, 1]
@@ -3192,7 +3318,7 @@ mod tests {
                     .collect(),
             );
             let SyncKey::Row { table, row } = key.clone();
-            let remote = alloc::collections::BTreeMap::from([(
+            let remote = BTreeMap::from([(
                 key.clone(),
                 SyncRowInventory {
                     table,
@@ -3228,7 +3354,7 @@ mod tests {
         block_on(async {
             let kernel = CountingKernel {
                 inner: InMemoryKernel::new(),
-                reads: alloc::sync::Arc::new(AtomicUsize::new(0)),
+                reads: Arc::new(AtomicUsize::new(0)),
             };
             let (key, summary) = history(vec![SyncChangeId(vec![9]), SyncChangeId(vec![2])]);
             let SyncKey::Row { table, row } = key.clone();
@@ -3247,7 +3373,7 @@ mod tests {
             tx.commit().await.expect("commit seed");
             let engine = Engine::new(kernel, TestCodec);
             for remote in [
-                alloc::collections::BTreeMap::from([(
+                BTreeMap::from([(
                     key.clone(),
                     SyncRowInventory {
                         table: table.clone(),
@@ -3255,7 +3381,7 @@ mod tests {
                         changes: Vec::new(),
                     },
                 )]),
-                alloc::collections::BTreeMap::new(),
+                BTreeMap::new(),
             ] {
                 let outbound = build_outbound(
                     &engine,
@@ -3277,10 +3403,10 @@ mod tests {
     #[test]
     fn shared_long_history_needs_no_export_transaction() {
         block_on(async {
-            let reads = alloc::sync::Arc::new(AtomicUsize::new(0));
+            let reads = Arc::new(AtomicUsize::new(0));
             let kernel = CountingKernel {
                 inner: InMemoryKernel::new(),
-                reads: reads.clone(),
+                reads: Arc::clone(&reads),
             };
             let engine = Engine::new(kernel, TestCodec);
             let changes = (0u32..20_000)
@@ -3288,7 +3414,7 @@ mod tests {
                 .collect::<Vec<_>>();
             let (key, summary) = history(changes.clone());
             let SyncKey::Row { table, row } = key.clone();
-            let remote = alloc::collections::BTreeMap::from([(
+            let remote = BTreeMap::from([(
                 key.clone(),
                 SyncRowInventory {
                     table,
@@ -3320,10 +3446,8 @@ mod tests {
                 vec![1; MAX_MESSAGE_BYTES - 100],
                 Vec::new(),
             );
-            let size = postcard::experimental::serialized_size(&SyncMessage::State(vec![
-                snapshot.clone(),
-            ]))
-            .expect("encoded size");
+            let size =
+                serialized_size(&SyncMessage::State(vec![snapshot.clone()])).expect("encoded size");
             snapshot
                 .state
                 .resize(snapshot.state.len() + MAX_MESSAGE_BYTES - size, 1);
@@ -3414,7 +3538,7 @@ mod tests {
             row: Uuid::from_bytes([1; 16]),
         };
         let unit = SyncStateUnit::new(key, vec![3], vec![4]);
-        validate_state_batch(core::slice::from_ref(&unit)).unwrap();
+        validate_state_batch(from_ref(&unit)).unwrap();
         let mut corrupted = unit;
         corrupted.state.push(5);
         assert!(validate_state_batch(&[corrupted]).is_err());

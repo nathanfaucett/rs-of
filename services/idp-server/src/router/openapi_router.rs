@@ -109,7 +109,7 @@ pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
 
     let mut openapi_spec = spec_router.get_openapi().clone();
 
-    openapi_spec.servers = Some(vec![Server::new(format!("{}{}", api_base_uri, prefix))]);
+    openapi_spec.servers = Some(vec![Server::new(format!("{api_base_uri}{prefix}"))]);
 
     let mut schemas = Vec::<(String, RefOr<Schema>)>::new();
     let (openapi_json_path, openapi_json_item, openapi_json_types) =
@@ -215,7 +215,7 @@ mod tests {
             );
         }
         assert!(
-            document.paths.paths.contains_key("/idp/replica-signers"),
+            document.paths.paths.contains_key("/replica-signers"),
             "idp signer routes must remain exposed"
         );
     }

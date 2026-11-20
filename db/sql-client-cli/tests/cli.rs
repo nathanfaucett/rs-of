@@ -1,11 +1,17 @@
 use std::{
     net::{SocketAddr, TcpListener},
+    path::Path,
     process::{Command, Output},
     time::Duration,
 };
 
 use ofdb_sql::Database;
-use tokio::{net::TcpStream, sync::oneshot, time::sleep};
+use tokio::{
+    net::TcpStream,
+    sync::oneshot,
+    task::spawn_blocking,
+    time::{sleep, timeout},
+};
 
 const SQL: &str = "CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID)); SELECT id FROM items";
 
@@ -37,8 +43,8 @@ fn local_cli_executes_one_batch_and_reports_errors() {
 
     let failed = run(&["--memory", "--query", "SELECT id FROM missing"]);
     assert_eq!(failed.status.code(), Some(1));
-    assert!(failed.stdout.is_empty());
-    assert!(!failed.stderr.is_empty());
+    assert_eq!(failed.stdout, [] as [u8; 0]);
+    assert_ne!(failed.stderr, [] as [u8; 0]);
 
     let help = Command::new(env!("CARGO_BIN_EXE_sql-client-cli"))
         .arg("--help")
@@ -59,8 +65,8 @@ async fn remote_cli_verifies_tls_with_the_configured_ca() {
             .serve_tcp_with_tls(
                 address,
                 Some((
-                    include_bytes!("../../../test-fixtures/tls/server.crt").to_vec(),
-                    include_bytes!("../../../test-fixtures/tls/server.key").to_vec(),
+                    include_bytes!("../../test-fixtures/tls/server.crt").to_vec(),
+                    include_bytes!("../../test-fixtures/tls/server.key").to_vec(),
                 )),
                 async {
                     let _ = shutdown_signal.await;
@@ -70,7 +76,7 @@ async fn remote_cli_verifies_tls_with_the_configured_ca() {
             .expect("TLS server stops cleanly");
     });
 
-    tokio::time::timeout(Duration::from_secs(5), async {
+    timeout(Duration::from_secs(5), async {
         while TcpStream::connect(address).await.is_err() {
             sleep(Duration::from_millis(5)).await;
         }
@@ -79,12 +85,12 @@ async fn remote_cli_verifies_tls_with_the_configured_ca() {
     .expect("TLS server starts");
 
     let endpoint = format!("https://{address}");
-    let ca_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../test-fixtures/tls/ca.crt")
+    let ca_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../test-fixtures/tls/ca.crt")
         .into_os_string()
         .into_string()
         .expect("CA path is UTF-8");
-    let output = tokio::task::spawn_blocking(move || {
+    let output = spawn_blocking(move || {
         run(&[
             "--endpoint",
             &endpoint,
@@ -127,7 +133,7 @@ async fn remote_cli_executes_queries_through_the_facade() {
             .expect("server stops cleanly");
     });
 
-    tokio::time::timeout(Duration::from_secs(5), async {
+    timeout(Duration::from_secs(5), async {
         while TcpStream::connect(address).await.is_err() {
             sleep(Duration::from_millis(5)).await;
         }
@@ -136,11 +142,10 @@ async fn remote_cli_executes_queries_through_the_facade() {
     .expect("server starts");
 
     let endpoint = format!("http://{address}");
-    let output = tokio::task::spawn_blocking(move || {
-        run(&["--endpoint", &endpoint, "--query", "SELECT id FROM items"])
-    })
-    .await
-    .expect("CLI process completes");
+    let output =
+        spawn_blocking(move || run(&["--endpoint", &endpoint, "--query", "SELECT id FROM items"]))
+            .await
+            .expect("CLI process completes");
     assert!(
         output.status.success(),
         "{}",

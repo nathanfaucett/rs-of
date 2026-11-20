@@ -3,16 +3,21 @@ use std::sync::Arc;
 use btree::BTreeTransaction;
 use btree_redb::{Bytes, RedbDatabase};
 use futures::{FutureExt, StreamExt, executor::block_on};
+use redb::backends::InMemoryBackend;
 
 fn database() -> RedbDatabase {
     RedbDatabase::new(Arc::new(
         redb::Database::builder()
-            .create_with_backend(redb::backends::InMemoryBackend::new())
+            .create_with_backend(InMemoryBackend::new())
             .expect("database"),
     ))
 }
 
 #[test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit"
+)]
 fn commit_invalidation_basic() {
     block_on(async {
         let db = database();
@@ -40,6 +45,10 @@ fn commit_invalidation_basic() {
 }
 
 #[test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit"
+)]
 fn committed_work_survives_cancellation() {
     block_on(async {
         let db = database();
@@ -64,6 +73,10 @@ fn committed_work_survives_cancellation() {
 }
 
 #[test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit"
+)]
 fn overflow_handles_large_keys() {
     block_on(async {
         let db = database();
@@ -82,6 +95,10 @@ fn overflow_handles_large_keys() {
 }
 
 #[test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit"
+)]
 fn retry_after_cancellation_works() {
     block_on(async {
         let db = database();
@@ -126,6 +143,10 @@ fn retry_after_cancellation_works() {
 }
 
 #[test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit"
+)]
 fn oversized_batch_invalidations() {
     block_on(async {
         let db = database();
@@ -148,6 +169,10 @@ fn oversized_batch_invalidations() {
 }
 
 #[test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit"
+)]
 fn acknowledgement_cannot_hide_a_later_commit_or_another_consumer() {
     block_on(async {
         let db = database();

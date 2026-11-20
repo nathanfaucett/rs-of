@@ -1,5 +1,5 @@
 /*
- * OAuth Server
+ * LIDP IdP API
  *
  * OIDC / OAuth 2.x server implementation
  *
@@ -12,10 +12,8 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum GrantType {
     #[serde(rename = "password")]
-    #[default]
     Password,
     #[serde(rename = "authorization_code")]
     AuthorizationCode,
@@ -41,3 +39,8 @@ impl core::fmt::Display for GrantType {
     }
 }
 
+impl Default for GrantType {
+    fn default() -> GrantType {
+        Self::Password
+    }
+}

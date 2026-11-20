@@ -1,5 +1,7 @@
 use std::{
-    io::Error,
+    fmt,
+    future::ready,
+    io::{Error, ErrorKind},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -9,16 +11,18 @@ use std::{
 
 use iroh::{
     Endpoint, EndpointAddr, EndpointId, SecretKey,
-    endpoint::{Connection, presets::Preset},
+    endpoint::{BindError, Connection, presets::Preset},
     protocol::{AcceptError, ProtocolHandler, Router},
 };
 use noq::{RecvStream, SendStream};
 use tokio::sync::{broadcast, watch};
+#[cfg(not(wasm_browser))]
+use tokio::{spawn, time::sleep};
 
 use crate::{
-    EndpointIdStore, PairingOffer,
+    EndpointIdStore, MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer,
     hooks::{AllowlistHook, AlpnAllowlist},
-    mesh::{MESH_ALPN, Mesh, Message},
+    mesh::{MESH_ALPN, Mesh, Message, endpoint_relay_urls},
     pairing::validate_payload,
 };
 
@@ -37,8 +41,8 @@ struct ServerInner {
     pairing_lock: Mutex<()>,
 }
 
-impl std::fmt::Debug for ServerInner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for ServerInner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ServerInner")
             .field("allowed", &self.allowed)
             .field("alpn_allowlist", &self.alpn_allowlist)
@@ -72,21 +76,28 @@ impl Server {
         )
     }
 
-    pub async fn bind<P>(
-        preset: P,
-        allowed: EndpointIdStore,
-    ) -> Result<Self, iroh::endpoint::BindError>
+    /// Binds an endpoint with a generated secret key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint cannot bind.
+    pub async fn bind<P>(preset: P, allowed: EndpointIdStore) -> Result<Self, BindError>
     where
         P: Preset,
     {
         Self::bind_with_secret_key(preset, SecretKey::generate(), allowed).await
     }
 
+    /// Binds an endpoint with the supplied secret key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint cannot bind.
     pub async fn bind_with_secret_key<P>(
         preset: P,
         secret_key: SecretKey,
         allowed: EndpointIdStore,
-    ) -> Result<Self, iroh::endpoint::BindError>
+    ) -> Result<Self, BindError>
     where
         P: Preset,
     {
@@ -206,6 +217,11 @@ impl Server {
         self.inner.pairing_offers.subscribe()
     }
 
+    /// Enables or disables pairing and invalidates older offers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pairing lock is poisoned.
     pub fn set_pairing_enabled(&self, enabled: bool) {
         let _lock = self
             .inner
@@ -219,6 +235,11 @@ impl Server {
             .send_replace(enabled.then_some(generation));
     }
 
+    /// Enables pairing for a bounded duration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pairing lock is poisoned.
     pub fn set_pairing_enabled_for(&self, duration: Duration) {
         let generation = {
             let _lock = self
@@ -233,8 +254,8 @@ impl Server {
         };
         let inner = Arc::clone(&self.inner);
         #[cfg(not(wasm_browser))]
-        tokio::spawn(async move {
-            tokio::time::sleep(duration).await;
+        spawn(async move {
+            sleep(duration).await;
             let _lock = inner.pairing_lock.lock().expect("pairing lock poisoned");
             if inner.pairing_generation.load(Ordering::Acquire) == generation {
                 inner.pairing_enabled.store(false, Ordering::Release);
@@ -269,13 +290,13 @@ impl Server {
         self.inner.pairing_acceptance.subscribe()
     }
 
-    pub async fn is_allowed(&self, endpoint_id: EndpointId) -> bool {
-        self.inner.allowed.contains(endpoint_id)
+    pub fn is_allowed(&self, endpoint_id: EndpointId) -> impl Future<Output = bool> {
+        ready(self.inner.allowed.contains(endpoint_id))
     }
 
     fn addr_with_relays(&self, addr: impl Into<EndpointAddr>) -> EndpointAddr {
         let mut addr = addr.into();
-        for url in crate::mesh::endpoint_relay_urls(&self.inner.endpoint) {
+        for url in endpoint_relay_urls(&self.inner.endpoint) {
             if !addr.relay_urls().any(|existing| existing == &url) {
                 addr = addr.with_relay_url(url);
             }
@@ -283,6 +304,11 @@ impl Server {
         addr
     }
 
+    /// Sends a pairing offer and reads its response.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid payload, connection failure, or stream failure.
     pub async fn send_pairing_offer(
         &self,
         endpoint: impl Into<EndpointAddr>,
@@ -313,18 +339,38 @@ impl Server {
         self.inner.mesh.subscribe()
     }
 
+    /// Broadcasts a mesh message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when message delivery fails.
     pub async fn broadcast(&self, payload: &[u8]) -> Result<(), Error> {
         self.inner.mesh.broadcast(payload).await
     }
 
+    /// Sends a direct mesh message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when message delivery fails.
     pub async fn send(&self, id: EndpointId, payload: &[u8]) -> Result<(), Error> {
         self.inner.mesh.send(id, payload).await
     }
 
+    /// Connects directly to an allowed endpoint using the data ALPN.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint is not allowed or the connection fails.
     pub async fn connect_direct(&self, id: EndpointId) -> Result<Connection, Error> {
         self.connect_direct_with_alpn(id, DATA_ALPN).await
     }
 
+    /// Connects directly to an allowed endpoint using a specific ALPN.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint is not allowed or the connection fails.
     pub async fn connect_direct_with_alpn(
         &self,
         id: EndpointId,
@@ -332,7 +378,7 @@ impl Server {
     ) -> Result<Connection, Error> {
         if !self.inner.allowed.contains(id) {
             return Err(Error::new(
-                std::io::ErrorKind::PermissionDenied,
+                ErrorKind::PermissionDenied,
                 "endpoint is not allowed",
             ));
         }
@@ -343,6 +389,11 @@ impl Server {
             .map_err(Error::other)
     }
 
+    /// Opens a bidirectional stream to an allowed endpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint is not allowed or stream setup fails.
     pub async fn open_stream(
         &self,
         id: EndpointId,
@@ -363,21 +414,23 @@ struct PairingHandler {
     server: Server,
 }
 
-impl std::fmt::Debug for PairingHandler {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("PairingHandler")
-            .finish_non_exhaustive()
+impl fmt::Debug for PairingHandler {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PairingHandler").finish_non_exhaustive()
     }
 }
 
 impl ProtocolHandler for PairingHandler {
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "broadcast errors contain pairing payloads and are not exposed"
+    )]
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let remote_id = connection.remote_id();
         let generation = self.server.pairing_acceptance_generation();
         let (mut send, mut recv) = connection.accept_bi().await?;
         let payload = recv
-            .read_to_end(crate::MAX_PAIRING_PAYLOAD_LENGTH)
+            .read_to_end(MAX_PAIRING_PAYLOAD_LENGTH)
             .await
             .map_err(Error::other)?;
         let Some(generation) = generation

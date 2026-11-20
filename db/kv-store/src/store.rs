@@ -1,6 +1,7 @@
+use core::fmt;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    ops::Bound,
+    ops::{Bound, Range},
 };
 
 use automerge::AutoCommit;
@@ -9,7 +10,7 @@ use btree::{
     StorageKey,
 };
 use btree_automerge::{
-    AutomergeBTreeTransaction, AutomergeChangeStore, DocumentChangeKey, hash_heads,
+    AutomergeBTreeTransaction, AutomergeChangeStore, DocumentChangeKey, ThresholdPolicy, hash_heads,
 };
 use futures::{StreamExt, pin_mut};
 use uuid::Uuid;
@@ -40,11 +41,11 @@ where
     change_signal: ChangeSignal,
 }
 
-impl<B> core::fmt::Debug for KvStore<B>
+impl<B> fmt::Debug for KvStore<B>
 where
-    B: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,
+    B: BTree<Vec<u8>, Vec<u8>> + fmt::Debug,
 {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("KvStore")
             .field("inner", &self.inner)
             .field("timestamp_provider", &self.timestamp_provider)
@@ -71,12 +72,16 @@ where
 
     /// Interpret work from this backend's subscription using its physical table name.
     /// Unknown tables/keys and gaps require full comparison, never skipped work.
+    #[allow(
+        clippy::unused_self,
+        reason = "the backend instance anchors subscription interpretation"
+    )]
     pub fn committed_invalidations(
         &self,
         storage_table: &str,
         work: &btree::ChangeWork,
     ) -> Vec<KvInvalidation> {
-        let mut result = std::collections::BTreeSet::new();
+        let mut result = BTreeSet::new();
         for invalidation in work.invalidations() {
             let btree::StorageInvalidation::Key { table, key } = invalidation else {
                 return vec![KvInvalidation::All];
@@ -94,12 +99,17 @@ where
         result.into_iter().collect()
     }
 
+    /// Starts a KV transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backend cannot begin a transaction.
     pub async fn transaction(&self) -> BTreeResult<KvTransaction<B::Transaction>> {
         let inner = self.inner.transaction().await?;
         Ok(KvTransaction {
             inner: AutomergeBTreeTransaction::new(
                 AutomergeChangeStore::new(inner),
-                Default::default(),
+                ThresholdPolicy::default(),
             ),
             timestamp_provider: self.timestamp_provider,
             change_signal: self.change_signal.clone(),
@@ -118,11 +128,11 @@ where
     modified_keys: BTreeSet<Vec<u8>>,
 }
 
-impl<T> core::fmt::Debug for KvTransaction<T>
+impl<T> fmt::Debug for KvTransaction<T>
 where
-    T: BTreeTransaction<Vec<u8>, Vec<u8>> + core::fmt::Debug,
+    T: BTreeTransaction<Vec<u8>, Vec<u8>> + fmt::Debug,
 {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("KvTransaction")
             .field("inner", &"AutomergeBTreeTransaction")
             .field("timestamp_provider", &self.timestamp_provider)
@@ -136,6 +146,11 @@ impl<T> KvTransaction<T>
 where
     T: BTreeTransaction<Vec<u8>, Vec<u8>>,
 {
+    /// Gets the latest visible value for a key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or document decoding failure.
     pub async fn get(&self, key: &str, now: i64) -> BTreeResult<Option<Value>> {
         let Some((_, document)) = self.latest(key).await? else {
             return Ok(None);
@@ -147,11 +162,12 @@ where
         Ok(state.value)
     }
 
-    pub async fn scan(
-        &self,
-        range: std::ops::Range<String>,
-        now: i64,
-    ) -> BTreeResult<Vec<(String, Value)>> {
+    /// Scans a key range for visible values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or document decoding failure.
+    pub async fn scan(&self, range: Range<String>, now: i64) -> BTreeResult<Vec<(String, Value)>> {
         if range.start >= range.end {
             return Ok(Vec::new());
         }
@@ -165,6 +181,11 @@ where
         .await
     }
 
+    /// Scans visible values whose keys start with a prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or document decoding failure.
     pub async fn scan_prefix(&self, prefix: &str, now: i64) -> BTreeResult<Vec<(String, Value)>> {
         let start = encoded_key_prefix(prefix);
         let end = prefix_end(start.clone());
@@ -199,6 +220,11 @@ where
             })
     }
 
+    /// Scans every visible value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or document decoding failure.
     pub async fn scan_all(&self, now: i64) -> BTreeResult<Vec<(String, Value)>> {
         let documents = self.inner.range(..);
         pin_mut!(documents);
@@ -219,6 +245,11 @@ where
             })
     }
 
+    /// Sets a value with an optional expiry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid generations, storage failure, or document encoding failure.
     pub async fn set(
         &mut self,
         key: &str,
@@ -250,14 +281,19 @@ where
             validate_generation(next)?;
             next
         };
+        let document_id = encode_document_id(key, id);
         self.inner
-            .insert(
-                encode_document_id(key, id),
-                new_document(value, expires_at)?,
-            )
-            .await
+            .insert(document_id.clone(), new_document(value, expires_at)?)
+            .await?;
+        self.modified_keys.insert(document_id);
+        Ok(())
     }
 
+    /// Deletes a key by writing a tombstone.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or document failure.
     pub async fn delete(&mut self, key: &str) -> BTreeResult<()> {
         let Some((id, document)) = self.latest(key).await? else {
             return Ok(());
@@ -271,6 +307,10 @@ where
     }
 
     /// Inspect only the latest generation of this logical key, without saving a snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or document decoding failure.
     pub async fn history(&self, key: &str) -> BTreeResult<Option<KvHistory>> {
         self.latest(key)
             .await?
@@ -278,6 +318,11 @@ where
             .transpose()
     }
 
+    /// Returns histories for the latest generation of every key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or document decoding failure.
     pub async fn histories(&self) -> BTreeResult<Vec<KvHistory>> {
         let documents = self.inner.range(..);
         pin_mut!(documents);
@@ -291,6 +336,10 @@ where
     }
 
     /// Export native changes even when their only physical representation is a snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid identifiers, storage failure, or document decoding failure.
     pub async fn export_changes(
         &self,
         id: &[u8],
@@ -301,7 +350,7 @@ where
             return Ok(Vec::new());
         };
         read_document(&document)?;
-        let known = known.iter().collect::<std::collections::BTreeSet<_>>();
+        let known = known.iter().collect::<BTreeSet<_>>();
         Ok(document
             .get_changes(&[])
             .into_iter()
@@ -316,6 +365,10 @@ where
 
     /// Validate the entire candidate before writing. A gap leaves this transaction untouched.
     /// Other operation errors still require caller rollback of the enclosing batch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid changes, missing history, storage failure, or invalid documents.
     pub async fn import_changes(
         &mut self,
         id: &[u8],
@@ -357,7 +410,7 @@ where
                 .get_changes(&[])
                 .into_iter()
                 .map(|change| change.hash())
-                .collect::<std::collections::BTreeSet<_>>();
+                .collect::<BTreeSet<_>>();
             for change in &parsed {
                 if change.deps().iter().any(|dep| !available.contains(dep)) {
                     return Ok(ChangeApply::MissingDependencies);
@@ -380,6 +433,11 @@ where
         result
     }
 
+    /// Exports the latest snapshot for every key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or document decoding failure.
     pub async fn export_snapshots(&self) -> BTreeResult<Vec<(DocumentChangeKey, Vec<u8>)>> {
         let documents = self.inner.range(..);
         pin_mut!(documents);
@@ -393,6 +451,11 @@ where
         latest.into_values().collect()
     }
 
+    /// Exports the latest snapshot for one key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or document decoding failure.
     pub async fn export_snapshot(
         &self,
         key: &str,
@@ -406,6 +469,11 @@ where
             .transpose()
     }
 
+    /// Imports and reconciles one snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid snapshots, missing history, or storage failure.
     pub async fn import_snapshot(
         &mut self,
         snapshot: (DocumentChangeKey, Vec<u8>),
@@ -457,6 +525,11 @@ where
         result
     }
 
+    /// Commits the transaction and publishes committed events.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for document decoding or persistence failure.
     pub async fn commit(self) -> BTreeResult<()> {
         let mut events = Vec::new();
         for key in &self.modified_keys {
@@ -478,6 +551,11 @@ where
         Ok(())
     }
 
+    /// Rolls back the transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when rollback fails.
     pub async fn rollback(self) -> BTreeResult<()> {
         self.inner.rollback().await
     }
@@ -599,11 +677,12 @@ fn upper_id(key: &str) -> Vec<u8> {
 mod tests {
     use super::*;
     use btree::InMemoryBTree;
+    use futures::executor::block_on;
 
     #[test]
     fn test_timestamp_provider() {
         let provider = || uuid::Timestamp::from_unix(uuid::NoContext, 0, 0);
         let store = KvStore::new(InMemoryBTree::new(), provider);
-        let _tx = futures::executor::block_on(store.transaction()).unwrap();
+        let _tx = block_on(store.transaction()).unwrap();
     }
 }

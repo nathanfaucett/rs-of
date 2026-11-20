@@ -27,7 +27,9 @@ pub trait PrivateKeyRepo {
         passphrase: &str,
     ) -> RepoResult<DerivedKey> {
         let derivation_path = DerivationPath::default();
-        if let Some(derived_key) = self.load(namespace, &derivation_path)? { Ok(derived_key) } else {
+        if let Some(derived_key) = self.load(namespace, &derivation_path)? {
+            Ok(derived_key)
+        } else {
             let entropy = MasterKey::entropy()?;
             let master_key = MasterKey::from_entropy_with_passphrase(entropy, passphrase)?;
             let derived_key = master_key.into();
@@ -45,11 +47,11 @@ pub trait PrivateKeyRepo {
         namespace: &str,
         derivation_path: DerivationPath,
     ) -> RepoResult<DerivedKey> {
-        if let Some(derived_key) = self.load(namespace, &derivation_path)? { Ok(derived_key) } else {
+        if let Some(derived_key) = self.load(namespace, &derivation_path)? {
+            Ok(derived_key)
+        } else {
             let parent_path = derivation_path.parent().ok_or_else(|| {
-                RepoError::InvalidInput(
-                    "Cannot ensure parent for root derivation path".to_string(),
-                )
+                RepoError::InvalidInput("Cannot ensure parent for root derivation path".to_string())
             })?;
 
             let parent_key = self.ensure_derivation_path(namespace, parent_path)?;

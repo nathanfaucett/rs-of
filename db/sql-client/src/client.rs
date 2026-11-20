@@ -1,3 +1,8 @@
+use core::slice::from_ref;
+
+#[cfg(all(unix, feature = "unix"))]
+use std::path::PathBuf;
+
 use proto::{ExecuteRequest, query_service_client::QueryServiceClient};
 use protocol::{
     decode_error_detail, query_result_from_proto, row_to_proto, statement_to_proto,
@@ -6,7 +11,10 @@ use protocol::{
 use query::{QueryError, QueryErrorKind, QueryResult, Statement};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
+use tonic::{
+    Code, Status,
+    transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity},
+};
 use value::{Row, Value};
 
 use crate::Transaction;
@@ -17,6 +25,11 @@ pub struct Client {
 }
 
 impl Client {
+    /// Connects to a SQL service over TCP.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid endpoint or connection failure.
     pub async fn tcp(uri: impl AsRef<str>) -> Result<Self, QueryError> {
         let endpoint = Endpoint::from_shared(uri.as_ref().to_string()).map_err(|error| {
             QueryError::new(
@@ -27,6 +40,11 @@ impl Client {
         Self::connect_endpoint(endpoint).await
     }
 
+    /// Connects to a SQL service over TCP with a trusted CA.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid TLS or endpoint configuration, or connection failure.
     pub async fn tcp_with_ca(
         uri: impl AsRef<str>,
         ca_certificate: impl AsRef<[u8]>,
@@ -45,6 +63,11 @@ impl Client {
         Self::connect_endpoint(endpoint).await
     }
 
+    /// Connects to a SQL service over TCP with a CA and client identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid TLS or endpoint configuration, or connection failure.
     pub async fn tcp_with_identity(
         uri: impl AsRef<str>,
         ca_certificate: impl AsRef<[u8]>,
@@ -59,10 +82,7 @@ impl Client {
         })?;
         let tls = ClientTlsConfig::new()
             .ca_certificate(Certificate::from_pem(ca_certificate))
-            .identity(tonic::transport::Identity::from_pem(
-                certificate,
-                private_key,
-            ));
+            .identity(Identity::from_pem(certificate, private_key));
         let endpoint = endpoint
             .tls_config(tls)
             .map_err(|error| QueryError::new(QueryErrorKind::Validation, error.to_string()))?;
@@ -77,25 +97,33 @@ impl Client {
         Ok(Self { channel })
     }
 
+    /// Connects to a SQL service over a Unix socket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the socket connection fails.
     #[cfg(all(unix, feature = "unix"))]
-    pub async fn unix(path: impl Into<std::path::PathBuf>) -> Result<Self, QueryError> {
+    pub async fn unix(path: impl Into<PathBuf>) -> Result<Self, QueryError> {
+        use hyper_util::rt::TokioIo;
+        use tokio::net::UnixStream;
         use tower::service_fn;
 
         let path = path.into();
         let channel = Endpoint::from_static("http://[::]:50051")
             .connect_with_connector(service_fn(move |_| {
                 let path = path.clone();
-                async move {
-                    tokio::net::UnixStream::connect(path)
-                        .await
-                        .map(hyper_util::rt::TokioIo::new)
-                }
+                async move { UnixStream::connect(path).await.map(TokioIo::new) }
             }))
             .await
             .map_err(|error| QueryError::new(QueryErrorKind::Transport, error.to_string()))?;
         Ok(Self { channel })
     }
 
+    /// Returns conflicts for several keys in one request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid response.
     pub async fn row_conflicts_batch(
         &self,
         table: &str,
@@ -115,26 +143,41 @@ impl Client {
         Ok(response.rows.into_iter().map(|row| row.columns).collect())
     }
 
+    /// Returns conflicts for one key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid response.
     pub async fn row_conflicts(&self, table: &str, key: &Row) -> Result<Vec<String>, QueryError> {
         Ok(self
-            .row_conflicts_batch(table, core::slice::from_ref(key))
+            .row_conflicts_batch(table, from_ref(key))
             .await?
             .remove(0))
     }
 
+    /// Returns conflict values for one key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid response.
     pub async fn row_conflict_values(
         &self,
         table: &str,
         key: &Row,
     ) -> Result<Vec<(String, Vec<Value>)>, QueryError> {
         let response = QueryServiceClient::new(self.channel.clone())
-            .row_conflict_values(conflict_request(table, core::slice::from_ref(key)))
+            .row_conflict_values(conflict_request(table, from_ref(key)))
             .await
             .map_err(status_error)?
             .into_inner();
         decode_conflict_values(response)
     }
 
+    /// Resolves a conflicted row using column values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or a rejected resolution.
     pub async fn resolve_row(
         &self,
         table: &str,
@@ -158,6 +201,11 @@ impl Client {
         Ok(())
     }
 
+    /// Starts a remote transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid ready response.
     pub async fn transaction(&self) -> Result<Transaction, QueryError> {
         let mut client = QueryServiceClient::new(self.channel.clone());
         let (sender, receiver) = mpsc::channel(1);
@@ -168,6 +216,11 @@ impl Client {
         Transaction::new(sender, response.into_inner()).await
     }
 
+    /// Executes statements outside an explicit transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or a malformed result.
     pub async fn execute(
         &self,
         statements: Vec<Statement>,
@@ -217,18 +270,22 @@ pub fn decode_conflict_values(
         .collect()
 }
 
-pub fn status_error(status: tonic::Status) -> QueryError {
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "tonic status converter is used directly and through Result::map_err"
+)]
+pub fn status_error(status: Status) -> QueryError {
     if let Some((kind, message)) = decode_error_detail(status.details()) {
         return QueryError::new(kind, message);
     }
 
     let kind = match status.code() {
-        tonic::Code::DeadlineExceeded => QueryErrorKind::Timeout,
-        tonic::Code::InvalidArgument | tonic::Code::OutOfRange => QueryErrorKind::Validation,
-        tonic::Code::FailedPrecondition | tonic::Code::Aborted => QueryErrorKind::Rejected,
-        tonic::Code::Unimplemented => QueryErrorKind::Unsupported,
-        tonic::Code::Internal | tonic::Code::DataLoss => QueryErrorKind::Internal,
-        tonic::Code::Unavailable | tonic::Code::Cancelled => QueryErrorKind::Transport,
+        Code::DeadlineExceeded => QueryErrorKind::Timeout,
+        Code::InvalidArgument | Code::OutOfRange => QueryErrorKind::Validation,
+        Code::FailedPrecondition | Code::Aborted => QueryErrorKind::Rejected,
+        Code::Unimplemented => QueryErrorKind::Unsupported,
+        Code::Internal | Code::DataLoss => QueryErrorKind::Internal,
+        Code::Unavailable | Code::Cancelled => QueryErrorKind::Transport,
         _ => QueryErrorKind::Protocol,
     };
     QueryError::new(kind, status.message())
@@ -238,14 +295,14 @@ pub fn status_error(status: tonic::Status) -> QueryError {
 mod tests {
     use super::status_error;
     use query::{QueryError, QueryErrorKind};
-    use tonic::{Code, Status};
+    use tonic::{Code, Status, codegen::Bytes};
 
     #[test]
     fn status_error_uses_structured_details() {
         let status = Status::with_details(
             Code::Internal,
             "different human message",
-            tonic::codegen::Bytes::from_static(&[QueryErrorKind::Rejected as u8, b'n', b'o']),
+            Bytes::from_static(&[QueryErrorKind::Rejected as u8, b'n', b'o']),
         );
         assert_eq!(
             status_error(status),

@@ -1,4 +1,7 @@
-use core::ops::{Bound, RangeBounds};
+use core::{
+    fmt,
+    ops::{Bound, RangeBounds},
+};
 
 use platform::MaybeSend;
 
@@ -18,8 +21,8 @@ impl<T> AutomergeChangeStore<T> {
     }
 }
 
-impl<T> core::fmt::Debug for AutomergeChangeStore<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl<T> fmt::Debug for AutomergeChangeStore<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AutomergeChangeStore")
             .finish_non_exhaustive()
     }

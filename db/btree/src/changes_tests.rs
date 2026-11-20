@@ -59,7 +59,7 @@ async fn merged_notifications_close_only_after_all_senders_close() {
 #[cfg(test)]
 mod change_event_tests {
     use crate::changes::{ChangeEvent, ChangeSignal, StorageKey};
-    use futures::StreamExt;
+    use futures::{StreamExt, pin_mut};
 
     #[tokio::test]
     async fn committed_with_events_single_event() {
@@ -173,6 +173,32 @@ mod change_event_tests {
         assert_eq!(e2.generation, 2);
         assert_eq!(e3.generation, 3);
         assert!(stream.next().await.is_none());
+    }
+    #[tokio::test]
+    async fn recreated_stream_waits_for_the_next_commit() {
+        let signal = ChangeSignal::default();
+        let mut changes = signal.subscribe();
+        let event = ChangeEvent {
+            key: StorageKey {
+                table: "test".into(),
+                key: b"key1".to_vec(),
+            },
+            blob: vec![1],
+            generation: 1,
+        };
+        signal.committed_with_events([event.clone()]);
+        assert!(changes.events().next().await.is_some());
+        let mut stream = changes.events();
+        let waiting = stream.next();
+        pin_mut!(waiting);
+        let waker = futures::task::noop_waker();
+        let mut context = core::task::Context::from_waker(&waker);
+        assert!(
+            waiting.as_mut().poll(&mut context).is_pending(),
+            "idle stream returned instead of waiting"
+        );
+        signal.committed_with_events([event]);
+        assert!(changes.events().next().await.is_some());
     }
 }
 

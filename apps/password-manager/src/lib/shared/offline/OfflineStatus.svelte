@@ -5,11 +5,11 @@ import { offlineError, prepareOffline } from "./offline";
 import { notifications } from "../state/notifications.svelte";
 
 let status = $state<string | null>(null);
-let busy = $state(false);
+
 let online = $state(true);
 
 async function check() {
-	busy = true;
+
 	try {
 		if (!dev) {
 			status = await prepareOffline();
@@ -17,7 +17,7 @@ async function check() {
 	} catch (cause) {
 		if (!dev) status = offlineError(cause);
 	} finally {
-		busy = false;
+
 	}
 }
 

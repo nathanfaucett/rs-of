@@ -40,6 +40,10 @@ async fn repeated_native_catalog_reads_fit_startup_budget() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "rollback consumes the transaction"
+)]
 async fn cached_catalog_changes_rollback_without_leaking_to_later_transactions() {
     let directory = tempfile::tempdir().expect("rollback database directory");
     let database =
@@ -94,6 +98,10 @@ async fn cached_catalog_changes_rollback_without_leaking_to_later_transactions()
 
 #[cfg(feature = "in-memory")]
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "rollback consumes the transaction"
+)]
 async fn catalog_cache_preserves_concurrent_snapshots_and_read_your_writes() {
     let database = Database::in_memory();
     let client = database.client();

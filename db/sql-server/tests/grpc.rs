@@ -1,5 +1,9 @@
 use std::{
+    env, fs,
+    future::ready,
     net::{SocketAddr, TcpListener},
+    path::Path,
+    process,
     time::Duration,
 };
 
@@ -7,10 +11,19 @@ use client::Client;
 use engine::{Engine, InMemoryKernel};
 use engine_automerge::AutomergeRowCodec;
 use ofdb_sql_server::{EngineExecutor, QueryService, Server};
-use proto::{ExecuteRequest, query_service_server::QueryService as QueryServiceTrait};
+use proto::{
+    ExecuteRequest, query_service_client::QueryServiceClient,
+    query_service_server::QueryService as QueryServiceTrait,
+};
 use protocol::{QueryExecutor, QueryServiceError, statement_to_proto};
 use query::{DataDefinition, Query, QueryErrorKind, QueryResult, QuerySelect, Statement};
 use schema::{ColumnSchema, TableSchema};
+use tokio::{
+    net::{TcpStream, UnixStream},
+    sync::oneshot,
+    time::sleep,
+};
+use tonic::{Code, Request, transport::Endpoint};
 use value::{Value, ValueType};
 
 struct TestExecutor;
@@ -24,26 +37,26 @@ impl QueryExecutor for SlowExecutor {
         &self,
         _statements: Vec<Statement>,
     ) -> Result<Vec<QueryResult>, QueryServiceError> {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(100)).await;
         Ok(vec![QueryResult::new(Vec::new())])
     }
 }
 
 impl QueryExecutor for FailingExecutor {
-    async fn execute(
+    fn execute(
         &self,
         _statements: Vec<Statement>,
-    ) -> Result<Vec<QueryResult>, QueryServiceError> {
-        Err(self.0.clone())
+    ) -> impl Future<Output = Result<Vec<QueryResult>, QueryServiceError>> {
+        ready(Err(self.0.clone()))
     }
 }
 
 impl QueryExecutor for TestExecutor {
-    async fn execute(
+    fn execute(
         &self,
         _statements: Vec<Statement>,
-    ) -> Result<Vec<QueryResult>, QueryServiceError> {
-        Ok(vec![QueryResult::new(Vec::new())])
+    ) -> impl Future<Output = Result<Vec<QueryResult>, QueryServiceError>> {
+        ready(Ok(vec![QueryResult::new(Vec::new())]))
     }
 }
 
@@ -53,23 +66,23 @@ async fn service_maps_executor_errors_to_grpc_statuses() {
     for (error, code) in [
         (
             QueryServiceError::Invalid("invalid".into()),
-            tonic::Code::InvalidArgument,
+            Code::InvalidArgument,
         ),
         (
             QueryServiceError::Rejected("rejected".into()),
-            tonic::Code::FailedPrecondition,
+            Code::FailedPrecondition,
         ),
         (
             QueryServiceError::Unsupported("unsupported"),
-            tonic::Code::Unimplemented,
+            Code::Unimplemented,
         ),
         (
             QueryServiceError::Internal("internal".into()),
-            tonic::Code::Internal,
+            Code::Internal,
         ),
     ] {
         let service = QueryService::new(FailingExecutor(error));
-        let request = tonic::Request::new(ExecuteRequest {
+        let request = Request::new(ExecuteRequest {
             statements: vec![statement.clone()],
         });
         let status = service
@@ -86,22 +99,22 @@ fn free_address() -> SocketAddr {
 }
 
 async fn wait_for_tcp(address: SocketAddr) {
-    while tokio::net::TcpStream::connect(address).await.is_err() {
-        tokio::time::sleep(Duration::from_millis(5)).await;
+    while TcpStream::connect(address).await.is_err() {
+        sleep(Duration::from_millis(5)).await;
     }
 }
 
 #[cfg(unix)]
-async fn wait_for_unix(path: &std::path::Path) {
-    while tokio::net::UnixStream::connect(path).await.is_err() {
-        tokio::time::sleep(Duration::from_millis(5)).await;
+async fn wait_for_unix(path: &Path) {
+    while UnixStream::connect(path).await.is_err() {
+        sleep(Duration::from_millis(5)).await;
     }
 }
 
 #[tokio::test]
 async fn tcp_client_executes_query_batch() {
     let address = free_address();
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
+    let (shutdown, signal) = oneshot::channel();
     let server = tokio::spawn(async move {
         Server::tcp(address, TestExecutor)
             .serve(async {
@@ -130,7 +143,7 @@ async fn tcp_client_executes_query_batch() {
 #[tokio::test]
 async fn client_deadline_is_reported() {
     let address = free_address();
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
+    let (shutdown, signal) = oneshot::channel();
     let server = tokio::spawn(async move {
         Server::tcp(address, SlowExecutor)
             .serve(async {
@@ -140,11 +153,11 @@ async fn client_deadline_is_reported() {
             .expect("server should stop cleanly");
     });
 
-    let channel = tonic::transport::Endpoint::from_shared(format!("http://{address}"))
+    let channel = Endpoint::from_shared(format!("http://{address}"))
         .expect("valid endpoint")
         .connect_lazy();
-    let mut client = proto::query_service_client::QueryServiceClient::new(channel);
-    let mut request = tonic::Request::new(ExecuteRequest {
+    let mut client = QueryServiceClient::new(channel);
+    let mut request = Request::new(ExecuteRequest {
         statements: vec![statement_to_proto(Statement::Query(Query::Select(
             QuerySelect::default(),
         )))],
@@ -156,7 +169,7 @@ async fn client_deadline_is_reported() {
         .expect_err("deadline should expire before executor completes");
     assert!(matches!(
         status.code(),
-        tonic::Code::Cancelled | tonic::Code::DeadlineExceeded
+        Code::Cancelled | Code::DeadlineExceeded
     ));
 
     shutdown.send(()).expect("server is awaiting shutdown");
@@ -167,7 +180,7 @@ async fn client_deadline_is_reported() {
 async fn failed_write_batch_does_not_commit_earlier_statements() {
     let engine = Engine::new(InMemoryKernel::new(), AutomergeRowCodec::new());
     let address = free_address();
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
+    let (shutdown, signal) = oneshot::channel();
     let server_engine = engine.clone();
     let server = tokio::spawn(async move {
         Server::tcp(address, EngineExecutor::new(server_engine))
@@ -214,7 +227,7 @@ async fn failed_write_batch_does_not_commit_earlier_statements() {
 async fn remote_transaction_commits_across_calls_and_rolls_back_on_drop() {
     let engine = Engine::new(InMemoryKernel::new(), AutomergeRowCodec::new());
     let address = free_address();
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
+    let (shutdown, signal) = oneshot::channel();
     let server_engine = engine.clone();
     let server = tokio::spawn(async move {
         Server::tcp(address, EngineExecutor::new(server_engine))
@@ -273,7 +286,7 @@ async fn remote_transaction_commits_across_calls_and_rolls_back_on_drop() {
         .await
         .expect("execute in transaction");
     drop(transaction);
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    sleep(Duration::from_millis(10)).await;
     engine.table_schema("remote_rollback").await.unwrap_err();
 
     shutdown.send(()).expect("server is awaiting shutdown");
@@ -283,9 +296,9 @@ async fn remote_transaction_commits_across_calls_and_rolls_back_on_drop() {
 #[cfg(unix)]
 #[tokio::test]
 async fn unix_socket_client_executes_batch() {
-    let path = std::env::temp_dir().join(format!("ofdb-server-{}.sock", std::process::id()));
-    let _ = std::fs::remove_file(&path);
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
+    let path = env::temp_dir().join(format!("ofdb-server-{}.sock", process::id()));
+    let _ = fs::remove_file(&path);
+    let (shutdown, signal) = oneshot::channel();
     let server_path = path.clone();
     let server = tokio::spawn(async move {
         Server::unix(server_path, TestExecutor)
@@ -308,13 +321,13 @@ async fn unix_socket_client_executes_batch() {
     assert_eq!(results.len(), 1);
     shutdown.send(()).expect("server is awaiting shutdown");
     server.await.expect("server task should complete");
-    std::fs::remove_file(path).expect("remove test socket");
+    fs::remove_file(path).expect("remove test socket");
 }
 
 #[tokio::test]
 async fn empty_batch_is_rejected() {
     let address = free_address();
-    let (shutdown, signal) = tokio::sync::oneshot::channel::<()>();
+    let (shutdown, signal) = oneshot::channel::<()>();
     let server = tokio::spawn(async move {
         let _ = Server::tcp(address, TestExecutor)
             .serve(async {

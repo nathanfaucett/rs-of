@@ -1,6 +1,6 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::BTreeSet};
 
-use core::ops::Bound;
+use core::{mem::take, ops::Bound};
 
 use platform::MaybeSend;
 
@@ -21,7 +21,7 @@ use engine::{
     RowCatalog, RowCodec, RowReconciler, RowStateView, TableStateView, Uuid,
     catalog_table_for_storage,
 };
-use futures::{Stream, StreamExt, pin_mut};
+use futures::{Stream, StreamExt, future::Either, pin_mut, stream as futures_stream};
 use value::{Row, Value, ValueType};
 
 use crate::catalog_cache::{CatalogCache, CatalogSnapshots};
@@ -112,7 +112,7 @@ impl AutomergeRowCodec {
                 for (key, bytes) in &source {
                     let key = DocumentChangeKey::decode_ordered(key).map_err(EngineError::custom)?;
                     let completed = if history.first().is_some_and(|(previous, _)| previous.id() != key.id()) {
-                        self.catalog_state(table, core::mem::take(&mut history)).await?
+                        Box::pin(self.catalog_state(table, take(&mut history))).await?
                     } else {
                         None
                     };
@@ -122,7 +122,7 @@ impl AutomergeRowCodec {
                     }
                     history.push((key, bytes.clone()));
                 }
-                if let Some(state) = self.catalog_state(table, history).await? {
+                if let Some(state) = Box::pin(self.catalog_state(table, history)).await? {
                     rows.push(state.clone());
                     yield Ok(state);
                 }
@@ -158,15 +158,15 @@ impl AutomergeRowCodec {
                 .filter(|(key, _)| !key.r#type().is_metadata())
                 .cloned()
                 .map(Ok);
-            let documents = reconstruct_document_values(futures::stream::iter(source));
+            let documents = reconstruct_document_values(futures_stream::iter(source));
             pin_mut!(documents);
             let (id, document) = documents
                 .next()
                 .await
-                .ok_or(EngineError::custom("Missing catalog document"))?
+                .ok_or_else(|| EngineError::custom("Missing catalog document"))?
                 .map_err(EngineError::custom)?;
             let columns = catalog_table_for_storage(table)
-                .ok_or(EngineError::custom("Invalid catalog storage"))?
+                .ok_or_else(|| EngineError::custom("Invalid catalog storage"))?
                 .columns()
                 .iter()
                 .map(|column| Column {
@@ -186,7 +186,7 @@ impl AutomergeRowCodec {
         table: &'a str,
         fallback_count: usize,
         catalog: Option<RowCatalog<'a>>,
-    ) -> impl core::future::Future<Output = EngineResult<Vec<Column>>> + MaybeSend + 'a
+    ) -> impl Future<Output = EngineResult<Vec<Column>>> + MaybeSend + 'a
     where
         T: KernelTransaction,
     {
@@ -203,12 +203,12 @@ impl AutomergeRowCodec {
             }
 
             let tables = match catalog {
-                Some((tables, _)) => futures::future::Either::Left(futures::stream::iter(
+                Some((tables, _)) => Either::Left(futures_stream::iter(
                     tables.iter().map(|(id, row)| Ok((*id, row.clone(), false))),
                 )),
-                None => futures::future::Either::Right(
-                    self.catalog_states(transaction, engine::ENGINE_TABLES_STORAGE),
-                ),
+                None => {
+                    Either::Right(self.catalog_states(transaction, engine::ENGINE_TABLES_STORAGE))
+                }
             };
             pin_mut!(tables);
             let mut table_id = None;
@@ -224,14 +224,14 @@ impl AutomergeRowCodec {
             let mut columns = Vec::new();
             if let Some(table_id) = table_id {
                 let fields = match catalog {
-                    Some((_, fields)) => futures::future::Either::Left(futures::stream::iter(
+                    Some((_, fields)) => Either::Left(futures_stream::iter(
                         fields
                             .iter()
                             .map(|field| Ok((Uuid::nil(), field.clone(), false))),
                     )),
-                    None => futures::future::Either::Right(
-                        self.catalog_states(transaction, ENGINE_TABLE_FIELDS_STORAGE),
-                    ),
+                    None => {
+                        Either::Right(self.catalog_states(transaction, ENGINE_TABLE_FIELDS_STORAGE))
+                    }
                 };
                 pin_mut!(fields);
                 while let Some(field) = fields.next().await {
@@ -245,17 +245,17 @@ impl AutomergeRowCodec {
                         .values
                         .get(2)
                         .and_then(Value::to_text)
-                        .ok_or(EngineError::custom("Invalid table field name"))?;
+                        .ok_or_else(|| EngineError::custom("Invalid table field name"))?;
                     let index = field
                         .values
                         .get(5)
                         .and_then(Value::to_integer)
-                        .ok_or(EngineError::custom("Invalid table field column index"))?;
+                        .ok_or_else(|| EngineError::custom("Invalid table field column index"))?;
                     let default = field
                         .values
                         .get(4)
                         .cloned()
-                        .ok_or(EngineError::custom("Invalid table field default"))?;
+                        .ok_or_else(|| EngineError::custom("Invalid table field default"))?;
                     columns.push((index, Column { id, default }));
                 }
             }
@@ -280,7 +280,7 @@ impl AutomergeRowCodec {
         transaction: &'a T,
         table: &'a str,
         id: &'a DocumentId,
-    ) -> impl core::future::Future<Output = EngineResult<Option<AutoCommit>>> + MaybeSend + 'a
+    ) -> impl Future<Output = EngineResult<Option<AutoCommit>>> + MaybeSend + 'a
     where
         T: KernelTransaction,
     {
@@ -567,12 +567,16 @@ impl AutomergeRowCodec {
         Ok(())
     }
 
-    fn encode_incremental(column_count: usize, bytes: Vec<u8>) -> EngineResult<Vec<u8>> {
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "column-count overflow has one stable error"
+    )]
+    fn encode_incremental(column_count: usize, bytes: &[u8]) -> EngineResult<Vec<u8>> {
         let column_count = u32::try_from(column_count)
             .map_err(|_| EngineError::InvalidQuery("Logical row has too many columns"))?;
         let mut value = Vec::with_capacity(COLUMN_COUNT_BYTES + bytes.len());
         value.extend_from_slice(&column_count.to_be_bytes());
-        value.extend_from_slice(&bytes);
+        value.extend_from_slice(bytes);
         Ok(value)
     }
 
@@ -614,6 +618,10 @@ impl AutomergeRowCodec {
         Ok(changes)
     }
 
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "fixed-width decoding has one stable invalid-row error"
+    )]
     fn decode_incremental(value: &[u8]) -> EngineResult<(usize, &[u8])> {
         let Some((column_count, bytes)) = value.split_at_checked(COLUMN_COUNT_BYTES) else {
             return Err(EngineError::custom("Invalid Automerge row change"));
@@ -880,18 +888,18 @@ where
         &self,
         transaction: &T,
         table: &str,
-        row_id: &Uuid,
-        row: &Row,
+        row: &Uuid,
+        value: &Row,
         changed_columns: &[usize],
     ) -> EngineResult<Vec<u8>> {
         let table_name = table;
-        let id = Self::document_id(row_id);
+        let id = Self::document_id(row);
         let mut document = Self::document(transaction, table, &id)
             .await?
             .unwrap_or_else(AutoCommit::new)
             .with_actor(self.actor.clone());
         let columns = self
-            .columns(transaction, table_name, row.values.len(), None)
+            .columns(transaction, table_name, value.values.len(), None)
             .await?;
         if Self::has_conflicts(&document, &columns, changed_columns)? {
             return Err(EngineError::InvalidQuery(
@@ -899,8 +907,8 @@ where
             ));
         }
         let previous_heads = document.get_heads();
-        Self::update_document_columns(&mut document, row, &columns, changed_columns)?;
-        Self::encode_incremental(columns.len(), document.save_after(&previous_heads))
+        Self::update_document_columns(&mut document, value, &columns, changed_columns)?;
+        Self::encode_incremental(columns.len(), &document.save_after(&previous_heads))
     }
 
     async fn conflicted_columns(
@@ -958,22 +966,22 @@ where
         &self,
         transaction: &T,
         table: &str,
-        row_id: &Uuid,
-        row: &Row,
+        row: &Uuid,
+        value: &Row,
         changed_columns: &[usize],
     ) -> EngineResult<Vec<u8>> {
         let table_name = table;
-        let id = Self::document_id(row_id);
+        let id = Self::document_id(row);
         let mut document = Self::document(transaction, table, &id)
             .await?
             .unwrap_or_else(AutoCommit::new)
             .with_actor(self.actor.clone());
         let columns = self
-            .columns(transaction, table_name, row.values.len(), None)
+            .columns(transaction, table_name, value.values.len(), None)
             .await?;
         let previous_heads = document.get_heads();
-        Self::update_document_columns(&mut document, row, &columns, changed_columns)?;
-        Self::encode_incremental(columns.len(), document.save_after(&previous_heads))
+        Self::update_document_columns(&mut document, value, &columns, changed_columns)?;
+        Self::encode_incremental(columns.len(), &document.save_after(&previous_heads))
     }
 
     async fn merge_row(
@@ -1250,6 +1258,10 @@ where
         })
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "history validation and materialization share one read pass"
+    )]
     async fn inspect_history(
         &self,
         transaction: &T,
@@ -1491,7 +1503,7 @@ where
         if previous_heads == Some(heads) {
             return Ok((!deleted && !stale_definition).then_some(value));
         }
-        let stale = {
+        let stale_keys = {
             let store = AutomergeChangeStore::new(BytesTable::new(&*transaction, table));
             let entries = store.range(DocumentChangeKey::range_for(&id));
             pin_mut!(entries);
@@ -1504,7 +1516,7 @@ where
             }
             keys
         };
-        for key in stale {
+        for key in stale_keys {
             transaction.remove_bytes(table, &key).await?;
         }
         let key = DocumentChangeKey::new_snapshot(id, heads).encode_ordered();
@@ -1550,7 +1562,7 @@ where
                 .map_or_default(|value| value.drop_events.clone())
                 .into_iter()
                 .chain(incoming.drop_events)
-                .collect::<std::collections::BTreeSet<_>>()
+                .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
             observed_drops: existing
@@ -1558,7 +1570,7 @@ where
                 .map_or_default(|value| value.observed_drops.clone())
                 .into_iter()
                 .chain(incoming.observed_drops)
-                .collect::<std::collections::BTreeSet<_>>()
+                .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
         };
@@ -1629,6 +1641,10 @@ where
             .collect())
     }
 
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "a change ID with the wrong length has one stable error"
+    )]
     async fn export_change(
         &self,
         transaction: &T,
@@ -1654,6 +1670,10 @@ where
         Ok(Some(change.raw_bytes().to_vec()))
     }
 
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "a change ID with the wrong length has one stable error"
+    )]
     async fn apply_change(
         &self,
         transaction: &mut T,

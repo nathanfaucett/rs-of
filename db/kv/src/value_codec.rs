@@ -4,6 +4,11 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Map, Value as Json};
 use value::{JsonNumber, JsonValue, Value, ValueType};
 
+/// Parses a tagged JSON KV value without losing type information.
+///
+/// # Errors
+///
+/// Returns an error for invalid tags, fields, or value encodings.
 pub fn parse_value(value: &Json) -> Result<Value, String> {
     let object = value
         .as_object()
@@ -211,7 +216,7 @@ mod tests {
             ),
             Value::Bool(true),
             Value::Integer(i64::MIN),
-            Value::Float(f64::from_bits(0x7ff8000000000042)),
+            Value::Float(f64::from_bits(0x7ff8_0000_0000_0042)),
             Value::Float(-0.0),
             Value::Text("{json}".into()),
             Value::Blob(vec![0, 255]),
@@ -221,7 +226,7 @@ mod tests {
                     JsonValue::Array(vec![
                         JsonValue::Number(JsonNumber::U64(u64::MAX)),
                         JsonValue::Number(JsonNumber::I64(i64::MIN)),
-                        JsonValue::Number(JsonNumber::F64(f64::from_bits(0x7ff8000000000001))),
+                        JsonValue::Number(JsonNumber::F64(f64::from_bits(0x7ff8_0000_0000_0001))),
                     ]),
                 )]
                 .into(),

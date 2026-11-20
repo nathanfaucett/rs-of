@@ -1,7 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * OAuth Server
+ * LIDP IdP API
  * OIDC / OAuth 2.x server implementation
  *
  * The version of the OpenAPI document: 0.1.0

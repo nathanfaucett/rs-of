@@ -1,10 +1,16 @@
+use std::{
+    error::Error as StdError,
+    fmt::{self, Debug},
+    future::ready,
+};
+
 use bytes::{Bytes, BytesMut};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use uuid::Uuid;
 
 use ofdb_platform::{BoxFuture, MaybeSend, MaybeSync};
 
-use crate::{Entry, Error, FileKind, FileSystem};
+use crate::{Entry, Error, FileKind, FileSystem, file_system::FileSystemAccess};
 use futures_util::StreamExt;
 
 pub const DEFAULT_SCAN_LIMIT: u32 = 256;
@@ -90,8 +96,7 @@ pub type FileFuture<'a, T> = BoxFuture<'a, T>;
 
 pub struct LocalFileHandle<'a, PeerId>
 where
-    PeerId:
-        Clone + core::fmt::Debug + Ord + serde::Serialize + serde::de::DeserializeOwned + 'static,
+    PeerId: Clone + Debug + Ord + serde::Serialize + DeserializeOwned + 'static,
 {
     file_system: &'a FileSystem<PeerId>,
     pub(crate) path: String,
@@ -99,10 +104,22 @@ where
     kind: FileKind,
 }
 
+impl<PeerId> fmt::Debug for LocalFileHandle<'_, PeerId>
+where
+    PeerId: Clone + Debug + Ord + serde::Serialize + DeserializeOwned + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LocalFileHandle")
+            .field("path", &self.path)
+            .field("revision", &self.revision)
+            .field("kind", &self.kind)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a, PeerId> LocalFileHandle<'a, PeerId>
 where
-    PeerId:
-        Clone + core::fmt::Debug + Ord + serde::Serialize + serde::de::DeserializeOwned + 'static,
+    PeerId: Clone + Debug + Ord + serde::Serialize + DeserializeOwned + 'static,
 {
     pub(crate) const fn new(
         file_system: &'a FileSystem<PeerId>,
@@ -120,7 +137,7 @@ where
 
     pub(crate) async fn read_admitted(
         &self,
-        access: &crate::file_system::FileSystemAccess<'_, PeerId>,
+        access: &FileSystemAccess<'_, PeerId>,
         offset: u64,
         length: u32,
     ) -> Result<Bytes, Error>
@@ -141,7 +158,8 @@ where
                 remaining -= chunk.len() as u64;
                 continue;
             }
-            let start = remaining as usize;
+            let start =
+                usize::try_from(remaining).expect("remaining offset is within the current chunk");
             remaining = 0;
             let available = &chunk[start..];
             let take = available.len().min(length as usize - output.len());
@@ -153,25 +171,23 @@ where
         Ok(output.freeze())
     }
 
-    pub async fn close(self) -> Result<(), Error> {
-        Ok(())
+    /// Closes this local handle.
+    ///
+    /// # Errors
+    ///
+    /// This operation currently always returns `Ok(())`.
+    pub fn close(self) -> impl Future<Output = Result<(), Error>> {
+        drop(self);
+        ready(Ok(()))
     }
 }
 
 pub trait FileHandle<PeerId>: MaybeSend + MaybeSync {
-    type Error: std::error::Error + 'static;
+    type Error: StdError + 'static;
 
-    fn read(
-        &mut self,
-        offset: u64,
-        length: u32,
-    ) -> FileFuture<'_, Result<Bytes, Self::Error>>;
+    fn read(&mut self, offset: u64, length: u32) -> FileFuture<'_, Result<Bytes, Self::Error>>;
 
-    fn write(
-        &mut self,
-        offset: u64,
-        data: Bytes,
-    ) -> FileFuture<'_, Result<u32, Self::Error>>;
+    fn write(&mut self, offset: u64, data: Bytes) -> FileFuture<'_, Result<u32, Self::Error>>;
 
     fn scan(
         &mut self,
@@ -184,14 +200,8 @@ pub trait FileHandle<PeerId>: MaybeSend + MaybeSync {
 
 impl<PeerId> FileHandle<PeerId> for LocalFileHandle<'_, PeerId>
 where
-    PeerId: Clone
-        + core::fmt::Debug
-        + Ord
-        + serde::Serialize
-        + serde::de::DeserializeOwned
-        + MaybeSend
-        + MaybeSync
-        + 'static,
+    PeerId:
+        Clone + Debug + Ord + serde::Serialize + DeserializeOwned + MaybeSend + MaybeSync + 'static,
 {
     type Error = Error;
 
@@ -212,6 +222,7 @@ where
                 .write_at(&self.path, self.revision, offset, data)
                 .await?;
             self.revision = access.revision(&self.path).await?;
+            drop(access);
             Ok(written)
         })
     }

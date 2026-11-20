@@ -5,6 +5,11 @@ use crate::{Error, SyncMessage};
 pub const FILESYSTEM_SYNC_PROTOCOL_VERSION: u8 = 1;
 pub const MAX_FILESYSTEM_SYNC_FRAME_SIZE: usize = 1024 * 1024;
 
+/// Encodes one versioned synchronization frame.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails or the frame exceeds the size limit.
 pub fn encode_sync_message<PeerId>(message: &SyncMessage<PeerId>) -> Result<Vec<u8>, Error>
 where
     PeerId: Serialize,
@@ -20,6 +25,11 @@ where
     Ok(frame)
 }
 
+/// Decodes and validates one versioned synchronization frame.
+///
+/// # Errors
+///
+/// Returns an error for an empty, oversized, unsupported, or malformed frame.
 pub fn decode_sync_message<PeerId>(frame: &[u8]) -> Result<SyncMessage<PeerId>, Error>
 where
     PeerId: DeserializeOwned,
@@ -29,7 +39,7 @@ where
     }
     let (&version, payload) = frame
         .split_first()
-        .ok_or(Error::InvalidSyncFrame("empty frame".to_owned()))?;
+        .ok_or_else(|| Error::InvalidSyncFrame("empty frame".to_owned()))?;
     if version != FILESYSTEM_SYNC_PROTOCOL_VERSION {
         return Err(Error::UnsupportedSyncProtocolVersion(version));
     }

@@ -176,7 +176,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandleLike })
                           if (action === "trash")
                               record.deletedAt = new SvelteDate().toISOString();
                           else {
-                              delete record.deletedAt;
+                              record.deletedAt = undefined;
                               if (
                                   record.folderId != null &&
                                   !folders.some(

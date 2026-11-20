@@ -15,7 +15,7 @@ pub struct PairingOffer {
     pub payload: Vec<u8>,
     pub acceptance_generation: u64,
     response: Arc<Mutex<Option<SendStream>>>,
-    _connection: Connection,
+    connection: Connection,
 }
 
 impl PairingOffer {
@@ -32,20 +32,25 @@ impl PairingOffer {
             payload,
             acceptance_generation,
             response: Arc::new(Mutex::new(Some(response))),
-            _connection: connection,
+            connection,
         }
     }
 
     #[must_use]
     pub fn is_closed(&self) -> bool {
-        self._connection.close_reason().is_some()
+        self.connection.close_reason().is_some()
     }
 
     /// Keep the offer alive until the transport closes so a finished reply is not truncated.
     pub async fn closed(&self) {
-        self._connection.closed().await;
+        self.connection.closed().await;
     }
 
+    /// Sends the pairing response and finishes the response stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an oversized payload, a completed reply, or a transport failure.
     pub async fn reply(&self, payload: &[u8]) -> Result<(), Error> {
         validate_payload(payload)?;
         let mut response = self.response.lock().await.take().ok_or_else(|| {
@@ -61,6 +66,11 @@ impl PairingOffer {
 
 pub type PairingEvent = PairingOffer;
 
+/// Validates the pairing payload size.
+///
+/// # Errors
+///
+/// Returns an error when the payload exceeds `MAX_PAIRING_PAYLOAD_LENGTH`.
 pub fn validate_payload(payload: &[u8]) -> Result<(), Error> {
     if payload.len() > MAX_PAIRING_PAYLOAD_LENGTH {
         return Err(Error::new(

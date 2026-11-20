@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Management API
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CreatePermissionRequest {
     #[serde(
         rename = "description",
@@ -24,9 +25,8 @@ pub struct CreatePermissionRequest {
 }
 
 impl CreatePermissionRequest {
-    #[must_use]
-    pub const fn new(name: String) -> Self {
-        Self {
+    pub fn new(name: String) -> CreatePermissionRequest {
+        CreatePermissionRequest {
             description: None,
             name,
         }

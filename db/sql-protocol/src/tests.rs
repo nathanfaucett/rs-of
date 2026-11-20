@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use proto::{JsonNumber, JsonObject, JsonObjectEntry, JsonValue, Value, json_value};
+use proto::{
+    JsonNumber, JsonObject, JsonObjectEntry, JsonValue, Value, json_value, value as proto_value,
+};
 use query::{
     AlterIndexOperation, AlterTableOperation, DataDefinition, Query, QueryAggregate, QueryColumn,
     QueryCountTarget, QueryExpr, QueryExprValue, QueryFrom, QueryHavingCount,
@@ -59,7 +61,7 @@ fn rejects_missing_value_variant() {
 fn rejects_invalid_uuid_length() {
     assert!(matches!(
         value_from_proto(Value {
-            kind: Some(proto::value::Kind::Uuid(vec![1, 2, 3])),
+            kind: Some(proto_value::Kind::Uuid(vec![1, 2, 3])),
         }),
         Err(QueryServiceError::Invalid(_))
     ));
@@ -68,7 +70,7 @@ fn rejects_invalid_uuid_length() {
 #[test]
 fn rejects_duplicate_json_object_keys() {
     let value = Value {
-        kind: Some(proto::value::Kind::Json(JsonValue {
+        kind: Some(proto_value::Kind::Json(JsonValue {
             kind: Some(json_value::Kind::Object(JsonObject {
                 entries: vec![
                     JsonObjectEntry {
@@ -97,7 +99,7 @@ fn rejects_duplicate_json_object_keys() {
 #[test]
 fn rejects_unspecified_json_number() {
     let value = Value {
-        kind: Some(proto::value::Kind::Json(JsonValue {
+        kind: Some(proto_value::Kind::Json(JsonValue {
             kind: Some(json_value::Kind::Number(JsonNumber { kind: None })),
         })),
     };
@@ -161,7 +163,7 @@ fn rejects_unspecified_column_type() {
         name: "id".into(),
         r#type: 0,
         default: Some(proto::Value {
-            kind: Some(proto::value::Kind::Null(())),
+            kind: Some(proto_value::Kind::Null(())),
         }),
         primary_key: false,
     };

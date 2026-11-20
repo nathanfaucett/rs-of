@@ -63,8 +63,7 @@ pub async fn local_database(
         let database = (*database).clone();
         let adapter = EmbeddedDatabase {
             database,
-            storage: SharedDatabase::in_memory()
-                .map_err(|e| io::Error::other(e.to_string()))?,
+            storage: SharedDatabase::in_memory().map_err(|e| io::Error::other(e.to_string()))?,
         };
         return Ok(Arc::new(adapter));
     }

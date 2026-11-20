@@ -4,18 +4,22 @@
     allow(dead_code, clippy::arc_with_non_send_sync)
 )]
 
-use std::{collections::BTreeMap, sync::Arc, sync::Weak};
+use std::{
+    collections::BTreeMap,
+    io,
+    sync::{Arc, Mutex, Weak},
+};
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
 
 use ofdb_kv::{Client, Database};
-use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, watch};
+use tokio::sync::{Mutex as AsyncMutex, RwLock, RwLockReadGuard, RwLockWriteGuard, watch};
 
-use crate::{Error, content::ContentObject, root::RootObject};
+use crate::{Error, content::ContentObject, residency::ResidencyRules, root::RootObject};
 
 pub struct Storage {
     pub(crate) metadata: Database,
@@ -28,8 +32,8 @@ pub struct ManagedCopy {
     retired: watch::Sender<bool>,
     root: RwLock<Box<dyn RootObject>>,
     storage: RwLock<Option<Storage>>,
-    pub(crate) execution: tokio::sync::Mutex<()>,
-    pub local_residency: Arc<std::sync::Mutex<crate::residency::ResidencyRules>>,
+    pub(crate) execution: AsyncMutex<()>,
+    pub local_residency: Arc<Mutex<ResidencyRules>>,
 }
 
 type Copies = BTreeMap<String, Weak<ManagedCopy>>;
@@ -62,10 +66,8 @@ impl ManagedCopy {
             retired: watch::channel(false).0,
             root: RwLock::new(root),
             storage: RwLock::new(None),
-            execution: tokio::sync::Mutex::new(()),
-            local_residency: Arc::new(std::sync::Mutex::new(
-                crate::residency::ResidencyRules::default(),
-            )),
+            execution: AsyncMutex::new(()),
+            local_residency: Arc::new(Mutex::new(ResidencyRules::default())),
         });
         Ok(registry(|copies| {
             copies.retain(|_, copy| copy.strong_count() != 0);
@@ -92,11 +94,11 @@ impl ManagedCopy {
     }
 
     pub(crate) fn try_root(&self) -> Result<RwLockWriteGuard<'_, Box<dyn RootObject>>, Error> {
-        self.root.try_write().map_err(|_| busy())
+        self.root.try_write().map_err(|_error| busy())
     }
 
     pub(crate) fn try_storage(&self) -> Result<RwLockWriteGuard<'_, Option<Storage>>, Error> {
-        self.storage.try_write().map_err(|_| busy())
+        self.storage.try_write().map_err(|_error| busy())
     }
 
     /// Observes the durable retirement record.
@@ -145,8 +147,8 @@ impl ManagedCopy {
 }
 
 fn busy() -> Error {
-    Error::Io(std::io::Error::new(
-        std::io::ErrorKind::WouldBlock,
+    Error::Io(io::Error::new(
+        io::ErrorKind::WouldBlock,
         "filesystem is busy",
     ))
 }

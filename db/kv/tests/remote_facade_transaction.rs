@@ -1,20 +1,28 @@
 use ofdb_kv::{Client, Database};
-use std::sync::Arc;
-use tokio::sync::oneshot;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+use tokio::{net::TcpListener, sync::oneshot, time::sleep};
 use value::Value;
 
 #[tokio::test]
-#[ignore]
+#[ignore = "remote gRPC transaction integration test"]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one fixture covers commit, rollback, and typed values"
+)]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit or rollback"
+)]
 async fn remote_client_transaction_commits_and_rolls_back() {
     let database = Arc::new(Database::in_memory());
-    let address = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
-    let listener = tokio::net::TcpListener::bind(address)
+    let address = SocketAddr::from(([127, 0, 0, 1], 0));
+    let listener = TcpListener::bind(address)
         .await
         .expect("bind test listener");
     let address = listener.local_addr().expect("read test address");
     drop(listener);
     let (shutdown, stopped) = oneshot::channel::<()>();
-    let server_database = database.clone();
+    let server_database = Arc::clone(&database);
     let server = tokio::spawn(async move {
         server_database
             .serve_tcp(address, async move {
@@ -32,7 +40,7 @@ async fn remote_client_transaction_commits_and_rolls_back() {
                 connected = Some(client);
                 break;
             }
-            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+            Err(_) => sleep(Duration::from_millis(10)).await,
         }
     }
     let client = connected.expect("connect remote client");
@@ -91,13 +99,13 @@ async fn remote_client_transaction_commits_and_rolls_back() {
         Value::Bool(true),
         Value::Integer(i64::MIN),
         Value::Float(-0.0),
-        Value::Float(f64::from_bits(0x7ff8000000000042)),
+        Value::Float(f64::from_bits(0x7ff8_0000_0000_0042)),
         Value::Text("text".into()),
         Value::Blob(vec![0, 255]),
         Value::Json(ofdb_kv::JsonValue::Array(vec![
             ofdb_kv::JsonValue::Number(ofdb_kv::JsonNumber::U64(u64::MAX)),
             ofdb_kv::JsonValue::Number(ofdb_kv::JsonNumber::F64(f64::from_bits(
-                0x7ff8000000000042,
+                0x7ff8_0000_0000_0042,
             ))),
         ])),
     ];

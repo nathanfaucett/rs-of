@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ops::RangeBounds, sync::Arc};
+use std::{future::ready, marker::PhantomData, ops::RangeBounds, sync::Arc};
 
 use async_lock::Mutex;
 use async_stream::stream;
@@ -13,6 +13,7 @@ use crate::{
     RedbBTreeTransaction,
     key::Key,
     redb::{RedbKey, RedbValue, table_definition},
+    transaction::NativeWriteTransaction,
 };
 
 #[derive(Clone, Debug)]
@@ -64,24 +65,21 @@ where
     K: RedbKey,
     V: RedbValue,
 {
-    async fn get(&self, key: &K) -> BTreeResult<Option<V>> {
-        let db = self.db.begin_read().map_err(BTreeError::custom)?;
-
-        let table = db
-            .open_table(table_definition::<K, V>(&self.name))
-            .map_err(BTreeError::custom)?;
-
-        let guard = match table
-            .get(Key::new(key.clone()))
-            .map_err(BTreeError::custom)?
-        {
-            Some(value) => value,
-            None => return Ok(None),
-        };
-
-        let value: V = guard.value().into_inner();
-
-        Ok(Some(value))
+    fn get(&self, key: &K) -> impl Future<Output = BTreeResult<Option<V>>> {
+        ready((|| {
+            let db = self.db.begin_read().map_err(BTreeError::custom)?;
+            let table = db
+                .open_table(table_definition::<K, V>(&self.name))
+                .map_err(BTreeError::custom)?;
+            let Some(guard) = table
+                .get(Key::new(key.clone()))
+                .map_err(BTreeError::custom)?
+            else {
+                return Ok(None);
+            };
+            let value: V = guard.value().into_inner();
+            Ok(Some(value))
+        })())
     }
 
     fn range<R>(&self, range: R) -> impl Stream<Item = BTreeResult<(K, V)>> + Send
@@ -106,13 +104,14 @@ where
         })
     }
 
-    async fn is_empty(&self) -> BTreeResult<bool> {
-        let db = self.db.begin_read().map_err(BTreeError::custom)?;
-        let table = db
-            .open_table(table_definition::<K, V>(&self.name))
-            .map_err(BTreeError::custom)?;
-
-        table.is_empty().map_err(BTreeError::custom)
+    fn is_empty(&self) -> impl Future<Output = BTreeResult<bool>> {
+        ready((|| {
+            let db = self.db.begin_read().map_err(BTreeError::custom)?;
+            let table = db
+                .open_table(table_definition::<K, V>(&self.name))
+                .map_err(BTreeError::custom)?;
+            table.is_empty().map_err(BTreeError::custom)
+        })())
     }
 }
 
@@ -125,31 +124,35 @@ where
 
     async fn transaction(&self) -> BTreeResult<Self::Transaction> {
         if self.shared {
-            let transaction = crate::transaction::NativeWriteTransaction::new_shared(
-                self.db.clone(),
-                self.changes.clone(),
-            )?;
+            let transaction =
+                NativeWriteTransaction::new_shared(Arc::clone(&self.db), self.changes.clone())?;
             return Ok(RedbBTreeTransaction::new(transaction, &self.name));
         }
         let admission = self.admission.lock_arc().await;
         let tx = self.db.begin_write().map_err(BTreeError::custom)?;
 
-        let tx =
-            crate::transaction::NativeWriteTransaction::new(tx, admission, self.changes.clone());
+        let tx = NativeWriteTransaction::new(tx, admission, self.changes.clone());
         Ok(RedbBTreeTransaction::new(tx, &self.name))
     }
 }
 
 #[cfg(test)]
 mod test {
+    #![allow(
+        clippy::significant_drop_tightening,
+        reason = "test transactions are consumed by commit or rollback"
+    )]
+
+    use std::{env, fs, path::PathBuf};
+
     use futures::{StreamExt, executor::block_on};
 
     use super::*;
     use crate::RedbDatabase;
     use crate::btree_crate::BTreeTransaction;
 
-    fn tmp_path() -> std::path::PathBuf {
-        let mut path = std::env::temp_dir();
+    fn tmp_path() -> PathBuf {
+        let mut path = env::temp_dir();
         let name = format!("test-{}", uuid::Uuid::now_v7());
         path.push(format!("db-redb-{name}.db"));
         path
@@ -314,7 +317,7 @@ mod test {
     fn database_transaction_commits_multiple_tables_once() {
         block_on(async {
             let db = Arc::new(Database::create(tmp_path()).expect("failed to create database"));
-            let database = RedbDatabase::new(db.clone());
+            let database = RedbDatabase::new(Arc::clone(&db));
 
             let transaction = database
                 .transaction()
@@ -336,7 +339,7 @@ mod test {
                 .commit()
                 .expect("failed to commit database transaction");
 
-            let first = RedbBTree::<String, String>::new(db.clone(), "first");
+            let first = RedbBTree::<String, String>::new(Arc::clone(&db), "first");
             let second = RedbBTree::<String, String>::new(db, "second");
             assert_eq!(
                 first.get(&"key".into()).await.expect("get failed"),
@@ -417,7 +420,7 @@ mod test {
         block_on(async {
             let path = tmp_path();
             let db = Arc::new(Database::create(&path).expect("database create failed"));
-            let tree = RedbBTree::<String, Vec<u8>>::new(db.clone(), "persistent_bytes");
+            let tree = RedbBTree::<String, Vec<u8>>::new(Arc::clone(&db), "persistent_bytes");
             let mut tx = tree.transaction().await.expect("transaction failed");
             tx.insert("key".to_string(), vec![9, 10])
                 .await
@@ -434,7 +437,7 @@ mod test {
                 Some(vec![9, 10])
             );
             drop(tree);
-            std::fs::remove_file(path).expect("failed to remove database file");
+            fs::remove_file(path).expect("failed to remove database file");
         });
     }
 }

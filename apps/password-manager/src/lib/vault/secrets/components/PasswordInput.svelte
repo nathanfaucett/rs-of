@@ -1,10 +1,11 @@
 <script lang="ts">
 import { onDestroy } from "svelte";
+import type { HTMLInputAttributes } from "svelte/elements";
 
-let { value, disabled = false, autocomplete = "current-password", ariaLabel = "Toggle password visibility", copyAriaLabel = "Copy to clipboard" }: {
+let { value = $bindable(), disabled = false, autocomplete = "current-password", ariaLabel = "Toggle password visibility", copyAriaLabel = "Copy to clipboard" }: {
     value: string;
     disabled?: boolean;
-    autocomplete?: string;
+    autocomplete?: HTMLInputAttributes["autocomplete"];
     ariaLabel?: string;
     copyAriaLabel?: string;
 } = $props();

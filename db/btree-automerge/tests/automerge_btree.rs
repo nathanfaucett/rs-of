@@ -1,3 +1,5 @@
+use std::ops::Bound;
+
 use automerge::{ActorId, AutoCommit, ROOT, ReadDoc, transaction::Transactable};
 use btree::{BTree, BTreeRead, BTreeTransaction, InMemoryBTree};
 use btree_automerge::{
@@ -94,8 +96,8 @@ fn change_store_range_honors_included_and_excluded_bounds() {
         assert!(entries.next().await.is_none());
 
         let entries = store.range((
-            std::ops::Bound::Excluded(DocumentChangeKey::max_for_id(ids[0].clone())),
-            std::ops::Bound::Excluded(DocumentChangeKey::min_for_id(ids[2].clone())),
+            Bound::Excluded(DocumentChangeKey::max_for_id(ids[0].clone())),
+            Bound::Excluded(DocumentChangeKey::min_for_id(ids[2].clone())),
         ));
         pin_mut!(entries);
         assert_eq!(entries.next().await.unwrap().unwrap().0.id(), &ids[1]);
@@ -111,15 +113,17 @@ fn multiple_sequential_updates_reconstruct_after_reopening() {
         let id = DocumentId::from([1]);
 
         let mut tx = tree.transaction().await.unwrap();
-        tx.insert(id.clone(), AutoCommit::new()).await.unwrap();
+        Box::pin(tx.insert(id.clone(), AutoCommit::new()))
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
 
         for value in ["first", "second", "third"] {
             let mut tx = tree.transaction().await.unwrap();
-            tx.update(id.clone(), |document| {
+            Box::pin(tx.update(id.clone(), |document| {
                 document.put(ROOT, "value", value).unwrap();
                 Ok(())
-            })
+            }))
             .await
             .unwrap();
             tx.commit().await.unwrap();
@@ -186,13 +190,15 @@ fn compaction_keeps_document_readable_and_replaces_history_with_snapshot() {
         let id = DocumentId::from([1]);
 
         let mut tx = tree.transaction().await.unwrap();
-        tx.insert(id.clone(), AutoCommit::new()).await.unwrap();
+        Box::pin(tx.insert(id.clone(), AutoCommit::new()))
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
         let mut tx = tree.transaction().await.unwrap();
-        tx.update(id.clone(), |document| {
+        Box::pin(tx.update(id.clone(), |document| {
             document.put(ROOT, "value", "compacted").unwrap();
             Ok(())
-        })
+        }))
         .await
         .unwrap();
         tx.commit().await.unwrap();
@@ -224,13 +230,13 @@ fn bounded_document_range_respects_excluded_and_included_ids() {
         let tree = AutomergeBTree::new(inner_tree());
         for id in [vec![1], vec![2], vec![3]] {
             let mut tx = tree.transaction().await.unwrap();
-            tx.insert(id, AutoCommit::new()).await.unwrap();
+            Box::pin(tx.insert(id, AutoCommit::new())).await.unwrap();
             tx.commit().await.unwrap();
         }
 
         let documents = tree.range((
-            std::ops::Bound::Excluded(DocumentId::from([1])),
-            std::ops::Bound::Included(DocumentId::from([3])),
+            Bound::Excluded(DocumentId::from([1])),
+            Bound::Included(DocumentId::from([3])),
         ));
         pin_mut!(documents);
         assert_eq!(documents.next().await.unwrap().unwrap().0, [2]);

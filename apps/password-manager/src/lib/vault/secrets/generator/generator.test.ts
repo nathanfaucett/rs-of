@@ -8,6 +8,12 @@ import {
 } from "./generator";
 import words from "./english.txt?raw";
 
+function next(values: number[]): number {
+    const value = values.shift();
+    if (value === undefined) throw new Error("Missing random test input");
+    return value;
+}
+
 it("uses all 2048 unique bundled words with independent replacement, case, separator and a random digit", async () => {
     const list = words.trim().split("\n");
     expect(list).toHaveLength(2048);
@@ -23,7 +29,7 @@ it("uses all 2048 unique bundled words with independent replacement, case, separ
     ).toBe("2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda");
     const values = [0, 2047, 0, 1, 0xffffffff, 9];
     vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => {
-        (array as Uint32Array)[0] = values.shift()!;
+        (array as Uint32Array)[0] = next(values);
         return array;
     });
     expect(
@@ -88,7 +94,7 @@ it("validates integer bounds, booleans, and at least one character class before 
 it("rejects whole candidates missing a selected class rather than forcing biased positions", () => {
     const values = [...Array(8).fill(0), 0, 26, 52, 62, 1, 27, 53, 63];
     vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => {
-        (array as Uint32Array)[0] = values.shift()!;
+        (array as Uint32Array)[0] = next(values);
         return array;
     });
     expect(
@@ -127,7 +133,7 @@ it("removes ambiguous characters from every enabled class", () => {
 it("rejects the uneven uint32 tail before mapping to the alphabet", () => {
     const values = [0xffffffff, 0, 1, 2, 3, 4, 5, 6, 25];
     vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => {
-        (array as Uint32Array)[0] = values.shift()!;
+        (array as Uint32Array)[0] = next(values);
         return array;
     });
     expect(generatePassword(password)).toBe("abcdefgz");

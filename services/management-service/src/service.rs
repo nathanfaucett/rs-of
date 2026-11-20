@@ -1,4 +1,3 @@
-
 use of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID;
 
 use of_model::idp::contract::permission_evaluation::IdentityAction;

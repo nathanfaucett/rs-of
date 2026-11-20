@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use tokio::sync::watch;
 use uuid::Uuid;
@@ -39,6 +39,14 @@ type DecisionObject<PeerId> = dyn Decision<PeerId>;
 pub struct OperationControl<PeerId> {
     decision: Arc<DecisionObject<PeerId>>,
     cancelled: watch::Sender<bool>,
+}
+
+impl<PeerId> fmt::Debug for OperationControl<PeerId> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OperationControl")
+            .field("cancelled", &self.is_cancelled())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<PeerId> Clone for OperationControl<PeerId> {

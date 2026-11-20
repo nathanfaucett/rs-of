@@ -2,7 +2,7 @@
 import { afterEach, expect, it } from "vitest";
 import { createVault, listVaults, unlockVault } from "./vault";
 import { clearStorage, getStorageClient } from "../../test/utils";
-import { SharedDb } from "./storage/SharedDb";
+
 
 afterEach(async () => {
 	await clearStorage();
@@ -137,8 +137,9 @@ it("lists vaults with migrated flag", async () => {
 	const vaults = await listVaults();
 	const found = vaults.find((v) => v.id === id);
 	expect(found).toBeDefined();
-	expect(found!.migrated).toBe(true);
-	expect(found!.status).toBe("ready");
+	if (!found) throw new Error("Missing persisted vault identity");
+	expect(found.migrated).toBe(true);
+	expect(found.status).toBe("ready");
 	vault.close();
 }, 15000);
 

@@ -18,7 +18,7 @@ The repository is migrating to the [accepted target architecture](docs/architect
 | Browser synchronization                | Incomplete; do not infer support from transport packages alone                                                  |
 | Independent and desktop deployments    | Retain implementation paths, but current end-to-end qualification is not established                            |
 
-Historical [E2E validation](e2e/runtime-validation.md) is commit-specific evidence, not a current release guarantee. CI is the source of current check status.
+GitHub Actions records current and historical check results.
 
 ## Local backend
 
@@ -50,7 +50,7 @@ Direct `cargo run -p unified-server -- local` serves plain HTTP on a fixed loopb
 | `packages/` | TypeScript clients and browser wrappers                                           |
 | `apps/`     | Main application and the small password-manager reference application             |
 | `openapi/`  | Generated HTTP contracts                                                          |
-| `e2e/`      | Real-backend browser tests and commit-specific evidence                           |
+| `e2e/`      | Real-backend browser tests and lifecycle fixtures                                 |
 
 This checkout is canonical. Do not copy changes to sibling `ofdb`, `ofnet`, or `offs` repositories.
 

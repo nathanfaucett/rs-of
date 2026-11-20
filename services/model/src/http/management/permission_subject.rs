@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Management API
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PermissionSubject {
     #[serde(rename = "id")]
     pub id: String,
@@ -19,17 +20,19 @@ pub struct PermissionSubject {
 }
 
 impl PermissionSubject {
-    #[must_use]
-    pub const fn new(id: String, r#type: Type) -> Self {
-        Self { id, r#type }
+    pub fn new(id: String, r#type: Type) -> PermissionSubject {
+        PermissionSubject { id, r#type }
     }
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum Type {
     #[serde(rename = "user")]
-    #[default]
     User,
 }
 
+impl Default for Type {
+    fn default() -> Type {
+        Self::User
+    }
+}

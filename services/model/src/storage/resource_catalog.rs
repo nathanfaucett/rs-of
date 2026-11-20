@@ -1,4 +1,3 @@
-
 use crate::storage::namespace::StorageNamespace;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

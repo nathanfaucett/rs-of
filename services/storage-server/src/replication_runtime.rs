@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, io, path::PathBuf, sync::Arc, time::Duration};
 
-use futures::stream::StreamExt;
+use futures::{future::FutureExt, stream::StreamExt};
 use iroh::EndpointId;
 use iroh_chain::Server;
 use of_model::contract::replication::SelectedResource;
@@ -162,10 +162,18 @@ impl StorageReplicationRuntime {
             loop {
                 let event = tokio::select! {
                     biased;
-                    () = lifetime.cancelled() => None,
+                    () = lifetime.cancelled() => break,
                     event = events.next() => event,
                 };
-                let Some(_event) = event else { break };
+                let Some(_event) = event else {
+                    drop(events);
+                    if subscription.closed().now_or_never().is_some() {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                    events = subscription.events();
+                    continue;
+                };
                 admission.fence();
                 changes.send_modify(|_| {});
             }
@@ -288,7 +296,9 @@ impl StorageReplicationRuntime {
 
     pub async fn shutdown(mut self) -> io::Result<()> {
         self.lifetime.cancel();
+        self.changes.send_replace(false);
         if let Some(task) = self.policy_task.take() {
+            task.abort();
             let _ = task.await;
         }
         if let Some(task) = self.sync_task.take() {
@@ -459,8 +469,6 @@ impl ReplicationHost {
             }
             if result.is_ok() {
                 if let Some(changes) = subscription.as_mut() {
-                    // Wait for next change event using the new events() stream API
-                    // If the stream ends (returns None), there are no more changes
                     if changes.events().next().await.is_none() {
                         return false;
                     }

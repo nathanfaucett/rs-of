@@ -17,5 +17,17 @@
 	},
 	"javascript": {
 		"experimentalEmbeddedSnippetsEnabled": true
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["scripts/check-json-roundtrip.mjs"],
+			"linter": {
+				"rules": {
+					"performance": {
+						"noDelete": "off"
+					}
+				}
+			}
+		}
+	]
 }

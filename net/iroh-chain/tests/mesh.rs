@@ -4,9 +4,13 @@ use iroh::{
     Endpoint,
     address_lookup::MemoryLookup,
     endpoint::{Connection, presets},
-    protocol::{AcceptError, ProtocolHandler},
+    protocol::{AcceptError, ProtocolHandler, Router},
 };
-use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
+use iroh_chain::{DATA_ALPN, EndpointIdStore, Message, Server};
+use tokio::{
+    sync::broadcast::Receiver,
+    time::{Instant, sleep, timeout, timeout_at},
+};
 
 const TIMEOUT: Duration = Duration::from_secs(45);
 
@@ -31,7 +35,7 @@ impl ProtocolHandler for Echo {
 
 struct Network {
     servers: Vec<Server>,
-    routers: Vec<iroh::protocol::Router>,
+    routers: Vec<Router>,
 }
 
 impl Network {
@@ -57,8 +61,7 @@ impl Network {
         for (index, endpoint) in endpoints.into_iter().enumerate() {
             let peers = EndpointIdStore::new();
             peers.replace(ids.iter().enumerate().filter_map(|(peer_index, id)| {
-                (peer_index != index && !(excluded == Some(peer_index) && index != peer_index))
-                    .then_some(*id)
+                (peer_index != index && excluded != Some(peer_index)).then_some(*id)
             }));
             let server = Server::new(endpoint, peers);
             routers.push(server.router(Echo));
@@ -75,11 +78,8 @@ impl Network {
     }
 }
 
-async fn receive(
-    subscription: &mut tokio::sync::broadcast::Receiver<iroh_chain::Message>,
-    scenario: &str,
-) -> iroh_chain::Message {
-    tokio::time::timeout(Duration::from_secs(20), subscription.recv())
+async fn receive(subscription: &mut Receiver<Message>, scenario: &str) -> Message {
+    timeout(Duration::from_secs(20), subscription.recv())
         .await
         .unwrap_or_else(|_| panic!("{scenario}: message timed out"))
         .unwrap_or_else(|error| panic!("{scenario}: subscription failed: {error}"))
@@ -87,7 +87,7 @@ async fn receive(
 
 #[tokio::test]
 async fn mesh_routes_broadcast_and_direct_messages_beyond_six_neighbors() {
-    tokio::time::timeout(TIMEOUT, async {
+    timeout(TIMEOUT, async {
         let network = Network::new(9).await;
         let ids: Vec<_> = network.servers.iter().map(|s| s.endpoint().id()).collect();
         let mut subscriptions: Vec<_> = network
@@ -109,8 +109,8 @@ async fn mesh_routes_broadcast_and_direct_messages_beyond_six_neighbors() {
             })
             .expect("nine peers must have non-neighbor pairs");
         let mut ready = vec![false; ids.len()];
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-        while ready.iter().any(|received| !received) && tokio::time::Instant::now() < deadline {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while ready.iter().any(|received| !received) && Instant::now() < deadline {
             network.servers[sender_index]
                 .broadcast(b"mesh-readiness-probe")
                 .await
@@ -122,7 +122,7 @@ async fn mesh_routes_broadcast_and_direct_messages_beyond_six_neighbors() {
                     }
                 }
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            sleep(Duration::from_millis(100)).await;
         }
         assert!(
             ready.iter().all(|received| *received),
@@ -140,10 +140,9 @@ async fn mesh_routes_broadcast_and_direct_messages_beyond_six_neighbors() {
             let message = receive(subscription, &format!("broadcast receiver {index}")).await;
             assert_eq!(message.source, ids[sender_index]);
             assert_eq!(message.payload, broadcast);
-            let deadline = tokio::time::Instant::now() + Duration::from_millis(150);
-            while tokio::time::Instant::now() < deadline {
-                if let Ok(duplicate) = tokio::time::timeout_at(deadline, subscription.recv()).await
-                {
+            let deadline = Instant::now() + Duration::from_millis(150);
+            while Instant::now() < deadline {
+                if let Ok(duplicate) = timeout_at(deadline, subscription.recv()).await {
                     let duplicate = duplicate.expect("broadcast subscription closed");
                     assert_ne!(
                         duplicate.payload, broadcast,
@@ -166,10 +165,9 @@ async fn mesh_routes_broadcast_and_direct_messages_beyond_six_neighbors() {
             if index == target_index {
                 continue;
             }
-            let deadline = tokio::time::Instant::now() + Duration::from_millis(250);
-            while tokio::time::Instant::now() < deadline {
-                if let Ok(Ok(other)) = tokio::time::timeout_at(deadline, subscription.recv()).await
-                {
+            let deadline = Instant::now() + Duration::from_millis(250);
+            while Instant::now() < deadline {
+                if let Ok(Ok(other)) = timeout_at(deadline, subscription.recv()).await {
                     assert_ne!(
                         other.payload, direct,
                         "direct message leaked to endpoint {index}"
@@ -186,7 +184,7 @@ async fn mesh_routes_broadcast_and_direct_messages_beyond_six_neighbors() {
 #[tokio::test]
 async fn router_with_protocol_advertises_and_routes_extra_and_existing_alpns() {
     const EXTRA_ALPN: &[u8] = b"caller-protocol/1";
-    tokio::time::timeout(TIMEOUT, async {
+    timeout(TIMEOUT, async {
         let lookup = MemoryLookup::new();
         let first_endpoint = Endpoint::builder(presets::Minimal)
             .address_lookup(lookup.clone())
@@ -203,9 +201,9 @@ async fn router_with_protocol_advertises_and_routes_extra_and_existing_alpns() {
         let first_id = first_endpoint.id();
         let second_id = second_endpoint.id();
         let first_peers = EndpointIdStore::new();
-        first_peers.add(second_id);
+        assert!(first_peers.add(second_id));
         let second_peers = EndpointIdStore::new();
-        second_peers.add(first_id);
+        assert!(second_peers.add(first_id));
         let first_server = Server::new(first_endpoint, first_peers);
         let second_server = Server::new(second_endpoint, second_peers);
         let first_router = first_server.router(Echo);
@@ -235,7 +233,7 @@ async fn router_with_protocol_advertises_and_routes_extra_and_existing_alpns() {
 
 #[tokio::test]
 async fn direct_stream_exchanges_bytes_both_ways() {
-    tokio::time::timeout(TIMEOUT, async {
+    timeout(TIMEOUT, async {
         let network = Network::new(2).await;
         for alpn in [iroh_chain::DATA_ALPN] {
             let connection = network.servers[0]
@@ -262,7 +260,7 @@ async fn direct_stream_exchanges_bytes_both_ways() {
 
 #[tokio::test]
 async fn mesh_tracks_allowlist_changes_and_offline_peers() {
-    tokio::time::timeout(TIMEOUT, async {
+    timeout(TIMEOUT, async {
         let network = Network::new_with_excluded_member(3, Some(2)).await;
         let ids: Vec<_> = network.servers.iter().map(|s| s.endpoint().id()).collect();
         let mut subscriptions: Vec<_> = network
@@ -273,7 +271,7 @@ async fn mesh_tracks_allowlist_changes_and_offline_peers() {
         let added_id = ids[2];
         for server in &network.servers[..2] {
             assert!(!server.peers().contains(added_id));
-            server.peers().add(added_id);
+            assert!(server.peers().add(added_id));
         }
         let payload = b"member-joined-direct";
         network.servers[0].send(added_id, payload).await.unwrap();
@@ -287,15 +285,15 @@ async fn mesh_tracks_allowlist_changes_and_offline_peers() {
         assert_eq!(joined.payload, b"member-joined-broadcast");
 
         for server in &network.servers[..2] {
-            server.peers().remove(added_id);
+            assert!(server.peers().remove(added_id));
             server.open_stream(added_id).await.unwrap_err();
         }
         let mut removed_observer = network.servers[2].subscribe_messages();
         let mut survivor_observer = network.servers[1].subscribe_messages();
-        let convergence_deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        let convergence_deadline = Instant::now() + Duration::from_secs(15);
         let mut consecutive_misses = 0;
         let mut probe_number = 0;
-        while consecutive_misses < 3 && tokio::time::Instant::now() < convergence_deadline {
+        while consecutive_misses < 3 && Instant::now() < convergence_deadline {
             let probe = format!("removed-peer-probe-{probe_number}");
             probe_number += 1;
             network.servers[0]
@@ -304,13 +302,12 @@ async fn mesh_tracks_allowlist_changes_and_offline_peers() {
                 .unwrap();
             let survivor = receive(&mut survivor_observer, "broadcast after removal").await;
             assert_eq!(survivor.payload, probe.as_bytes());
-            let probe_deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+            let probe_deadline = Instant::now() + Duration::from_millis(500);
             let delivered = loop {
-                match tokio::time::timeout_at(probe_deadline, removed_observer.recv()).await {
+                match timeout_at(probe_deadline, removed_observer.recv()).await {
                     Ok(Ok(message)) if message.payload == probe.as_bytes() => break true,
-                    Ok(Ok(_)) => continue,
-                    Ok(Err(_)) => break false,
-                    Err(_) => break false,
+                    Ok(Ok(_)) => {}
+                    Ok(Err(_)) | Err(_) => break false,
                 }
             };
             consecutive_misses = if delivered { 0 } else { consecutive_misses + 1 };
@@ -354,7 +351,7 @@ async fn acceptance_generations_change_on_reopen_and_publish_natural_expiry() {
     assert_ne!(server.pairing_acceptance_generation(), Some(original));
     server.set_pairing_enabled_for(Duration::from_millis(10));
     assert!(server.pairing_acceptance_generation().is_some());
-    tokio::time::timeout(Duration::from_secs(5), acceptance.wait_for(Option::is_none))
+    timeout(Duration::from_secs(5), acceptance.wait_for(Option::is_none))
         .await
         .expect("existing window expiry notification")
         .expect("live acceptance publisher");
@@ -365,7 +362,7 @@ async fn acceptance_generations_change_on_reopen_and_publish_natural_expiry() {
 
 #[tokio::test]
 async fn pairing_offer_and_reply_exchange() {
-    tokio::time::timeout(TIMEOUT, async {
+    timeout(TIMEOUT, async {
         let receiver = Server::bind(presets::Minimal, EndpointIdStore::new())
             .await
             .unwrap();
@@ -374,13 +371,13 @@ async fn pairing_offer_and_reply_exchange() {
             .unwrap();
         let _receiver_router = receiver.router(Echo);
         let _initiator_router = initiator.router(Echo);
-        initiator.peers().add(receiver.endpoint().id());
+        assert!(initiator.peers().add(receiver.endpoint().id()));
         let rejected = initiator
             .endpoint()
             .connect(receiver.endpoint().addr(), iroh_chain::MESH_ALPN)
             .await
             .expect("outbound QUIC connect should complete before remote hook rejects it");
-        tokio::time::timeout(Duration::from_secs(5), rejected.closed())
+        timeout(Duration::from_secs(5), rejected.closed())
             .await
             .expect("unknown peer connection was not rejected by the receiver hook");
         assert!(
@@ -396,7 +393,7 @@ async fn pairing_offer_and_reply_exchange() {
                 .send_pairing_offer(address, b"pair me")
                 .await
         });
-        let offer = tokio::time::timeout(Duration::from_secs(10), offers.recv())
+        let offer = timeout(Duration::from_secs(10), offers.recv())
             .await
             .expect("pairing offer timed out")
             .unwrap();
@@ -410,7 +407,7 @@ async fn pairing_offer_and_reply_exchange() {
         offer.reply(b"paired").await.unwrap();
         assert_eq!(sending.await.unwrap().unwrap(), b"paired");
 
-        receiver.peers().add(initiator.endpoint().id());
+        assert!(receiver.peers().add(initiator.endpoint().id()));
         let mut messages = receiver.subscribe_messages();
         initiator
             .send(receiver.endpoint().id(), b"pairing-complete")
@@ -425,12 +422,13 @@ async fn pairing_offer_and_reply_exchange() {
             .await
             .unwrap();
         let _unknown_router = unknown.router(Echo);
-        unknown.peers().add(receiver.endpoint().id());
+        assert!(unknown.peers().add(receiver.endpoint().id()));
         unknown
-                .send_pairing_offer(receiver.endpoint().addr(), b"pairing disabled")
-                .await.unwrap_err();
+            .send_pairing_offer(receiver.endpoint().addr(), b"pairing disabled")
+            .await
+            .unwrap_err();
         receiver.close().await;
-        tokio::time::timeout(Duration::from_secs(5), offer.closed())
+        timeout(Duration::from_secs(5), offer.closed())
             .await
             .expect("answered pairing offer observes transport closure");
         assert!(offer.is_closed());

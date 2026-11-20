@@ -12,22 +12,20 @@ fn incremental_labels_hash_heads_while_compacted_snapshots_retain_individual_cha
         let mut document = AutoCommit::new().with_actor(ActorId::from(vec![1]));
         document.put(ROOT, "base", true).expect("base");
         let mut transaction = tree.transaction().await.expect("insert transaction");
-        transaction
-            .insert(id.clone(), document)
+        Box::pin(transaction.insert(id.clone(), document))
             .await
             .expect("snapshot");
         transaction.commit().await.expect("snapshot commit");
         let mut transaction = tree.transaction().await.expect("update transaction");
-        transaction
-            .update(id.clone(), |document| {
-                document.put(ROOT, "first", true).expect("first change");
-                document.commit();
-                document.put(ROOT, "second", true).expect("second change");
-                document.commit();
-                Ok(())
-            })
-            .await
-            .expect("two changes in one stored incremental");
+        Box::pin(transaction.update(id.clone(), |document| {
+            document.put(ROOT, "first", true).expect("first change");
+            document.commit();
+            document.put(ROOT, "second", true).expect("second change");
+            document.commit();
+            Ok(())
+        }))
+        .await
+        .expect("two changes in one stored incremental");
         transaction.commit().await.expect("update commit");
         let mut document = tree.get(&id).await.expect("reconstruct").expect("document");
         let changes = document.get_changes(&[]);

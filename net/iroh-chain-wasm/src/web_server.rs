@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    io::Error,
     str::FromStr,
     sync::{
         Arc, Mutex,
@@ -26,14 +27,9 @@ struct Echo;
 impl ProtocolHandler for Echo {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         while let Ok((mut send, mut recv)) = connection.accept_bi().await {
-            let bytes = recv
-                .read_to_end(1024 * 1024)
-                .await
-                .map_err(std::io::Error::other)?;
-            send.write_all(&bytes)
-                .await
-                .map_err(std::io::Error::other)?;
-            send.finish().map_err(std::io::Error::other)?;
+            let bytes = recv.read_to_end(1024 * 1024).await.map_err(Error::other)?;
+            send.write_all(&bytes).await.map_err(Error::other)?;
+            send.finish().map_err(Error::other)?;
         }
         Ok(())
     }
@@ -51,6 +47,11 @@ pub struct WebServer {
 
 #[wasm_bindgen]
 impl WebServer {
+    /// Creates and starts a browser server.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid secret key or relay URL, or when binding fails.
     #[wasm_bindgen]
     pub async fn create(
         secret_key_hex: Option<String>,
@@ -85,6 +86,11 @@ impl WebServer {
         self.server.endpoint().id().to_string()
     }
 
+    /// Broadcasts a mesh message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when message delivery fails.
     pub async fn broadcast(&self, payload: &[u8]) -> Result<(), JsError> {
         self.server
             .broadcast(payload)
@@ -92,6 +98,11 @@ impl WebServer {
             .map_err(|error| JsError::new(&error.to_string()))
     }
 
+    /// Sends a direct mesh message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid destination or failed delivery.
     pub async fn send(&self, destination_id: &str, payload: &[u8]) -> Result<(), JsError> {
         let id = EndpointId::from_str(destination_id)
             .map_err(|error| JsError::new(&error.to_string()))?;
@@ -101,6 +112,11 @@ impl WebServer {
             .map_err(|error| JsError::new(&error.to_string()))
     }
 
+    /// Registers a message callback and returns its handle.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the callback lock is poisoned.
     #[must_use]
     pub fn subscribe_messages(&self, callback: js_sys::Function) -> u32 {
         let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
@@ -111,6 +127,11 @@ impl WebServer {
         handle
     }
 
+    /// Removes a message callback.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the callback lock is poisoned.
     pub fn unsubscribe_messages(&self, handle: u32) {
         self.message_callbacks
             .lock()
@@ -127,15 +148,25 @@ impl WebServer {
             .collect()
     }
 
+    /// Adds a peer to the allowlist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint identifier is invalid.
     pub fn add_peer(&self, id: &str) -> Result<(), JsError> {
         let id = EndpointId::from_str(id).map_err(|error| JsError::new(&error.to_string()))?;
-        self.server.peers().add(id);
+        let _ = self.server.peers().add(id);
         Ok(())
     }
 
+    /// Removes a peer from the allowlist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint identifier is invalid.
     pub fn remove_peer(&self, id: &str) -> Result<(), JsError> {
         let id = EndpointId::from_str(id).map_err(|error| JsError::new(&error.to_string()))?;
-        self.server.peers().remove(id);
+        let _ = self.server.peers().remove(id);
         Ok(())
     }
 
@@ -143,6 +174,11 @@ impl WebServer {
         self.server.set_pairing_enabled(enabled);
     }
 
+    /// Registers a pairing-offer callback and returns its handle.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the callback lock is poisoned.
     #[must_use]
     pub fn subscribe_pairing_offers(&self, callback: js_sys::Function) -> u32 {
         let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
@@ -153,6 +189,11 @@ impl WebServer {
         handle
     }
 
+    /// Removes a pairing-offer callback.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the callback lock is poisoned.
     pub fn unsubscribe_pairing_offers(&self, handle: u32) {
         self.pairing_callbacks
             .lock()
@@ -160,6 +201,15 @@ impl WebServer {
             .remove(&handle);
     }
 
+    /// Replies to a retained pairing offer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown handle or failed response.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the offer lock is poisoned.
     pub async fn reply_to_pairing_offer(
         &self,
         offer_handle: u32,
@@ -180,6 +230,11 @@ impl WebServer {
             .map_err(|error| JsError::new(&error.to_string()))
     }
 
+    /// Sends a pairing offer and reads its response.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid destination or failed pairing exchange.
     pub async fn send_pairing_offer(
         &self,
         destination_id: &str,
@@ -193,6 +248,11 @@ impl WebServer {
             .map_err(|error| JsError::new(&error.to_string()))
     }
 
+    /// Opens a bidirectional stream to a peer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid peer identifier or failed stream setup.
     pub async fn open_stream(&self, peer_id: &str) -> Result<WebStream, JsError> {
         let id = EndpointId::from_str(peer_id).map_err(|error| JsError::new(&error.to_string()))?;
         let (connection, send, recv) = self

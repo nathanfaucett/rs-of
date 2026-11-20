@@ -157,7 +157,7 @@ keyring-core = { version = "1.0", default-features = false, features = [] }
 [dev-dependencies.server-common]
 path = "../server-common"
 default-features = false
-features = ["testing"]
+features = ["test-support"]
 
 [lints]
 workspace = true

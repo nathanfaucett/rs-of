@@ -15,8 +15,7 @@ impl<K> Value<K> {
 
 impl<K> redb::Value for Value<K>
 where
-    K: redb::Value + 'static,
-    for<'a> K: redb::Value<SelfType<'a> = K>,
+    K: 'static + for<'a> redb::Value<SelfType<'a> = K>,
 {
     type SelfType<'a>
         = Value<K::SelfType<'a>>

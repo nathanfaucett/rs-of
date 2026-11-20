@@ -1,5 +1,5 @@
 /*
- * OAuth Server
+ * LIDP IdP API
  *
  * OIDC / OAuth 2.x server implementation
  *
@@ -12,10 +12,8 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum ClientProfile {
     #[serde(rename = "web_application")]
-    #[default]
     WebApplication,
     #[serde(rename = "user_agent_based_application")]
     UserAgentBasedApplication,
@@ -33,3 +31,8 @@ impl core::fmt::Display for ClientProfile {
     }
 }
 
+impl Default for ClientProfile {
+    fn default() -> ClientProfile {
+        Self::WebApplication
+    }
+}

@@ -345,7 +345,7 @@ mod tests {
 mod initial_administrator_tests {
     use std::sync::Arc;
 
-    use management_service::local_permissions::LocalPermissions;
+    use management_service::LocalPermissions;
     use of_model::id::Id;
     use of_model::idp::contract::permission_evaluation::IdentityAction;
     use of_model::idp::contract::permission_evaluation::IdentityResource;

@@ -1,7 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * OAuth Server
+ * LIDP IdP API
  * OIDC / OAuth 2.x server implementation
  *
  * The version of the OpenAPI document: 0.1.0
@@ -22,27 +22,27 @@ export interface CreateUserRequest {
   /**
    *
    */
-  name: string;
-  /**
-   *
-   */
   email: string;
   /**
    *
    */
-  password: string;
+  emailVerified?: boolean | null;
   /**
    *
    */
-  emailVerified?: boolean;
+  name: string;
+  /**
+   *
+   */
+  password: string;
 }
 
 /**
  * Check if a given object implements the CreateUserRequest interface.
  */
 export function instanceOfCreateUserRequest(value: object): value is CreateUserRequest {
-  if (!("name" in value) || value["name"] === undefined) return false;
   if (!("email" in value) || value["email"] === undefined) return false;
+  if (!("name" in value) || value["name"] === undefined) return false;
   if (!("password" in value) || value["password"] === undefined) return false;
   return true;
 }
@@ -58,17 +58,22 @@ export function CreateUserRequestFromJSONTyped(
   if (
     json &&
     typeof json === "object" &&
-    Object.keys(json).some((key) => !["name", "email", "password", "email_verified"].includes(key))
+    Object.keys(json).some((key) => !["email", "email_verified", "name", "password"].includes(key))
   )
     throw new Error("Unexpected CreateUserRequest field");
   if (json == null) {
     return json;
   }
   return {
-    name: json["name"],
     email: json["email"],
+    emailVerified:
+      json["email_verified"] === undefined
+        ? undefined
+        : json["email_verified"] === null
+          ? null
+          : json["email_verified"],
+    name: json["name"],
     password: json["password"],
-    emailVerified: json["email_verified"] == null ? undefined : json["email_verified"],
   };
 }
 
@@ -85,9 +90,9 @@ export function CreateUserRequestToJSONTyped(
   }
 
   return {
-    name: value["name"],
     email: value["email"],
-    password: value["password"],
     email_verified: value["emailVerified"],
+    name: value["name"],
+    password: value["password"],
   };
 }

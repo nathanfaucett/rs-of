@@ -1,3 +1,5 @@
+use core::{future::ready, ops::Bound};
+
 #[cfg(not(feature = "std"))]
 use alloc::{
     collections::{BTreeMap, BTreeSet},
@@ -47,12 +49,12 @@ impl InMemoryKernel {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            #[cfg(feature = "std")]
-            changes: btree::ChangeSignal::default(),
             state: Arc::new(RwLock::new(State {
                 revision: 0,
                 tables: Tables::new(),
             })),
+            #[cfg(feature = "std")]
+            changes: btree::ChangeSignal::default(),
         }
     }
 }
@@ -85,7 +87,7 @@ impl Kernel for InMemoryKernel {
     async fn transaction(&self) -> EngineResult<Self::Transaction> {
         let state = self.state.read().await;
         Ok(InMemoryKernelTransaction {
-            state: self.state.clone(),
+            state: Arc::clone(&self.state),
             revision: state.revision,
             tables: state.tables.clone(),
             touched_tables: BTreeSet::new(),
@@ -114,28 +116,34 @@ impl InMemoryKernelTransaction {
 }
 
 impl KernelTransaction for InMemoryKernelTransaction {
-    async fn ensure_table(&mut self, table: &str) -> EngineResult<()> {
+    fn ensure_table(&mut self, table: &str) -> impl Future<Output = EngineResult<()>> + MaybeSend {
         if !self.tables.contains_key(table) {
             self.touched_tables.insert(table.to_string());
         }
         self.tables.entry(table.to_string()).or_default();
-        Ok(())
+        ready(Ok(()))
     }
 
-    async fn drop_table(&mut self, table: &str) -> EngineResult<()> {
+    fn drop_table(&mut self, table: &str) -> impl Future<Output = EngineResult<()>> + MaybeSend {
         self.touched_tables.insert(table.to_string());
-        self.tables
-            .remove(table)
-            .map(|_| ())
-            .ok_or_else(|| EngineError::custom("Table not found"))
+        ready(
+            self.tables
+                .remove(table)
+                .map(|_| ())
+                .ok_or_else(|| EngineError::custom("Table not found")),
+        )
     }
 
-    async fn get_bytes(&self, table: &str, key: &[u8]) -> EngineResult<Option<Vec<u8>>> {
-        Ok(self
+    fn get_bytes(
+        &self,
+        table: &str,
+        key: &[u8],
+    ) -> impl Future<Output = EngineResult<Option<Vec<u8>>>> + MaybeSend {
+        ready(Ok(self
             .tables
             .get(table)
             .and_then(|rows| rows.get(key))
-            .cloned())
+            .cloned()))
     }
 
     fn scan_bytes<'a>(
@@ -148,7 +156,7 @@ impl KernelTransaction for InMemoryKernelTransaction {
     fn scan_bytes_range<'a>(
         &'a self,
         table: &'a str,
-        range: (core::ops::Bound<Vec<u8>>, core::ops::Bound<Vec<u8>>),
+        range: (Bound<Vec<u8>>, Bound<Vec<u8>>),
     ) -> impl Stream<Item = EngineResult<(Vec<u8>, Vec<u8>)>> + MaybeSend + 'a {
         async_stream::stream! {
             if let Some(rows) = self.tables.get(table) {
@@ -159,15 +167,25 @@ impl KernelTransaction for InMemoryKernelTransaction {
         }
     }
 
-    async fn put_bytes(&mut self, table: &str, key: Vec<u8>, value: Vec<u8>) -> EngineResult<()> {
+    fn put_bytes(
+        &mut self,
+        table: &str,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> impl Future<Output = EngineResult<()>> + MaybeSend {
         self.touched_keys.insert((table.to_string(), key.clone()));
-        self.table_mut(table)?.insert(key, value);
-        Ok(())
+        ready(self.table_mut(table).map(|table| {
+            table.insert(key, value);
+        }))
     }
 
-    async fn remove_bytes(&mut self, table: &str, key: &[u8]) -> EngineResult<Option<Vec<u8>>> {
+    fn remove_bytes(
+        &mut self,
+        table: &str,
+        key: &[u8],
+    ) -> impl Future<Output = EngineResult<Option<Vec<u8>>>> + MaybeSend {
         self.touched_keys.insert((table.to_string(), key.to_vec()));
-        Ok(self.table_mut(table)?.remove(key))
+        ready(self.table_mut(table).map(|table| table.remove(key)))
     }
 
     async fn commit(self) -> EngineResult<()> {
@@ -211,11 +229,12 @@ impl KernelTransaction for InMemoryKernelTransaction {
         state.revision += 1;
         #[cfg(feature = "std")]
         changes.committed_with(invalidations);
+        drop(state);
         Ok(())
     }
 
-    async fn rollback(self) -> EngineResult<()> {
-        Ok(())
+    fn rollback(self) -> impl Future<Output = EngineResult<()>> + MaybeSend {
+        ready(Ok(()))
     }
 }
 

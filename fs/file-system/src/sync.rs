@@ -1,8 +1,13 @@
-use std::{collections::BTreeMap, fmt::Debug};
+use std::{
+    collections::BTreeMap,
+    fmt::{self, Debug, Display},
+    io,
+};
 
+use futures_util::stream::try_unfold;
 use ofdb_kv::KvSnapshot;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc::error::TrySendError};
 
 use ofdb_platform::{MaybeSend, MaybeSync};
 
@@ -33,6 +38,19 @@ where
     control: OperationControl<PeerId>,
 }
 
+impl<PeerId, T> fmt::Debug for MetadataSync<'_, PeerId, T>
+where
+    PeerId: Clone + Debug + Ord + Serialize + DeserializeOwned + MaybeSend + MaybeSync + 'static,
+    T: FileSessionService<PeerId> + MaybeSync + Clone + MaybeSend + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MetadataSync")
+            .field("handles", &self.handles.len())
+            .field("last_snapshots", &self.last_snapshots.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<PeerId> FileSystem<PeerId>
 where
     PeerId: Clone + Debug + Ord + Serialize + DeserializeOwned + MaybeSend + MaybeSync + 'static,
@@ -41,18 +59,25 @@ where
     where
         T: FileSessionService<PeerId> + MaybeSync + Clone + MaybeSend + 'static,
     {
+        let incoming = transport.subscribe();
+        let sessions = transport.subscribe_file_sessions();
         MetadataSync {
-            incoming: transport.subscribe(),
-            sessions: transport.subscribe_file_sessions(),
-            changes: self.changes.subscribe(),
             file_system: self,
             transport,
+            incoming,
+            sessions,
+            changes: self.changes.subscribe(),
             handles: BTreeMap::new(),
             last_snapshots: Vec::new(),
             control: OperationControl::default(),
         }
     }
 
+    /// Synchronizes metadata and file sessions with all transport peers.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for cancellation, storage, admission, or transport failures.
     pub async fn sync_peer<T>(&self, transport: T) -> Result<(), Error>
     where
         T: FileSessionService<PeerId> + MaybeSync + Clone + MaybeSend + 'static,
@@ -80,11 +105,17 @@ where
             .await?
     }
 
+    #[must_use]
     pub fn with_operation_control(mut self, control: OperationControl<PeerId>) -> Self {
         self.control = control;
         self
     }
 
+    /// Announces the current metadata snapshot to all peers.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for snapshot export, admission, or transport failures.
     pub async fn announce(&self) -> Result<(), Error> {
         let snapshots = self.export_snapshots().await?;
         for peer in self.transport.peers() {
@@ -104,6 +135,11 @@ where
         Ok(())
     }
 
+    /// Fetches one file revision from a reachable provider when absent locally.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for missing content/providers, admission, transport, or storage failures.
     pub async fn fetch(&self, path: &str) -> Result<(), Error> {
         let entry = self.file_system.entry(path).await?;
         if entry.meta.kind == crate::FileKind::Directory {
@@ -118,7 +154,7 @@ where
         {
             return Ok(());
         }
-        let provider = self.provider(&entry.meta).await?;
+        let provider = self.provider(&entry.meta)?;
         let handle = self
             .wait(self.transport.open(
                 provider.clone(),
@@ -128,25 +164,27 @@ where
                 },
             ))
             .await?
-            .map_err(|_| Error::Offline)?;
-        let content =
-            futures_util::stream::try_unfold((handle, 0_u64), |(mut handle, offset)| async move {
-                let bytes = handle
-                    .read(offset, MAX_FILE_READ_LENGTH)
+            .map_err(|_error| Error::Offline)?;
+        let content = try_unfold((handle, 0_u64), |(mut handle, offset)| async move {
+            let bytes = handle
+                .read(offset, MAX_FILE_READ_LENGTH)
+                .await
+                .map_err(|_error| Error::Offline)?;
+            if bytes.is_empty() {
+                Box::new(handle)
+                    .close()
                     .await
-                    .map_err(|_| Error::Offline)?;
-                if bytes.is_empty() {
-                    Box::new(handle).close().await.map_err(|_| Error::Offline)?;
-                    return Ok(None);
-                }
-                let next_offset = offset.checked_add(bytes.len() as u64).ok_or_else(|| {
-                    Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "file offset overflow during sync",
-                    ))
-                })?;
-                Ok(Some((bytes, (handle, next_offset))))
-            });
+                    .map_err(|_error| Error::Offline)?;
+                return Ok(None);
+            }
+            let next_offset = offset.checked_add(bytes.len() as u64).ok_or_else(|| {
+                Error::Io(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "file offset overflow during sync",
+                ))
+            })?;
+            Ok(Some((bytes, (handle, next_offset))))
+        });
         self.file_system
             .store_content(
                 entry.meta.file_id,
@@ -158,6 +196,11 @@ where
             .await
     }
 
+    /// Fetches content when needed and changes a path residency rule.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for fetch, admission, or storage failures.
     pub async fn set_residency(&self, path: &str, residency: Residency) -> Result<(), Error> {
         if residency == Residency::Full {
             self.fetch(path).await?;
@@ -165,6 +208,11 @@ where
         self.file_system.set_residency(path, residency).await
     }
 
+    /// Runs synchronization until cancellation or channel closure.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for cancellation, retirement, storage, admission, or transport failures.
     pub async fn run(mut self) -> Result<(), Error> {
         self.announce().await?;
         self.last_snapshots = self.export_snapshots().await?;
@@ -174,8 +222,7 @@ where
                 () = self.control.cancelled() => return Err(Error::Cancelled),
                 () = self.file_system.owner.retired() => return Err(Error::PermissionDenied),
                 result = self.changes.recv() => match result {
-                    Ok(()) => self.publish_changes().await?,
-                    Err(broadcast::error::RecvError::Lagged(_)) => self.publish_changes().await?,
+                    Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => self.publish_changes().await?,
                     Err(broadcast::error::RecvError::Closed) => return Ok(()),
                 },
                 result = self.incoming.recv() => match result {
@@ -192,6 +239,11 @@ where
         }
     }
 
+    /// Processes currently pending synchronization work.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for cancellation, retirement, storage, admission, or transport failures.
     pub async fn pump(&mut self) -> Result<(), Error> {
         let result = self.pump_inner().await;
         if self.control.is_cancelled() || self.file_system.owner.check().is_err() {
@@ -217,7 +269,6 @@ where
                 Ok((peer, message)) => self.receive(peer, message).await?,
                 Err(broadcast::error::TryRecvError::Lagged(_)) => {
                     self.announce().await?;
-                    continue;
                 }
                 Err(
                     broadcast::error::TryRecvError::Empty | broadcast::error::TryRecvError::Closed,
@@ -274,7 +325,7 @@ where
             .map_err(transport_error)
     }
 
-    async fn provider(&self, meta: &crate::FileMeta<PeerId>) -> Result<PeerId, Error> {
+    fn provider(&self, meta: &crate::FileMeta<PeerId>) -> Result<PeerId, Error> {
         let peers = self.transport.peers();
         if peers.is_empty() {
             return Err(Error::NoPeers);
@@ -288,7 +339,7 @@ where
 
     async fn receive(&mut self, peer: PeerId, message: SyncMessage<PeerId>) -> Result<(), Error> {
         match message {
-            SyncMessage::SnapshotRequest { peer: _ } => {
+            SyncMessage::SnapshotRequest { .. } => {
                 let snapshots = self.export_snapshots().await?;
                 self.send_metadata(peer, SyncMessage::SnapshotDelta { snapshots })
                     .await
@@ -311,11 +362,16 @@ where
                     .export_snapshots()
                     .await
                     .map_err(metadata_error)?;
+                drop(access);
                 Ok(())
             }
         }
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "session admission, execution, and response share one cancellation boundary"
+    )]
     async fn receive_session(
         &mut self,
         peer: PeerId,
@@ -435,11 +491,10 @@ where
             self.handles.clear();
         }
         let responses = result
-            .map_err(service_error)
+            .map_err(|error| service_error(&error))
             .unwrap_or_else(|error| vec![FileResponse::Error(error)]);
         for item in responses {
-            if let Err(tokio::sync::mpsc::error::TrySendError::Full(item)) = response.try_send(item)
-            {
+            if let Err(TrySendError::Full(item)) = response.try_send(item) {
                 let _ = self.wait(response.send(item)).await;
             }
         }
@@ -450,15 +505,15 @@ where
     }
 }
 
-fn metadata_error(error: impl std::fmt::Display) -> Error {
+fn metadata_error(error: impl Display) -> Error {
     Error::Metadata(error.to_string())
 }
 
-fn transport_error(error: impl std::fmt::Display) -> Error {
+fn transport_error(error: impl Display) -> Error {
     Error::Metadata(format!("transport error: {error}"))
 }
 
-fn service_error(error: Error) -> FileServiceError {
+const fn service_error(error: &Error) -> FileServiceError {
     match error {
         Error::NotFound => FileServiceError::NotFound,
         Error::NotDirectory => FileServiceError::NotDirectory,
@@ -476,11 +531,13 @@ fn service_error(error: Error) -> FileServiceError {
 
 #[cfg(test)]
 mod tests {
+    use std::{env, fs};
+
     use bytes::Bytes;
     use tokio::sync::mpsc;
 
     use super::*;
-    use crate::{FileServiceError, MemoryNetwork};
+    use crate::MemoryNetwork;
 
     async fn request(
         sync: &mut MetadataSync<'_, u8, crate::MemoryTransport<u8>>,
@@ -500,7 +557,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_oversized_file_read_before_allocating() {
-        let root = std::env::temp_dir().join(format!("file-system-{}", uuid::Uuid::now_v7()));
+        let root = env::temp_dir().join(format!("file-system-{}", uuid::Uuid::now_v7()));
         let file_system = FileSystem::open(&root, 1_u8)
             .await
             .expect("file system should open");
@@ -555,12 +612,16 @@ mod tests {
                 FileResponse::ReadEnd
             ]
         );
-        std::fs::remove_dir_all(root).expect("test directory should be removed");
+        fs::remove_dir_all(root).expect("test directory should be removed");
     }
 
     #[tokio::test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "peer-scoped lifecycle fixture covers every session operation"
+    )]
     async fn file_handles_are_scoped_to_requesting_peer() {
-        let root = std::env::temp_dir().join(format!("file-system-{}", uuid::Uuid::now_v7()));
+        let root = env::temp_dir().join(format!("file-system-{}", uuid::Uuid::now_v7()));
         let file_system = FileSystem::open(&root, 1_u8)
             .await
             .expect("file system should open");
@@ -689,6 +750,6 @@ mod tests {
                 .expect("file should remain readable"),
             b"original"
         );
-        std::fs::remove_dir_all(root).expect("test directory should be removed");
+        fs::remove_dir_all(root).expect("test directory should be removed");
     }
 }

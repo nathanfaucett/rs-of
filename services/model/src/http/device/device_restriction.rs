@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceRestriction {
     #[serde(rename = "adminAllowed")]
@@ -18,8 +18,7 @@ pub struct DeviceRestriction {
 }
 
 impl DeviceRestriction {
-    #[must_use]
-    pub const fn new(admin_allowed: bool) -> Self {
-        Self { admin_allowed }
+    pub fn new(admin_allowed: bool) -> DeviceRestriction {
+        DeviceRestriction { admin_allowed }
     }
 }

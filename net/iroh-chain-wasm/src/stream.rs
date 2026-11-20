@@ -23,6 +23,11 @@ impl WebStream {
 
 #[wasm_bindgen]
 impl WebStream {
+    /// Writes bytes to the stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transport write fails.
     pub async fn write(&mut self, payload: &[u8]) -> Result<(), JsError> {
         self.send
             .write_all(payload)
@@ -30,12 +35,22 @@ impl WebStream {
             .map_err(|error| JsError::new(&error.to_string()))
     }
 
+    /// Finishes the send side of the stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transport cannot finish the stream.
     pub fn finish(&mut self) -> Result<(), JsError> {
         self.send
             .finish()
             .map_err(|error| JsError::new(&error.to_string()))
     }
 
+    /// Reads the stream to completion, up to `limit` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the transport read fails or the limit is exceeded.
     pub async fn read_to_end(&mut self, limit: usize) -> Result<Vec<u8>, JsError> {
         self.recv
             .read_to_end(limit)

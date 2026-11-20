@@ -12,6 +12,11 @@ pub fn row_to_proto(row: Row) -> ProtoRow {
     }
 }
 
+/// Converts a protobuf row into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error when any contained value is malformed.
 pub fn row_from_proto(row: ProtoRow) -> Result<Row, QueryServiceError> {
     row.values
         .into_iter()
@@ -49,6 +54,11 @@ pub fn query_result_to_proto(result: QueryResult) -> ProtoQueryResult {
     }
 }
 
+/// Converts a protobuf query result into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error when any contained row is malformed.
 pub fn query_result_from_proto(result: ProtoQueryResult) -> Result<QueryResult, QueryServiceError> {
     Ok(QueryResult {
         rows: result

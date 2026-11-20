@@ -1,8 +1,14 @@
 #![cfg(feature = "redb")]
 
+use std::fs;
+
 use ofdb_kv::{Database, SharedDatabase, Value};
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit"
+)]
 async fn shared_kv_is_durable_isolated_and_retirement_preserves_other_namespaces() {
     let root = tempfile::tempdir().expect("host root");
     let path = root.path().join("unified.redb");
@@ -53,5 +59,5 @@ async fn shared_kv_is_durable_isolated_and_retirement_preserves_other_namespaces
         Some(Value::Text("second".into()))
     );
     assert!(path.is_file());
-    assert_eq!(std::fs::read_dir(root.path()).expect("layout").count(), 1);
+    assert_eq!(fs::read_dir(root.path()).expect("layout").count(), 1);
 }

@@ -1,3 +1,4 @@
+use core::cmp::Ordering;
 use std::{marker::PhantomData, sync::Mutex};
 
 use btree::{BTreeError, BTreeResult};
@@ -34,6 +35,7 @@ impl ReadBudget {
         }
         *entries -= 1;
         *remaining -= bytes;
+        drop(budget);
         Ok(())
     }
 }
@@ -76,7 +78,7 @@ impl<T: redb::Value> redb::Value for Borrowed<T> {
 }
 
 impl<T: redb::Key> redb::Key for Borrowed<T> {
-    fn compare(left: &[u8], right: &[u8]) -> core::cmp::Ordering {
-        T::compare(left, right)
+    fn compare(data1: &[u8], data2: &[u8]) -> Ordering {
+        T::compare(data1, data2)
     }
 }

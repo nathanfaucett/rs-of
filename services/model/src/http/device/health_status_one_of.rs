@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Device API
  *
@@ -10,15 +11,14 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HealthStatusOneOf {
     #[serde(rename = "unhealthy")]
     pub unhealthy: String,
 }
 
 impl HealthStatusOneOf {
-    #[must_use]
-    pub const fn new(unhealthy: String) -> Self {
-        Self { unhealthy }
+    pub fn new(unhealthy: String) -> HealthStatusOneOf {
+        HealthStatusOneOf { unhealthy }
     }
 }

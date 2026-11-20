@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Management API
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RoleResponse {
     #[serde(rename = "application_id")]
     pub application_id: String,
@@ -32,15 +33,14 @@ pub struct RoleResponse {
 }
 
 impl RoleResponse {
-    #[must_use]
-    pub const fn new(
+    pub fn new(
         application_id: String,
         created_at: i64,
         id: String,
         name: String,
         updated_at: i64,
-    ) -> Self {
-        Self {
+    ) -> RoleResponse {
+        RoleResponse {
             application_id,
             created_at,
             description: None,

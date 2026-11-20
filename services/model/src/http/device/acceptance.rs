@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Acceptance {
     #[serde(rename = "accepting")]
@@ -18,8 +18,7 @@ pub struct Acceptance {
 }
 
 impl Acceptance {
-    #[must_use]
-    pub const fn new(accepting: bool) -> Self {
-        Self { accepting }
+    pub fn new(accepting: bool) -> Acceptance {
+        Acceptance { accepting }
     }
 }

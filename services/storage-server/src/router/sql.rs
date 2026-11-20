@@ -48,7 +48,7 @@ fn from_owner(value: Value) -> Result<SqlValue, SqlError> {
 
 pub(super) type SqlError = (StatusCode, Json<DatabaseFailure>);
 
-fn invalid() -> SqlError {
+const fn invalid() -> SqlError {
     (
         StatusCode::BAD_REQUEST,
         Json(DatabaseFailure {
@@ -57,7 +57,7 @@ fn invalid() -> SqlError {
     )
 }
 
-fn failed() -> SqlError {
+const fn failed() -> SqlError {
     (
         StatusCode::BAD_REQUEST,
         Json(DatabaseFailure {
@@ -186,7 +186,8 @@ fn bounded_statement(statement: &Statement) -> bool {
         (status = 409, description = "Local copy fenced", body = DatabaseFailure),
         (status = 413, description = "Request or result limit exceeded", body = DatabaseFailure),
         (status = 503, description = "Content or authorization unavailable", body = DatabaseFailure)),
-    security(("authorization" = [])))]
+    security(("authorization" = [])),
+    tag = "resources::sql")]
 pub async fn execute_sql(
     State(state): State<ResourceState>,
     headers: HeaderMap,

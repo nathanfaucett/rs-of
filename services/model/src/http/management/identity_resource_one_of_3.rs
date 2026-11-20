@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Management API
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdentityResourceOneOf3 {
     #[serde(
         rename = "id",
@@ -26,9 +27,8 @@ pub struct IdentityResourceOneOf3 {
 }
 
 impl IdentityResourceOneOf3 {
-    #[must_use]
-    pub const fn new(r#type: Type, user_id: String) -> Self {
-        Self {
+    pub fn new(r#type: Type, user_id: String) -> IdentityResourceOneOf3 {
+        IdentityResourceOneOf3 {
             id: None,
             r#type,
             user_id,
@@ -37,10 +37,13 @@ impl IdentityResourceOneOf3 {
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum Type {
     #[serde(rename = "consent")]
-    #[default]
     Consent,
 }
 
+impl Default for Type {
+    fn default() -> Type {
+        Self::Consent
+    }
+}

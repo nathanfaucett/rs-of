@@ -1,5 +1,6 @@
 #![cfg(all(feature = "sql", feature = "in-memory"))]
 
+use futures::executor::block_on;
 use ofdb_sql::{Client, Database, Migration, Row};
 
 fn plan() -> [Migration; 2] {
@@ -64,14 +65,15 @@ async fn concurrent_calls(client: &Client) {
 }
 
 #[test]
-#[ignore]
+#[ignore = "pre-existing disabled test"]
 fn embedded_concurrent_calls_apply_each_version_once() {
-    futures::executor::block_on(concurrent_calls(&Database::in_memory().client()));
+    block_on(concurrent_calls(&Database::in_memory().client()));
 }
 
 #[cfg(all(feature = "remote", feature = "server"))]
 mod remote {
     use std::{
+        net::TcpListener,
         pin::Pin,
         sync::{
             Arc,
@@ -82,7 +84,11 @@ mod remote {
 
     use ofdb_sql::{Error, ErrorKind, MigrationPhase, Query, QueryResult, Statement, Transaction};
     use protocol::{QueryExecutor, QueryServiceError, QueryTransaction};
-    use tokio::sync::{Notify, oneshot};
+    use tokio::{
+        sync::{Notify, oneshot},
+        task::JoinHandle,
+        time::{sleep, timeout},
+    };
 
     use super::{Client, Database, assert_applied_once, concurrent_calls, plan};
 
@@ -220,13 +226,8 @@ mod remote {
         }
     }
 
-    async fn start() -> (
-        Client,
-        Arc<Control>,
-        oneshot::Sender<()>,
-        tokio::task::JoinHandle<()>,
-    ) {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve address");
+    async fn start() -> (Client, Arc<Control>, oneshot::Sender<()>, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("reserve address");
         let address = listener.local_addr().expect("address");
         drop(listener);
         let control = Arc::new(Control::default());
@@ -243,12 +244,12 @@ mod remote {
                 .await
                 .expect("serve SQL");
         });
-        let client = tokio::time::timeout(Duration::from_secs(5), async {
+        let client = timeout(Duration::from_secs(5), async {
             loop {
                 if let Ok(client) = Client::connect(format!("http://{address}")).await {
                     break client;
                 }
-                tokio::time::sleep(Duration::from_millis(5)).await;
+                sleep(Duration::from_millis(5)).await;
             }
         })
         .await
@@ -355,6 +356,10 @@ mod remote {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "rollback consumes the transaction"
+    )]
     async fn remote_transaction_rejects_extra_results() {
         let (client, control, shutdown, server) = start().await;
         control.malformed_at.store(1, Ordering::SeqCst);
@@ -387,7 +392,7 @@ mod remote {
         control.stage.store(1, Ordering::SeqCst);
         let losing_client = client.clone();
         let loser = tokio::spawn(async move { losing_client.migrate(&plan()).await });
-        tokio::time::timeout(Duration::from_secs(5), control.reached.notified())
+        timeout(Duration::from_secs(5), control.reached.notified())
             .await
             .expect("loser staged transformation");
         assert_eq!(
@@ -424,7 +429,7 @@ mod remote {
         control.stage.store(1, Ordering::SeqCst);
         let timed = client.clone().with_deadline(Duration::from_millis(500));
         let pending = tokio::spawn(async move { timed.migrate(&plan()).await });
-        tokio::time::timeout(Duration::from_secs(5), control.reached.notified())
+        timeout(Duration::from_secs(5), control.reached.notified())
             .await
             .expect("staged update reached");
         let error = pending
@@ -436,7 +441,7 @@ mod remote {
         assert_eq!(error.source.kind, ErrorKind::Timeout);
         assert!(!error.commit_outcome_unknown());
         control.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(5), control.cleaned.notified())
+        timeout(Duration::from_secs(5), control.cleaned.notified())
             .await
             .expect("server rolled back closed stream");
         let rows = client
@@ -465,7 +470,7 @@ mod remote {
         control.stage.store(2, Ordering::SeqCst);
         let timed = client.clone().with_deadline(Duration::from_millis(500));
         let pending = tokio::spawn(async move { timed.migrate(&plan()).await });
-        tokio::time::timeout(Duration::from_secs(5), control.reached.notified())
+        timeout(Duration::from_secs(5), control.reached.notified())
             .await
             .expect("commit completed before response");
         let error = pending
@@ -479,7 +484,7 @@ mod remote {
         assert!(!error.to_string().contains("UPDATE"));
         assert_applied_once(&client).await;
         control.release.notify_one();
-        tokio::time::timeout(Duration::from_secs(5), control.commit_finished.notified())
+        timeout(Duration::from_secs(5), control.commit_finished.notified())
             .await
             .expect("commit handler released");
         drop(client);

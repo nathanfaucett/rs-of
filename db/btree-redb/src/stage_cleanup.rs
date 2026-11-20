@@ -1,6 +1,6 @@
 use std::{
     io,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf, absolute},
     sync::{Arc, Mutex},
 };
 
@@ -22,20 +22,35 @@ struct State {
 }
 
 impl NativeStageTracker {
+    /// Tracks a staged file and its identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the stage is retired or path inspection fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stage tracker lock is poisoned.
     pub fn track(&self, path: &Path) -> io::Result<()> {
         let mut state = self.0.lock().expect("stage tracker lock");
         if state.retired {
             return Err(retired_error());
         }
         state.files.push(OwnedFile {
-            path: std::path::absolute(path)?,
+            path: absolute(path)?,
             identity: file_identity(path)?,
         });
+        drop(state);
         Ok(())
     }
 
+    /// Forgets a staged file if its absolute path can be resolved.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stage tracker lock is poisoned.
     pub fn forget(&self, path: &Path) {
-        if let Ok(path) = std::path::absolute(path) {
+        if let Ok(path) = absolute(path) {
             self.0
                 .lock()
                 .expect("stage tracker lock")
@@ -44,6 +59,11 @@ impl NativeStageTracker {
         }
     }
 
+    /// Marks the stage as retired and returns its owned files.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stage tracker lock is poisoned.
     #[must_use]
     pub fn retire(&self) -> Vec<OwnedFile> {
         let mut state = self.0.lock().expect("stage tracker lock");
@@ -51,12 +71,22 @@ impl NativeStageTracker {
         state.files.clone()
     }
 
+    /// Removes all tracked staged files.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when an owned file cannot be removed safely.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stage tracker lock is poisoned.
     pub fn cleanup(&self) -> io::Result<()> {
         let mut state = self.0.lock().expect("stage tracker lock");
         while let Some(file) = state.files.last() {
             remove_owned_file(file)?;
             state.files.pop();
         }
+        drop(state);
         Ok(())
     }
 }

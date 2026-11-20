@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Device API
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReplicationAdmissionRequest {
     #[serde(rename = "applicationId")]
@@ -28,16 +29,15 @@ pub struct ReplicationAdmissionRequest {
 }
 
 impl ReplicationAdmissionRequest {
-    #[must_use]
-    pub const fn new(
+    pub fn new(
         application_id: String,
         kind: String,
         operation: String,
         resource_id: String,
         source_endpoint_id: String,
         target_endpoint_id: String,
-    ) -> Self {
-        Self {
+    ) -> ReplicationAdmissionRequest {
+        ReplicationAdmissionRequest {
             application_id,
             kind,
             operation,

@@ -1,3 +1,5 @@
+use core::{fmt, str::from_utf8};
+
 use query::QueryErrorKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,18 +23,18 @@ pub fn encode_error_detail(kind: QueryErrorKind, message: &str) -> Vec<u8> {
 pub fn decode_error_detail(detail: &[u8]) -> Option<(QueryErrorKind, String)> {
     let (&kind, message) = detail.split_first()?;
     let kind = QueryErrorKind::from_wire(kind)?;
-    let message = core::str::from_utf8(message).ok()?.into();
+    let message = from_utf8(message).ok()?.into();
     Some((kind, message))
 }
 
-impl core::fmt::Display for QueryServiceError {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for QueryServiceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Invalid(message) => write!(formatter, "invalid request: {message}"),
-            Self::Rejected(message) => write!(formatter, "request rejected: {message}"),
-            Self::Unsupported(message) => write!(formatter, "unsupported: {message}"),
-            Self::Storage(message) => write!(formatter, "storage error: {message}"),
-            Self::Internal(message) => write!(formatter, "internal error: {message}"),
+            Self::Invalid(message) => write!(f, "invalid request: {message}"),
+            Self::Rejected(message) => write!(f, "request rejected: {message}"),
+            Self::Unsupported(message) => write!(f, "unsupported: {message}"),
+            Self::Storage(message) => write!(f, "storage error: {message}"),
+            Self::Internal(message) => write!(f, "internal error: {message}"),
         }
     }
 }

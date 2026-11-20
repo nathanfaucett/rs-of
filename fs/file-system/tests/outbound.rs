@@ -1,11 +1,12 @@
 use std::{
-    fs,
+    env, fs,
+    future::{pending, poll_fn},
     pin::Pin,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
     },
-    task::Poll,
+    task::{Poll, Waker},
 };
 
 use file_system::{
@@ -28,7 +29,7 @@ fn take_messages(
 
 #[tokio::test]
 async fn initial_and_changed_snapshots_are_authorized_per_destination() {
-    let root = std::env::temp_dir().join(format!("offs-outbound-{}", Uuid::now_v7()));
+    let root = env::temp_dir().join(format!("offs-outbound-{}", Uuid::now_v7()));
     let files = FileSystem::open(&root, 1_u8)
         .await
         .expect("filesystem opens");
@@ -84,15 +85,24 @@ async fn initial_and_changed_snapshots_are_authorized_per_destination() {
     sync.pump()
         .await
         .expect("requested export denied for actual peer");
-    assert_eq!(take_messages(&mut denied_messages), [] as [file_system::SyncMessage<u8>; 0]);
-    assert_eq!(take_messages(&mut allowed_messages), [] as [file_system::SyncMessage<u8>; 0]);
+    assert_eq!(
+        take_messages(&mut denied_messages),
+        [] as [file_system::SyncMessage<u8>; 0]
+    );
+    assert_eq!(
+        take_messages(&mut allowed_messages),
+        [] as [file_system::SyncMessage<u8>; 0]
+    );
     permitted.store(false, Ordering::SeqCst);
     files.delete("initial").await.expect("local tombstone");
     sync.pump().await.expect("revoked publication discarded");
     sync.announce()
         .await
         .expect("revoked initial exchange discarded");
-    assert_eq!(take_messages(&mut denied_messages), [] as [file_system::SyncMessage<u8>; 0]);
+    assert_eq!(
+        take_messages(&mut denied_messages),
+        [] as [file_system::SyncMessage<u8>; 0]
+    );
     assert!(
         take_messages(&mut allowed_messages).is_empty(),
         "later denial applies on established exchange"
@@ -102,7 +112,10 @@ async fn initial_and_changed_snapshots_are_authorized_per_destination() {
     assert!(
         matches!(take_messages(&mut allowed_messages).as_slice(), [SyncMessage::SnapshotRequest { peer: 3 }, SyncMessage::SnapshotDelta { snapshots }] if snapshots.len() == 2)
     );
-    assert_eq!(take_messages(&mut denied_messages), [] as [file_system::SyncMessage<u8>; 0]);
+    assert_eq!(
+        take_messages(&mut denied_messages),
+        [] as [file_system::SyncMessage<u8>; 0]
+    );
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -135,7 +148,7 @@ impl Transport<u8> for PendingExchange {
         if blocked {
             let _pending = PendingSend(Arc::clone(&self.dropped));
             self.started.store(true, Ordering::SeqCst);
-            std::future::pending::<()>().await;
+            pending::<()>().await;
         }
         self.inner.send(peer, message).await
     }
@@ -167,6 +180,10 @@ enum OutboundPath {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "single cancellation fixture covers every pending outbound channel"
+)]
 async fn cancellation_releases_polled_pending_outbound_sends() {
     for path in [
         OutboundPath::AnnounceRequest,
@@ -175,7 +192,7 @@ async fn cancellation_releases_polled_pending_outbound_sends() {
         OutboundPath::Reply,
         OutboundPath::RunStartup,
     ] {
-        let root = std::env::temp_dir().join(format!("offs-outbound-{}", Uuid::now_v7()));
+        let root = env::temp_dir().join(format!("offs-outbound-{}", Uuid::now_v7()));
         let files = FileSystem::open(&root, 1_u8)
             .await
             .expect("filesystem opens");
@@ -225,7 +242,7 @@ async fn cancellation_releases_polled_pending_outbound_sends() {
             OutboundPath::Changes | OutboundPath::Reply => Box::pin(sync.pump()),
             OutboundPath::RunStartup => Box::pin(sync.run()),
         };
-        std::future::poll_fn(|cx| {
+        poll_fn(|cx| {
             assert!(
                 pending.as_mut().poll(cx).is_pending(),
                 "{path:?}: send must be pending"
@@ -239,7 +256,7 @@ async fn cancellation_releases_polled_pending_outbound_sends() {
         );
         assert!(!exchange.dropped.load(Ordering::SeqCst));
         control.cancel();
-        let result = std::future::poll_fn(|cx| match pending.as_mut().poll(cx) {
+        let result = poll_fn(|cx| match pending.as_mut().poll(cx) {
             Poll::Ready(result) => Poll::Ready(result),
             Poll::Pending => {
                 panic!("{path:?}: cancellation must release the pending outbound send")
@@ -275,6 +292,10 @@ async fn cancellation_releases_polled_pending_outbound_sends() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "single retirement fixture covers every pending outbound channel"
+)]
 async fn retirement_releases_polled_pending_outbound_sends() {
     for path in [
         OutboundPath::AnnounceRequest,
@@ -283,7 +304,7 @@ async fn retirement_releases_polled_pending_outbound_sends() {
         OutboundPath::Reply,
         OutboundPath::RunStartup,
     ] {
-        let root = std::env::temp_dir().join(format!("offs-outbound-{}", Uuid::now_v7()));
+        let root = env::temp_dir().join(format!("offs-outbound-{}", Uuid::now_v7()));
         let catalog = file_system::FileSystemCatalog::open(&root).expect("catalog opens");
         let resource = catalog.create(None).await.expect("resource");
         let files = catalog
@@ -336,7 +357,7 @@ async fn retirement_releases_polled_pending_outbound_sends() {
             OutboundPath::Changes | OutboundPath::Reply => Box::pin(sync.pump()),
             OutboundPath::RunStartup => Box::pin(sync.run()),
         };
-        std::future::poll_fn(|cx| {
+        poll_fn(|cx| {
             assert!(
                 pending.as_mut().poll(cx).is_pending(),
                 "{path:?}: send must be pending"
@@ -353,7 +374,7 @@ async fn retirement_releases_polled_pending_outbound_sends() {
             .remove_managed_copy(resource.id)
             .await
             .expect("retirement completes");
-        let result = std::future::poll_fn(|cx| match pending.as_mut().poll(cx) {
+        let result = poll_fn(|cx| match pending.as_mut().poll(cx) {
             Poll::Ready(result) => Poll::Ready(result),
             Poll::Pending => {
                 panic!("{path:?}: retirement must release the pending outbound send")
@@ -382,7 +403,7 @@ async fn retirement_releases_polled_pending_outbound_sends() {
 
 #[tokio::test]
 async fn retirement_denies_pending_outbound_policy_instead_of_reporting_success() {
-    let root = std::env::temp_dir().join(format!("offs-outbound-policy-{}", Uuid::now_v7()));
+    let root = env::temp_dir().join(format!("offs-outbound-policy-{}", Uuid::now_v7()));
     let catalog = file_system::FileSystemCatalog::open(&root).expect("catalog");
     let resource = catalog.create(None).await.expect("resource");
     let files = catalog
@@ -393,12 +414,12 @@ async fn retirement_denies_pending_outbound_policy_instead_of_reporting_success(
     let transport = network.transport(1);
     let peer = network.transport(2);
     let mut messages = peer.subscribe();
-    let control = OperationControl::new(|_, _| Box::pin(std::future::pending()));
+    let control = OperationControl::new(|_, _| Box::pin(pending()));
     let sync = files
         .metadata_sync(transport)
         .with_operation_control(control);
     let mut pending = Box::pin(sync.announce());
-    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    let mut context = std::task::Context::from_waker(Waker::noop());
     assert!(pending.as_mut().poll(&mut context).is_pending());
     catalog
         .remove_managed_copy(resource.id)
@@ -408,7 +429,10 @@ async fn retirement_denies_pending_outbound_policy_instead_of_reporting_success(
         pending.as_mut().poll(&mut context),
         Poll::Ready(Err(Error::PermissionDenied))
     ));
-    assert_eq!(take_messages(&mut messages), [] as [file_system::SyncMessage<u8>; 0]);
+    assert_eq!(
+        take_messages(&mut messages),
+        [] as [file_system::SyncMessage<u8>; 0]
+    );
     drop(pending);
     drop(sync);
     drop(files);

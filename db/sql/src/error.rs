@@ -6,6 +6,10 @@ pub use query::{QueryError as Error, QueryErrorKind as ErrorKind};
     all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"),
     feature = "sync"
 ))]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies owned engine errors"
+)]
 pub fn from_engine(error: engine::EngineError) -> Error {
     use engine::EngineError;
     use query::QueryErrorKind;

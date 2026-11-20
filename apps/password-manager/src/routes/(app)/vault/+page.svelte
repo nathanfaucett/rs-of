@@ -1,11 +1,11 @@
 <script lang="ts">
-import { onMount } from "svelte";
+
 import { goto } from "$app/navigation";
 import LocalSecretEditor from "$lib/vault/secrets/components/LocalSecretEditor.svelte";
 import FilterSidebar from "../layout/FilterSidebar.svelte";
 import SyncStatus from "$lib/vault/components/SyncStatus.svelte";
 import { Alert } from "$lib/ui";
-import { notifications } from "$lib/shared/state/notifications.svelte";
+
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 import { createFilterState } from "$lib/vault/secrets/filter-state.svelte";
 
@@ -18,9 +18,6 @@ let vaultStatus = $derived(vaultStateModule.state.status);
 
 const filters = createFilterState();
 
-onMount(() => {
-    // Initialize vault-specific state
-});
 
 // Redirect to vault selector if vault is not unlocked
 $effect(() => {

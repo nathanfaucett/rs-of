@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+
 	import PasswordGenerator from "./PasswordGenerator.svelte";
 	import Dialog from "$lib/shared/components/Dialog.svelte";
 
@@ -34,7 +34,7 @@
 
 <div>
 	<button class="btn btn-secondary btn-md" type="button" onclick={open}>
-		<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 			<path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4" />
 			<path d="m21 2-9.6 9.6" />
 			<circle cx="7.5" cy="15.5" r="5.5" />

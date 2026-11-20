@@ -1,6 +1,6 @@
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec, vec::Vec};
-use core::fmt;
+use core::{error::Error as StdError, fmt};
 
 use sha2::{Digest, Sha256};
 
@@ -50,7 +50,7 @@ pub struct MigrationRecord {
 impl FromRow for MigrationRecord {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         let version = decode::<i64>(value(row, columns, "version")?, "version")?;
-        let version = u32::try_from(version).map_err(|_| FromRowError::InvalidValue {
+        let version = u32::try_from(version).map_err(|_error| FromRowError::InvalidValue {
             column: String::from("version"),
             expected: ValueType::Integer,
             actual: ValueType::Integer,
@@ -128,8 +128,8 @@ impl fmt::Debug for MigrationError {
     }
 }
 
-impl core::error::Error for MigrationError {
-    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+impl StdError for MigrationError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
         Some(&self.source)
     }
 }
@@ -163,6 +163,14 @@ struct Planned {
 impl Client {
     /// Explicitly apply pending migrations, one transaction per version.
     /// No retry is performed. Opening a database never calls this operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid plan/history or a failed transaction step.
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit and rollback consume the transaction"
+    )]
     pub async fn migrate(
         &self,
         migrations: &[Migration],
@@ -264,7 +272,63 @@ async fn read_history(
         return Ok((false, 0));
     }
     let fields = tx.execute_sql("SELECT name, type, default, primary_key FROM table_fields WHERE table = '_ofdb_migrations' ORDER BY position", None).await.map_err(context)?;
-    let expected = vec![
+    let expected = expected_history_fields();
+    let fields = fields.first().ok_or_else(|| {
+        context(Error::new(
+            ErrorKind::Protocol,
+            "missing migration fields result",
+        ))
+    })?;
+    if tables.rows.len() != 1 || fields.rows != expected {
+        return Err(MigrationError::invalid(None, MigrationPhase::History));
+    }
+    let history = tx
+        .execute_sql(
+            "SELECT version, description, fingerprint, execution_time FROM _ofdb_migrations ORDER BY version",
+            None,
+        )
+        .await
+        .map_err(context)?;
+    let history = history.first().ok_or_else(|| {
+        context(Error::new(
+            ErrorKind::Protocol,
+            "missing migration history result",
+        ))
+    })?;
+    for (index, row) in history.rows.iter().enumerate() {
+        let record = MigrationRecord::from_row(row, &HISTORY_COLUMNS).map_err(|_error| {
+            MigrationError::invalid(
+                migrations.get(index).map(|m| m.version),
+                MigrationPhase::History,
+            )
+        })?;
+        let Some(migration) = migrations.get(index) else {
+            return Err(MigrationError::invalid(
+                Some(record.version),
+                MigrationPhase::History,
+            ));
+        };
+        let Some(plan) = planned.get(index) else {
+            return Err(MigrationError::invalid(
+                Some(record.version),
+                MigrationPhase::History,
+            ));
+        };
+        if record.version != migration.version
+            || record.description != migration.description
+            || record.fingerprint != plan.fingerprint
+        {
+            return Err(MigrationError::invalid(
+                Some(record.version),
+                MigrationPhase::History,
+            ));
+        }
+    }
+    Ok((true, history.rows.len()))
+}
+
+fn expected_history_fields() -> Vec<Row> {
+    vec![
         Row::new(vec![
             Value::from("id"),
             Value::Type(ValueType::Uuid),
@@ -295,59 +359,7 @@ async fn read_history(
             Value::Null,
             Value::Bool(false),
         ]),
-    ];
-    let fields = fields.first().ok_or_else(|| {
-        context(Error::new(
-            ErrorKind::Protocol,
-            "missing migration fields result",
-        ))
-    })?;
-    if tables.rows.len() != 1 || fields.rows != expected {
-        return Err(MigrationError::invalid(None, MigrationPhase::History));
-    }
-    let history = tx
-        .execute_sql(
-            "SELECT version, description, fingerprint, execution_time FROM _ofdb_migrations ORDER BY version",
-            None,
-        )
-        .await
-        .map_err(context)?;
-    let history = history.first().ok_or_else(|| {
-        context(Error::new(
-            ErrorKind::Protocol,
-            "missing migration history result",
-        ))
-    })?;
-    for (index, row) in history.rows.iter().enumerate() {
-        let record = MigrationRecord::from_row(row, &HISTORY_COLUMNS).map_err(|_| {
-            MigrationError::invalid(
-                migrations.get(index).map(|m| m.version),
-                MigrationPhase::History,
-            )
-        })?;
-        let Some(migration) = migrations.get(index) else {
-            return Err(MigrationError::invalid(
-                Some(record.version),
-                MigrationPhase::History,
-            ));
-        };
-        let Some(plan) = planned.get(index) else {
-            return Err(MigrationError::invalid(
-                Some(record.version),
-                MigrationPhase::History,
-            ));
-        };
-        if record.version != migration.version
-            || record.description != migration.description
-            || record.fingerprint != plan.fingerprint
-        {
-            return Err(MigrationError::invalid(
-                Some(record.version),
-                MigrationPhase::History,
-            ));
-        }
-    }
-    Ok((true, history.rows.len()))
+    ]
 }
 
 async fn apply(

@@ -1,7 +1,8 @@
 use std::{
     collections::BTreeMap,
+    fs,
     io::{self, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
     time::Duration,
 };
@@ -14,6 +15,7 @@ use ofdb_sql::{JsonNumber, JsonValue, QueryParams, Value, ValueType};
 #[cfg(any(feature = "remote", feature = "in-memory", feature = "redb", test))]
 use serde_json::Map;
 use serde_json::Value as Json;
+use tokio::time::timeout;
 
 #[derive(Debug, Parser)]
 #[command(name = "sql-cli", version, about = "Query an ofdb SQL database")]
@@ -45,39 +47,43 @@ struct Args {
 }
 
 #[tokio::main]
+#[allow(
+    clippy::too_many_lines,
+    reason = "single CLI target-selection and execution boundary"
+)]
 async fn main() -> ExitCode {
     let args = Args::parse();
-    let _sql = match read_text(args.query.as_deref(), args.file.as_deref()) {
+    let sql = match read_text(args.query.as_deref(), args.file.as_deref()) {
         Ok(sql) => sql,
-        Err(error) => return fail(1, error),
+        Err(error) => return fail(1, &error),
     };
-    let _params = match args.params_file.as_deref().map(read_params).transpose() {
+    let params = match args.params_file.as_deref().map(read_params).transpose() {
         Ok(params) => params,
-        Err(error) => return fail(2, error),
+        Err(error) => return fail(2, &error),
     };
 
     let operation = async {
-        if let Some(_endpoint) = &args.endpoint {
+        if let Some(endpoint) = &args.endpoint {
             #[cfg(feature = "remote")]
             {
                 let client = match (&args.tls_ca, &args.tls_cert, &args.tls_key) {
                     (Some(ca), Some(certificate), Some(private_key)) => {
                         Client::connect_with_identity(
-                            _endpoint,
-                            std::fs::read(ca).map_err(|error| error.to_string())?,
-                            std::fs::read(certificate).map_err(|error| error.to_string())?,
-                            std::fs::read(private_key).map_err(|error| error.to_string())?,
+                            endpoint,
+                            fs::read(ca).map_err(|error| error.to_string())?,
+                            fs::read(certificate).map_err(|error| error.to_string())?,
+                            fs::read(private_key).map_err(|error| error.to_string())?,
                         )
                         .await
                         .map_err(|error| error.to_string())?
                     }
                     (Some(ca), None, None) => Client::connect_with_ca(
-                        _endpoint,
-                        std::fs::read(ca).map_err(|error| error.to_string())?,
+                        endpoint,
+                        fs::read(ca).map_err(|error| error.to_string())?,
                     )
                     .await
                     .map_err(|error| error.to_string())?,
-                    (None, None, None) => Client::connect(_endpoint)
+                    (None, None, None) => Client::connect(endpoint)
                         .await
                         .map_err(|error| error.to_string())?,
                     _ => {
@@ -86,18 +92,18 @@ async fn main() -> ExitCode {
                         );
                     }
                 };
-                return execute_query(&client, &_sql, _params.as_ref()).await;
+                return execute_query(&client, &sql, params.as_ref()).await;
             }
             #[cfg(not(feature = "remote"))]
             return Err("sql-cli was built without the `remote` feature".to_owned());
         }
-        if let Some(_path) = &args.unix_socket {
+        if let Some(path) = &args.unix_socket {
             #[cfg(all(feature = "remote", unix))]
             {
-                let client = Client::connect_unix(_path)
+                let client = Client::connect_unix(path)
                     .await
                     .map_err(|error| error.to_string())?;
-                return execute_query(&client, &_sql, _params.as_ref()).await;
+                return execute_query(&client, &sql, params.as_ref()).await;
             }
             #[cfg(not(all(feature = "remote", unix)))]
             return Err("Unix sockets require a Unix build with the `remote` feature".to_owned());
@@ -107,18 +113,17 @@ async fn main() -> ExitCode {
             {
                 let database = ofdb_sql::Database::in_memory();
                 let client = database.client();
-                return execute_query(&client, &_sql, _params.as_ref()).await;
+                return execute_query(&client, &sql, params.as_ref()).await;
             }
             #[cfg(not(feature = "in-memory"))]
             return Err("sql-cli was built without the `in-memory` feature".to_owned());
         }
-        if let Some(_path) = &args.database {
+        if let Some(path) = &args.database {
             #[cfg(feature = "redb")]
             {
-                let database =
-                    ofdb_sql::Database::open(_path).map_err(|error| error.to_string())?;
+                let database = ofdb_sql::Database::open(path).map_err(|error| error.to_string())?;
                 let client = database.client();
-                return execute_query(&client, &_sql, _params.as_ref()).await;
+                return execute_query(&client, &sql, params.as_ref()).await;
             }
             #[cfg(not(feature = "redb"))]
             return Err("sql-cli was built without the `redb` feature".to_owned());
@@ -126,24 +131,23 @@ async fn main() -> ExitCode {
         Err("select exactly one target".to_owned())
     };
     let result: Result<Vec<u8>, String> = if let Some(seconds) = args.timeout {
-        match tokio::time::timeout(Duration::from_secs(seconds), operation).await {
-            Ok(result) => result,
-            Err(_) => {
+        timeout(Duration::from_secs(seconds), operation)
+            .await
+            .unwrap_or_else(|_elapsed| {
                 Err("operation timed out; the statement batch may still have committed".to_owned())
-            }
-        }
+            })
     } else {
         operation.await
     };
     match result {
         Ok(bytes) => {
             if let Err(error) = io::stdout().lock().write_all(&bytes) {
-                fail(1, error.to_string())
+                fail(1, &error.to_string())
             } else {
                 ExitCode::SUCCESS
             }
         }
-        Err(error) => fail(1, error),
+        Err(error) => fail(1, &error),
     }
 }
 
@@ -160,26 +164,25 @@ async fn execute_query(
     encode_results(results)
 }
 
-fn read_text(query: Option<&str>, file: Option<&std::path::Path>) -> Result<String, String> {
+fn read_text(query: Option<&str>, file: Option<&Path>) -> Result<String, String> {
     if let Some(query) = query {
         return Ok(query.to_owned());
     }
     let path = file.expect("clap requires exactly one SQL input");
     let mut bytes = Vec::new();
-    if path == std::path::Path::new("-") {
+    if path == Path::new("-") {
         io::stdin()
             .read_to_end(&mut bytes)
             .map_err(|error| error.to_string())?;
     } else {
-        bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+        bytes = fs::read(path).map_err(|error| error.to_string())?;
     }
     String::from_utf8(bytes).map_err(|error| format!("SQL input is not UTF-8: {error}"))
 }
 
-fn read_params(path: &std::path::Path) -> Result<QueryParams, String> {
-    let json: Json =
-        serde_json::from_slice(&std::fs::read(path).map_err(|error| error.to_string())?)
-            .map_err(|error| format!("invalid parameter JSON: {error}"))?;
+fn read_params(path: &Path) -> Result<QueryParams, String> {
+    let json: Json = serde_json::from_slice(&fs::read(path).map_err(|error| error.to_string())?)
+        .map_err(|error| format!("invalid parameter JSON: {error}"))?;
     let object = json
         .as_object()
         .ok_or_else(|| "parameter file must be an object".to_owned())?;
@@ -339,15 +342,15 @@ fn parse_json(value: &Json) -> Result<JsonValue, String> {
             .map(|(key, value)| Ok((key.clone(), parse_json(value)?)))
             .collect::<Result<BTreeMap<_, _>, String>>()
             .map(JsonValue::Object),
-        Json::Number(number) => {
-            if let Some(value) = number.as_i64() {
-                Ok(JsonValue::Number(JsonNumber::I64(value)))
-            } else if let Some(value) = number.as_u64() {
-                Ok(JsonValue::Number(JsonNumber::U64(value)))
-            } else {
-                Err("JSON numbers must use the tagged `$number` representation".to_owned())
-            }
-        }
+        Json::Number(number) => number.as_i64().map_or_else(
+            || {
+                number.as_u64().map_or_else(
+                    || Err("JSON numbers must use the tagged `$number` representation".to_owned()),
+                    |value| Ok(JsonValue::Number(JsonNumber::U64(value))),
+                )
+            },
+            |value| Ok(JsonValue::Number(JsonNumber::I64(value))),
+        ),
     }
 }
 
@@ -409,7 +412,7 @@ fn encode_json(value: JsonValue) -> Json {
     }
 }
 
-fn fail(code: u8, message: String) -> ExitCode {
+fn fail(code: u8, message: &str) -> ExitCode {
     let _ = writeln!(io::stderr().lock(), "{message}");
     ExitCode::from(code)
 }

@@ -84,5 +84,5 @@ Owner contract and process suites own lifecycle semantics. Mounted forms and IPC
 substitutes qualify frontend wiring, not a real Wry GUI, secure provider, OS trust
 installation, WAN, or other platforms. See [deployment limits](../../../docs/backend-deployments.md)
 and [system-test qualification](../../../tests/system/README.md). Record exact
-commit-specific commands and results in CI or E2E evidence rather than treating this
+commit-specific commands and results in CI artifacts rather than treating this
 contract as proof of acceptance.

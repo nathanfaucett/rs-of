@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * Storage Server
  *
@@ -10,15 +11,14 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DatabaseFailure {
     #[serde(rename = "code")]
     pub code: String,
 }
 
 impl DatabaseFailure {
-    #[must_use]
-    pub const fn new(code: String) -> Self {
-        Self { code }
+    pub fn new(code: String) -> DatabaseFailure {
+        DatabaseFailure { code }
     }
 }

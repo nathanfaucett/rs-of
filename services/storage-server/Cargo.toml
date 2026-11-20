@@ -168,5 +168,15 @@ utoipa = { version = "5.5", default-features = false, features = [
 ] }
 utoipa-axum = { version = "0.2", default-features = false, features = [] }
 
+[dev-dependencies.server-common]
+path = "../server-common"
+default-features = false
+features = ["test-support"]
+
+[dev-dependencies.tokio-tungstenite]
+version = "0.29"
+default-features = false
+features = ["connect", "rustls-tls-native-roots"]
+
 [lints]
 workspace = true

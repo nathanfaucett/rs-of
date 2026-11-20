@@ -1,32 +1,35 @@
 #![cfg(feature = "network")]
 
-use std::sync::Arc;
+use std::{env, fs, sync::Arc};
 
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
 use db::adapters::MemoryDatabase;
-use ofdb_sql::{Client, Database as SqlDatabase};
+use of_model::id::Id;
+use ofdb_sql::Database as SqlDatabase;
+use storage_server::runtime::build_local_runtime;
 use tower::ServiceExt;
 
 #[tokio::test]
 async fn local_runtime_accepts_shared_and_owner_databases_without_setup_or_mesh() {
     for injected in [true, false] {
-        let root =
-            std::env::temp_dir().join(format!("storage-local-{}", of_model::id::Id::now_v7()));
-        let shared: Option<Arc<SqlDatabase>> = if injected {
+        let root = env::temp_dir().join(format!("storage-local-{}", Id::now_v7()));
+        let (shared, retained) = if injected {
             let adapter = MemoryDatabase::new().await.expect("shared schema");
-            Some(Arc::new(adapter.database()))
+            (Some(Arc::new(adapter.database())), Some(adapter.storage()))
         } else {
-            None
+            (None, None)
         };
-        let runtime = storage_server::runtime::build_local_runtime(
+        let shared: Option<Arc<SqlDatabase>> = shared;
+        let runtime = build_local_runtime(
             &root,
             1355,
             "http://127.0.0.1:1355/idp",
             "http://127.0.0.1:1355/device",
             shared,
+            retained,
             None,
         )
         .await
@@ -64,7 +67,7 @@ async fn local_runtime_accepts_shared_and_owner_databases_without_setup_or_mesh(
         assert!(runtime.data_handler().is_none());
         runtime.shutdown().await.expect("stop runtime");
         if root.exists() {
-            std::fs::remove_dir_all(root).expect("remove local data");
+            fs::remove_dir_all(root).expect("remove local data");
         }
     }
 }

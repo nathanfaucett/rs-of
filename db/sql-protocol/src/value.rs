@@ -27,6 +27,15 @@ pub fn value_to_proto(value: DomainValue) -> ProtoValue {
     ProtoValue { kind: Some(kind) }
 }
 
+/// Converts a protobuf value into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error when the wire value is missing or malformed.
+#[allow(
+    clippy::map_err_ignore,
+    reason = "wire validation uses stable client-facing messages"
+)]
 pub fn value_from_proto(value: ProtoValue) -> Result<DomainValue, QueryServiceError> {
     let kind = value
         .kind

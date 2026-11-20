@@ -181,10 +181,10 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(
                 operations.len(),
-                29,
+                31,
                 "complete Management operation inventory"
             );
-            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 29);
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 31);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");

@@ -1,4 +1,10 @@
-use std::net::{SocketAddr, TcpListener};
+use core::slice::from_ref;
+use std::{
+    net::{SocketAddr, TcpListener},
+    time::Duration,
+};
+
+use tokio::{net::TcpStream, sync::oneshot, time::sleep};
 
 use ofdb_sql::{
     Client, Database, FromRow, FromRowError, Query, QueryColumn, QueryErrorKind, QueryFrom,
@@ -20,6 +26,14 @@ fn free_address() -> SocketAddr {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "single end-to-end remote client fixture"
+)]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "rollback consumes the transaction"
+)]
 async fn remote_client_executes_typed_queries_over_tcp() {
     let address = free_address();
     let database = Database::in_memory();
@@ -30,7 +44,7 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         .expect("create table in embedded database");
 
     let hosted_database = database.clone();
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
+    let (shutdown, signal) = oneshot::channel();
     let server = tokio::spawn(async move {
         hosted_database
             .serve_tcp(address, async {
@@ -41,10 +55,10 @@ async fn remote_client_executes_typed_queries_over_tcp() {
     });
 
     loop {
-        if tokio::net::TcpStream::connect(address).await.is_ok() {
+        if TcpStream::connect(address).await.is_ok() {
             break;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        sleep(Duration::from_millis(5)).await;
     }
 
     let client = Client::connect(format!("http://{address}"))
@@ -74,9 +88,10 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         client
             .row_conflicts("items", &key)
             .await
-            .expect("remote conflict inspection"), [] as [std::string::String; 0]
+            .expect("remote conflict inspection"),
+        [] as [String; 0]
     );
-    for keys in [core::slice::from_ref(&key), &[]] {
+    for keys in [from_ref(&key), &[]] {
         assert_eq!(
             client
                 .row_conflicts_batch("items", keys)
@@ -92,7 +107,8 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         client
             .row_conflict_values("items", &key)
             .await
-            .expect("remote conflict values"), [] as [(std::string::String, std::vec::Vec<ofdb_sql::Value>); 0]
+            .expect("remote conflict values"),
+        [] as [(String, Vec<ofdb_sql::Value>); 0]
     );
 
     let mut transaction = client.transaction().await.expect("remote transaction");
@@ -100,13 +116,15 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         transaction
             .row_conflicts("items", &key)
             .await
-            .expect("transaction conflicts"), [] as [std::string::String; 0]
+            .expect("transaction conflicts"),
+        [] as [String; 0]
     );
     assert_eq!(
         transaction
             .row_conflict_values("items", &key)
             .await
-            .expect("transaction values"), [] as [(std::string::String, std::vec::Vec<ofdb_sql::Value>); 0]
+            .expect("transaction values"),
+        [] as [(String, Vec<ofdb_sql::Value>); 0]
     );
     transaction
         .rollback()
@@ -138,8 +156,9 @@ async fn remote_client_executes_typed_queries_over_tcp() {
             .is_err()
     );
     client
-            .translate_and_execute("INVALID SQL", &SqlTranslator)
-            .await.unwrap_err();
+        .translate_and_execute("INVALID SQL", &SqlTranslator)
+        .await
+        .unwrap_err();
 
     let empty_error = client
         .execute(Vec::new())
@@ -230,7 +249,7 @@ async fn remote_client_executes_typed_queries_over_tcp() {
 async fn sql_mtls_requires_and_accepts_client_identity() {
     let address = free_address();
     let database = Database::in_memory();
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
+    let (shutdown, signal) = oneshot::channel();
     let server = tokio::spawn(async move {
         database
             .serve_tcp_with_mtls(

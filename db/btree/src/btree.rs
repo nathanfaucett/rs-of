@@ -34,6 +34,10 @@ pub enum BTreeError {
 }
 
 impl BTreeError {
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "accepts owned errors directly and through Result::map_err"
+    )]
     pub fn custom<T>(error: T) -> Self
     where
         T: ToString,

@@ -15,30 +15,32 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use tokio::sync::{Mutex as AsyncMutex, broadcast};
+#[cfg(not(wasm_browser))]
+use tokio::time::{sleep as tokio_sleep, timeout as tokio_timeout};
 
 use crate::store::EndpointIdStore;
 
 #[cfg(not(wasm_browser))]
-fn spawn<F: std::future::Future<Output = ()> + Send + 'static>(future: F) {
+fn spawn<F: Future<Output = ()> + Send + 'static>(future: F) {
     tokio::spawn(future);
 }
 
 #[cfg(wasm_browser)]
-fn spawn<F: std::future::Future<Output = ()> + 'static>(future: F) {
+fn spawn<F: Future<Output = ()> + 'static>(future: F) {
     wasm_bindgen_futures::spawn_local(future);
 }
 
 async fn sleep(duration: Duration) {
     #[cfg(not(wasm_browser))]
-    tokio::time::sleep(duration).await;
+    tokio_sleep(duration).await;
     #[cfg(wasm_browser)]
     gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
 }
 
-async fn timeout<F: std::future::Future>(duration: Duration, future: F) -> Option<F::Output> {
+async fn timeout<F: Future>(duration: Duration, future: F) -> Option<F::Output> {
     #[cfg(not(wasm_browser))]
     {
-        tokio::time::timeout(duration, future).await.ok()
+        tokio_timeout(duration, future).await.ok()
     }
     #[cfg(wasm_browser)]
     {
@@ -132,7 +134,7 @@ fn neighbors(self_id: EndpointId, ids: Vec<EndpointId>) -> BTreeSet<EndpointId> 
 }
 
 fn hop_limit(peers: usize) -> u32 {
-    peers.saturating_add(1).min(u32::MAX as usize) as u32
+    u32::try_from(peers.saturating_add(1)).unwrap_or(u32::MAX)
 }
 
 fn frame(id: [u8; 32], message: &Message, hops: u32) -> Vec<u8> {
@@ -485,12 +487,12 @@ impl Mesh {
 }
 
 impl ProtocolHandler for Mesh {
-    async fn accept(&self, conn: Connection) -> Result<(), AcceptError> {
-        if !self.register(conn.clone(), false).await {
-            conn.close(VarInt::from_u32(0), b"invalid mesh initiator");
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        if !self.register(connection.clone(), false).await {
+            connection.close(VarInt::from_u32(0), b"invalid mesh initiator");
             return Ok(());
         }
-        Self::run(Arc::downgrade(&self.inner), conn).await;
+        Self::run(Arc::downgrade(&self.inner), connection).await;
         Ok(())
     }
 }
@@ -503,6 +505,7 @@ mod tests {
         Endpoint, SecretKey, address_lookup::memory::MemoryLookup, endpoint::presets,
         protocol::Router,
     };
+    use tokio::time::timeout;
 
     use super::{MAX_MESH_PEERS, MESH_ALPN, Mesh, Message, frame, hop_limit, neighbors, parse};
     use crate::store::EndpointIdStore;
@@ -537,7 +540,8 @@ mod tests {
         assert_eq!(decoded.destination, Some(destination));
         assert_eq!(decoded.payload, message.payload);
         parse(&data[..97]).unwrap_err();
-        parse(&[0; super::MAX_FRAME + 1]).unwrap_err();
+        let oversized = vec![0; super::MAX_FRAME + 1];
+        parse(&oversized).unwrap_err();
     }
 
     #[test]
@@ -589,7 +593,7 @@ mod tests {
         let second_router = Router::builder(second.clone())
             .accept(MESH_ALPN, receiver.clone())
             .spawn();
-        tokio::time::timeout(Duration::from_secs(10), async {
+        timeout(Duration::from_secs(10), async {
             sender.send(second.id(), b"first").await.unwrap();
             let message = subscription.recv().await.unwrap();
             assert_eq!(message.source, first.id());

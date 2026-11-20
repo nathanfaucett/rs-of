@@ -1,14 +1,20 @@
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))] // browser construction lands with the browser backend
 
+use std::fmt::{self, Debug, Display};
 #[cfg(not(target_arch = "wasm32"))]
-use std::path::PathBuf;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::{native::remove_root, shared::remove};
 #[cfg(not(target_arch = "wasm32"))]
 use ofdb_kv::Database;
 #[cfg(all(target_arch = "wasm32", feature = "browser"))]
 use ofdb_kv::Database;
 use ofdb_kv::{Client, Value};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use uuid::Uuid;
 
 use crate::Error;
@@ -26,8 +32,13 @@ impl FileSystemId {
         Self(Uuid::now_v7())
     }
 
+    /// Parses a `UUIDv7` filesystem identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidResourceId`] for malformed or non-UUIDv7 identifiers.
     pub fn parse(value: &str) -> Result<Self, Error> {
-        let id = Uuid::parse_str(value).map_err(|_| Error::InvalidResourceId)?;
+        let id = Uuid::parse_str(value).map_err(|_error| Error::InvalidResourceId)?;
         if id.get_version_num() != 7 {
             return Err(Error::InvalidResourceId);
         }
@@ -80,7 +91,18 @@ enum CatalogStorage {
     Shared(ofdb_kv::SharedDatabase, String),
 }
 
+impl fmt::Debug for FileSystemCatalog {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FileSystemCatalog").finish_non_exhaustive()
+    }
+}
+
 impl FileSystemCatalog {
+    /// Opens a catalog in a shared database host.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the catalog database cannot be opened.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_shared(host: &ofdb_kv::SharedDatabase, name: &str) -> Result<Self, Error> {
         let database =
@@ -91,10 +113,15 @@ impl FileSystemCatalog {
         })
     }
 
+    /// Opens a catalog under a native namespace root.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for directory or catalog database failures.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn open(namespace_root: impl AsRef<std::path::Path>) -> Result<Self, Error> {
+    pub fn open(namespace_root: impl AsRef<Path>) -> Result<Self, Error> {
         let root = namespace_root.as_ref().to_owned();
-        std::fs::create_dir_all(&root)?;
+        fs::create_dir_all(&root)?;
         let database = Database::open_with_table(root.join("catalog.redb"), CATALOG_TABLE)
             .map_err(metadata_error)?;
         Ok(Self {
@@ -114,6 +141,11 @@ impl FileSystemCatalog {
         })
     }
 
+    /// Creates and persists a filesystem catalog entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for metadata encoding or storage failures.
     pub async fn create(&self, name: Option<String>) -> Result<FileSystemResource, Error> {
         let resource = FileSystemResource {
             id: FileSystemId::new(),
@@ -133,6 +165,11 @@ impl FileSystemCatalog {
         Ok(resource)
     }
 
+    /// Opens an existing filesystem by identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the identifier is unknown or the filesystem cannot be opened.
     pub async fn open_filesystem<PeerId>(
         &self,
         id: FileSystemId,
@@ -140,10 +177,10 @@ impl FileSystemCatalog {
     ) -> Result<crate::FileSystem<PeerId>, Error>
     where
         PeerId: Clone
-            + std::fmt::Debug
+            + Debug
             + Ord
             + Serialize
-            + serde::de::DeserializeOwned
+            + DeserializeOwned
             + ofdb_platform::MaybeSend
             + ofdb_platform::MaybeSync
             + 'static,
@@ -174,6 +211,11 @@ impl FileSystemCatalog {
         }
     }
 
+    /// Lists active filesystem resources.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for metadata storage or decoding failures.
     pub async fn list(&self) -> Result<Vec<FileSystemResource>, Error> {
         Ok(self
             .snapshot()
@@ -184,6 +226,11 @@ impl FileSystemCatalog {
             .collect())
     }
 
+    /// Marks a filesystem resource as deleted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the resource is absent or the transaction fails.
     pub async fn delete(&self, id: FileSystemId) -> Result<(), Error> {
         let mut transaction = self.client.transaction().await.map_err(metadata_error)?;
         let mut entry: CatalogEntry = transaction
@@ -204,6 +251,15 @@ impl FileSystemCatalog {
         transaction.commit().await.map_err(metadata_error)
     }
 
+    /// Marks an existing projection as selected.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the projection transaction fails.
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction"
+    )]
     pub async fn mark_projected_selected(&self, id: FileSystemId) -> Result<bool, Error> {
         let mut transaction = self.client.transaction().await.map_err(metadata_error)?;
         let key = id.projected_key();
@@ -222,6 +278,11 @@ impl FileSystemCatalog {
         Ok(exists)
     }
 
+    /// Records a projected filesystem.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the metadata write fails.
     pub async fn mark_projected(&self, id: FileSystemId) -> Result<(), Error> {
         self.client
             .set(&id.projected_key(), Value::Integer(1), None)
@@ -229,6 +290,11 @@ impl FileSystemCatalog {
             .map_err(metadata_error)
     }
 
+    /// Lists selected projected filesystem identifiers.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for metadata storage or identifier decoding failures.
     pub async fn projected_selected(&self) -> Result<Vec<FileSystemId>, Error> {
         self.client
             .scan_prefix(PROJECTED_PREFIX)
@@ -243,6 +309,10 @@ impl FileSystemCatalog {
     /// Permanently retires this device's managed copy without changing catalog identity or
     /// tombstones. Cancellation or failure leaves the durable gate closed; call again to
     /// finish cleanup.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the resource is absent or managed-copy cleanup fails.
     pub async fn remove_managed_copy(&self, id: FileSystemId) -> Result<(), Error> {
         if !self
             .snapshot()
@@ -256,10 +326,10 @@ impl FileSystemCatalog {
         {
             match &self.storage {
                 CatalogStorage::Native(root) => {
-                    crate::native::remove_root(&root.join(id.0.to_string())).await?;
+                    remove_root(&root.join(id.0.to_string())).await?;
                 }
                 CatalogStorage::Shared(host, name) => {
-                    crate::shared::remove(host, &format!("{name}:{}", id.0)).await?;
+                    remove(host, &format!("{name}:{}", id.0)).await?;
                 }
             }
         }
@@ -285,6 +355,10 @@ impl FileSystemCatalog {
     }
 
     /// Retires a selected projection using the same owner lifecycle as created copies.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if projection lookup or managed-copy cleanup fails.
     pub async fn evict_projected_copy(&self, id: FileSystemId) -> Result<bool, Error> {
         if !self.projected_selected().await?.contains(&id) {
             return Ok(false);
@@ -293,6 +367,11 @@ impl FileSystemCatalog {
         Ok(true)
     }
 
+    /// Returns all catalog entries, including tombstones.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for metadata storage or decoding failures.
     pub async fn snapshot(&self) -> Result<Vec<CatalogEntry>, Error> {
         self.client
             .scan_prefix(CATALOG_PREFIX)
@@ -303,6 +382,11 @@ impl FileSystemCatalog {
             .collect()
     }
 
+    /// Applies a tombstone while retaining any known resource name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for metadata storage or decoding failures.
     pub async fn apply_tombstone(&self, id: FileSystemId) -> Result<(), Error> {
         let existing = self
             .snapshot()
@@ -319,6 +403,11 @@ impl FileSystemCatalog {
         .await
     }
 
+    /// Merges catalog entries without resurrecting deleted resources.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid identifiers, malformed entries, or transaction failures.
     pub async fn import_snapshot(&self, entries: &[CatalogEntry]) -> Result<(), Error> {
         if entries
             .iter()
@@ -368,6 +457,6 @@ fn projected_id(key: &str) -> Result<FileSystemId, Error> {
     Ok(FileSystemId(id))
 }
 
-fn metadata_error(error: impl std::fmt::Display) -> Error {
+fn metadata_error(error: impl Display) -> Error {
     Error::Metadata(error.to_string())
 }

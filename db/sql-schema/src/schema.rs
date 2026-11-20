@@ -33,6 +33,11 @@ pub struct TableSchema {
 }
 
 impl TableSchema {
+    /// Validates that at least one non-null primary-key column exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no primary key exists or any primary-key column is nullable.
     pub fn validate_primary_key(&self) -> Result<(), &'static str> {
         let mut primary_keys = self
             .columns

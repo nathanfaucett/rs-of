@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 /*
  * Storage Server
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SqlValueOneOf6 {
     #[serde(rename = "type")]
     pub r#type: Type,
@@ -19,17 +20,19 @@ pub struct SqlValueOneOf6 {
 }
 
 impl SqlValueOneOf6 {
-    #[must_use]
-    pub const fn new(r#type: Type, value: Vec<i32>) -> Self {
-        Self { r#type, value }
+    pub fn new(r#type: Type, value: Vec<i32>) -> SqlValueOneOf6 {
+        SqlValueOneOf6 { r#type, value }
     }
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum Type {
     #[serde(rename = "blob")]
-    #[default]
     Blob,
 }
 
+impl Default for Type {
+    fn default() -> Type {
+        Self::Blob
+    }
+}

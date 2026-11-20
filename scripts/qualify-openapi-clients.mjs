@@ -6,14 +6,25 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const pnpm = process.env.npm_execpath || "pnpm";
-function run(command, args) {
+function run(command, args, filteredTest = false) {
     const result = spawnSync(command, args, {
         cwd: root,
-        stdio: "inherit",
+        stdio: filteredTest ? ["inherit", "pipe", "pipe"] : "inherit",
+        encoding: filteredTest ? "utf8" : undefined,
         timeout: 600000,
     });
     if (result.error) throw result.error;
-    assert.equal(result.status, 0, `${command} ${args.join(" ")}`);
+    if (filteredTest) {
+        process.stdout.write(result.stdout);
+        process.stderr.write(result.stderr);
+    }
+    assert.equal(result.status, 0, command + " " + args.join(" "));
+    if (filteredTest)
+        assert.match(
+            result.stdout,
+            /^running [1-9]\d* tests?$/m,
+            command + " " + args.join(" ") + " selected zero tests",
+        );
 }
 function digest(directory) {
     const hash = createHash("sha256");
@@ -106,9 +117,11 @@ try {
         "packages/management-client/src",
         "packages/device-client/src",
         "packages/storage-client/src",
-        ...readdirSync(path.join(root, "openapi")).map(
-            (file) => `crates/${file.replace(/\.json$/, "")}-client`,
-        ),
+        ...readdirSync(path.join(root, "openapi")).map((file) => {
+            const owner = file.replace(/\.json$/, "");
+            return "services/" + (owner === "storage" ? "storage-api" : owner) + "-client";
+        }),
+        "services/model/src/http",
     ];
     const before = artifacts.map((dir) => digest(path.join(root, dir)));
     for (let pass = 1; pass <= 2; pass++) {
@@ -201,35 +214,31 @@ try {
         "storage-server",
         "--lib",
         "openapi",
-    ]);
+    ], true);
     run("cargo", [
         "test",
         "-p",
-        "api",
+        "setup",
         "--lib",
         "complete_routes_include_operation_bound_handoffs",
-    ]);
-    run("cargo", ["test", "-p", "api", "--lib", "canonical_openapi"]);
-    run("cargo", [
-        "test",
-        "-p",
-        "idp-unified",
-        "--test",
-        "owner_boundaries",
-        "native_api_tests::generated_rust_and_built_javascript_use_actual_owner_routes",
-        "--",
-        "--exact",
-    ]);
+    ], true);
+    run(
+        "cargo",
+        ["test", "-p", "setup", "--lib", "canonical_openapi"],
+        true,
+    );
     run("cargo", [
         "test",
         "-p",
         "unified-server",
-        "--test",
-        "composition",
-        "owner_surfaces_share_one_endpoint_and_exactly_one_prefix",
+        "--features",
+        "independent-contracts",
+        "--example",
+        "export-openapi",
+        "tests::canonical_exports_keep_all_published_paths_and_oauth_request_schemas",
         "--",
         "--exact",
-    ]);
+    ], true);
 } finally {
     rmSync(temp, { recursive: true, force: true });
 }

@@ -13,12 +13,24 @@
  */
 
 import { mapValues } from "../runtime.js";
+import type { SyncDirection } from "./SyncDirection.js";
+import {
+  SyncDirectionFromJSON,
+  SyncDirectionFromJSONTyped,
+  SyncDirectionToJSON,
+  SyncDirectionToJSONTyped,
+} from "./SyncDirection.js";
+
 /**
  *
  * @export
  * @interface SyncConnectRequest
  */
 export interface SyncConnectRequest {
+  /**
+   *
+   */
+  direction?: SyncDirection;
   /**
    *
    */
@@ -49,13 +61,14 @@ export function SyncConnectRequestFromJSONTyped(
   if (
     json &&
     typeof json === "object" &&
-    Object.keys(json).some((key) => !["resourceId", "targetDevice"].includes(key))
+    Object.keys(json).some((key) => !["Direction", "resourceId", "targetDevice"].includes(key))
   )
     throw new Error("Unexpected SyncConnectRequest field");
   if (json == null) {
     return json;
   }
   return {
+    direction: json["Direction"] == null ? undefined : SyncDirectionFromJSON(json["Direction"]),
     resourceId: json["resourceId"],
     targetDevice: json["targetDevice"],
   };
@@ -74,6 +87,7 @@ export function SyncConnectRequestToJSONTyped(
   }
 
   return {
+    Direction: SyncDirectionToJSON(value["direction"]),
     resourceId: value["resourceId"],
     targetDevice: value["targetDevice"],
   };

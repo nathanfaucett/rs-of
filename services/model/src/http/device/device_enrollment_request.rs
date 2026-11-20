@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Device API
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DeviceEnrollmentRequest {
     #[serde(rename = "address")]
     pub address: String,
@@ -21,9 +22,8 @@ pub struct DeviceEnrollmentRequest {
 }
 
 impl DeviceEnrollmentRequest {
-    #[must_use]
-    pub const fn new(address: String, name: String, public_key: String) -> Self {
-        Self {
+    pub fn new(address: String, name: String, public_key: String) -> DeviceEnrollmentRequest {
+        DeviceEnrollmentRequest {
             address,
             name,
             public_key,

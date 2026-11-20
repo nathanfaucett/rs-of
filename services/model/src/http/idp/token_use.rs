@@ -1,5 +1,5 @@
 /*
- * OAuth Server
+ * LIDP IdP API
  *
  * OIDC / OAuth 2.x server implementation
  *
@@ -12,10 +12,8 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum TokenUse {
     #[serde(rename = "Id")]
-    #[default]
     Id,
     #[serde(rename = "Access")]
     Access,
@@ -33,3 +31,8 @@ impl core::fmt::Display for TokenUse {
     }
 }
 
+impl Default for TokenUse {
+    fn default() -> TokenUse {
+        Self::Id
+    }
+}

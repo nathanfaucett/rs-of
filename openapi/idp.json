@@ -2947,6 +2947,9 @@
           {
             "authorization": []
           }
+        ],
+        "tags": [
+          "super_routes_oauth2_introspect"
         ]
       }
     },
@@ -3203,6 +3206,9 @@
           {
             "authorization": []
           }
+        ],
+        "tags": [
+          "super_routes_replica_signers"
         ]
       }
     },
@@ -3228,6 +3234,9 @@
           {
             "authorization": []
           }
+        ],
+        "tags": [
+          "super_routes_replica_signers"
         ]
       },
       "put": {
@@ -3261,6 +3270,9 @@
           {
             "authorization": []
           }
+        ],
+        "tags": [
+          "super_routes_replica_signers"
         ]
       }
     },
@@ -3824,6 +3836,9 @@
           {
             "authorization": []
           }
+        ],
+        "tags": [
+          "super_routes_active_user"
         ]
       }
     },

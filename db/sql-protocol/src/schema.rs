@@ -16,6 +16,15 @@ pub fn column_to_proto(column: ColumnSchema) -> ProtoColumnSchema {
     }
 }
 
+/// Converts a protobuf column schema into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error for an unknown type, missing default, or malformed default value.
+#[allow(
+    clippy::map_err_ignore,
+    reason = "wire validation uses stable client-facing messages"
+)]
 pub fn column_from_proto(column: ProtoColumnSchema) -> Result<ColumnSchema, QueryServiceError> {
     let value_type = ProtoValueType::try_from(column.r#type)
         .map_err(|_| QueryServiceError::Invalid("unknown column ValueType".into()))?;
@@ -59,6 +68,11 @@ pub fn table_to_proto(table: TableSchema) -> ProtoTableSchema {
     }
 }
 
+/// Converts a protobuf table schema into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error when any contained column is malformed.
 pub fn table_from_proto(table: ProtoTableSchema) -> Result<TableSchema, QueryServiceError> {
     Ok(TableSchema {
         name: table.name,

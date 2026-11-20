@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use crate::kvdb::{
     JsonArray, JsonNumber as ProtoJsonNumber, JsonObject, JsonObjectEntry,
-    JsonValue as ProtoJsonValue, Value as ProtoValue, ValueType as ProtoValueType, json_number,
-    json_value, value as proto_value,
+    JsonValue as ProtoJsonValue, ScanEntry, Value as ProtoValue, ValueType as ProtoValueType,
+    json_number, json_value, value as proto_value,
 };
 use value::{JsonNumber as DomainJsonNumber, JsonValue as DomainJsonValue, Value as DomainValue};
 
@@ -27,6 +27,15 @@ pub fn value_to_proto(value: DomainValue) -> ProtoValue {
     ProtoValue { kind: Some(kind) }
 }
 
+/// Converts a protobuf value into its domain representation.
+///
+/// # Errors
+///
+/// Returns an invalid-argument status when the wire value is missing or malformed.
+#[allow(
+    clippy::map_err_ignore,
+    reason = "wire validation uses stable client-facing error messages"
+)]
 pub fn value_from_proto(value: ProtoValue) -> Result<DomainValue, Status> {
     let kind = value
         .kind
@@ -154,15 +163,28 @@ fn json_from_proto(value: ProtoJsonValue) -> Result<DomainJsonValue, Status> {
     }
 }
 
+/// Converts a required protobuf value.
+///
+/// # Errors
+///
+/// Returns an invalid-argument status when the value is absent or malformed.
 pub fn required_value(value: Option<ProtoValue>) -> Result<DomainValue, Status> {
     value_from_proto(value.ok_or_else(|| Status::invalid_argument("missing KV value"))?)
 }
+/// Converts an optional protobuf value.
+///
+/// # Errors
+///
+/// Returns an invalid-argument status when a present value is malformed.
 pub fn optional_value(value: Option<ProtoValue>) -> Result<Option<DomainValue>, Status> {
     value.map(value_from_proto).transpose()
 }
-pub fn scan_entries(
-    entries: Vec<crate::kvdb::ScanEntry>,
-) -> Result<Vec<(String, DomainValue)>, Status> {
+/// Converts protobuf scan entries into domain key-value pairs.
+///
+/// # Errors
+///
+/// Returns an invalid-argument status when any entry has a missing or malformed value.
+pub fn scan_entries(entries: Vec<ScanEntry>) -> Result<Vec<(String, DomainValue)>, Status> {
     entries
         .into_iter()
         .map(|entry| Ok((entry.key, required_value(entry.value)?)))
@@ -186,7 +208,7 @@ mod tests {
             Value::Bool(true),
             Value::Integer(i64::MIN),
             Value::Float(-0.0),
-            Value::Float(f64::from_bits(0x7ff8000000000042)),
+            Value::Float(f64::from_bits(0x7ff8_0000_0000_0042)),
             Value::Text("text".into()),
             Value::Blob(vec![0, 255]),
             Value::Json(JsonValue::Object(
@@ -195,7 +217,7 @@ mod tests {
                     JsonValue::Array(vec![
                         JsonValue::Number(JsonNumber::I64(i64::MIN)),
                         JsonValue::Number(JsonNumber::U64(u64::MAX)),
-                        JsonValue::Number(JsonNumber::F64(f64::from_bits(0x7ff8000000000042))),
+                        JsonValue::Number(JsonNumber::F64(f64::from_bits(0x7ff8_0000_0000_0042))),
                     ]),
                 )]
                 .into(),

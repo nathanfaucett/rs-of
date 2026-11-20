@@ -1,15 +1,24 @@
-use std::time::Duration;
+use core::fmt::Debug;
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 
 use btree::BTree;
 use kv_client::Client;
 use kv_server::Server;
 use kv_store::KvStore;
-use tokio::sync::oneshot;
+use tokio::{
+    net::TcpListener,
+    sync::oneshot,
+    task::JoinHandle,
+    time::{sleep, timeout},
+};
 
 fn test_timestamp_provider() -> uuid::Timestamp {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    static NEXT: AtomicU64 = AtomicU64::new(1);
 
-    let millis = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let millis = NEXT.fetch_add(1, Ordering::Relaxed);
 
     uuid::Timestamp::from_unix_time(
         1_700_000_000 + millis / 1_000,
@@ -20,10 +29,10 @@ fn test_timestamp_provider() -> uuid::Timestamp {
 }
 
 pub type Shutdown = oneshot::Sender<()>;
-pub type ServerTask = tokio::task::JoinHandle<()>;
+pub type ServerTask = JoinHandle<()>;
 
 pub async fn stop_server(mut server: ServerTask) {
-    if let Ok(result) = tokio::time::timeout(Duration::from_secs(3), &mut server).await {
+    if let Ok(result) = timeout(Duration::from_secs(3), &mut server).await {
         result.expect("KV server task should complete");
     } else {
         server.abort();
@@ -34,9 +43,9 @@ pub async fn stop_server(mut server: ServerTask) {
 
 pub async fn start_client_server<B>(backend: B) -> (Client, Shutdown, ServerTask)
 where
-    B: BTree<Vec<u8>, Vec<u8>> + Send + Sync + 'static + core::fmt::Debug,
+    B: BTree<Vec<u8>, Vec<u8>> + Send + Sync + 'static + Debug,
 {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+    let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind KV server listener");
     let address = listener.local_addr().expect("read KV server address");
@@ -50,12 +59,12 @@ where
             .expect("KV server should stop cleanly");
     });
     let client = Client::lazy_tcp(format!("http://{address}")).expect("valid KV endpoint");
-    tokio::time::timeout(Duration::from_secs(3), async {
+    timeout(Duration::from_secs(3), async {
         loop {
             if client.get("__readiness__".into()).await.is_ok() {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            sleep(Duration::from_millis(10)).await;
         }
     })
     .await

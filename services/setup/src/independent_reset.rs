@@ -358,20 +358,20 @@ fn uninstall_local_ca_with(
     let fingerprint = ca_fingerprint(directory)?;
     #[cfg(target_os = "linux")]
     return uninstall_linux_ca(
-            directory,
-            &fingerprint,
-            &[
-                (
-                    Path::new("/usr/local/share/ca-certificates"),
-                    &["update-ca-certificates"],
-                ),
-                (
-                    Path::new("/etc/pki/ca-trust/source/anchors"),
-                    &["update-ca-trust", "extract"],
-                ),
-            ],
-            &mut run,
-        );
+        directory,
+        &fingerprint,
+        &[
+            (
+                Path::new("/usr/local/share/ca-certificates"),
+                &["update-ca-certificates"],
+            ),
+            (
+                Path::new("/etc/pki/ca-trust/source/anchors"),
+                &["update-ca-trust", "extract"],
+            ),
+        ],
+        &mut run,
+    );
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var_os("HOME").ok_or_else(|| io::Error::other("HOME is missing"))?;

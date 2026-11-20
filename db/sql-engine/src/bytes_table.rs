@@ -2,7 +2,11 @@
 use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
-use core::ops::{Bound, RangeBounds};
+use core::{
+    fmt,
+    future::ready,
+    ops::{Bound, RangeBounds},
+};
 
 use platform::{MaybeSend, MaybeSync};
 
@@ -17,8 +21,8 @@ pub struct BytesTable<'a, T> {
     table: String,
 }
 
-impl<T> core::fmt::Debug for BytesTable<'_, T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl<T> fmt::Debug for BytesTable<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BytesTable")
             .field("table", &self.table)
             .finish_non_exhaustive()
@@ -30,8 +34,8 @@ pub struct BytesTableTransaction<'a, T> {
     table: String,
 }
 
-impl<T> core::fmt::Debug for BytesTableTransaction<'_, T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl<T> fmt::Debug for BytesTableTransaction<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BytesTableTransaction")
             .field("table", &self.table)
             .finish_non_exhaustive()
@@ -146,11 +150,11 @@ impl<T: KernelTransaction + MaybeSend + MaybeSync> BTreeTransaction<Vec<u8>, Vec
         stream! { yield Err(BTreeError::UnsupportedOperation); }
     }
 
-    async fn commit(self) -> BTreeResult<()> {
-        Ok(())
+    fn commit(self) -> impl Future<Output = BTreeResult<()>> + MaybeSend {
+        ready(Ok(()))
     }
 
-    async fn rollback(self) -> BTreeResult<()> {
-        Ok(())
+    fn rollback(self) -> impl Future<Output = BTreeResult<()>> + MaybeSend {
+        ready(Ok(()))
     }
 }

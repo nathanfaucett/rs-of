@@ -1,7 +1,7 @@
 // @vitest-environment playwright
 import { afterEach, expect, it } from "vitest";
 import { createVault, listVaults, unlockVault } from "./vault";
-import { SharedDb } from "./storage/SharedDb";
+
 import { clearStorage, getStorageClient } from "../../test/utils";
 import { dbParam } from "./storage/schema";
 

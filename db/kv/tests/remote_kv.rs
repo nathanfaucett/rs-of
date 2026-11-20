@@ -2,7 +2,11 @@ use std::time::Duration;
 
 mod kv_common;
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use btree::InMemoryBTree;
 use btree_redb::{Bytes, RedbByteBTree, table_definition};
@@ -11,12 +15,16 @@ use kv_common::{start_client_server, stop_server};
 use kv_server::Server;
 use kv_store::KvStore;
 use redb::Database;
+use tokio::{
+    sync::oneshot,
+    time::{sleep, timeout},
+};
 use value::Value;
 
 fn test_timestamp_provider() -> uuid::Timestamp {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    static NEXT: AtomicU64 = AtomicU64::new(1);
 
-    let millis = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let millis = NEXT.fetch_add(1, Ordering::Relaxed);
 
     uuid::Timestamp::from_unix_time(
         1_700_000_000 + millis / 1_000,
@@ -27,6 +35,10 @@ fn test_timestamp_provider() -> uuid::Timestamp {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one fixture covers remote operations and typed values"
+)]
 async fn remote_client_supports_kv_operations_and_preserves_empty_values() {
     let backend = InMemoryBTree::<Vec<u8>, Vec<u8>>::new();
     let (client, shutdown, server) = start_client_server(backend).await;
@@ -102,14 +114,14 @@ async fn remote_client_supports_kv_operations_and_preserves_empty_values() {
             .scan_prefix("expired".into())
             .await
             .expect("scan expired prefix"),
-        [] as [(std::string::String, value::Value); 0]
+        [] as [(String, value::Value); 0]
     );
     assert_eq!(
         client
             .scan("expired".into(), "expiredx".into())
             .await
             .expect("scan expired range"),
-        [] as [(std::string::String, value::Value); 0]
+        [] as [(String, value::Value); 0]
     );
     assert_eq!(
         client.get("future".into()).await.expect("get future key"),
@@ -171,7 +183,7 @@ async fn remote_client_supports_kv_operations_and_preserves_empty_values() {
         Value::Bool(true),
         Value::Integer(i64::MAX),
         Value::Float(-0.0),
-        Value::Float(f64::from_bits(0x7ff8000000000042)),
+        Value::Float(f64::from_bits(0x7ff8_0000_0000_0042)),
         Value::Text("text".into()),
         Value::Blob(vec![0, 255]),
         Value::Json(value::JsonValue::Object(
@@ -180,7 +192,7 @@ async fn remote_client_supports_kv_operations_and_preserves_empty_values() {
                 value::JsonValue::Array(vec![
                     value::JsonValue::Number(value::JsonNumber::U64(u64::MAX)),
                     value::JsonValue::Number(value::JsonNumber::F64(f64::from_bits(
-                        0x7ff8000000000042,
+                        0x7ff8_0000_0000_0042,
                     ))),
                 ]),
             )]
@@ -240,11 +252,11 @@ async fn remote_client_supports_kv_operations_and_preserves_empty_values() {
 async fn remote_expiry_transition_and_stopped_server_fail_within_bounds() {
     let backend = InMemoryBTree::<Vec<u8>, Vec<u8>>::new();
     let (client, shutdown, server) = start_client_server(backend).await;
-    let expiry = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .expect("system clock is after Unix epoch")
-        .as_millis() as i64
-        + 250;
+        .as_millis();
+    let expiry = i64::try_from(expiry).expect("current time fits i64") + 250;
     client
         .set("short-lived".into(), Value::Blob(vec![1]), Some(expiry))
         .await
@@ -256,23 +268,23 @@ async fn remote_expiry_transition_and_stopped_server_fail_within_bounds() {
             .expect("read live value"),
         Some(Value::Blob(vec![1]))
     );
-    tokio::time::timeout(Duration::from_secs(3), async {
+    timeout(Duration::from_secs(3), async {
         loop {
             if matches!(client.get("short-lived".into()).await, Ok(None)) {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            sleep(Duration::from_millis(10)).await;
         }
     })
     .await
     .expect("value should expire");
 
     shutdown.send(()).expect("server is awaiting shutdown");
-    tokio::time::timeout(Duration::from_secs(3), server)
+    timeout(Duration::from_secs(3), server)
         .await
         .expect("server shutdown should finish")
         .expect("server task should complete");
-    tokio::time::timeout(Duration::from_secs(3), client.get("short-lived".into()))
+    timeout(Duration::from_secs(3), client.get("short-lived".into()))
         .await
         .expect("client failure should be bounded")
         .unwrap_err();
@@ -291,7 +303,7 @@ async fn redb_values_and_deletions_survive_server_restart() {
     write.commit().expect("commit table creation");
 
     let (client, shutdown, server) =
-        start_client_server(RedbByteBTree::new(database.clone(), TABLE)).await;
+        start_client_server(RedbByteBTree::new(Arc::clone(&database), TABLE)).await;
     client
         .set("persisted".into(), Value::Blob(vec![3, 4]), None)
         .await
@@ -305,7 +317,7 @@ async fn redb_values_and_deletions_survive_server_restart() {
         .await
         .expect("delete persisted key");
     shutdown.send(()).expect("server is awaiting shutdown");
-    tokio::time::timeout(Duration::from_secs(3), server)
+    timeout(Duration::from_secs(3), server)
         .await
         .expect("first server should stop")
         .expect("first server task should complete");
@@ -314,7 +326,7 @@ async fn redb_values_and_deletions_survive_server_restart() {
 
     let database = Arc::new(Database::open(&path).expect("reopen Redb database"));
     let (client, shutdown, server) =
-        start_client_server(RedbByteBTree::new(database.clone(), TABLE)).await;
+        start_client_server(RedbByteBTree::new(Arc::clone(&database), TABLE)).await;
     assert_eq!(
         client
             .get("persisted".into())
@@ -330,7 +342,7 @@ async fn redb_values_and_deletions_survive_server_restart() {
         None
     );
     shutdown.send(()).expect("server is awaiting shutdown");
-    tokio::time::timeout(Duration::from_secs(3), server)
+    timeout(Duration::from_secs(3), server)
         .await
         .expect("reopened server should stop")
         .expect("reopened server task should complete");
@@ -344,7 +356,7 @@ async fn unix_client_server_supports_get_set_and_prefix_scan() {
     let directory = tempfile::tempdir().expect("create temporary socket directory");
     let socket = directory.path().join("kv.sock");
     let server_socket = socket.clone();
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
+    let (shutdown, signal) = oneshot::channel();
     let server = tokio::spawn(async move {
         Server::unix(
             server_socket,
@@ -360,12 +372,12 @@ async fn unix_client_server_supports_get_set_and_prefix_scan() {
         .expect("Unix KV server should stop cleanly");
     });
     let client = Client::lazy_unix(socket.clone()).expect("valid Unix client");
-    tokio::time::timeout(Duration::from_secs(3), async {
+    timeout(Duration::from_secs(3), async {
         loop {
             if client.get("__readiness__".into()).await.is_ok() {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            sleep(Duration::from_millis(10)).await;
         }
     })
     .await

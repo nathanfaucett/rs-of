@@ -11,8 +11,9 @@
 use serde::{Deserialize, Serialize};
 
 ///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum ResidencyMode {
     #[serde(rename = "full")]
     #[default]
@@ -29,4 +30,3 @@ impl core::fmt::Display for ResidencyMode {
         }
     }
 }
-

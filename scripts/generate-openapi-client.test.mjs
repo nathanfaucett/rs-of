@@ -33,12 +33,12 @@ function digest() {
     "packages/management-client/src",
     "packages/device-client/src",
     "packages/storage-client/src",
-    "crates/idp-client",
-    "crates/management-client",
-    "crates/device-client",
-    "crates/storage-client",
-    "crates/storage-api-client",
-    "crates/model/src/http",
+    "services/idp-client",
+    "services/management-client",
+    "services/device-client",
+    "services/storage-client",
+    "services/storage-api-client",
+    "services/model/src/http",
   ])
     visit(path.join(root, dir));
   return hash.digest("hex");
@@ -141,11 +141,11 @@ const args = process.argv.slice(2);
 if (args.includes("generate")) {
     const language = args[args.indexOf("-g") + 1];
     const output = args[args.indexOf("-o") + 1];
-    cpSync(path.join(${JSON.stringify(root)}, language === "rust" ? "crates/idp-client" : "packages/idp-client/src"), output, {recursive: true});
+    cpSync(path.join(${JSON.stringify(root)}, language === "rust" ? "services/idp-client" : "packages/idp-client/src"), output, {recursive: true});
     if (language === "rust") {
         const models = path.join(output, "src/models");
         rmSync(models, {recursive: true});
-        cpSync(path.join(${JSON.stringify(root)}, "crates/model/src/http/idp"), models, {recursive: true});
+        cpSync(path.join(${JSON.stringify(root)}, "services/model/src/http/idp"), models, {recursive: true});
         for (const file of readdirSync(models)) {
             const target = path.join(models, file);
             const source = readFileSync(target, "utf8").replace(/use alloc::[^;]+;\\n/g, "").replaceAll("use crate::http::idp as models;", "use crate::models;").replaceAll("core::fmt", "std::fmt");

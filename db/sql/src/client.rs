@@ -1,8 +1,20 @@
+#[cfg(feature = "postgres")]
+use core::slice::from_ref;
+#[cfg(all(unix, feature = "remote"))]
+use std::path::PathBuf;
 use std::{fmt, time::Duration};
 
+use crate::database::EmbeddedTransaction;
+#[cfg(feature = "postgres")]
+use crate::{
+    postgres::{PostgresBackend, PostgresTransaction},
+    postgres_statement::unsupported,
+};
 #[cfg(feature = "remote")]
 use client::Client as SqlClient;
 use query::{QueryError, QueryErrorKind, QueryParams, QueryResult, Statement, Translator};
+#[cfg(feature = "remote")]
+use tokio::sync::Mutex;
 use value::{FromRow, Row, Value};
 
 /// A query client for embedded or remote databases.
@@ -50,13 +62,12 @@ enum Backend {
     #[cfg(feature = "remote")]
     Remote(SqlClient),
     #[cfg(feature = "postgres")]
-    Postgres(crate::postgres::PostgresBackend),
+    Postgres(PostgresBackend),
 }
 
 impl fmt::Debug for Client {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Client")
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
             .field(
                 "backend",
                 &match self.backend {
@@ -92,15 +103,15 @@ enum TransactionBackend {
         feature = "in-memory",
         all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
     ))]
-    Embedded(crate::database::EmbeddedTransaction),
+    Embedded(EmbeddedTransaction),
     #[cfg(feature = "remote")]
-    Remote(tokio::sync::Mutex<client::Transaction>),
+    Remote(Mutex<client::Transaction>),
     #[cfg(feature = "postgres")]
-    Postgres(crate::postgres::PostgresTransaction),
+    Postgres(PostgresTransaction),
 }
 
-impl core::fmt::Debug for TransactionBackend {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for TransactionBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             #[cfg(any(
                 feature = "redb",
@@ -121,6 +132,10 @@ impl Transaction {
     /// Admission precedes owned native read allocation. This is not a decoded-memory or CPU budget;
     /// callers must also exclude query shapes that amplify data (joins/computed projections).
     /// Remote and non-native backends reject this operation without executing queries.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unsupported backends, invalid limits, or execution failure.
     pub async fn set_read_limits(
         &mut self,
         entries: usize,
@@ -138,9 +153,7 @@ impl Transaction {
                     transaction.set_read_limits(entries, bytes).await
                 }
                 #[cfg(feature = "postgres")]
-                TransactionBackend::Postgres(_) => {
-                    Err(crate::postgres_statement::unsupported("native read limits"))
-                }
+                TransactionBackend::Postgres(_) => Err(unsupported("native read limits")),
                 #[cfg(feature = "remote")]
                 TransactionBackend::Remote(_) => Err(QueryError::new(
                     QueryErrorKind::Unsupported,
@@ -153,6 +166,10 @@ impl Transaction {
 
     /// Inspects conflicts in this transaction's snapshot, including local writes.
     /// Aborted transactions fail on either backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage, transport, or validation failure.
     #[inline(never)]
     pub fn row_conflicts<'a>(
         &'a mut self,
@@ -178,9 +195,7 @@ impl Transaction {
                     }
                     #[cfg(feature = "postgres")]
                     TransactionBackend::Postgres(transaction) => {
-                        transaction
-                            .validate_keys(table, core::slice::from_ref(key))
-                            .await?;
+                        transaction.validate_keys(table, from_ref(key)).await?;
                         Ok(Vec::new())
                     }
                     #[cfg(feature = "remote")]
@@ -195,6 +210,10 @@ impl Transaction {
 
     /// Returns concurrent values from this transaction's snapshot.
     /// Aborted transactions fail on either backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage, transport, or validation failure.
     #[inline(never)]
     pub fn row_conflict_values<'a>(
         &'a self,
@@ -221,9 +240,7 @@ impl Transaction {
                     }
                     #[cfg(feature = "postgres")]
                     TransactionBackend::Postgres(transaction) => {
-                        transaction
-                            .validate_keys(table, core::slice::from_ref(key))
-                            .await?;
+                        transaction.validate_keys(table, from_ref(key)).await?;
                         Ok(Vec::new())
                     }
                     #[cfg(feature = "remote")]
@@ -240,6 +257,10 @@ impl Transaction {
         }) as platform::BoxFuture<'a, _>
     }
 
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "an elapsed deadline has one stable timeout error"
+    )]
     async fn run<F, T>(deadline: Option<Duration>, operation: F) -> Result<T, QueryError>
     where
         F: Future<Output = Result<T, QueryError>>,
@@ -278,6 +299,11 @@ impl Transaction {
         }
     }
 
+    /// Executes statements in this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for execution, transport, or transaction failure.
     pub async fn execute(
         &mut self,
         statements: Vec<Statement>,
@@ -325,7 +351,12 @@ impl Transaction {
         }
     }
 
-    pub async fn translate_and_execute<T: Translator>(
+    /// Translates and executes one SQL string in this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation, execution, or transport failure.
+    pub async fn translate_and_execute<T: Translator + platform::MaybeSync>(
         &mut self,
         query: &str,
         translator: &T,
@@ -344,7 +375,12 @@ impl Transaction {
         .await
     }
 
-    pub async fn translate_and_execute_with_params<T: Translator>(
+    /// Translates and executes one parameterized SQL string in this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation, execution, or transport failure.
+    pub async fn translate_and_execute_with_params<T: Translator + platform::MaybeSync>(
         &mut self,
         query: &str,
         params: Option<&QueryParams>,
@@ -368,6 +404,11 @@ impl Transaction {
     }
 
     #[cfg(feature = "sql")]
+    /// Executes SQL text in this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation, execution, or transport failure.
     pub async fn execute_sql(
         &mut self,
         sql: &str,
@@ -377,6 +418,11 @@ impl Transaction {
             .await
     }
 
+    /// Commits the transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport or commit failure.
     pub async fn commit(self) -> Result<(), QueryError> {
         let deadline = self.request_deadline;
         Self::run(deadline, async move {
@@ -396,6 +442,11 @@ impl Transaction {
         .await
     }
 
+    /// Rolls back the transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport or rollback failure.
     pub async fn rollback(self) -> Result<(), QueryError> {
         let deadline = self.request_deadline;
         Self::run(deadline, async move {
@@ -420,10 +471,14 @@ impl Transaction {
 
 impl Client {
     /// Connects with explicit sslmode=disable. Use a Unix socket or trusted TLS tunnel.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid configuration or connection failure.
     #[cfg(feature = "postgres")]
     pub async fn connect_postgres(config: &str) -> Result<Self, QueryError> {
         Ok(Self {
-            backend: Backend::Postgres(crate::postgres::PostgresBackend::connect(config).await?),
+            backend: Backend::Postgres(PostgresBackend::connect(config).await?),
             request_deadline: None,
         })
     }
@@ -453,9 +508,7 @@ impl Client {
                     Backend::Embedded(database) => database.query_row_conflicts(table, key).await,
                     #[cfg(feature = "postgres")]
                     Backend::Postgres(client) => {
-                        client
-                            .validate_keys(table, core::slice::from_ref(key))
-                            .await?;
+                        client.validate_keys(table, from_ref(key)).await?;
                         Ok(Vec::new())
                     }
                     #[cfg(feature = "remote")]
@@ -536,9 +589,7 @@ impl Client {
                     }
                     #[cfg(feature = "postgres")]
                     Backend::Postgres(client) => {
-                        client
-                            .validate_keys(table, core::slice::from_ref(key))
-                            .await?;
+                        client.validate_keys(table, from_ref(key)).await?;
                         Ok(Vec::new())
                     }
                     #[cfg(feature = "remote")]
@@ -577,9 +628,7 @@ impl Client {
                         database.query_resolve_row(table, key, values).await
                     }
                     #[cfg(feature = "postgres")]
-                    Backend::Postgres(_) => Err(crate::postgres_statement::unsupported(
-                        "conflict resolution",
-                    )),
+                    Backend::Postgres(_) => Err(unsupported("conflict resolution")),
                     #[cfg(feature = "remote")]
                     Backend::Remote(client) => client.resolve_row(table, key, values).await,
                 }
@@ -588,6 +637,11 @@ impl Client {
         }) as platform::BoxFuture<'a, _>
     }
 
+    /// Starts a transaction on the embedded or remote backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid ready response.
     pub async fn transaction(&self) -> Result<Transaction, QueryError> {
         self.run(async {
             let backend = match &self.backend {
@@ -605,7 +659,7 @@ impl Client {
                 }
                 #[cfg(feature = "remote")]
                 Backend::Remote(client) => {
-                    TransactionBackend::Remote(tokio::sync::Mutex::new(client.transaction().await?))
+                    TransactionBackend::Remote(Mutex::new(client.transaction().await?))
                 }
             };
             Ok(Transaction {
@@ -642,6 +696,11 @@ impl Client {
     }
 
     #[cfg(feature = "remote")]
+    /// Connects to a remote SQL service.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid endpoint or connection failure.
     pub async fn connect(endpoint: impl AsRef<str>) -> Result<Self, QueryError> {
         Ok(Self {
             backend: Backend::Remote(SqlClient::tcp(endpoint).await?),
@@ -650,6 +709,11 @@ impl Client {
     }
 
     #[cfg(feature = "remote")]
+    /// Connects to a remote SQL service with a trusted CA.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid TLS or endpoint configuration, or connection failure.
     pub async fn connect_with_ca(
         endpoint: impl AsRef<str>,
         ca_certificate: impl AsRef<[u8]>,
@@ -661,6 +725,11 @@ impl Client {
     }
 
     #[cfg(feature = "remote")]
+    /// Connects to a remote SQL service with a CA and client identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid TLS or endpoint configuration, or connection failure.
     pub async fn connect_with_identity(
         endpoint: impl AsRef<str>,
         ca_certificate: impl AsRef<[u8]>,
@@ -677,7 +746,12 @@ impl Client {
     }
 
     #[cfg(all(unix, feature = "remote"))]
-    pub async fn connect_unix(path: impl Into<std::path::PathBuf>) -> Result<Self, QueryError> {
+    /// Connects to a remote SQL service over a Unix socket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the socket connection fails.
+    pub async fn connect_unix(path: impl Into<PathBuf>) -> Result<Self, QueryError> {
         Ok(Self {
             backend: Backend::Remote(SqlClient::unix(path).await?),
             request_deadline: None,
@@ -689,9 +763,11 @@ impl Client {
         F: Future<Output = Result<T, QueryError>>,
     {
         match self.request_deadline {
-            Some(deadline) => platform::timeout(deadline, operation).await.map_err(|_| {
-                QueryError::new(QueryErrorKind::Timeout, "request deadline exceeded")
-            })?,
+            Some(deadline) => platform::timeout(deadline, operation)
+                .await
+                .map_err(|_elapsed| {
+                    QueryError::new(QueryErrorKind::Timeout, "request deadline exceeded")
+                })?,
             None => operation.await,
         }
     }
@@ -720,6 +796,11 @@ impl Client {
         }
     }
 
+    /// Executes statements outside an explicit transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for execution, transport, or a malformed result.
     pub async fn execute(
         &self,
         statements: Vec<Statement>,
@@ -727,7 +808,12 @@ impl Client {
         self.run(self.execute_untimed(statements)).await
     }
 
-    pub async fn translate_and_execute<T: Translator>(
+    /// Translates and executes one SQL string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation, execution, or transport failure.
+    pub async fn translate_and_execute<T: Translator + platform::MaybeSync>(
         &self,
         query: &str,
         translator: &T,
@@ -745,7 +831,10 @@ impl Client {
                         .await
                 }
                 #[cfg(any(feature = "remote", feature = "postgres"))]
-                #[allow(unreachable_patterns)]
+                #[allow(
+                    unreachable_patterns,
+                    reason = "backend match arms are feature-dependent"
+                )]
                 _ => {
                     let statements = translator.translate(query).await.map_err(|error| {
                         QueryError::new(
@@ -760,7 +849,12 @@ impl Client {
         .await
     }
 
-    pub async fn translate_and_execute_with_params<T: Translator>(
+    /// Translates and executes one parameterized SQL string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation, execution, or transport failure.
+    pub async fn translate_and_execute_with_params<T: Translator + platform::MaybeSync>(
         &self,
         query: &str,
         params: Option<&QueryParams>,
@@ -779,7 +873,10 @@ impl Client {
                         .await
                 }
                 #[cfg(any(feature = "remote", feature = "postgres"))]
-                #[allow(unreachable_patterns)]
+                #[allow(
+                    unreachable_patterns,
+                    reason = "backend match arms are feature-dependent"
+                )]
                 _ => {
                     let statements = translator
                         .translate_with_params(query, params)
@@ -797,7 +894,16 @@ impl Client {
         .await
     }
 
-    pub async fn translate_and_select<T: Translator, U: FromRow>(
+    /// Translates a query and decodes its single result into typed rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation, execution, missing results, or row decoding failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the result list is unexpectedly empty after its length check.
+    pub async fn translate_and_select<T: Translator + platform::MaybeSync, U: FromRow>(
         &self,
         query: &str,
         translator: &T,
@@ -813,7 +919,10 @@ impl Client {
                     database.query_translate_and_select(query, translator).await
                 }
                 #[cfg(any(feature = "remote", feature = "postgres"))]
-                #[allow(unreachable_patterns)]
+                #[allow(
+                    unreachable_patterns,
+                    reason = "backend match arms are feature-dependent"
+                )]
                 _ => {
                     let mut results = self
                         .translate_and_execute_untimed(query, translator)
@@ -838,7 +947,7 @@ impl Client {
     }
 
     #[cfg(any(feature = "remote", feature = "postgres"))]
-    async fn translate_and_execute_untimed<T: Translator>(
+    async fn translate_and_execute_untimed<T: Translator + platform::MaybeSync>(
         &self,
         query: &str,
         translator: &T,
@@ -853,6 +962,11 @@ impl Client {
     }
 
     #[cfg(feature = "sql")]
+    /// Executes SQL text outside an explicit transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation, execution, or transport failure.
     pub async fn execute_sql(
         &self,
         sql: &str,

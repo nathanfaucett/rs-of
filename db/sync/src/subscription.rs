@@ -1,7 +1,20 @@
-use crate::protocol::PushSynchronizeConfig;
+use std::pin::Pin;
+
+use btree::ChangeEvent;
+use futures::Stream;
+
+use crate::{
+    protocol::{PushResult, PushSynchronizeConfig, PushSynchronizeError},
+    transport::SyncTransport,
+};
+
+#[cfg(all(feature = "std", not(feature = "wasm")))]
+use crate::sync::push_synchronize;
+#[cfg(all(feature = "std", feature = "wasm"))]
+use crate::wasm_sync::push_synchronize;
 
 #[inline(never)]
-fn sync_stage<F: Future>(make: impl FnOnce() -> F) -> std::pin::Pin<Box<F>> {
+fn sync_stage<F: Future>(make: impl FnOnce() -> F) -> Pin<Box<F>> {
     Box::pin(make())
 }
 
@@ -24,7 +37,7 @@ impl ChangeSubscription {
     /// Returns a stream of committed changes with their incremental blobs.
     /// Each event is delivered exactly once per subscription in generation order.
     /// This is the push-based replacement for the old select/acknowledge/changed API.
-    pub fn events(&mut self) -> impl futures::Stream<Item = btree::ChangeEvent> + '_ {
+    pub fn events(&mut self) -> impl Stream<Item = ChangeEvent> + '_ {
         self.changes.events()
     }
 
@@ -47,34 +60,43 @@ impl ChangeSubscription {
     ///
     /// # Returns
     /// `PushResult` with statistics, or `PushSynchronizeError` on failure.
-    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when transport, protocol, or inbound apply processing fails.
+    #[cfg(all(feature = "std", not(feature = "wasm")))]
     pub async fn push_synchronize<T, F, Fut>(
         mut self,
         transport: T,
         apply_inbound: F,
         config: PushSynchronizeConfig,
-    ) -> Result<crate::protocol::PushResult, crate::protocol::PushSynchronizeError<T::Error>>
+    ) -> Result<PushResult, PushSynchronizeError<T::Error>>
     where
-        T: crate::transport::SyncTransport,
-        F: FnMut(btree::ChangeEvent) -> Fut + Send,
+        T: SyncTransport,
+        F: FnMut(ChangeEvent) -> Fut + Send,
         Fut: Future<Output = Result<(), String>> + Send,
     {
-        crate::sync::push_synchronize(transport, self.events(), apply_inbound, config).await
+        push_synchronize(transport, self.events(), apply_inbound, config).await
     }
 
-    #[cfg(all(feature = "std", target_arch = "wasm32"))]
+    /// Runs push synchronization with browser-compatible futures.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when transport, protocol, or inbound apply processing fails.
+    #[cfg(all(feature = "std", feature = "wasm"))]
     pub async fn push_synchronize<T, F, Fut>(
         mut self,
         transport: T,
         apply_inbound: F,
         config: PushSynchronizeConfig,
-    ) -> Result<crate::protocol::PushResult, crate::protocol::PushSynchronizeError<T::Error>>
+    ) -> Result<PushResult, PushSynchronizeError<T::Error>>
     where
-        T: crate::transport::SyncTransport,
-        F: FnMut(btree::ChangeEvent) -> Fut,
+        T: SyncTransport,
+        F: FnMut(ChangeEvent) -> Fut,
         Fut: Future<Output = Result<(), String>>,
     {
-        crate::wasm_sync::push_synchronize(transport, self.events(), apply_inbound, config).await
+        push_synchronize(transport, self.events(), apply_inbound, config).await
     }
 
     #[doc(hidden)]

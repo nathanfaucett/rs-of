@@ -6,9 +6,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use crate::RouterState;
 
 use super::openapi::{__path_openapi_json, openapi_json};
-use super::residency::{
-    __path_get_file_system_residency, __path_put_file_system_residency,
-};
+use super::residency::{__path_get_file_system_residency, __path_put_file_system_residency};
 use super::resources::sql::__path_execute_sql;
 use super::resources::{
     __path_create_database, __path_create_file_system, __path_delete_database,
@@ -121,7 +119,7 @@ mod tests {
     use utoipa::OpenApi;
     use utoipa_axum::router::OpenApiRouter;
 
-    use super::{ApiDoc, routes};
+    use super::{ApiDoc, RouterState, routes};
 
     #[test]
     fn openapi_document_preserves_runtime_contract_without_state() {

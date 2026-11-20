@@ -1,10 +1,23 @@
+#[cfg(any(feature = "redb", feature = "server"))]
+use std::io;
+#[cfg(all(feature = "server", unix))]
+use std::path::PathBuf;
+#[cfg(feature = "server")]
+use std::{error::Error as StdError, net::SocketAddr};
 #[cfg(feature = "redb")]
 use std::{path::Path, sync::Arc};
+
+#[cfg(feature = "redb")]
+use btree_redb::{
+    Bytes, NativeResource, RedbByteBTree, SharedDatabase, open_unretired,
+    remove_retired as remove_native_retired, table_definition,
+};
 
 use btree::BTree;
 #[cfg(feature = "in-memory")]
 use btree::InMemoryBTree;
 use kv_store::KvStore;
+use uuid::Uuid;
 
 #[cfg(feature = "sync")]
 use sync::{PushResult, PushSynchronizeConfig, PushSynchronizeError, SyncTransport};
@@ -22,7 +35,7 @@ pub enum Storage {
     #[cfg(feature = "in-memory")]
     Memory(KvStore<InMemoryBTree<Vec<u8>, Vec<u8>>>),
     #[cfg(feature = "redb")]
-    Redb(btree_redb::NativeResource<KvStore<btree_redb::RedbByteBTree>>),
+    Redb(NativeResource<KvStore<RedbByteBTree>>),
 }
 
 #[derive(Debug)]
@@ -42,8 +55,14 @@ impl Database {
     /// Unix-only; callers must exclusively own the pathname and marker namespace.
     /// The permanent `.ofdb-retired` marker is retained, including after success.
     #[cfg(feature = "redb")]
-    pub async fn retire_and_remove(&self) -> std::io::Result<()> {
-        match &self.storage {
+    /// Retires this resource and removes its owned persistence.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unsupported storage or failed retirement and cleanup.
+    #[cfg(feature = "redb")]
+    pub async fn retire_and_remove(&self) -> io::Result<()> {
+        let result = match &self.storage {
             Storage::Redb(resource) => resource.retire_and_remove().await,
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Storage::IndexedDb(_) => Err(std::io::Error::new(
@@ -55,13 +74,26 @@ impl Database {
                 std::io::ErrorKind::Unsupported,
                 "not a native resource",
             )),
+        };
+        #[cfg(feature = "sync")]
+        if result.is_ok() {
+            if let Some(signal) = &self.changes {
+                signal.close();
+            }
         }
+        result
     }
 
     /// Resumes cleanup of a permanently retired file, refusing live native owners.
     #[cfg(feature = "redb")]
-    pub fn remove_retired(path: impl AsRef<Path>) -> std::io::Result<()> {
-        btree_redb::remove_retired(path)
+    /// Removes a permanently retired database file when no live owner holds it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a live owner, identity mismatch, or cleanup failure.
+    #[cfg(feature = "redb")]
+    pub fn remove_retired(path: impl AsRef<Path>) -> io::Result<()> {
+        remove_native_retired(path)
     }
 
     /// Creates an owned query-only handle that shares this database's storage.
@@ -78,12 +110,18 @@ impl Database {
     /// `IndexedDB` subscriptions observe this opened backend and its shared clients,
     /// not other tabs/opens. External-write gaps require broad recovery.
     #[cfg(feature = "sync")]
-    pub fn sync_changes(&self) -> std::io::Result<sync::ChangeSubscription> {
+    /// Subscribes to committed changes for synchronization.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backend cannot retain committed changes.
+    #[cfg(feature = "sync")]
+    pub fn sync_changes(&self) -> io::Result<sync::ChangeSubscription> {
         self.changes
             .clone()
             .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Unsupported,
+                io::Error::new(
+                    io::ErrorKind::Unsupported,
                     "committed changes require a persistent database",
                 )
             })
@@ -104,6 +142,12 @@ impl Database {
     /// Each operation materializes a whole-database snapshot. Mutating stale
     /// transactions fail with Conflict and are not replayed. Issued commits
     /// remain observed after cancellation; timeout does not prove rollback.
+    #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
+    /// Opens durable IndexedDB storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when browser storage cannot be opened or initialized.
     #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
     pub async fn open_indexeddb(name: &str) -> Result<Self, Error> {
         let database = btree_indexeddb::Database::open(name, "kv").await?;
@@ -136,31 +180,52 @@ impl Database {
 
     /// Opens an isolated KV store in a shared host. Retirement never removes the host file.
     #[cfg(feature = "redb")]
-    pub fn open_shared(host: &btree_redb::SharedDatabase, name: &str) -> Result<Self, Error> {
+    /// Opens an isolated KV namespace in a shared host.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for namespace validation or resource initialization failure.
+    #[cfg(feature = "redb")]
+    pub fn open_shared(host: &SharedDatabase, name: &str) -> Result<Self, Error> {
         let namespace = host
             .namespace(&format!("kv:{name}"))
             .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
         #[cfg(feature = "sync")]
         let table = namespace.table("kv");
         let store = KvStore::new(namespace.tree("kv"), uuid_timestamp);
-        let resource = btree_redb::NativeResource::new_shared(namespace, store)
+        let resource = NativeResource::new_shared(namespace, store)
             .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
         #[cfg(feature = "sync")]
         let changes = Some(resource.inspect(|store| store.change_signal().clone())?);
         Ok(Self {
+            storage: Storage::Redb(resource),
             #[cfg(feature = "sync")]
             changes,
             #[cfg(feature = "sync")]
             storage_table: Some(table),
-            storage: Storage::Redb(resource),
         })
     }
 
+    /// Opens a durable KV database.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid storage, schema incompatibility, or resource initialization.
     #[cfg(feature = "redb")]
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
         Self::open_with_table(path, "ofdb-kv")
     }
 
+    #[cfg(feature = "redb")]
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "an incompatible existing table has one stable schema error"
+    )]
+    /// Opens a durable KV database with a specific table name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid storage, schema incompatibility, or resource initialization.
     #[cfg(feature = "redb")]
     pub fn open_with_table(
         path: impl AsRef<Path>,
@@ -169,9 +234,9 @@ impl Database {
         let table = table.into();
         let path = path.as_ref();
         let existed = path.exists();
-        let db = btree_redb::open_unretired(path, !existed)
+        let db = open_unretired(path, !existed)
             .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
-        let definition = btree_redb::table_definition::<btree_redb::Bytes, Vec<u8>>(&table);
+        let definition = table_definition::<Bytes, Vec<u8>>(&table);
         if existed {
             use redb::ReadableDatabase;
 
@@ -194,19 +259,19 @@ impl Database {
         transaction
             .commit()
             .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
-        let tree = btree_redb::RedbByteBTree::new(Arc::new(db), table.clone());
+        let tree = RedbByteBTree::new(Arc::new(db), table.clone());
         let store = KvStore::new(tree, uuid_timestamp);
         #[cfg(feature = "sync")]
         let changes = Some(store.change_signal().clone());
         Ok(Self {
+            storage: Storage::Redb(
+                NativeResource::new(path, store)
+                    .map_err(|error| Error::from(btree::BTreeError::custom(error)))?,
+            ),
             #[cfg(feature = "sync")]
             changes,
             #[cfg(feature = "sync")]
             storage_table: Some(table),
-            storage: Storage::Redb(
-                btree_redb::NativeResource::new(path, store)
-                    .map_err(|error| Error::from(btree::BTreeError::custom(error)))?,
-            ),
         })
     }
 
@@ -216,14 +281,14 @@ impl Database {
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Storage::IndexedDb(store) => read_get(store, key, now).await,
             #[cfg(feature = "in-memory")]
-            Storage::Memory(store) => read_get(store, key, now).await,
+            Storage::Memory(store) => Box::pin(read_get(store, key, now)).await,
             #[cfg(feature = "redb")]
             Storage::Redb(store) => {
                 let store = store
                     .read()
                     .await
                     .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
-                read_get(&*store, key, now).await
+                Box::pin(read_get(&*store, key, now)).await
             }
         }
     }
@@ -238,14 +303,14 @@ impl Database {
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Storage::IndexedDb(store) => write_set(store, key, value, expires_at).await,
             #[cfg(feature = "in-memory")]
-            Storage::Memory(store) => write_set(store, key, value, expires_at).await,
+            Storage::Memory(store) => Box::pin(write_set(store, key, value, expires_at)).await,
             #[cfg(feature = "redb")]
             Storage::Redb(store) => {
                 let store = store
                     .read()
                     .await
                     .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
-                write_set(&*store, key, value, expires_at).await
+                Box::pin(write_set(&*store, key, value, expires_at)).await
             }
         }
     }
@@ -255,14 +320,14 @@ impl Database {
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Storage::IndexedDb(store) => write_delete(store, key).await,
             #[cfg(feature = "in-memory")]
-            Storage::Memory(store) => write_delete(store, key).await,
+            Storage::Memory(store) => Box::pin(write_delete(store, key)).await,
             #[cfg(feature = "redb")]
             Storage::Redb(store) => {
                 let store = store
                     .read()
                     .await
                     .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
-                write_delete(&*store, key).await
+                Box::pin(write_delete(&*store, key)).await
             }
         }
     }
@@ -277,14 +342,14 @@ impl Database {
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Storage::IndexedDb(store) => read_scan(store, start, end, now).await,
             #[cfg(feature = "in-memory")]
-            Storage::Memory(store) => read_scan(store, start, end, now).await,
+            Storage::Memory(store) => Box::pin(read_scan(store, start, end, now)).await,
             #[cfg(feature = "redb")]
             Storage::Redb(store) => {
                 let store = store
                     .read()
                     .await
                     .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
-                read_scan(&*store, start, end, now).await
+                Box::pin(read_scan(&*store, start, end, now)).await
             }
         }
     }
@@ -298,14 +363,14 @@ impl Database {
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Storage::IndexedDb(store) => read_prefix(store, prefix, now).await,
             #[cfg(feature = "in-memory")]
-            Storage::Memory(store) => read_prefix(store, prefix, now).await,
+            Storage::Memory(store) => Box::pin(read_prefix(store, prefix, now)).await,
             #[cfg(feature = "redb")]
             Storage::Redb(store) => {
                 let store = store
                     .read()
                     .await
                     .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
-                read_prefix(&*store, prefix, now).await
+                Box::pin(read_prefix(&*store, prefix, now)).await
             }
         }
     }
@@ -316,50 +381,68 @@ impl Database {
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Storage::IndexedDb(store) => read_all(store, now).await,
             #[cfg(feature = "in-memory")]
-            Storage::Memory(store) => read_all(store, now).await,
+            Storage::Memory(store) => Box::pin(read_all(store, now)).await,
             #[cfg(feature = "redb")]
             Storage::Redb(store) => {
                 let store = store
                     .read()
                     .await
                     .map_err(|error| Error::from(btree::BTreeError::custom(error)))?;
-                read_all(&*store, now).await
+                Box::pin(read_all(&*store, now)).await
             }
         }
     }
 
     #[cfg(feature = "server")]
+    /// Serves KV requests over TCP until shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for listener setup, transport, or hosting failure.
+    #[cfg(feature = "server")]
     pub async fn serve_tcp(
         &self,
-        address: std::net::SocketAddr,
-        shutdown: impl core::future::Future<Output = ()> + Send + 'static,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        address: SocketAddr,
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), Box<dyn StdError + Send + Sync>> {
         self.serve_tcp_with_tls(address, None, shutdown).await
     }
 
     #[cfg(feature = "server")]
+    /// Serves KV requests over TCP with optional TLS.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for TLS configuration, listener setup, transport, or hosting failure.
+    #[cfg(feature = "server")]
     pub async fn serve_tcp_with_tls(
         &self,
-        address: std::net::SocketAddr,
+        address: SocketAddr,
         identity: Option<(Vec<u8>, Vec<u8>)>,
-        shutdown: impl core::future::Future<Output = ()> + Send + 'static,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), Box<dyn StdError + Send + Sync>> {
         self.serve_tcp_with_client_ca(address, identity, None, shutdown)
             .await
     }
 
     #[cfg(feature = "server")]
+    /// Serves KV requests over TCP with optional TLS and client CA validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for TLS configuration, listener setup, transport, or hosting failure.
+    #[cfg(feature = "server")]
     pub async fn serve_tcp_with_client_ca(
         &self,
-        address: std::net::SocketAddr,
+        address: SocketAddr,
         identity: Option<(Vec<u8>, Vec<u8>)>,
         client_ca: Option<Vec<u8>>,
-        shutdown: impl core::future::Future<Output = ()> + Send + 'static,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), Box<dyn StdError + Send + Sync>> {
         match &self.storage {
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
-            Storage::IndexedDb(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
+            Storage::IndexedDb(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
                 "native hosting is unavailable for IndexedDB",
             )
             .into()),
@@ -394,6 +477,7 @@ impl Database {
                             Some(certificate) => server.tls_client_ca(certificate),
                             None => server,
                         };
+                        drop(store);
                         server.serve(shutdown).await
                     })
                     .await?
@@ -402,11 +486,17 @@ impl Database {
     }
 
     #[cfg(all(feature = "server", unix))]
+    /// Serves KV requests over a Unix socket until shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for listener setup, transport, or hosting failure.
+    #[cfg(all(feature = "server", unix))]
     pub async fn serve_unix(
         &self,
-        path: impl Into<std::path::PathBuf>,
-        shutdown: impl core::future::Future<Output = ()> + Send + 'static,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        path: impl Into<PathBuf> + Send,
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), Box<dyn StdError + Send + Sync>> {
         match &self.storage {
             #[cfg(feature = "in-memory")]
             Storage::Memory(store) => {
@@ -430,6 +520,12 @@ impl Database {
 
     /// Synchronization: streams local changes to peer and applies remote changes.
     /// Uses the store's change subscription for outbound events and imports inbound events directly.
+    #[cfg(feature = "sync")]
+    /// Streams committed changes and applies inbound changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport, protocol, or inbound apply failure.
     #[cfg(feature = "sync")]
     pub async fn synchronize<T: SyncTransport>(
         &self,
@@ -557,7 +653,7 @@ async fn read_all<B: BTree<Vec<u8>, Vec<u8>>>(
 }
 
 fn uuid_timestamp() -> uuid::Timestamp {
-    uuid::Uuid::now_v7()
+    Uuid::now_v7()
         .get_timestamp()
         .expect("UUIDv7 has a timestamp")
 }
@@ -578,32 +674,35 @@ mod tests {
         block_on(async {
             let database = Database::in_memory();
             let client = database.client();
-            client
-                .set("a", Value::Blob(vec![1]), Some(0))
+            Box::pin(client.set("a", Value::Blob(vec![1]), Some(0)))
                 .await
                 .expect("set expired value");
-            assert_eq!(client.get("a").await.expect("read expired value"), None);
-            client
-                .set("a", Value::Blob(vec![1]), None)
+            assert_eq!(
+                Box::pin(client.get("a")).await.expect("read expired value"),
+                None
+            );
+            Box::pin(client.set("a", Value::Blob(vec![1]), None))
                 .await
                 .expect("clear expiry");
-            client
-                .set("ab", Value::Blob(vec![2]), None)
+            Box::pin(client.set("ab", Value::Blob(vec![2]), None))
                 .await
                 .expect("set second value");
             assert_eq!(
-                client.scan("a", "ab").await.expect("exclusive range"),
+                Box::pin(client.scan("a", "ab"))
+                    .await
+                    .expect("exclusive range"),
                 vec![("a".into(), Value::Blob(vec![1]))]
             );
             assert_eq!(
-                client
-                    .scan_prefix("")
+                Box::pin(client.scan_prefix(""))
                     .await
                     .expect("empty prefix matches all")
                     .len(),
                 2
             );
-            client.delete("missing").await.expect("delete missing key");
+            Box::pin(client.delete("missing"))
+                .await
+                .expect("delete missing key");
         });
     }
 }

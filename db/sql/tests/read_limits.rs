@@ -3,6 +3,10 @@
 use ofdb_sql::{Database, ErrorKind};
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "commit and rollback consume the transaction"
+)]
 async fn native_read_budget_bounds_plain_scans_and_aborts_mutations_across_calls() {
     let directory = tempfile::tempdir().expect("isolated database");
     let database = Database::open(directory.path().join("budget.redb")).expect("database");

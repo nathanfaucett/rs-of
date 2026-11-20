@@ -6,7 +6,7 @@ use device_service::ofdb::device_repo::DbDeviceRepo;
 use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
 use idp_service::{
     password_config::PasswordConfig,
-    replica::{replica_signer_repo::DbReplicaSignerRepo, user_repo::DbUserRepo},
+    replica::{DbReplicaSignerRepo, DbUserRepo},
     repo::user_repo::UserRepo,
 };
 use iroh::{
@@ -29,7 +29,7 @@ use tokio::sync::Notify;
 
 use crate::local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
 
-pub(crate) struct TestDirectory(pub PathBuf);
+pub struct TestDirectory(pub PathBuf);
 impl TestDirectory {
     pub fn new() -> Self {
         let path = std::env::temp_dir().join(format!("of03-domain-{}", Id::now_v7()));
@@ -43,7 +43,7 @@ impl Drop for TestDirectory {
     }
 }
 
-pub(crate) struct IrohPair {
+pub struct IrohPair {
     pub endpoints: [Endpoint; 2],
     pub connections: [Connection; 2],
 }
@@ -131,7 +131,7 @@ impl IrohPair {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct Gate {
+pub struct Gate {
     reached: Arc<Notify>,
     resume: Arc<Notify>,
 }
@@ -150,7 +150,7 @@ impl Gate {
 
 const INSTALLATION: &str = "https://of03-installation.example";
 
-pub(crate) fn approved_signers(devices: [Id; 2]) -> [IdpSignerRecord; 2] {
+pub fn approved_signers(devices: [Id; 2]) -> [IdpSignerRecord; 2] {
     devices.map(|member_id| {
         let entropy = key::master_key::MasterKey::entropy().expect("independent signer entropy");
         let master = key::master_key::MasterKey::from_entropy(entropy.as_ref())
@@ -182,7 +182,7 @@ pub(crate) fn approved_signers(devices: [Id; 2]) -> [IdpSignerRecord; 2] {
     })
 }
 
-pub(crate) struct DomainNode {
+pub struct DomainNode {
     pub idp: Arc<Database>,
     pub management: Arc<Database>,
     pub root: PathBuf,
@@ -333,7 +333,7 @@ impl DomainNode {
     }
 }
 
-pub(crate) async fn sql(database: &Database, sql: &str) {
+pub async fn sql(database: &Database, sql: &str) {
     database
         .client()
         .translate_and_execute(sql, &SqlTranslator)

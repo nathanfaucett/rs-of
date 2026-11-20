@@ -1,14 +1,24 @@
-use std::{io, path::Path, sync::Arc};
+use std::{fmt, io, path::Path, sync::Arc, thread};
 
 use axum::Router;
-use iroh::EndpointId;
+use iroh::{EndpointId, SecretKey};
 use iroh_chain::Server;
+use management_service::service::MANAGEMENT_APPLICATION_URI;
+use of_model::id::Id;
 use storage_service::{
     database_runtime::DatabaseRuntime, scoped_file_system::ScopedFileSystemRuntime,
 };
+use tokio::runtime::Builder;
 use tokio_util::sync::CancellationToken;
 
+#[cfg(feature = "sync")]
+use crate::sync::{local_sync_router, sync_router};
 use crate::{
+    copy_retirement::StorageCopyRetirement,
+    data_protocol::DataProtocolHandler,
+    device_client::DeviceClient,
+    idp_client::IdpClient,
+    local_replication_authorizer::LocalReplicationAuthorizer,
     replication_runtime::StorageReplicationRuntime,
     router::{openapi_router::openapi_router, resources::resource_router, state::RouterState},
 };
@@ -17,11 +27,18 @@ pub struct StorageRuntime {
     router: Router,
     replication: Option<StorageReplicationRuntime>,
     cancellation_token: CancellationToken,
-    copies: Option<crate::copy_retirement::StorageCopyRetirement>,
+    copies: Option<StorageCopyRetirement>,
+}
+
+impl fmt::Debug for StorageRuntime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StorageRuntime").finish_non_exhaustive()
+    }
 }
 
 impl StorageRuntime {
-    pub fn copy_retirement(&self) -> Option<crate::copy_retirement::StorageCopyRetirement> {
+    #[must_use]
+    pub fn copy_retirement(&self) -> Option<StorageCopyRetirement> {
         self.copies.clone()
     }
 
@@ -29,7 +46,7 @@ impl StorageRuntime {
         self.router.clone()
     }
 
-    pub fn data_handler(&self) -> Option<crate::data_protocol::DataProtocolHandler> {
+    pub fn data_handler(&self) -> Option<DataProtocolHandler> {
         self.replication
             .as_ref()
             .map(StorageReplicationRuntime::data_handler)
@@ -42,6 +59,10 @@ impl StorageRuntime {
         }
     }
 
+    /// Starts configured replication tasks.
+    ///
+    /// # Errors
+    /// Returns an error if replication cannot start.
     pub fn start_background_tasks(&mut self) -> io::Result<()> {
         if let Some(replication) = self.replication.as_mut() {
             replication.start_sync(self.cancellation_token.clone())?;
@@ -49,6 +70,10 @@ impl StorageRuntime {
         Ok(())
     }
 
+    /// Stops configured replication tasks.
+    ///
+    /// # Errors
+    /// Returns an error if replication shutdown fails.
     pub async fn shutdown(self) -> io::Result<()> {
         self.cancellation_token.cancel();
         if let Some(replication) = self.replication {
@@ -59,19 +84,33 @@ impl StorageRuntime {
 }
 
 /// Builds local Storage with all resource state inside the shared embedded host.
+///
+/// # Errors
+/// Returns an error for mismatched injected state or owner initialization failure.
 pub async fn build_local_runtime(
     data_dir: &Path,
     _port: u16,
     idp_base: &str,
     device_base: &str,
     db: Option<Arc<ofdb_sql::Database>>,
+    shared_storage: Option<btree_redb::SharedDatabase>,
     http_client: Option<reqwest::Client>,
 ) -> io::Result<StorageRuntime> {
-    let database = db::local_database(data_dir, db).await?;
-    let client = database.client();
-    let storage = database.storage();
+    let (client, storage) = match (db, shared_storage) {
+        (Some(database), Some(storage)) => (database.client(), storage),
+        (None, None) => {
+            let database = db::local_database(data_dir, None).await?;
+            (database.client(), database.storage())
+        }
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "shared SQL database and retained storage must be provided together",
+            ));
+        }
+    };
     let peer = local_peer(client.clone())?;
-    let idp = crate::idp_client::IdpClient::new(
+    let idp = IdpClient::new(
         idp_base,
         "local-storage",
         "local-password",
@@ -79,13 +118,13 @@ pub async fn build_local_runtime(
         idp_base,
     )
     .map_err(io::Error::other)?;
-    let device = crate::device_client::DeviceClient::new(
+    let device = DeviceClient::new(
         device_base,
         idp_base,
         "local-storage",
         "local-password",
         idp_base,
-        management_service::service::MANAGEMENT_APPLICATION_URI,
+        MANAGEMENT_APPLICATION_URI,
     )
     .map_err(io::Error::other)?;
     let (idp, device) = match http_client {
@@ -110,19 +149,19 @@ pub async fn build_local_runtime(
         Some(peer),
         CancellationToken::new(),
         Some(client),
-        Some(storage),
+        Some(&storage),
     )
 }
 
 fn local_peer(client: ofdb_sql::Client) -> io::Result<EndpointId> {
-    std::thread::spawn(move || {
-        tokio::runtime::Builder::new_current_thread().build()?.block_on(async {
+    thread::spawn(move || {
+        Builder::new_current_thread().build()?.block_on(async {
             client.execute_sql("CREATE TABLE IF NOT EXISTS local_storage_peer (id UUID PRIMARY KEY, public_key TEXT NOT NULL)", None).await.map_err(io::Error::other)?;
             let rows = client.execute_sql("SELECT public_key FROM local_storage_peer", None).await.map_err(io::Error::other)?;
             match rows[0].rows.as_slice() {
                 [] => {
-                    let peer = iroh::SecretKey::generate().public();
-                    let id = of_model::id::Id::now_v7();
+                    let peer = SecretKey::generate().public();
+                    let id = Id::now_v7();
                     client.execute_sql(&format!("INSERT INTO local_storage_peer (id, public_key) VALUES (CAST('{id}' AS UUID), '{peer}')"), None).await.map_err(io::Error::other)?;
                     Ok(peer)
                 }
@@ -133,9 +172,13 @@ fn local_peer(client: ofdb_sql::Client) -> io::Result<EndpointId> {
                 _ => Err(io::Error::new(io::ErrorKind::InvalidData, "multiple local Storage peers")),
             }
         })
-    }).join().map_err(|_| io::Error::other("local Storage identity worker panicked"))?
+    }).join().map_err(|_error| io::Error::other("local Storage identity worker panicked"))?
 }
 
+/// Builds Storage with an optional network endpoint.
+///
+/// # Errors
+/// Returns an error if resource runtimes cannot open retained state.
 pub fn build_runtime(
     state: RouterState,
     data_dir: &Path,
@@ -159,6 +202,9 @@ pub fn build_runtime(
 }
 
 /// HTTPS Storage consumes the Management endpoint's current policy without owning its key.
+///
+/// # Errors
+/// Returns an error if resource runtimes cannot open retained state.
 pub fn build_http_runtime(
     state: RouterState,
     data_dir: &Path,
@@ -188,12 +234,12 @@ fn build_runtime_inner(
     endpoint: Option<EndpointId>,
     cancellation_token: CancellationToken,
     catalog_client: Option<ofdb_sql::Client>,
-    shared_storage: Option<btree_redb::SharedDatabase>,
+    shared_storage: Option<&btree_redb::SharedDatabase>,
 ) -> io::Result<StorageRuntime> {
     let local = catalog_client.is_some();
     let databases = Arc::new(match catalog_client {
         Some(client) => DatabaseRuntime::with_shared(
-            shared_storage.clone().expect("local storage supplied"),
+            shared_storage.expect("local storage supplied").clone(),
             client,
         )?,
         None => DatabaseRuntime::new(data_dir.join("databases"))?,
@@ -203,7 +249,7 @@ fn build_runtime_inner(
             let root = data_dir.join("filesystems");
             if local {
                 ScopedFileSystemRuntime::<EndpointId>::with_shared(
-                    shared_storage.clone().expect("local storage supplied"),
+                    shared_storage.expect("local storage supplied").clone(),
                     endpoint,
                 )
             } else {
@@ -214,13 +260,12 @@ fn build_runtime_inner(
         .transpose()
         .map_err(io::Error::other)?;
 
-    let copies =
-        file_systems.as_ref().map(
-            |file_systems| crate::copy_retirement::StorageCopyRetirement {
-                databases: Arc::clone(&databases),
-                file_systems: Arc::clone(file_systems),
-            },
-        );
+    let copies = file_systems
+        .as_ref()
+        .map(|file_systems| StorageCopyRetirement {
+            databases: Arc::clone(&databases),
+            file_systems: Arc::clone(file_systems),
+        });
     if !local && state.local_replication_authorizer.is_none() {
         state.local_replication_authorizer =
             state
@@ -228,14 +273,14 @@ fn build_runtime_inner(
                 .clone()
                 .map(|client| match (endpoint, copies.clone()) {
                     (Some(endpoint), Some(copies)) => {
-                        crate::local_replication_authorizer::LocalReplicationAuthorizer::with_device_cleanup(
+                        LocalReplicationAuthorizer::with_device_cleanup(
                             client,
                             endpoint,
                             copies,
                             cancellation_token.clone(),
                         )
                     }
-                    _ => crate::local_replication_authorizer::LocalReplicationAuthorizer::from_device_client(client),
+                    _ => LocalReplicationAuthorizer::from_device_client(client),
                 });
     }
     if let (Some(endpoint), Some(policy), Some(idp)) = (
@@ -264,26 +309,27 @@ fn build_runtime_inner(
         _ => None,
     };
 
-    let resource_routes = resource_router(
-        state.clone(),
-        Some(Arc::clone(&databases)),
-        file_systems.clone(),
-    );
+    let resource_routes =
+        resource_router(state.clone(), Some(Arc::clone(&databases)), file_systems);
     let resource_routes = if resource_prefix.is_empty() {
         resource_routes
     } else {
         Router::new().nest(resource_prefix, resource_routes)
     };
-    let router = openapi_router(state.clone(), api_prefix)
+    #[cfg(feature = "sync")]
+    let router_state = state.clone();
+    #[cfg(not(feature = "sync"))]
+    let router_state = state;
+    let router = openapi_router(router_state, api_prefix)
         .split_for_parts()
         .0
         .merge(resource_routes);
 
     #[cfg(feature = "sync")]
     let router = router.merge(if local {
-        crate::sync::local_sync_router(state, Arc::clone(&databases), data_dir.join("sync-staging"))
+        local_sync_router(state, Arc::clone(&databases), data_dir.join("sync-staging"))
     } else {
-        crate::sync::sync_router(state, Arc::clone(&databases), data_dir.join("sync-staging"))
+        sync_router(state, Arc::clone(&databases), data_dir.join("sync-staging"))
     });
 
     Ok(StorageRuntime {

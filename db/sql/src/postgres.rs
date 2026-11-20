@@ -4,11 +4,12 @@ use query::{QueryError, QueryErrorKind, QueryResult, QueryResultColumn, Statemen
 use tokio::task::JoinHandle;
 use tokio_postgres::{
     Config, NoTls,
+    config::SslMode,
     types::{ToSql, Type},
 };
 use value::{Row, Value};
 
-use crate::PostgresStatement;
+use crate::{PostgresStatement, postgres_statement::unsupported};
 
 #[derive(Clone)]
 pub struct PostgresBackend {
@@ -19,7 +20,7 @@ impl PostgresBackend {
     pub async fn connect(config: &str) -> Result<Self, QueryError> {
         let config = Config::from_str(config)
             .map_err(|error| QueryError::new(QueryErrorKind::Validation, error.to_string()))?;
-        if config.get_ssl_mode() != tokio_postgres::config::SslMode::Disable {
+        if config.get_ssl_mode() != SslMode::Disable {
             return Err(QueryError::new(
                 QueryErrorKind::Validation,
                 "PostgreSQL requires explicit sslmode=disable; use a Unix socket or a trusted TLS tunnel",
@@ -92,7 +93,7 @@ impl PostgresTransaction {
         Ok(())
     }
 
-    pub fn finish_translation(&mut self) {
+    pub const fn finish_translation(&mut self) {
         self.failed = false;
     }
 
@@ -121,8 +122,7 @@ impl PostgresTransaction {
             .iter()
             .map(|column| {
                 let oid: u32 = column.get(0);
-                Type::from_oid(oid)
-                    .ok_or_else(|| crate::postgres_statement::unsupported("primary key type"))
+                Type::from_oid(oid).ok_or_else(|| unsupported("primary key type"))
             })
             .collect::<Result<Vec<_>, _>>()?;
         for key in keys {
@@ -201,6 +201,10 @@ fn parameters(values: &[Value], types: &[Type]) -> Result<Vec<Parameter>, QueryE
         .collect()
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "PostgreSQL FLOAT4 parameters require f32 values"
+)]
 fn parameter(value: &Value, kind: &Type) -> Result<Parameter, QueryError> {
     let invalid = || {
         QueryError::new(
@@ -226,10 +230,10 @@ fn parameter(value: &Value, kind: &Type) -> Result<Parameter, QueryError> {
     match (value, kind) {
         (Value::Integer(value), &Type::INT8) => Ok(Box::new(*value)),
         (Value::Integer(value), &Type::INT4) => {
-            Ok(Box::new(i32::try_from(*value).map_err(|_| invalid())?))
+            Ok(Box::new(i32::try_from(*value).map_err(|_error| invalid())?))
         }
         (Value::Integer(value), &Type::INT2) => {
-            Ok(Box::new(i16::try_from(*value).map_err(|_| invalid())?))
+            Ok(Box::new(i16::try_from(*value).map_err(|_error| invalid())?))
         }
         (Value::Bool(value), &Type::BOOL) => Ok(Box::new(*value)),
         (Value::Bool(value), &Type::INT8) => Ok(Box::new(i64::from(*value))),
@@ -240,7 +244,7 @@ fn parameter(value: &Value, kind: &Type) -> Result<Parameter, QueryError> {
         (Value::Float(value), &Type::FLOAT4) => Ok(Box::new(*value as f32)),
         (Value::Uuid(value), &Type::UUID) => Ok(Box::new(*value)),
         (Value::Text(value), &Type::UUID) => Ok(Box::new(
-            uuid::Uuid::parse_str(value).map_err(|_| invalid())?,
+            uuid::Uuid::parse_str(value).map_err(|_error| invalid())?,
         )),
         (Value::Uuid(value), &Type::TEXT) => Ok(Box::new(value.to_string())),
         (Value::Text(value), &Type::TEXT | &Type::VARCHAR | &Type::BPCHAR) => {
@@ -248,7 +252,8 @@ fn parameter(value: &Value, kind: &Type) -> Result<Parameter, QueryError> {
         }
         (Value::Blob(value), &Type::BYTEA) => Ok(Box::new(value.clone())),
         (Value::Json(value), &Type::JSON | &Type::JSONB) => Ok(Box::new(
-            serde_json::from_str::<serde_json::Value>(&value.to_string()).map_err(|_| invalid())?,
+            serde_json::from_str::<serde_json::Value>(&value.to_string())
+                .map_err(|_error| invalid())?,
         )),
         _ => Err(invalid()),
     }
@@ -276,12 +281,16 @@ fn decode_row(row: &tokio_postgres::Row) -> Result<Row, QueryError> {
             Type::TEXT | Type::VARCHAR | Type::BPCHAR => decode!(String, Value::Text),
             Type::BYTEA => decode!(Vec<u8>, Value::Blob),
             Type::JSON | Type::JSONB => decode!(serde_json::Value, |v| Value::Json(v.into())),
-            _ => return Err(crate::postgres_statement::unsupported("result type")),
+            _ => return Err(unsupported("result type")),
         });
     }
     Ok(Row::new(values))
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies owned PostgreSQL errors"
+)]
 fn error(error: tokio_postgres::Error) -> QueryError {
     let kind = if error.as_db_error().is_some() {
         QueryErrorKind::Rejected

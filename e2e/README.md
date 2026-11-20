@@ -4,7 +4,7 @@ Run from the root of a single `nathanfaucett/rs-of` checkout. Do not check out o
 
 ## Prepare
 
-Use the Node version in `.nvmrc`, pnpm 12.4.1, Rust 1.100 with the `wasm32-unknown-unknown` target, and wasm-pack 0.13.1. The backend also needs `pkg-config` and the D-Bus development package. On Debian or Ubuntu, install the native packages with `sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libdbus-1-dev`.
+Use the Node version in `.nvmrc`, pnpm 12.4.1, Rust 1.100 with the `wasm32-unknown-unknown` target, wasm-pack 0.13.1, and the Protocol Buffers compiler (`protoc`). The backend also needs `pkg-config` and the D-Bus development package. On Debian or Ubuntu, install the native packages with `sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libdbus-1-dev protobuf-compiler`.
 
 ```sh
 rustup toolchain install 1.100 --profile minimal --target wasm32-unknown-unknown
@@ -33,7 +33,7 @@ Each app also has `pnpm test:e2e`. Run it from that app directory to select its 
 
 ## Lifecycle and isolation
 
-`backend.mjs` is the global setup for both runners. Vitest installs it on the Chromium instance only: installing the same setup on both the root and browser project starts two servers. By default it runs `cargo run --locked -p unified-server -- local ...` as plain HTTP on port 1355, with a fresh OS temporary directory. It waits for all four owner health routes. It reports build/process failures and missing health routes. The default deadline is 180 seconds, including Cargo; set `E2E_START_TIMEOUT_MS` for a slower first build. This is not a three-second startup benchmark. The launcher sets `RUST_MIN_STACK=67108864` by default because the current backend startup overflows a smaller stack; set the variable explicitly to override that test environment.
+`backend.mjs` is the global setup for both runners. Vitest installs it on the Chromium instance only: installing the same setup on both the root and browser project starts two servers. By default it runs `cargo run --locked -p unified-server -- local ...` as plain HTTP on an OS-assigned loopback port, with a fresh OS temporary directory. Independent `startBackend` calls also allocate a port when `port` is omitted. It waits for all four owner health routes. It reports build/process failures and missing health routes. The default deadline is 180 seconds, including Cargo; set `E2E_START_TIMEOUT_MS` for a slower first build. This is not a three-second startup benchmark. The launcher sets `RUST_MIN_STACK=67108864` by default because the current backend startup overflows a smaller stack; set the variable explicitly to override that test environment.
 
 To use an already-built executable, set `E2E_BACKEND_BIN` to its path, relative to the repository root or absolute. This still starts a new process and new temporary data; it never connects to an existing developer backend. For the repository-local build above:
 
@@ -43,15 +43,17 @@ E2E_BACKEND_BIN=./target/debug/unified-server pnpm --filter @ofsdk/app test:back
 E2E_BACKEND_BIN=./target/debug/unified-server pnpm --filter @ofsdk/password-manager test:backend
 ```
 
-Teardown terminates the process group before removing only its temporary backend directory. Failed startup uses the same cleanup. The launcher refuses an occupied port. Do not run backend suites in parallel or reuse a developer backend. An external SIGKILL cannot run JavaScript teardown.
+Teardown terminates the process group before removing only its temporary backend directory. Failed startup uses the same cleanup. The launcher refuses an explicitly requested occupied port. Do not run backend suites in parallel or reuse a developer backend. An external SIGKILL cannot run JavaScript teardown.
 
-The runner environment in `frontend-env.mjs` uses HTTP on `127.0.0.1`: app port 5173 and password-manager port 5174. Vitest uses these ports too, so real CORS checks apply. Password-manager also needs `PUBLIC_STORAGE_URL`, which its current sync code reads. These are public test URLs, not secrets. Only generated reports under `.tmp/e2e-results` and `.tmp/e2e-report` are ignored.
+The runner reserves distinct OS-assigned app and password-manager ports and shares them with Playwright workers through `E2E_BACKEND_PORT`, `E2E_APP_PORT`, and `E2E_PASSWORD_MANAGER_PORT`. Playwright starts each Vite server on its assigned port with `--strictPort`. Vitest reads the same dynamic backend URL through `VITE_E2E_BACKEND_URL` and takes its browser API ports from the shared frontend URLs. Password-manager also needs `PUBLIC_STORAGE_URL`, which its current sync code reads. These are public test URLs, not secrets.
+
+Set any of the three port variables to a free fixed port for debugging. Without an explicit password-manager origin, unified-server retains its port 5174 default. Only generated reports under `.tmp/e2e-results` and `.tmp/e2e-report` are ignored.
 
 ## Browser configuration and desktop isolation
 
 The app permits setup-free browser login only when `PUBLIC_IDP_BASE_URL` and `PUBLIC_OIDC_CLIENT_ID` are explicitly set and the selected IdP matches. Live discovery must confirm the exact issuer and token endpoint. Only HTTPS or HTTP loopback is accepted. No seeded host or client is inferred. Tauri never takes this browser path; independent desktop setup remains separate. Without an explicit browser client, the existing setup gate remains.
 
-`appEnv` uses `local-login`; password-manager uses `password-manager`. Configure `PUBLIC_OIDC_APPLICATION_URI` to the expected Application identity, not the redirect origin. The local seed uses `http://127.0.0.1:5173/local-login` and `http://127.0.0.1:5173/password-manager`. These are runner settings, not production defaults. Password-manager fails closed when this identity is missing. `PUBLIC_OIDC_SCOPES` overrides the existing default; the local seed accepts `openid profile email storage`.
+`appEnv` uses `local-login`; password-manager uses `password-manager`. Configure `PUBLIC_OIDC_APPLICATION_URI` to the expected Application identity, not the redirect origin. The runner derives these identities from `appURL`, and the local seed uses both runner origins for client redirect URIs. These are runner settings, not production defaults. Password-manager fails closed when this identity is missing. `PUBLIC_OIDC_SCOPES` overrides the existing default; the local seed accepts `openid profile email storage`.
 
 Password-manager uses the SDK's existing local storage mode so the PKCE verifier survives external navigation and the session survives reload. Access/refresh tokens therefore persist in browser local storage and are accessible to same-origin script. Logout uses the SDK's existing token clearing. No session-storage mode was added.
 
@@ -65,6 +67,6 @@ Restored isolated native capability tests do not mock backend HTTP. Registration
 
 ## CI
 
-`.github/workflows/e2e.yml` checks out only `nathanfaucett/rs-of`, installs Chromium, builds the local WASM and TypeScript dependencies and Rust backend, then runs both real test runners against that compiled binary. Each runner step executes after a successful build even if another runner fails; failures still fail the job. It has read-only repository permission, a bounded job, concurrency cancellation, no stored checkout credentials, and failure artifacts. The workflow does not bypass failures or substitute a fake server.
+The `Real backend E2E` job in `.github/workflows/ci.yml` runs only after the documentation, Cargo, and OpenAPI jobs pass. The workflow builds a content-addressed GHCR image with cached Docker layers so the Rust and Node jobs share their installed tools. The E2E job checks the Rust toolchain, WASM target, wasm-pack, and `protoc` before restoring cached Cargo, pnpm, and Chromium data, builds the local WASM and TypeScript dependencies and Rust backend, then runs both real test runners against that compiled binary. Each test-runner step executes after a successful build even if another test runner fails; failures still fail the job. It has read-only repository permission, a bounded job, concurrency cancellation, no stored checkout credentials, and failure artifacts. The workflow does not bypass failures or substitute a fake server.
 
-See [runtime validation](runtime-validation.md) for recorded commit-specific results and [coordinator blockers](backend-blockers.md) for the corresponding failing requests. Historical task notes are not current qualification evidence. A test being listed or a frontend build passing does not qualify a real backend flow.
+GitHub Actions records current and historical results. A test being listed or a frontend build passing does not qualify a real backend flow.

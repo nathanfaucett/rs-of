@@ -220,16 +220,18 @@ mod policy_tests {
             .expect("Passthrough");
         let service = StorageService::new(Arc::clone(&filesystem));
         service
-                .execute(StorageRequest::Delete {
-                    path: "original.txt".into()
-                })
-                .await.unwrap_err();
+            .execute(StorageRequest::Delete {
+                path: "original.txt".into(),
+            })
+            .await
+            .unwrap_err();
         service
-                .execute(StorageRequest::Rename {
-                    from: "original.txt".into(),
-                    to: "renamed.txt".into()
-                })
-                .await.unwrap_err();
+            .execute(StorageRequest::Rename {
+                from: "original.txt".into(),
+                to: "renamed.txt".into(),
+            })
+            .await
+            .unwrap_err();
         filesystem.entry("original.txt").await.unwrap();
         filesystem.entry("renamed.txt").await.unwrap_err();
         drop(service);
@@ -519,11 +521,12 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let service = StorageService::new(Arc::new(FileSystem::open(&root, 1_u8).await.unwrap()));
         service
-                .execute(StorageRequest::Write {
-                    path: "note.txt".into(),
-                    content: Vec::new()
-                })
-                .await.unwrap_err();
+            .execute(StorageRequest::Write {
+                path: "note.txt".into(),
+                content: Vec::new(),
+            })
+            .await
+            .unwrap_err();
         let _ = fs::remove_dir_all(root);
     }
 }

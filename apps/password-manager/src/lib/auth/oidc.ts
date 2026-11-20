@@ -1,5 +1,5 @@
 import { OidcClient, type OidcClientOptions, type OidcTokenResponse, type OidcUserInfo } from "@ofsdk/oidc-client";
-import { env } from "$env/dynamic/public";
+
 
 export interface OidcAuthConfig {
   authority: string;
@@ -11,12 +11,11 @@ export interface OidcAuthConfig {
 
 export class OidcAuth {
   private client: OidcClient | null = null;
-  private config: OidcAuthConfig | null = null;
+
   private refreshTimeout: ReturnType<typeof setTimeout> | null = null;
 
   async initialize(config: OidcAuthConfig): Promise<void> {
     if (!config.applicationUri) throw new Error("Configure the expected OIDC Application URI");
-    this.config = config;
 
     const clientConfig: OidcClientOptions = {
       projectOwned: true,

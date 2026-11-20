@@ -3,7 +3,7 @@ use ofdb_kv::Database;
 use value::Value;
 
 #[test]
-#[ignore]
+#[ignore = "embedded client integration test"]
 fn embedded_client_owns_shared_storage_without_tokio() {
     block_on(async {
         let database = Database::in_memory();
@@ -70,7 +70,11 @@ fn embedded_client_owns_shared_storage_without_tokio() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "embedded transaction integration test"]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit or rollback"
+)]
 fn client_transaction_commits_and_rolls_back_multiple_operations() {
     block_on(async {
         let database = Database::in_memory();
@@ -94,7 +98,7 @@ fn client_transaction_commits_and_rolls_back_multiple_operations() {
         transaction.rollback().await.expect("rollback transaction");
         assert_eq!(
             client.scan_all().await.expect("scan after rollback"),
-            [] as [(std::string::String, ofdb_kv::Value); 0]
+            [] as [(String, ofdb_kv::Value); 0]
         );
 
         let mut transaction = client

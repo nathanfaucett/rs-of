@@ -2,17 +2,17 @@
 
 The browser packages wrap the Rust storage engines with WebAssembly. IndexedDB provides SQL/KV persistence; the filesystem package uses browser persistence for metadata and content. No network is required for ordinary local operations.
 
-Current browser support and synchronization qualification are separate. A package or transport export does not prove that an application has a complete authorized sync path. See [current status](../README.md#current-status) and [E2E evidence](../e2e/runtime-validation.md).
+Current browser support and synchronization qualification are separate. A package or transport export does not prove that an application has a complete authorized sync path. See [current status](../README.md#current-status) and [E2E test boundaries](../e2e/README.md#test-boundaries).
 
 ## Packages
 
-| Package | Local source | Package state |
-| --- | --- | --- |
-| `@ofsdk/sql` | `packages/sql` | Packable; registry publication is not assumed |
-| `@ofsdk/kv` | `packages/kv` | Private workspace package |
-| `@ofsdk/file-system` | `packages/file-system` | Private workspace package |
-| `@ofsdk/net` | `packages/net` | Private workspace package |
-| `@ofsdk/sync-sdk` | `packages/sync-sdk` | Private workspace package under active integration |
+| Package              | Local source           | Package state                                      |
+| -------------------- | ---------------------- | -------------------------------------------------- |
+| `@ofsdk/sql`         | `packages/sql`         | Packable; registry publication is not assumed      |
+| `@ofsdk/kv`          | `packages/kv`          | Private workspace package                          |
+| `@ofsdk/file-system` | `packages/file-system` | Private workspace package                          |
+| `@ofsdk/net`         | `packages/net`         | Private workspace package                          |
+| `@ofsdk/sync-sdk`    | `packages/sync-sdk`    | Private workspace package under active integration |
 
 Build local artifacts from this checkout:
 

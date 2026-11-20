@@ -1,5 +1,6 @@
+use alloc::string::String;
 /*
- * OAuth Server
+ * LIDP IdP API
  *
  * OIDC / OAuth 2.x server implementation
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AuthorizationCodeResponseOneOf {
     #[serde(rename = "code")]
     pub code: String,
@@ -31,9 +32,8 @@ pub struct AuthorizationCodeResponseOneOf {
 }
 
 impl AuthorizationCodeResponseOneOf {
-    #[must_use]
-    pub const fn new(code: String) -> Self {
-        Self {
+    pub fn new(code: String) -> AuthorizationCodeResponseOneOf {
+        AuthorizationCodeResponseOneOf {
             code,
             iss: None,
             state: None,

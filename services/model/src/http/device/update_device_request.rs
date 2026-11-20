@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Device API
  *
@@ -10,15 +11,14 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UpdateDeviceRequest {
     #[serde(rename = "name")]
     pub name: String,
 }
 
 impl UpdateDeviceRequest {
-    #[must_use]
-    pub const fn new(name: String) -> Self {
-        Self { name }
+    pub fn new(name: String) -> UpdateDeviceRequest {
+        UpdateDeviceRequest { name }
     }
 }

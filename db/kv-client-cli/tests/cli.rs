@@ -1,12 +1,18 @@
 use std::{
+    env, fs,
     net::{SocketAddr, TcpListener},
-    path::PathBuf,
-    process::{Command, Output},
+    path::{Path, PathBuf},
+    process::{self, Command, Output},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use ofdb_kv::{Client, Database};
-use tokio::{net::TcpStream, sync::oneshot, time::sleep};
+use tokio::{
+    net::TcpStream,
+    sync::oneshot,
+    task::spawn_blocking,
+    time::{sleep, timeout},
+};
 
 fn run(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_kv-client-cli"))
@@ -20,10 +26,7 @@ fn temporary_path(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock follows Unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!(
-        "ofdb-kv-cli-{label}-{}-{nonce}",
-        std::process::id()
-    ))
+    env::temp_dir().join(format!("ofdb-kv-cli-{label}-{}-{nonce}", process::id()))
 }
 
 fn free_address() -> SocketAddr {
@@ -45,7 +48,7 @@ fn local_cli_preserves_tagged_file_values_and_emits_json_scans() {
     let database = temporary_path("store.redb");
     let input = temporary_path("value.bin");
     let value = br#"{"type":"blob","value":"AP8K"}"#;
-    std::fs::write(&input, value).expect("write binary test value");
+    fs::write(&input, value).expect("write binary test value");
     let database_arg = database.to_str().expect("database path is UTF-8");
     let input_arg = input.to_str().expect("input path is UTF-8");
 
@@ -62,7 +65,7 @@ fn local_cli_preserves_tagged_file_values_and_emits_json_scans() {
         "{}",
         String::from_utf8_lossy(&set.stderr)
     );
-    assert!(set.stdout.is_empty());
+    assert_eq!(set.stdout, [] as [u8; 0]);
 
     let get = run(&["--database", database_arg, "get", "binary"]);
     assert!(
@@ -90,13 +93,13 @@ fn local_cli_preserves_tagged_file_values_and_emits_json_scans() {
 
     let delete = run(&["--database", database_arg, "delete", "binary"]);
     assert!(delete.status.success());
-    assert!(delete.stdout.is_empty());
+    assert_eq!(delete.stdout, [] as [u8; 0]);
     let missing = run(&["--database", database_arg, "get", "binary"]);
     assert_eq!(missing.status.code(), Some(1));
-    assert!(missing.stdout.is_empty());
+    assert_eq!(missing.stdout, [] as [u8; 0]);
 
-    std::fs::remove_file(input).expect("remove test value file");
-    std::fs::remove_file(database).expect("remove test database");
+    fs::remove_file(input).expect("remove test value file");
+    fs::remove_file(database).expect("remove test database");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -109,8 +112,8 @@ async fn remote_cli_verifies_tls_with_the_configured_ca() {
             .serve_tcp_with_tls(
                 address,
                 Some((
-                    include_bytes!("../../../test-fixtures/tls/server.crt").to_vec(),
-                    include_bytes!("../../../test-fixtures/tls/server.key").to_vec(),
+                    include_bytes!("../../test-fixtures/tls/server.crt").to_vec(),
+                    include_bytes!("../../test-fixtures/tls/server.key").to_vec(),
                 )),
                 async {
                     let _ = shutdown_signal.await;
@@ -120,7 +123,7 @@ async fn remote_cli_verifies_tls_with_the_configured_ca() {
             .expect("TLS server stops cleanly");
     });
 
-    tokio::time::timeout(Duration::from_secs(5), async {
+    timeout(Duration::from_secs(5), async {
         while TcpStream::connect(address).await.is_err() {
             sleep(Duration::from_millis(5)).await;
         }
@@ -129,12 +132,12 @@ async fn remote_cli_verifies_tls_with_the_configured_ca() {
     .expect("TLS server starts");
 
     let endpoint = format!("https://{address}");
-    let ca_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let ca_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../test-fixtures/tls/ca.crt")
         .into_os_string()
         .into_string()
         .expect("CA path is UTF-8");
-    let output = tokio::task::spawn_blocking(move || {
+    let output = spawn_blocking(move || {
         run(&[
             "--endpoint",
             &endpoint,
@@ -168,10 +171,10 @@ async fn remote_cli_requires_and_accepts_a_client_certificate() {
             .serve_tcp_with_client_ca(
                 address,
                 Some((
-                    include_bytes!("../../../test-fixtures/kv-mtls/server.crt").to_vec(),
-                    include_bytes!("../../../test-fixtures/kv-mtls/server.key").to_vec(),
+                    include_bytes!("../../test-fixtures/kv-mtls/server.crt").to_vec(),
+                    include_bytes!("../../test-fixtures/kv-mtls/server.key").to_vec(),
                 )),
-                Some(include_bytes!("../../../test-fixtures/kv-mtls/ca.crt").to_vec()),
+                Some(include_bytes!("../../test-fixtures/kv-mtls/ca.crt").to_vec()),
                 async {
                     let _ = shutdown_signal.await;
                 },
@@ -180,7 +183,7 @@ async fn remote_cli_requires_and_accepts_a_client_certificate() {
             .expect("mTLS server stops cleanly");
     });
 
-    tokio::time::timeout(Duration::from_secs(5), async {
+    timeout(Duration::from_secs(5), async {
         while TcpStream::connect(address).await.is_err() {
             sleep(Duration::from_millis(5)).await;
         }
@@ -189,8 +192,7 @@ async fn remote_cli_requires_and_accepts_a_client_certificate() {
     .expect("mTLS server starts");
 
     let endpoint = format!("https://{address}");
-    let fixture =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-fixtures/kv-mtls");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-fixtures/kv-mtls");
     let ca = fixture
         .join("ca.crt")
         .into_os_string()
@@ -208,7 +210,7 @@ async fn remote_cli_requires_and_accepts_a_client_certificate() {
         .expect("key path UTF-8");
     let endpoint_without_identity = endpoint.clone();
     let ca_without_identity = ca.clone();
-    let rejected = tokio::task::spawn_blocking(move || {
+    let rejected = spawn_blocking(move || {
         run(&[
             "--endpoint",
             &endpoint_without_identity,
@@ -225,7 +227,7 @@ async fn remote_cli_requires_and_accepts_a_client_certificate() {
         "client without identity must fail"
     );
 
-    let accepted = tokio::task::spawn_blocking(move || {
+    let accepted = spawn_blocking(move || {
         run(&[
             "--endpoint",
             &endpoint,
@@ -268,7 +270,7 @@ async fn remote_cli_executes_queries_through_the_facade() {
             .expect("server stops cleanly");
     });
 
-    tokio::time::timeout(Duration::from_secs(5), async {
+    timeout(Duration::from_secs(5), async {
         while TcpStream::connect(address).await.is_err() {
             sleep(Duration::from_millis(5)).await;
         }
@@ -278,7 +280,7 @@ async fn remote_cli_executes_queries_through_the_facade() {
 
     let endpoint = format!("http://{address}");
     let cli_endpoint = endpoint.clone();
-    let output = tokio::task::spawn_blocking(move || {
+    let output = spawn_blocking(move || {
         run(&[
             "--endpoint",
             &cli_endpoint,
@@ -295,7 +297,7 @@ async fn remote_cli_executes_queries_through_the_facade() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(output.stdout.is_empty());
+    assert_eq!(output.stdout, [] as [u8; 0]);
     let client = Client::connect(&endpoint)
         .await
         .expect("connect to hosted database");
@@ -315,7 +317,7 @@ fn cli_round_trips_explicit_types_and_rejects_untagged_input_before_open() {
     for invalid in ["text", "42", r#"{"untagged":true}"#] {
         let output = run(&["--database", path, "set", "key", "--value", invalid]);
         assert_eq!(output.status.code(), Some(2));
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout, [] as [u8; 0]);
         assert!(!database.exists(), "invalid input must not create storage");
     }
     for input in [
@@ -336,7 +338,7 @@ fn cli_round_trips_explicit_types_and_rejects_untagged_input_before_open() {
             "{}",
             String::from_utf8_lossy(&set.stderr)
         );
-        assert!(set.stdout.is_empty());
+        assert_eq!(set.stdout, [] as [u8; 0]);
         let get = run(&["--database", path, "get", "key"]);
         assert!(
             get.status.success(),
@@ -348,5 +350,5 @@ fn cli_round_trips_explicit_types_and_rejects_untagged_input_before_open() {
             serde_json::from_str::<serde_json::Value>(input).expect("typed input")
         );
     }
-    std::fs::remove_file(database).expect("remove typed test database");
+    fs::remove_file(database).expect("remove typed test database");
 }

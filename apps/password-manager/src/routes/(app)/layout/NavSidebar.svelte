@@ -2,9 +2,9 @@
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { page } from "$app/state";
-import { goto } from "$app/navigation";
+
 import NavSidebarItem from "./NavSidebarItem.svelte";
-import type { Snippet } from "svelte";
+
 import { Vault, Key, Settings, Trash2, ChevronLeft, ChevronRight, Menu, Lock } from "@lucide/svelte";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 
@@ -85,11 +85,6 @@ function handleOverlayClick() {
 	closeDrawer();
 }
 
-function handleOverlayKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") {
-		closeDrawer();
-	}
-}
 
 function handleResize() {
 	if (window.innerWidth >= 1024 && drawerOpen) {
@@ -134,7 +129,7 @@ onMount(() => {
 		{/if}
 	</div>
 
-	<ul role="menu" class="flex-1 flex flex-col gap-1 p-3 overflow-y-auto" tabindex="0">
+	<ul class="flex-1 flex flex-col gap-1 p-3 overflow-y-auto">
 	            <li>
 	                <NavSidebarItem
 	                    icon={vaultIcon}
@@ -180,8 +175,9 @@ onMount(() => {
 	        {#if isUnlocked}
 	            <div class="px-3 pb-3 border-t border-line">
 	                <button
-	                    class="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-destructive hover:text-destructive/80 hover:bg-destructive/10 rounded-lg transition-colors"
-	                    onclick={handleLockVault}
+	class="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-destructive hover:text-destructive/80 hover:bg-destructive/10 rounded-lg transition-colors"
+	type="button"
+	onclick={handleLockVault}
 	                    aria-label="Lock vault"
 	                >
 	                    <Lock class="w-5 h-5 shrink-0" />
@@ -194,6 +190,7 @@ onMount(() => {
 
 	        <button
 		class="mx-3 mb-3 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-ink hover:bg-surface-hover rounded-lg transition-colors"
+		type="button"
 		onclick={toggleCollapse}
 		aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
 		aria-expanded={!collapsed}
@@ -213,17 +210,15 @@ onMount(() => {
 	{#if drawerOpen}
 		<button
 			class="fixed inset-0 z-40 bg-black/50 lg:hidden"
-			role="dialog"
-			aria-modal="true"
-			aria-label="Navigation menu"
+			type="button"
+			aria-label="Close navigation"
 			onclick={handleOverlayClick}
-			onkeydown={handleOverlayKeydown}
-			tabindex="-1"
 		></button>
 	{/if}
 
 	<button
 		class="lg:hidden fixed bottom-4 left-4 z-50 p-2 rounded-full bg-surface border border-line shadow-lg"
+		type="button"
 		onclick={openDrawer}
 		aria-label="Open navigation"
 		aria-expanded={drawerOpen}

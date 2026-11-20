@@ -1,5 +1,7 @@
 use alloc::{format, string::String, vec::Vec};
-use std::io;
+use std::{io, thread};
+
+use futures::executor::block_on;
 
 use btree::{BTree, BTreeRead, BTreeTransaction};
 use btree_redb::SharedNamespace;
@@ -64,6 +66,10 @@ pub struct SharedSyncStage {
 impl SyncStage for NativeSyncStage {
     type Error = io::Error;
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the stage transaction"
+    )]
     async fn append(&mut self, record: Vec<u8>) -> io::Result<()> {
         match self {
             Self::File(stage) => stage.append(record).await,
@@ -133,9 +139,9 @@ impl SyncStage for NativeSyncStage {
 
 impl Drop for SharedSyncStage {
     fn drop(&mut self) {
-        let _ = std::thread::scope(|scope| {
+        let _ = thread::scope(|scope| {
             scope
-                .spawn(|| futures::executor::block_on(self.namespace.remove_table(&self.table)))
+                .spawn(|| block_on(self.namespace.remove_table(&self.table)))
                 .join()
         });
     }

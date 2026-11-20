@@ -4838,6 +4838,7 @@ dependencies = [
  "serde_repr",
  "serde_with",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -4948,7 +4949,6 @@ version = "0.1.0"
 dependencies = [
  "async-lock",
  "async-stream",
- "dashmap",
  "futures",
  "ofdb-btree",
  "redb",
@@ -5259,6 +5259,7 @@ dependencies = [
 name = "ofdb-sql-query"
 version = "0.1.0"
 dependencies = [
+ "ofdb-platform",
  "ofdb-sql-schema",
  "ofdb-value",
  "serde",
@@ -5332,6 +5333,7 @@ name = "ofdb-sql-translator"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "ofdb-platform",
  "ofdb-sql-query",
  "ofdb-sql-schema",
  "ofdb-value",
@@ -7308,6 +7310,7 @@ dependencies = [
  "storage-service",
  "tokio",
  "tokio-stream",
+ "tokio-tungstenite",
  "tokio-util",
  "tower",
  "tower-http 0.7.1",

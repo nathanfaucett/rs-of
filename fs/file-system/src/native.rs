@@ -1,7 +1,7 @@
 use std::{
     fs::{self, File, OpenOptions},
-    io::Read,
-    path::{Path, PathBuf},
+    io::{self, Read, Seek, SeekFrom},
+    path::{Path, PathBuf, absolute},
     sync::Arc,
 };
 
@@ -14,7 +14,7 @@ use crate::{
     Error,
     content::{ContentStore, StagedObject},
     managed_copy::{ManagedCopy, Storage},
-    root::Root,
+    root::{Root, RootObject},
     staged_content::StagedContent,
 };
 
@@ -49,7 +49,7 @@ impl NativeRoot {
             .create(true)
             .truncate(false)
             .open(self.marker.with_extension("lease"))?;
-        lease.try_lock().map_err(std::io::Error::from)?;
+        lease.try_lock().map_err(io::Error::from)?;
         self.lease = Some(lease);
         Ok(())
     }
@@ -86,10 +86,10 @@ impl Root for NativeRoot {
                 .create(true)
                 .truncate(false)
                 .open(self.marker.with_extension("lease"))?;
-            lease.try_lock().map_err(std::io::Error::from)?;
+            lease.try_lock().map_err(io::Error::from)?;
             match fs::remove_dir_all(&self.root) {
                 Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
             }
             File::open(self.root.parent().expect("root parent"))?.sync_all()?;
@@ -111,8 +111,8 @@ impl NativeContent {
             .join(revision.to_string())
     }
 
-    fn read_error(error: std::io::Error) -> Error {
-        if error.kind() == std::io::ErrorKind::NotFound {
+    fn read_error(error: io::Error) -> Error {
+        if error.kind() == io::ErrorKind::NotFound {
             Error::ContentUnavailable
         } else {
             Error::Io(error)
@@ -138,8 +138,7 @@ impl ContentStore for NativeContent {
     ) -> BoxFuture<'_, Result<Bytes, Error>> {
         Box::pin(async move {
             let mut file = File::open(self.path(file_id, revision)).map_err(Self::read_error)?;
-            use std::io::Seek;
-            file.seek(std::io::SeekFrom::Start(offset))?;
+            file.seek(SeekFrom::Start(offset))?;
             let mut chunk = vec![0; length as usize];
             let read = file.read(&mut chunk)?;
             chunk.truncate(read);
@@ -165,7 +164,7 @@ impl ContentStore for NativeContent {
         Box::pin(async move {
             match fs::remove_dir_all(self.content_root.join(file_id.to_string())) {
                 Ok(()) => Ok(()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
                 Err(error) => Err(error.into()),
             }
         })
@@ -198,8 +197,8 @@ pub async fn open(root: &Path) -> Result<Arc<ManagedCopy>, Error> {
         *storage = Some(Storage {
             metadata: database,
             client,
-            local_state: None,
             content: Arc::new(NativeContent { content_root }),
+            local_state: None,
         });
     }
     drop(storage);
@@ -212,7 +211,7 @@ pub async fn remove_root(root: &Path) -> Result<(), Error> {
 }
 
 async fn locate(root: &Path) -> Result<Arc<ManagedCopy>, Error> {
-    let root = std::path::absolute(root)?;
+    let root = absolute(root)?;
     let parent = root.parent().ok_or(Error::InvalidPath)?;
     fs::create_dir_all(parent)?;
     let root = parent
@@ -223,9 +222,7 @@ async fn locate(root: &Path) -> Result<Arc<ManagedCopy>, Error> {
     }
     ManagedCopy::shared(root.to_string_lossy().into_owned(), move |key| {
         let root = PathBuf::from(key);
-        Box::pin(
-            async move { Ok(Box::new(NativeRoot::new(root)) as Box<dyn crate::root::RootObject>) },
-        )
+        Box::pin(async move { Ok(Box::new(NativeRoot::new(root)) as Box<dyn RootObject>) })
     })
     .await
 }

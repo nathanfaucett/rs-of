@@ -1,10 +1,12 @@
 use std::{
-    io,
+    env, fs, io,
     net::{Ipv4Addr, SocketAddr},
     path::PathBuf,
 };
 
 use clap::{Parser, Subcommand};
+use cli::shutdown_signal::shutdown_signal;
+use tokio::spawn;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::{SeedConfig, UnifiedConfig};
@@ -29,6 +31,8 @@ enum Command {
         port: u16,
         #[arg(long, default_value = "http://localhost:5173")]
         origin: String,
+        #[arg(long)]
+        password_manager_origin: Option<String>,
         #[arg(
             long,
             help = "JSON file with additional users: {\"users\":[{\"username\":\"test\",\"password\":\"secret\"}]}"
@@ -39,15 +43,20 @@ enum Command {
     Completions { shell: clap_complete::Shell },
 }
 
+/// Runs the local unified server command.
+///
+/// # Errors
+/// Returns an error for seed input, configuration, startup, or serving failure.
 pub async fn run() -> io::Result<()> {
     let args = Args::parse();
-    let (data_dir, port, origin, seed) = match args.command {
+    let (data_dir, port, origin, password_manager_origin, seed) = match args.command {
         Command::Local {
             data_dir,
             port,
             origin,
+            password_manager_origin,
             seed,
-        } => (data_dir, port, origin, seed),
+        } => (data_dir, port, origin, password_manager_origin, seed),
         #[cfg(feature = "completions")]
         Command::Completions { shell } => {
             use clap::CommandFactory;
@@ -62,11 +71,11 @@ pub async fn run() -> io::Result<()> {
     };
     let seed = seed
         .map(|path| -> io::Result<SeedConfig> {
-            serde_json::from_slice(&std::fs::read(path)?).map_err(io::Error::other)
+            serde_json::from_slice(&fs::read(path)?).map_err(io::Error::other)
         })
         .transpose()?;
     let public_base_url = server_common::public_base_url();
-    let port = std::env::var("PORT")
+    let port = env::var("PORT")
         .ok()
         .and_then(|port| port.parse::<u16>().ok())
         .unwrap_or(port);
@@ -75,11 +84,12 @@ pub async fn run() -> io::Result<()> {
         public_base_url,
         data_dir,
         origin,
+        password_manager_origin,
         seed,
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let cancellation = CancellationToken::new();
-    let signal = tokio::spawn(cli::shutdown_signal::shutdown_signal(cancellation.clone()));
+    let signal = spawn(shutdown_signal(cancellation.clone()));
     let result = serve(config, cancellation).await;
     signal.abort();
     result

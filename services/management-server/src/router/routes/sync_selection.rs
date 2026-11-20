@@ -20,7 +20,7 @@ const SYNC_SELECTION_WRITE_PERMISSION: &str = "sync.selection.write";
 
 #[utoipa::path(
     post,
-    path = "/management/devices/{device_id}/sync-selections",
+    path = "/devices/{device_id}/sync-selections",
     params(("device_id" = String, Path, description = "Device ID")),
     request_body = SyncSelectionRequest,
     responses(
@@ -79,7 +79,7 @@ pub(crate) async fn set_sync_selection(
 
 #[utoipa::path(
     get,
-    path = "/management/devices/{device_id}/sync-selections",
+    path = "/devices/{device_id}/sync-selections",
     params(("device_id" = String, Path, description = "Device ID")),
     responses(
         (status = 200, description = "Sync selections for device", body = SyncSelectionResponse),
@@ -119,7 +119,7 @@ pub(crate) async fn list_sync_selections(
 
 #[utoipa::path(
     get,
-    path = "/management/resources/{resource_id}/sync-targets",
+    path = "/resources/{resource_id}/sync-targets",
     params(("resource_id" = String, Path, description = "Resource ID")),
     responses(
         (status = 200, description = "Devices with resource selected for sync", body = SyncSelectionResponse),

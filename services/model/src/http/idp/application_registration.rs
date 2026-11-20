@@ -1,5 +1,6 @@
+use alloc::string::String;
 /*
- * OAuth Server
+ * LIDP IdP API
  *
  * OIDC / OAuth 2.x server implementation
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ApplicationRegistration {
     #[serde(
         rename = "description",
@@ -31,9 +32,8 @@ pub struct ApplicationRegistration {
 }
 
 impl ApplicationRegistration {
-    #[must_use]
-    pub const fn new(uri: String) -> Self {
-        Self {
+    pub fn new(uri: String) -> ApplicationRegistration {
+        ApplicationRegistration {
             description: None,
             name: None,
             uri,

@@ -1,12 +1,15 @@
 #![cfg(feature = "shared-stage")]
 
+use std::{env, fs};
+
 use btree_redb::SharedDatabase;
+use futures::executor::block_on;
 use history::{NativeSyncStageFactory, SyncStage, SyncStageFactory};
 
 #[test]
 fn shared_stages_store_ordered_records_in_the_host_only() {
-    futures::executor::block_on(async {
-        let path = std::env::temp_dir().join(format!("shared-stage-{}", uuid::Uuid::now_v7()));
+    block_on(async {
+        let path = env::temp_dir().join(format!("shared-stage-{}", uuid::Uuid::now_v7()));
         let host = SharedDatabase::create(&path).expect("host");
         let factory =
             NativeSyncStageFactory::shared(host.namespace("sql:resource").expect("namespace"));
@@ -30,6 +33,6 @@ fn shared_stages_store_ordered_records_in_the_host_only() {
         drop(stage);
         drop(factory);
         drop(host);
-        std::fs::remove_file(path).expect("remove single host file");
+        fs::remove_file(path).expect("remove single host file");
     });
 }

@@ -1,7 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * OAuth Server
+ * LIDP IdP API
  * OIDC / OAuth 2.x server implementation
  *
  * The version of the OpenAPI document: 0.1.0
@@ -70,7 +70,7 @@ export interface AuthorizationServerMetadata {
   dpopSigningAlgValuesSupported?: Array<string>;
   /**
    * List of supported grant types.
-   * In OAuth 2.1: authorization_code, client_credentials, refresh_token (no implicit/password).
+   * In OAuth 2.1: `authorization_code`, `client_credentials`, `refresh_token` (no implicit/password).
    */
   grantTypesSupported?: Array<GrantType>;
   /**
@@ -115,12 +115,12 @@ export interface AuthorizationServerMetadata {
    */
   requirePkce?: boolean;
   /**
-   * List of supported response_mode values.
+   * List of supported `response_mode` values.
    * Defaults to ["query", "fragment"] if omitted.
    */
   responseModesSupported?: Array<ResponseMode>;
   /**
-   * REQUIRED. List of supported response_type values.
+   * REQUIRED. List of supported `response_type` values.
    * In OAuth 2.1 this should primarily be ["code"].
    */
   responseTypesSupported?: Array<ResponseType>;
@@ -159,7 +159,7 @@ export interface AuthorizationServerMetadata {
   tokenEndpointAuthMethodsSupported?: Array<TokenEndpointAuthMethod>;
   /**
    * JWS signing algorithms supported for JWT client authentication
-   * at the token endpoint (private_key_jwt, client_secret_jwt).
+   * at the token endpoint (`private_key_jwt`, `client_secret_jwt`).
    */
   tokenEndpointAuthSigningAlgValuesSupported?: Array<string>;
   /**
@@ -167,7 +167,7 @@ export interface AuthorizationServerMetadata {
    */
   uiLocalesSupported?: Array<string>;
   /**
-   * URL of the UserInfo endpoint.
+   * URL of the `UserInfo` endpoint.
    */
   userinfoEndpoint?: string | null;
 }

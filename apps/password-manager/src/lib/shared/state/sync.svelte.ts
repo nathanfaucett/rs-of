@@ -1,5 +1,6 @@
 import { createSync } from "@ofsdk/sync-sdk/browser";
 import type { SyncSDK, SyncConfig, DatabaseHandle, SyncSession } from "@ofsdk/sync-sdk";
+import { StorageClient } from "../../../../../../packages/storage-client/src/index";
 import { authState } from "$lib/auth/auth.svelte";
 import { env } from "$env/dynamic/public";
 
@@ -27,11 +28,19 @@ async function initializeSync(): Promise<void> {
   initError = null;
 
   try {
+    const getToken = () => authState.getAccessToken();
+    const storageClient = new StorageClient({
+      idpBaseUrl: STORAGE_SERVICE_URL.replace("/storage", "/idp"),
+      storageBaseUrl: STORAGE_SERVICE_URL,
+      clientId: APP_ID,
+      bearerToken: getToken,
+    });
     const config: SyncConfig = {
       apiUrl: STORAGE_SERVICE_URL,
       appId: APP_ID,
       userId,
-      getToken: () => authState.getAccessToken(),
+      getToken,
+      getStorageToken: (resource, actions) => storageClient.getStorageToken(resource, actions),
     };
 
     syncSDK = await createSync(config);

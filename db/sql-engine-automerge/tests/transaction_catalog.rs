@@ -1,3 +1,4 @@
+use core::future::pending;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -72,7 +73,7 @@ impl<T: KernelTransaction> RowCodec<T> for CountingCodec {
     async fn ensure_table(&self, transaction: &mut T, table: &str) -> EngineResult<()> {
         self.inner.ensure_table(transaction, table).await?;
         if self.reads.pause_ensure.swap(false, Ordering::Relaxed) {
-            core::future::pending::<()>().await;
+            pending::<()>().await;
         }
         Ok(())
     }
@@ -86,7 +87,7 @@ impl<T: KernelTransaction> RowCodec<T> for CountingCodec {
     ) -> EngineResult<Option<Row>> {
         let result = self.inner.merge_row(transaction, table, row, value).await?;
         if table == "items" && self.reads.pause_merge.swap(false, Ordering::Relaxed) {
-            core::future::pending::<()>().await;
+            pending::<()>().await;
         }
         Ok(result)
     }
@@ -96,12 +97,12 @@ impl<T: KernelTransaction> RowCodec<T> for CountingCodec {
         transaction: &T,
         table: &str,
         row: &Uuid,
-        tables: &[(Uuid, Row)],
-        fields: &[Row],
+        table_rows: &[(Uuid, Row)],
+        table_fields: &[Row],
     ) -> EngineResult<Vec<usize>> {
         self.reads.conflicts.fetch_add(1, Ordering::Relaxed);
         self.inner
-            .conflicted_columns(transaction, table, row, tables, fields)
+            .conflicted_columns(transaction, table, row, table_rows, table_fields)
             .await
     }
 
@@ -186,7 +187,7 @@ async fn fixture() -> (
             .await
             .expect("right branch");
         for change in [a, b] {
-            left.merge_row(&mut transaction, table, key, &change)
+            Box::pin(left.merge_row(&mut transaction, table, key, &change))
                 .await
                 .expect("merge real conflict");
         }
@@ -197,6 +198,10 @@ async fn fixture() -> (
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn select_conflict_select_conflict_reuses_one_transaction_catalog_but_inspects_both_rows() {
     block_on(async {
         let (engine, _, reads) = fixture().await;
@@ -232,6 +237,10 @@ fn key(value: u64) -> Row {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn conflict_first_initializes_catalog_and_every_call_inspects_current_snapshot() {
     block_on(async {
         let (engine, _, reads) = fixture().await;
@@ -262,6 +271,10 @@ fn conflict_first_initializes_catalog_and_every_call_inspects_current_snapshot()
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn cached_catalog_stays_with_its_kernel_snapshot_and_next_transaction_is_fresh() {
     block_on(async {
         let (engine, _, reads) = fixture().await;
@@ -304,7 +317,7 @@ fn cached_catalog_stays_with_its_kernel_snapshot_and_next_transaction_is_fresh()
                 .row_conflicts("items", &key(1))
                 .await
                 .expect("fresh resolution"),
-            [] as [std::string::String; 0]
+            [] as [String; 0]
         );
         let current = fresh
             .translate_and_execute("SELECT label, extra FROM items", &SqlTranslator)
@@ -317,6 +330,10 @@ fn cached_catalog_stays_with_its_kernel_snapshot_and_next_transaction_is_fresh()
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn dml_ddl_and_mixed_batches_invalidate_before_reusing_catalogs() {
     block_on(async {
         let (engine, _, reads) = fixture().await;
@@ -348,7 +365,7 @@ fn dml_ddl_and_mixed_batches_invalidate_before_reusing_catalogs() {
                 .row_conflicts("items", &key(1))
                 .await
                 .expect("DML conflict inspection"),
-            [] as [std::string::String; 0]
+            [] as [String; 0]
         );
         assert_eq!(
             reads.take(),
@@ -368,7 +385,7 @@ fn dml_ddl_and_mixed_batches_invalidate_before_reusing_catalogs() {
                 .row_conflicts("items", &key(1))
                 .await
                 .expect("conflict-first after DDL"),
-            [] as [std::string::String; 0]
+            [] as [String; 0]
         );
         let results = transaction
             .translate_and_execute("SELECT label, extra FROM items", &SqlTranslator)
@@ -386,7 +403,7 @@ fn dml_ddl_and_mixed_batches_invalidate_before_reusing_catalogs() {
                 .row_conflicts("items", &key(1))
                 .await
                 .expect("after mixed final write"),
-            [] as [std::string::String; 0]
+            [] as [String; 0]
         );
         assert_eq!(reads.take(), (1, 1, 1));
         transaction
@@ -397,6 +414,10 @@ fn dml_ddl_and_mixed_batches_invalidate_before_reusing_catalogs() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn failed_write_cannot_use_cached_catalog_or_commit_partial_changes() {
     block_on(async {
         let (engine, _, reads) = fixture().await;
@@ -442,6 +463,10 @@ fn failed_write_cannot_use_cached_catalog_or_commit_partial_changes() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn cancelled_writes_discard_catalog_before_schema_ensure_and_after_actual_mutation() {
     block_on(async {
         let (engine, _, reads) = fixture().await;
@@ -471,7 +496,7 @@ fn cancelled_writes_discard_catalog_before_schema_ensure_and_after_actual_mutati
                 .row_conflicts("items", &key(1))
                 .await
                 .expect("inspect after cancelled ensure"),
-            [] as [std::string::String; 0]
+            [] as [String; 0]
         );
         assert_eq!(
             reads.take(),
@@ -496,7 +521,7 @@ fn cancelled_writes_discard_catalog_before_schema_ensure_and_after_actual_mutati
                 .row_conflicts("items", &key(1))
                 .await
                 .expect("inspect actual changed row"),
-            [] as [std::string::String; 0]
+            [] as [String; 0]
         );
         assert_eq!(reads.take(), (1, 1, 1));
         transaction
@@ -512,6 +537,10 @@ fn cancelled_writes_discard_catalog_before_schema_ensure_and_after_actual_mutati
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn malformed_unrelated_live_catalogs_are_rejected_by_select_and_conflict_initializers() {
     block_on(async {
         for (storage, message) in [
@@ -558,6 +587,10 @@ fn malformed_unrelated_live_catalogs_are_rejected_by_select_and_conflict_initial
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn cached_reads_preserve_defaults_row_tombstones_and_deleted_catalog_filtering() {
     block_on(async {
         let (engine, kernel, reads) = fixture().await;
@@ -620,6 +653,10 @@ fn cached_reads_preserve_defaults_row_tombstones_and_deleted_catalog_filtering()
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn cached_schema_does_not_skip_malformed_nonmatching_row_decoding() {
     block_on(async {
         let (engine, kernel, reads) = fixture().await;

@@ -1,4 +1,6 @@
-use core::fmt;
+use core::{fmt, future::ready};
+
+use std::error::Error;
 
 use futures::{StreamExt, channel::mpsc};
 
@@ -17,15 +19,15 @@ pub enum TransportDirection {
 }
 
 impl fmt::Display for InMemoryTransportError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
             Self::Closed => "channel closed",
             Self::Interrupted => "transport interrupted",
         })
     }
 }
 
-impl std::error::Error for InMemoryTransportError {}
+impl Error for InMemoryTransportError {}
 
 #[derive(Debug)]
 pub struct InMemoryTransport {
@@ -38,17 +40,25 @@ pub struct InMemoryTransport {
 impl SyncTransport for InMemoryTransport {
     type Error = InMemoryTransportError;
 
-    async fn send(&mut self, msg: Message) -> Result<(), Self::Error> {
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "a closed channel is the only send failure"
+    )]
+    fn send(&mut self, msg: Message) -> impl Future<Output = Result<(), Self::Error>> + Send {
         if self.fail_at == Some(self.sent) {
             self.sender = None;
-            return Err(InMemoryTransportError::Interrupted);
+            return ready(Err(InMemoryTransportError::Interrupted));
         }
         self.sent += 1;
-        self.sender
-            .as_ref()
-            .ok_or(InMemoryTransportError::Closed)?
-            .unbounded_send(msg)
-            .map_err(|_| InMemoryTransportError::Closed)
+        ready(
+            self.sender
+                .as_ref()
+                .map_or(Err(InMemoryTransportError::Closed), |sender| {
+                    sender
+                        .unbounded_send(msg)
+                        .map_err(|_| InMemoryTransportError::Closed)
+                }),
+        )
     }
 
     async fn receive(&mut self) -> Result<Message, Self::Error> {

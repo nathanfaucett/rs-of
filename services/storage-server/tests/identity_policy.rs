@@ -1,7 +1,8 @@
 #![cfg(feature = "network")]
 
 use std::{
-    future::{Future, poll_fn},
+    env, fs,
+    future::poll_fn,
     pin::pin,
     sync::{
         Arc, Mutex,
@@ -11,7 +12,7 @@ use std::{
 };
 
 use axum::{
-    body::Body,
+    body::{Body, to_bytes},
     http::{Method, Request, StatusCode, header::AUTHORIZATION},
 };
 use of_model::contract::{
@@ -27,9 +28,8 @@ use of_model::device::contract::device_state::DeviceState;
 use of_model::id::Id;
 use of_model::idp::contract::introspection_response::IntrospectionResponse;
 use storage_server::{
-    idp_client::{IdpClient, IdpIntrospectionError},
-    local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer},
-    router::{resources::resource_router, state::RouterState},
+    DeviceReplicationPolicy, IdpClient, IdpIntrospectionError, LocalReplicationAuthorizer,
+    RouterState, resource_router,
 };
 use storage_service::database_runtime::DatabaseRuntime;
 use tokio::sync::Semaphore;
@@ -37,7 +37,7 @@ use tower::ServiceExt;
 
 async fn request_status(client: IdpClient, method: Method) -> StatusCode {
     let app = resource_router(
-        crate::router::state::RouterState::new(
+        RouterState::new(
             "http://storage.local",
             iroh::SecretKey::generate().public().to_string(),
         )
@@ -63,19 +63,19 @@ async fn request_status(client: IdpClient, method: Method) -> StatusCode {
 async fn identity_failure_returns_without_waiting_for_device_policy() {
     for (identity_error, expected_status) in [
         (
-            crate::idp_client::IdpIntrospectionError::InvalidToken,
+            IdpIntrospectionError::InvalidToken,
             StatusCode::UNAUTHORIZED,
         ),
         (
-            crate::idp_client::IdpIntrospectionError::ServiceUnavailable,
+            IdpIntrospectionError::ServiceUnavailable,
             StatusCode::SERVICE_UNAVAILABLE,
         ),
     ] {
         let gate = Arc::new(Semaphore::new(0));
-        let policy = crate::local_replication_authorizer::LocalReplicationAuthorizer::new({
-            let gate = gate.clone();
+        let policy = LocalReplicationAuthorizer::new({
+            let gate = Arc::clone(&gate);
             move |_| {
-                let gate = gate.clone();
+                let gate = Arc::clone(&gate);
                 async move {
                     gate.acquire()
                         .await
@@ -85,9 +85,8 @@ async fn identity_failure_returns_without_waiting_for_device_policy() {
                 }
             }
         });
-        let client =
-            crate::idp_client::IdpClient::local(move |_| async move { Err(identity_error) })
-                .with_local_device_policy(iroh::SecretKey::generate().public(), policy);
+        let client = IdpClient::local(move |_| async move { Err(identity_error) })
+            .with_local_device_policy(iroh::SecretKey::generate().public(), policy);
 
         let mut introspection = pin!(client.introspect("invalid-token"));
         let observed = poll_fn(|cx| Poll::Ready(introspection.as_mut().poll(cx))).await;
@@ -165,12 +164,12 @@ async fn valid_identity_waits_for_current_policy_and_observes_learned_denials() 
     let baseline = approved_policy(endpoint, &owner);
     let current = Arc::new(Mutex::new(Ok(baseline.clone())));
     let gate = Arc::new(Semaphore::new(0));
-    let policy = crate::local_replication_authorizer::LocalReplicationAuthorizer::new({
-        let current = current.clone();
-        let gate = gate.clone();
+    let policy = LocalReplicationAuthorizer::new({
+        let current = Arc::clone(&current);
+        let gate = Arc::clone(&gate);
         move |_| {
-            let current = current.clone();
-            let gate = gate.clone();
+            let current = Arc::clone(&current);
+            let gate = Arc::clone(&gate);
             async move {
                 gate.acquire()
                     .await
@@ -180,7 +179,7 @@ async fn valid_identity_waits_for_current_policy_and_observes_learned_denials() 
             }
         }
     });
-    let client = crate::idp_client::IdpClient::local(move |_| {
+    let client = IdpClient::local(move |_| {
         let response = response.clone();
         async move { Ok(response) }
     })
@@ -217,7 +216,7 @@ async fn valid_identity_waits_for_current_policy_and_observes_learned_denials() 
         };
         assert_eq!(
             client.introspect("valid-token").await.err(),
-            Some(crate::idp_client::IdpIntrospectionError::InvalidToken),
+            Some(IdpIntrospectionError::InvalidToken),
             "denial {denial}"
         );
         assert_eq!(
@@ -239,17 +238,15 @@ async fn valid_identity_waits_for_current_policy_and_observes_learned_denials() 
 
 #[tokio::test]
 async fn missing_bearer_is_denied_without_identity_or_policy_work() {
-    let client = crate::idp_client::IdpClient::local(|_| async {
-        panic!("missing bearer must not inspect identity")
-    })
-    .with_local_device_policy(
-        iroh::SecretKey::generate().public(),
-        crate::local_replication_authorizer::LocalReplicationAuthorizer::new(|_| async {
-            panic!("missing bearer must not query policy")
-        }),
-    );
+    let client = IdpClient::local(|_| async { panic!("missing bearer must not inspect identity") })
+        .with_local_device_policy(
+            iroh::SecretKey::generate().public(),
+            LocalReplicationAuthorizer::new(|_| async {
+                panic!("missing bearer must not query policy")
+            }),
+        );
     let response = resource_router(
-        crate::router::state::RouterState::new(
+        RouterState::new(
             "http://storage.local",
             iroh::SecretKey::generate().public().to_string(),
         )
@@ -275,13 +272,13 @@ async fn storage_response_rechecks_policy_before_returning_success() {
     let response = identity(&owner);
     let current = Arc::new(Mutex::new(approved_policy(endpoint, &owner)));
     let gate = Arc::new(Semaphore::new(0));
-    let policy = crate::local_replication_authorizer::LocalReplicationAuthorizer::new({
-        let current = current.clone();
-        let gate = gate.clone();
+    let policy = LocalReplicationAuthorizer::new({
+        let current = Arc::clone(&current);
+        let gate = Arc::clone(&gate);
         let calls = AtomicUsize::new(0);
         move |_| {
-            let current = current.clone();
-            let gate = gate.clone();
+            let current = Arc::clone(&current);
+            let gate = Arc::clone(&gate);
             let response_recheck = calls.fetch_add(1, Ordering::SeqCst) == 3;
             async move {
                 if response_recheck {
@@ -294,14 +291,14 @@ async fn storage_response_rechecks_policy_before_returning_success() {
             }
         }
     });
-    let client = crate::idp_client::IdpClient::local(move |_| {
+    let client = IdpClient::local(move |_| {
         let response = response.clone();
         async move { Ok(response) }
     })
     .with_local_device_policy(endpoint, policy);
-    let root = std::env::temp_dir().join(format!("storage-response-policy-{}", Id::now_v7()));
+    let root = env::temp_dir().join(format!("storage-response-policy-{}", Id::now_v7()));
     let app = resource_router(
-        crate::router::state::RouterState::new(
+        RouterState::new(
             "http://storage.local",
             iroh::SecretKey::generate().public().to_string(),
         )
@@ -325,7 +322,7 @@ async fn storage_response_rechecks_policy_before_returning_success() {
         .expect("approved database response");
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
-        axum::body::to_bytes(response.into_body(), 1024)
+        to_bytes(response.into_body(), 1024)
             .await
             .expect("database list body")
             .as_ref(),
@@ -346,13 +343,13 @@ async fn storage_response_rechecks_policy_before_returning_success() {
     let response = pending.await.expect("revoked response completes");
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert!(
-        axum::body::to_bytes(response.into_body(), 1024)
+        to_bytes(response.into_body(), 1024)
             .await
             .expect("denied response body")
             .is_empty()
     );
     drop(app);
     if root.exists() {
-        std::fs::remove_dir_all(root).expect("remove isolated database catalog");
+        fs::remove_dir_all(root).expect("remove isolated database catalog");
     }
 }

@@ -6,9 +6,8 @@ import { Database, JsPushSyncTransport, PushSynchronizeConfig, } from "@ofsdk/sq
 import { execute } from "./sql";
 /** Browser sync SDK implementation */
 export class BrowserSyncSDK {
-    config;
     storageClient;
-    syncClient = null;
+    config;
     databases = new Map();
     kvStores = new Map();
     filesystems = new Map();
@@ -18,7 +17,6 @@ export class BrowserSyncSDK {
         vectorClock: {},
     });
     state$ = this._globalState$.asObservable();
-    closed = false;
     constructor(config) {
         this.config = config;
         this.storageClient = new StorageClient({
@@ -30,16 +28,6 @@ export class BrowserSyncSDK {
         // Provide Storage capability token exchange using the StorageClient
         const storageClient = this.storageClient;
         config.getStorageToken = async (resource, actions) => storageClient.getStorageToken(resource, actions);
-    }
-    /** Initialize the sync client */
-    async initSyncClient() {
-        if (this.syncClient)
-            return this.syncClient;
-        this.syncClient = new SyncClient({
-            storageApiUrl: this.config.apiUrl,
-            tokenProvider: () => this.config.getToken(),
-        });
-        return this.syncClient;
     }
     /** SQL database sync */
     sql = {
@@ -163,7 +151,6 @@ export class BrowserSyncSDK {
         };
     }
     async close() {
-        this.closed = true;
         for (const db of this.databases.values()) {
             await db.close();
         }
@@ -181,8 +168,6 @@ export class BrowserSyncSDK {
 }
 /** Browser SQL database handle */
 class BrowserDatabaseHandle {
-    handle;
-    config;
     _changes$ = new Subject();
     _state$ = new BehaviorSubject({
         status: "disconnected",
@@ -192,6 +177,8 @@ class BrowserDatabaseHandle {
     sqlDatabase = null;
     syncClient = null;
     closed = false;
+    handle;
+    config;
     constructor(handle, config) {
         this.handle = handle;
         this.config = config;
@@ -226,7 +213,7 @@ class BrowserDatabaseHandle {
     get state$() {
         return this._state$.asObservable();
     }
-    async sync(options) {
+    async sync(_options) {
         if (!this.sqlDatabase || this.closed)
             return;
         this._state$.next({ ...this._state$.value, status: "connecting" });
@@ -272,23 +259,17 @@ class BrowserDatabaseHandle {
 }
 /** Browser KV store handle */
 class BrowserKvStoreHandle {
-    handle;
-    config;
     _changes$ = new Subject();
     _state$ = new BehaviorSubject({
         status: "disconnected",
         version: 0,
         vectorClock: {},
     });
-    closed = false;
-    constructor(handle, config) {
-        this.handle = handle;
-        this.config = config;
-    }
-    async get(key) {
+    constructor(_handle, _config) { }
+    async get(_key) {
         return undefined;
     }
-    async set(key, value) {
+    async set(_key, value) {
         this._changes$.next({
             type: "local-upsert",
             doc: value,
@@ -304,31 +285,24 @@ class BrowserKvStoreHandle {
     get state$() {
         return this._state$.asObservable();
     }
-    async sync(options) {
+    async sync(_options) {
         this._state$.next({ ...this._state$.value, status: "connecting" });
         this._state$.next({ ...this._state$.value, status: "synced" });
     }
     async close() {
-        this.closed = true;
         this._changes$.complete();
         this._state$.complete();
     }
 }
 /** Browser filesystem handle */
 class BrowserFilesystemHandle {
-    handle;
-    config;
     _changes$ = new Subject();
     _state$ = new BehaviorSubject({
         status: "disconnected",
         version: 0,
         vectorClock: {},
     });
-    closed = false;
-    constructor(handle, config) {
-        this.handle = handle;
-        this.config = config;
-    }
+    constructor(_handle, _config) { }
     async read(_path) {
         throw new Error("Filesystem not initialized");
     }
@@ -347,12 +321,11 @@ class BrowserFilesystemHandle {
     get state$() {
         return this._state$.asObservable();
     }
-    async sync(options) {
+    async sync(_options) {
         this._state$.next({ ...this._state$.value, status: "connecting" });
         this._state$.next({ ...this._state$.value, status: "synced" });
     }
     async close() {
-        this.closed = true;
         this._changes$.complete();
         this._state$.complete();
     }

@@ -1,7 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * OAuth Server
+ * LIDP IdP API
  * OIDC / OAuth 2.x server implementation
  *
  * The version of the OpenAPI document: 0.1.0
@@ -29,6 +29,10 @@ export interface VersionResponse {
    *
    */
   build: Date;
+  /**
+   *
+   */
+  features?: Array<string>;
   /**
    *
    */
@@ -62,6 +66,7 @@ export function VersionResponseFromJSONTyped(
   }
   return {
     build: json["build"] == null ? json["build"] : parseDateTime(json["build"]),
+    features: json["features"] == null ? undefined : json["features"],
     name: json["name"],
     version: json["version"],
   };
@@ -81,6 +86,7 @@ export function VersionResponseToJSONTyped(
 
   return {
     build: value["build"] == null ? value["build"] : serializeDateTime(value["build"]),
+    features: value["features"],
     name: value["name"],
     version: value["version"],
   };

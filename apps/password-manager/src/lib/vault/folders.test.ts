@@ -3,10 +3,12 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Secret } from "./secrets/secret";
 import { prepareBackupRestore } from "./backup";
 import { createVault, listVaults, unlockVault } from "./vault";
-import { SharedDb } from "./storage/SharedDb";
+
 import { clearStorage, getStorageClient } from "../../test/utils";
-import { dbParam } from "./storage/schema";
-import { Transaction } from "@ofsdk/sql";
+import { dbParam, parseText } from "./storage/schema";
+import { Transaction, type Row } from "@ofsdk/sql";
+
+type ExecuteRawParams = Parameters<Transaction["executeRaw"]>[1];
 
 const password = "synthetic-folders-master";
 const date = "2026-01-02T03:04:05.000Z";
@@ -70,7 +72,7 @@ it.each(["rejected", "unconfirmed"])(
 		const original = Transaction.prototype.executeRaw;
 		const write = vi
 			.spyOn(Transaction.prototype, "executeRaw")
-			.mockImplementation(async function (this: any, sql: string, ...args: any[]) {
+			.mockImplementation(async function (this: Transaction, sql: string, ...args: [params?: ExecuteRawParams]) {
 				if (sql.includes("secrets") && sql.includes("INSERT")) {
 					throw new DOMException("Synthetic publication failure", "QuotaExceededError");
 				}
@@ -111,7 +113,7 @@ it("rejects the complete snapshot and backup when a later encrypted folder has t
 		(entry) => entry.id === vault.id,
 	);
 	if (!identity) throw new Error("Missing test identity");
-	const folders = await vault.loadFolders();
+	await vault.loadFolders();
 	const { client } = await getStorageClient();
 	try {
 		const encRows = await client.execute(
@@ -182,8 +184,8 @@ it("rejects invalid batches before writing and serializes concurrent handles wit
 
 it("queries folders using typed execute from shared tables", async () => {
 	const vault = await createVault(password, "Query folders test");
-	const folder1 = await vault.createFolder("Folder One");
-	const folder2 = await vault.createFolder("Folder Two");
+	await vault.createFolder("Folder One");
+	await vault.createFolder("Folder Two");
 	vault.close();
 
 	const { client } = await getStorageClient();
@@ -192,13 +194,13 @@ it("queries folders using typed execute from shared tables", async () => {
 	// Use typed execute to query folders
 	const folders = await client.execute(
 		`SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ? ORDER BY id`,
-		(row: any) => ({
-			id: row.id.value,
-			vaultId: row.vault_id.value,
-			ciphertext: row.ciphertext.value,
-			nonce: row.nonce.value,
-			createdAt: row.created_at.value,
-			updatedAt: row.updated_at.value,
+		(row: Row) => ({
+			id: parseText(row, "id"),
+			vaultId: parseText(row, "vault_id"),
+			ciphertext: parseText(row, "ciphertext"),
+			nonce: parseText(row, "nonce"),
+			createdAt: parseText(row, "created_at"),
+			updatedAt: parseText(row, "updated_at"),
 		}),
 		[{ type: "text", value: id }],
 	);

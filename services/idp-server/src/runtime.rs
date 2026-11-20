@@ -44,6 +44,7 @@ impl IdpRuntime {
         crate::management_owner::active_management_user(&self.join_state, user_id).await
     }
 
+    #[must_use]
     pub fn pairing_acceptance(&self) -> Arc<device_service::PairingAcceptanceControllerSlot> {
         Arc::clone(&self.join_state.pairing_acceptance)
     }
@@ -118,6 +119,7 @@ impl IdpRuntime {
         self.router.clone()
     }
 
+    #[must_use]
     pub fn bootstrap_protocol(&self) -> BootstrapProtocolHandler {
         self.bootstrap_protocol.clone()
     }
@@ -130,11 +132,12 @@ impl IdpRuntime {
     }
 }
 
-/// Builds the local IdP without setup, admission, or a transport endpoint.
+/// Builds the local `IdP` without setup, admission, or a transport endpoint.
 pub async fn build_local_router(
     data_dir: &std::path::Path,
     base: &str,
     origin: &str,
+    password_manager_origin: Option<&str>,
     db: Option<Arc<ofdb_sql::Database>>,
     storage: Option<btree_redb::SharedDatabase>,
     users: &[(String, String)],
@@ -145,7 +148,9 @@ pub async fn build_local_router(
     let (engine, storage) = match (db, storage) {
         (Some(database), Some(storage)) => (database.client(), storage),
         (None, None) => {
-            let database = db::local::local_database(data_dir, None).await?;
+            let database = db::EmbeddedDatabase::open_file(data_dir.join("idp.redb"))
+                .await
+                .map_err(io::Error::other)?;
             (database.client(), database.storage())
         }
         _ => {
@@ -182,7 +187,7 @@ pub async fn build_local_router(
     let permissions = LocalPermissions::new(engine.clone());
     let keys = PrivateKeyKeyringRepo::new_local(&storage).map_err(io::Error::other)?;
     let state = build_state_with_keys(&config, engine, None, None, Some(permissions), keys).await?;
-    crate::local_seed::seed(&state, origin).await?;
+    crate::local_seed::seed(&state, origin, password_manager_origin).await?;
     for (username, password) in users {
         let user = of_model::id::Id::new_v5(
             &of_model::id::Id::NAMESPACE_URL,
@@ -193,7 +198,7 @@ pub async fn build_local_router(
     Ok(openapi_router(state, "/idp").into())
 }
 
-/// Composes serving from an already initialized IdP database and optional host-owned Management capability.
+/// Composes serving from an already initialized `IdP` database and optional host-owned Management capability.
 pub async fn build_runtime(
     config: &AppConfig,
     engine: ofdb_sql::Client,
@@ -255,12 +260,14 @@ pub async fn identity_client(config: &AppConfig) -> io::Result<ofdb_sql::Client>
             .map_err(io::Error::other)?;
         return Ok(client);
     }
-    std::fs::create_dir_all(&config.data_dir)?;
-    let database = db::local::local_database(&std::path::Path::new(&config.data_dir), None).await?;
+    let database =
+        db::EmbeddedDatabase::open_file(std::path::Path::new(&config.data_dir).join("idp.redb"))
+            .await
+            .map_err(io::Error::other)?;
     Ok(database.client())
 }
 
-/// Builds an IdP HTTPS owner without acquiring transport identity or Management state.
+/// Builds an `IdP` HTTPS owner without acquiring transport identity or Management state.
 pub async fn build_oauth_runtime(
     config: &AppConfig,
     engine: ofdb_sql::Client,
@@ -273,7 +280,7 @@ pub async fn build_oauth_runtime(
     Ok(runtime_from_state(config, state))
 }
 
-pub(crate) async fn build_state(
+pub async fn build_state(
     config: &AppConfig,
     engine: ofdb_sql::Client,
     devices: Option<Arc<DbDeviceRepo>>,
@@ -385,7 +392,7 @@ async fn build_state_with_keys(
     Ok(router_state)
 }
 
-pub(crate) fn runtime_from_state(config: &AppConfig, router_state: RouterState) -> IdpRuntime {
+pub fn runtime_from_state(config: &AppConfig, router_state: RouterState) -> IdpRuntime {
     let bootstrap_protocol = BootstrapProtocolHandler;
     let router = openapi_router(router_state.clone(), config.server.prefix())
         .split_for_parts()
@@ -434,9 +441,6 @@ impl device_service::hosted_join::NodeJoinIdentity for IdpRuntime {
 
 #[cfg(test)]
 mod tests {
-    use device_service::PairingAcceptanceController;
-
-    use crate::node_join_tests::approval_fixture;
 
     #[tokio::test]
     async fn remote_identity_startup_never_falls_back_to_a_private_database() {
@@ -459,14 +463,14 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert!(crate::runtime::identity_client(&config).await.is_err());
+        crate::runtime::identity_client(&config).await.unwrap_err();
         assert!(!root.exists());
         config
             .identity_database
             .as_mut()
             .expect("remote config")
             .endpoint = "http://sql.example:50051".into();
-        assert!(crate::runtime::identity_client(&config).await.is_err());
+        crate::runtime::identity_client(&config).await.unwrap_err();
         assert!(!root.exists());
     }
 }

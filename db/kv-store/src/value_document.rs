@@ -23,6 +23,10 @@ pub fn new_document(value: Value, expires_at: Option<i64>) -> Result<AutoCommit,
     Ok(document)
 }
 
+#[allow(
+    clippy::map_err_ignore,
+    reason = "all hydration failures map to the stable invalid-document error"
+)]
 pub fn read_document(document: &AutoCommit) -> Result<ValueState, BTreeError> {
     let versions = document
         .get_all(ROOT, "format_version")
@@ -47,7 +51,7 @@ pub fn read_document(document: &AutoCommit) -> Result<ValueState, BTreeError> {
                 ScalarValue::Boolean(deleted) => tombstone |= deleted,
                 _ => return Err(BTreeError::InvalidDocument),
             },
-            _ => return Err(BTreeError::InvalidDocument),
+            AmValue::Object(_) => return Err(BTreeError::InvalidDocument),
         }
     }
     // Deletion is permanent for this generation, including concurrent value and expiry edits.

@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{convert::Infallible, fmt, result::Result as CoreResult};
 use std::collections::HashMap;
 
 use btree::{ChangeEvent, StorageKey};
@@ -210,13 +210,14 @@ pub enum Error<E> {
     },
 }
 
-pub type Result<T, E = core::convert::Infallible> = core::result::Result<T, Error<E>>;
+pub type Result<T, E = Infallible> = CoreResult<T, Error<E>>;
 
 /// Encode a sync message to bytes.
-pub fn encode_message(
-    message: &Message,
-    config: &Config,
-) -> Result<Vec<u8>, core::convert::Infallible> {
+///
+/// # Errors
+///
+/// Returns an error when encoding fails or the frame exceeds the configured limit.
+pub fn encode_message(message: &Message, config: &Config) -> Result<Vec<u8>, Infallible> {
     let bytes = to_allocvec(message).map_err(|error| Error::Codec(error.to_string()))?;
     if bytes.len() > config.max_frame_bytes {
         return Err(Error::FrameTooLarge(bytes.len(), config.max_frame_bytes));
@@ -225,6 +226,14 @@ pub fn encode_message(
 }
 
 /// Decode bytes to a sync message.
+///
+/// # Errors
+///
+/// Returns an error when the frame is oversized or malformed.
+#[allow(
+    clippy::map_err_ignore,
+    reason = "all postcard decoding failures map to the stable invalid-frame error"
+)]
 pub fn decode_message<E>(bytes: &[u8], config: &Config) -> Result<Message, E> {
     if bytes.len() > config.max_frame_bytes {
         return Err(Error::FrameTooLarge(bytes.len(), config.max_frame_bytes));

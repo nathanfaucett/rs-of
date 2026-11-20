@@ -69,7 +69,28 @@ pub async fn signer(
     Ok(binding)
 }
 
-pub async fn seed(state: &RouterState, origin: &str) -> io::Result<()> {
+fn frontend_origin(value: &str) -> io::Result<reqwest::Url> {
+    let origin = reqwest::Url::parse(value).map_err(io::Error::other)?;
+    if !matches!(origin.scheme(), "http" | "https")
+        || origin.host_str().is_none()
+        || !origin.username().is_empty()
+        || origin.password().is_some()
+        || origin.query().is_some()
+        || origin.fragment().is_some()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "local frontend origin must be an HTTP origin",
+        ));
+    }
+    Ok(origin)
+}
+
+pub async fn seed(
+    state: &RouterState,
+    origin: &str,
+    password_manager_origin: Option<&str>,
+) -> io::Result<()> {
     let oauth = &state.oauth2_service;
     let user = Id::new_v5(&Id::NAMESPACE_URL, b"of:local:admin");
     seed_user(state, user, "admin@local.test", "password").await?;
@@ -96,25 +117,20 @@ pub async fn seed(state: &RouterState, origin: &str) -> io::Result<()> {
     .await
     .map_err(io::Error::other)?;
 
-    let mut frontend = reqwest::Url::parse(origin).map_err(io::Error::other)?;
-    if !matches!(frontend.scheme(), "http" | "https")
-        || frontend.host_str().is_none()
-        || !frontend.username().is_empty()
-        || frontend.password().is_some()
-        || frontend.query().is_some()
-        || frontend.fragment().is_some()
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "local frontend origin must be an HTTP origin",
-        ));
-    }
+    let mut frontend = frontend_origin(origin)?;
     frontend.set_path("/callback");
     let app_redirect = frontend.to_string();
-    frontend
-        .set_port(Some(5174))
-        .map_err(|_| io::Error::other("frontend origin cannot use a port"))?;
-    let password_redirect = frontend.to_string();
+    let mut password_manager = if let Some(origin) = password_manager_origin {
+        frontend_origin(origin)?
+    } else {
+        let mut origin = frontend_origin(origin)?;
+        origin
+            .set_port(Some(5174))
+            .map_err(|()| io::Error::other("frontend origin cannot use a port"))?;
+        origin
+    };
+    password_manager.set_path("/callback");
+    let password_redirect = password_manager.to_string();
     let audiences = vec![
         state.api_base_uri.clone(),
         state.api_base_uri.trim_end_matches("/idp").to_owned() + "/device",

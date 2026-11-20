@@ -1,5 +1,7 @@
 #![cfg(all(feature = "redb", feature = "sql"))]
 
+use std::fs;
+
 use ofdb_sql::{Database, Value};
 
 #[tokio::test]
@@ -27,8 +29,8 @@ async fn existing_only_open_preserves_data_and_never_initializes_missing_or_corr
     assert_eq!(results[0].rows[0].values, vec![Value::Text("saved".into())]);
     drop(database);
     for bytes in [b"".as_slice(), b"corrupt database".as_slice()] {
-        std::fs::write(&path, bytes).expect("simulate damaged acknowledged content");
+        fs::write(&path, bytes).expect("simulate damaged acknowledged content");
         Database::open_existing(&path).unwrap_err();
-        assert_eq!(std::fs::read(&path).expect("unchanged corrupt file"), bytes);
+        assert_eq!(fs::read(&path).expect("unchanged corrupt file"), bytes);
     }
 }

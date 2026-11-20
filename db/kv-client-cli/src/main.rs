@@ -1,6 +1,7 @@
 use std::{
+    fs,
     io::{self, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
     time::Duration,
 };
@@ -13,6 +14,7 @@ use ofdb_kv::Database;
 use ofdb_kv::parse_value;
 #[cfg(any(feature = "remote", feature = "in-memory", feature = "redb", test))]
 use ofdb_kv::{Value, encode_value};
+use tokio::time::timeout;
 
 #[derive(Debug, Parser)]
 #[command(name = "kv-cli", version, about = "Query an ofdb KV store")]
@@ -66,23 +68,29 @@ enum Command {
 }
 
 #[tokio::main]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one entry point owns input parsing, client selection, execution, and output"
+)]
+#[allow(
+    clippy::option_if_let_else,
+    reason = "the operation is consumed by exactly one timeout branch"
+)]
 async fn main() -> ExitCode {
     let args = Args::parse();
-    let _bytes = match &args.command {
+    let bytes = match &args.command {
         Command::Set {
-            value: _,
-            file: Some(path),
-            ..
-        } => match read_input(path) {
+            file: Some(path), ..
+        } => match readinput(path) {
             Ok(bytes) => Some(bytes),
-            Err(error) => return fail(1, error.to_string()),
+            Err(error) => return fail(1, &error.to_string()),
         },
         _ => None,
     };
 
-    let _input = match &args.command {
+    let input = match &args.command {
         Command::Set { value, .. } => {
-            let bytes = _bytes
+            let bytes = bytes
                 .as_deref()
                 .or_else(|| value.as_deref().map(str::as_bytes))
                 .expect("clap requires set input");
@@ -91,34 +99,34 @@ async fn main() -> ExitCode {
                 .and_then(|json| parse_value(&json));
             match parsed {
                 Ok(value) => Some(value),
-                Err(error) => return fail(2, error),
+                Err(error) => return fail(2, &error),
             }
         }
         _ => None,
     };
 
     let operation = async {
-        if let Some(_endpoint) = &args.endpoint {
+        if let Some(endpoint) = &args.endpoint {
             #[cfg(feature = "remote")]
             {
                 let client = match (&args.tls_ca, &args.tls_cert, &args.tls_key) {
                     (Some(ca), Some(certificate), Some(private_key)) => {
                         Client::connect_with_identity(
-                            _endpoint,
-                            std::fs::read(ca).map_err(|error| error.to_string())?,
-                            std::fs::read(certificate).map_err(|error| error.to_string())?,
-                            std::fs::read(private_key).map_err(|error| error.to_string())?,
+                            endpoint,
+                            fs::read(ca).map_err(|error| error.to_string())?,
+                            fs::read(certificate).map_err(|error| error.to_string())?,
+                            fs::read(private_key).map_err(|error| error.to_string())?,
                         )
                         .await
                         .map_err(|error| error.to_string())?
                     }
                     (Some(ca), None, None) => Client::connect_with_ca(
-                        _endpoint,
-                        std::fs::read(ca).map_err(|error| error.to_string())?,
+                        endpoint,
+                        fs::read(ca).map_err(|error| error.to_string())?,
                     )
                     .await
                     .map_err(|error| error.to_string())?,
-                    (None, None, None) => Client::connect(_endpoint)
+                    (None, None, None) => Client::connect(endpoint)
                         .await
                         .map_err(|error| error.to_string())?,
                     _ => {
@@ -127,18 +135,18 @@ async fn main() -> ExitCode {
                         );
                     }
                 };
-                return execute_client(&client, &args.command, _input).await;
+                return execute_client(&client, &args.command, input).await;
             }
             #[cfg(not(feature = "remote"))]
             return Err("kv-cli was built without the `remote` feature".to_owned());
         }
-        if let Some(_path) = &args.unix_socket {
+        if let Some(path) = &args.unix_socket {
             #[cfg(all(feature = "remote", unix))]
             {
-                let client = Client::connect_unix(_path)
+                let client = Client::connect_unix(path)
                     .await
                     .map_err(|error| error.to_string())?;
-                return execute_client(&client, &args.command, _input).await;
+                return execute_client(&client, &args.command, input).await;
             }
             #[cfg(not(all(feature = "remote", unix)))]
             return Err("Unix sockets require a Unix build with the `remote` feature".to_owned());
@@ -148,17 +156,17 @@ async fn main() -> ExitCode {
             {
                 let database = Database::in_memory();
                 let client = database.client();
-                return execute_client(&client, &args.command, _input).await;
+                return execute_client(&client, &args.command, input).await;
             }
             #[cfg(not(feature = "in-memory"))]
             return Err("kv-cli was built without the `in-memory` feature".to_owned());
         }
-        if let Some(_path) = &args.database {
+        if let Some(path) = &args.database {
             #[cfg(feature = "redb")]
             {
-                let database = Database::open(_path).map_err(|error| error.to_string())?;
+                let database = Database::open(path).map_err(|error| error.to_string())?;
                 let client = database.client();
-                return execute_client(&client, &args.command, _input).await;
+                return execute_client(&client, &args.command, input).await;
             }
             #[cfg(not(feature = "redb"))]
             return Err("kv-cli was built without the `redb` feature".to_owned());
@@ -167,7 +175,7 @@ async fn main() -> ExitCode {
     };
 
     let result: Result<Option<Vec<u8>>, String> = if let Some(seconds) = args.timeout {
-        match tokio::time::timeout(Duration::from_secs(seconds), operation).await {
+        match timeout(Duration::from_secs(seconds), operation).await {
             Ok(result) => result,
             Err(_) => Err("operation timed out; the write may still have committed".to_owned()),
         }
@@ -177,23 +185,23 @@ async fn main() -> ExitCode {
     match result {
         Ok(Some(bytes)) => {
             if let Err(error) = io::stdout().lock().write_all(&bytes) {
-                fail(1, error.to_string())
+                fail(1, &error.to_string())
             } else {
                 ExitCode::SUCCESS
             }
         }
         Ok(None) => ExitCode::SUCCESS,
-        Err(error) => fail(1, error),
+        Err(error) => fail(1, &error),
     }
 }
 
-fn read_input(path: &PathBuf) -> io::Result<Vec<u8>> {
-    if path == std::path::Path::new("-") {
+fn readinput(path: &PathBuf) -> io::Result<Vec<u8>> {
+    if path == Path::new("-") {
         let mut bytes = Vec::new();
         io::stdin().read_to_end(&mut bytes)?;
         Ok(bytes)
     } else {
-        std::fs::read(path)
+        fs::read(path)
     }
 }
 
@@ -258,7 +266,7 @@ fn json_scan(entries: Vec<(String, Value)>) -> Result<Option<Vec<u8>>, String> {
         .map_err(|error| error.to_string())
 }
 
-fn fail(code: u8, message: String) -> ExitCode {
+fn fail(code: u8, message: &str) -> ExitCode {
     let _ = writeln!(io::stderr().lock(), "{message}");
     ExitCode::from(code)
 }
@@ -270,7 +278,7 @@ mod tests {
     use ofdb_kv::Value;
 
     #[test]
-    fn cli_requires_one_target_and_set_input() {
+    fn cli_requires_one_target_and_setinput() {
         Args::try_parse_from(["kv-cli", "--memory", "set", "key", "--value", "text"]).unwrap();
         Args::try_parse_from(["kv-cli", "set", "key", "--value", "text"]).unwrap_err();
         Args::try_parse_from([

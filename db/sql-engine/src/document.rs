@@ -146,6 +146,11 @@ where
         row: Uuid,
         max_bytes: usize,
     ) -> impl Future<Output = EngineResult<Option<Vec<u8>>>> + MaybeSend;
+    /// Computes a digest for state and metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backend cannot compute the digest.
     fn manifest_digest(&self, state: &[u8], metadata: &[u8]) -> EngineResult<DocumentDigest> {
         Ok(DocumentDigest::from_parts(state, metadata))
     }

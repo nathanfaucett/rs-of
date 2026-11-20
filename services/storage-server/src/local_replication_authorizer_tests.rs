@@ -6,7 +6,7 @@ use device_service::device_repo::DeviceRepo;
 use device_service::ofdb::device_repo::DbDeviceRepo;
 use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
 use idp_service::{
-    password_config::PasswordConfig, replica::user_repo::DbUserRepo, repo::user_repo::UserRepo,
+    password_config::PasswordConfig, replica::DbUserRepo, repo::user_repo::UserRepo,
 };
 use of_model::contract::replication::SelectedResource;
 use of_model::device::selection_policy::SelectionPolicy;
@@ -292,7 +292,7 @@ async fn callback_cleanup_preserves_exact_binding_cancellation_and_remote_denial
         }
         assert_eq!(Arc::strong_count(&copies), 1, "no runtime ownership cycle");
         drop(copies);
-        assert!(authorizer.local_owner(endpoint).await.is_err());
+        authorizer.local_owner(endpoint).await.unwrap_err();
         drop(authorizer);
         if root.exists() {
             std::fs::remove_dir_all(root).expect("remove cleanup fixture");

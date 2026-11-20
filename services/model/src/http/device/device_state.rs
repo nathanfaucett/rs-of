@@ -12,10 +12,8 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum DeviceState {
     #[serde(rename = "pending")]
-    #[default]
     Pending,
     #[serde(rename = "approved")]
     Approved,
@@ -33,3 +31,8 @@ impl core::fmt::Display for DeviceState {
     }
 }
 
+impl Default for DeviceState {
+    fn default() -> DeviceState {
+        Self::Pending
+    }
+}

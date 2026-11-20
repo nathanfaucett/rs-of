@@ -1,8 +1,16 @@
 #![cfg(all(feature = "redb", feature = "sql"))]
 
+use std::{fs, time::Duration};
+
+use tokio::time::timeout;
+
 use ofdb_sql::{Database, SharedDatabase};
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "commit consumes the transaction"
+)]
 async fn shared_transactions_allow_control_reads_and_reject_stale_writes() {
     let host = SharedDatabase::in_memory().expect("host");
     let control = Database::open_shared(&host, "control").expect("control");
@@ -19,8 +27,8 @@ async fn shared_transactions_allow_control_reads_and_reject_stale_writes() {
         .execute_sql("SELECT * FROM notes", None)
         .await
         .expect("read snapshot");
-    tokio::time::timeout(
-        std::time::Duration::from_millis(200),
+    timeout(
+        Duration::from_millis(200),
         control.client().execute_sql("SELECT * FROM users", None),
     )
     .await
@@ -48,6 +56,10 @@ async fn shared_transactions_allow_control_reads_and_reject_stale_writes() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "rollback consumes the transaction"
+)]
 async fn shared_schema_indexes_and_rollbacks_use_one_atomic_snapshot() {
     let host = SharedDatabase::in_memory().expect("host");
     let database = Database::open_shared(&host, "resource").expect("resource");
@@ -108,6 +120,10 @@ async fn shared_schema_indexes_and_rollbacks_use_one_atomic_snapshot() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "commit consumes the retired transaction"
+)]
 async fn shared_namespaces_isolate_restart_and_retire_without_removing_the_host() {
     let root = tempfile::tempdir().expect("host directory");
     let path = root.path().join("unified.redb");
@@ -167,7 +183,7 @@ async fn shared_namespaces_isolate_restart_and_retire_without_removing_the_host(
         .await
         .expect("host data survives");
     assert!(path.is_file());
-    assert_eq!(std::fs::read_dir(root.path()).expect("one file").count(), 1);
+    assert_eq!(fs::read_dir(root.path()).expect("one file").count(), 1);
     drop(control);
     drop(resource);
     drop(issued);

@@ -510,8 +510,6 @@ mod tests {
 
     use of_model::id::Id;
 
-    
-
     use crate::ofdb::replica_signer_repo::DbReplicaSignerRepo;
 
     fn records() -> (ReplicaMembership, IdpSignerRecord) {

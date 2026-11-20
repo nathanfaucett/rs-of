@@ -1,5 +1,6 @@
+use alloc::string::String;
 /*
- * OAuth Server
+ * LIDP IdP API
  *
  * OIDC / OAuth 2.x server implementation
  *
@@ -10,18 +11,17 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SetUserMfaRequest {
-    #[serde(rename = "method")]
-    pub method: String,
     #[serde(rename = "enable")]
     pub enable: bool,
+    #[serde(rename = "method")]
+    pub method: String,
 }
 
 impl SetUserMfaRequest {
-    #[must_use]
-    pub const fn new(method: String, enable: bool) -> Self {
-        Self { method, enable }
+    pub fn new(enable: bool, method: String) -> SetUserMfaRequest {
+        SetUserMfaRequest { enable, method }
     }
 }

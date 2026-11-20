@@ -172,7 +172,10 @@ impl<'a> TableScope<'a> {
                         .values
                         .get(5)
                         .and_then(Value::to_integer)
-                        .is_none_or(|p| p < 0 || p as usize >= columns.len())
+                        .is_none_or(|position| {
+                            usize::try_from(position)
+                                .map_or(true, |position| position >= columns.len())
+                        })
                 {
                     return Err(rejected());
                 }
@@ -200,8 +203,10 @@ impl<'a> TableScope<'a> {
                     .and_then(Value::to_integer)
                     .ok_or_else(rejected)?;
                 let column = text(row, 2)?;
-                if position < 0
-                    || index.2.get(position as usize) != Some(&column)
+                if usize::try_from(position)
+                    .ok()
+                    .and_then(|position| index.2.get(position))
+                    != Some(&column)
                     || self.fields.get(&uuid(row, 3)?) != Some(&(index.0.clone(), column))
                 {
                     return Err(rejected());
@@ -286,7 +291,7 @@ impl<'a> TableScope<'a> {
         })
     }
 
-    pub fn validate_candidates(&self, view: &Option<SyncCandidateView>) -> EngineResult<()> {
+    pub fn validate_candidates(&self, view: Option<&SyncCandidateView>) -> EngineResult<()> {
         if let (Some(validate), Some(view)) = (self.validate_candidate, view) {
             validate(view).map_err(EngineError::custom)?;
         }

@@ -1,5 +1,5 @@
-import { Client, type Row, Transaction } from "@ofsdk/sql";
-import { VaultRegistry, createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
+import type { Client, Row } from "@ofsdk/sql";
+import { createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
 import { getSharedClient } from "./storage/migrate-to-shared";
 import * as v from "valibot";
 import { transitionLogin } from "./secrets/legacy-login";
@@ -14,7 +14,7 @@ import {
   verifyAuthentication,
 } from "./storage/crypto";
 import { type Folder, FolderSchema, validateItemSnapshot } from "./folder";
-import { decryptLockSettings, encryptLockSettings, type LockSettings } from "./lock";
+import { decryptLockSettings } from "./lock";
 import {
   parseSecretRow,
   parseFolderRow,

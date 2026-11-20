@@ -1,5 +1,5 @@
 use alloc::{format, string::String, vec::Vec};
-use core::fmt::Display;
+use core::{fmt::Display, future::ready, mem::take};
 
 use platform::{MaybeSend, MaybeSync};
 
@@ -45,14 +45,14 @@ impl SyncStageFactory for MemorySyncStageFactory {
     type Stage = MemorySyncStage;
     type Error = String;
 
-    async fn create(&self) -> Result<Self::Stage, Self::Error> {
-        Ok(MemorySyncStage {
+    fn create(&self) -> impl Future<Output = Result<Self::Stage, Self::Error>> + MaybeSend {
+        ready(Ok(MemorySyncStage {
             records: Vec::new(),
             next: 0,
             used_bytes: 0,
             max_bytes: self.max_bytes,
             finished: false,
-        })
+        }))
     }
 }
 
@@ -68,32 +68,41 @@ pub struct MemorySyncStage {
 impl SyncStage for MemorySyncStage {
     type Error = String;
 
-    async fn append(&mut self, record: Vec<u8>) -> Result<(), Self::Error> {
-        if self.finished {
-            return Err(String::from("sync stage is finished"));
-        }
-        let next_bytes = self.used_bytes.saturating_add(record.len());
-        if next_bytes > self.max_bytes {
-            return Err(format!("sync stage exceeds {} bytes", self.max_bytes));
-        }
-        self.used_bytes = next_bytes;
-        self.records.push(record);
-        Ok(())
+    fn append(
+        &mut self,
+        record: Vec<u8>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + MaybeSend {
+        ready((|| {
+            if self.finished {
+                return Err(String::from("sync stage is finished"));
+            }
+            let next_bytes = self.used_bytes.saturating_add(record.len());
+            if next_bytes > self.max_bytes {
+                return Err(format!("sync stage exceeds {} bytes", self.max_bytes));
+            }
+            self.used_bytes = next_bytes;
+            self.records.push(record);
+            Ok(())
+        })())
     }
 
-    async fn finish(&mut self) -> Result<(), Self::Error> {
+    fn finish(&mut self) -> impl Future<Output = Result<(), Self::Error>> + MaybeSend {
         self.finished = true;
-        Ok(())
+        ready(Ok(()))
     }
 
-    async fn next_record(&mut self) -> Result<Option<Vec<u8>>, Self::Error> {
-        if !self.finished {
-            return Err(String::from("sync stage is not finished"));
-        }
-        let Some(record) = self.records.get_mut(self.next) else {
-            return Ok(None);
-        };
-        self.next += 1;
-        Ok(Some(core::mem::take(record)))
+    fn next_record(
+        &mut self,
+    ) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>> + MaybeSend {
+        ready((|| {
+            if !self.finished {
+                return Err(String::from("sync stage is not finished"));
+            }
+            let Some(record) = self.records.get_mut(self.next) else {
+                return Ok(None);
+            };
+            self.next += 1;
+            Ok(Some(take(record)))
+        })())
     }
 }

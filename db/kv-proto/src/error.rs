@@ -1,3 +1,5 @@
+use core::str::from_utf8;
+
 const ERROR_PREFIX: &[u8] = b"ofdb-kv-error\0\x01";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -45,7 +47,7 @@ pub fn decode_error_details(details: &[u8]) -> Option<(ErrorKind, &str)> {
     let payload = details.strip_prefix(ERROR_PREFIX)?;
     let (&kind, message) = payload.split_first()?;
     let kind = ErrorKind::try_from(kind).ok()?;
-    let message = core::str::from_utf8(message).ok()?;
+    let message = from_utf8(message).ok()?;
     Some((kind, message))
 }
 

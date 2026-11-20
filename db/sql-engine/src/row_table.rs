@@ -19,7 +19,7 @@ pub trait RowTable: KernelTransaction {
         async move {
             self.get_bytes(table, &encode_key(key))
                 .await?
-                .map(decode_value)
+                .map(|bytes| decode_value(&bytes))
                 .transpose()
         }
     }
@@ -30,7 +30,7 @@ pub trait RowTable: KernelTransaction {
     ) -> impl Stream<Item = EngineResult<(Row, Row)>> + MaybeSend + 'a {
         self.scan_bytes(table).map(|entry| {
             let (key, value) = entry?;
-            Ok((decode_key(&key)?, decode_value(value)?))
+            Ok((decode_key(&key)?, decode_value(&value)?))
         })
     }
 
@@ -43,7 +43,7 @@ pub trait RowTable: KernelTransaction {
             pin_mut!(entries);
             while let Some(entry) = entries.next().await {
                 let (key, value) = entry?;
-                yield (decode_key(&key).and_then(|key| decode_value(value).map(|value| (key, value))));
+                yield (decode_key(&key).and_then(|key| decode_value(&value).map(|value| (key, value))));
             }
         }
     }
@@ -65,7 +65,7 @@ pub trait RowTable: KernelTransaction {
         async move {
             self.remove_bytes(table, &encode_key(key))
                 .await?
-                .map(decode_value)
+                .map(|bytes| decode_value(&bytes))
                 .transpose()
         }
     }
@@ -77,8 +77,8 @@ fn encode_value(row: &Row) -> Vec<u8> {
     postcard::to_allocvec(row).expect("Row serialization failed")
 }
 
-fn decode_value(bytes: Vec<u8>) -> EngineResult<Row> {
-    postcard::from_bytes(&bytes).map_err(EngineError::custom)
+fn decode_value(bytes: &[u8]) -> EngineResult<Row> {
+    postcard::from_bytes(bytes).map_err(EngineError::custom)
 }
 
 fn encode_key(row: &Row) -> Vec<u8> {
@@ -104,7 +104,7 @@ fn encode_value_order(value: &Value, bytes: &mut Vec<u8>) {
         Value::Bool(value) => bytes.extend_from_slice(&[4, u8::from(*value) + 1]),
         Value::Integer(value) => {
             bytes.push(5);
-            bytes.extend_from_slice(&((*value as u64 ^ (1 << 63)).to_be_bytes()));
+            bytes.extend_from_slice(&((*value).cast_unsigned() ^ (1 << 63)).to_be_bytes());
         }
         Value::Float(value) => {
             bytes.push(6);
@@ -144,9 +144,8 @@ fn decode_key(bytes: &[u8]) -> EngineResult<Row> {
                 return postcard::from_bytes(&bytes[index + 2..]).map_err(EngineError::custom);
             }
             1 => index += 1,
-            2 => index += 2,
+            2 | 4 => index += 2,
             3 => index += 17,
-            4 => index += 2,
             5 | 6 => index += 9,
             7..=9 => {
                 index += 1;
@@ -195,8 +194,8 @@ mod tests {
     #[test]
     fn value_round_trip_and_malformed_bytes() {
         let row = Row::new(vec![Value::Text(String::from("value"))]);
-        assert_eq!(decode_value(encode_value(&row)).unwrap(), row);
-        decode_value(vec![255]).unwrap_err();
+        assert_eq!(decode_value(&encode_value(&row)).unwrap(), row);
+        decode_value(&[255]).unwrap_err();
         decode_key(&[0]).unwrap_err();
     }
 }

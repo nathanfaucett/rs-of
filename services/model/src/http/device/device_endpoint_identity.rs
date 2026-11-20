@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Device API
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DeviceEndpointIdentity {
     #[serde(rename = "deviceId")]
     pub device_id: String,
@@ -21,13 +22,12 @@ pub struct DeviceEndpointIdentity {
 }
 
 impl DeviceEndpointIdentity {
-    #[must_use]
-    pub const fn new(
+    pub fn new(
         device_id: String,
         endpoint_id: String,
         owner_subject: String,
-    ) -> Self {
-        Self {
+    ) -> DeviceEndpointIdentity {
+        DeviceEndpointIdentity {
             device_id,
             endpoint_id,
             owner_subject,

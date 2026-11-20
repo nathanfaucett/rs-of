@@ -19,12 +19,12 @@ impl redb::Value for TrackedValue {
     fn fixed_width() -> Option<usize> {
         None
     }
-    fn from_bytes<'a>(bytes: &'a [u8]) -> Self
+    fn from_bytes<'a>(data: &'a [u8]) -> Self
     where
         Self: 'a,
     {
         DECODES.fetch_add(1, Ordering::SeqCst);
-        Self(bytes.to_vec())
+        Self(data.to_vec())
     }
     fn as_bytes<'a, 'b: 'a>(value: &'a Self) -> &'a [u8]
     where
@@ -38,6 +38,10 @@ impl redb::Value for TrackedValue {
 }
 
 #[test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by rollback"
+)]
 fn budget_rejection_precedes_owned_value_decoding_for_get_range_and_mutation_reads() {
     block_on(async {
         let directory = tempfile::tempdir().expect("isolated native database");

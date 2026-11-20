@@ -1,5 +1,5 @@
 /*
- * OAuth Server
+ * LIDP IdP API
  *
  * OIDC / OAuth 2.x server implementation
  *
@@ -12,10 +12,8 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum TokenType {
     #[serde(rename = "Bearer")]
-    #[default]
     Bearer,
     #[serde(rename = "DPoP")]
     DpoP,
@@ -30,3 +28,8 @@ impl core::fmt::Display for TokenType {
     }
 }
 
+impl Default for TokenType {
+    fn default() -> TokenType {
+        Self::Bearer
+    }
+}

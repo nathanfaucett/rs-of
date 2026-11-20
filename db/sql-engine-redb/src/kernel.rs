@@ -1,8 +1,12 @@
-use std::{ops::Bound, sync::Arc};
+use std::{
+    future::ready,
+    ops::Bound,
+    sync::{Arc, Mutex},
+};
 
 use async_stream::stream;
 use btree::{BTreeRead, BTreeTransaction};
-use btree_redb::{Bytes, RedbDatabase, RedbDatabaseTransaction};
+use btree_redb::{Bytes, RedbDatabase, RedbDatabaseTransaction, SharedNamespace};
 use engine::{EngineError, EngineResult, Kernel, KernelTransaction};
 
 use futures::Stream;
@@ -10,7 +14,7 @@ use futures::Stream;
 #[derive(Clone, Debug)]
 pub struct RedbKernel {
     database: RedbDatabase,
-    namespace: Option<btree_redb::SharedNamespace>,
+    namespace: Option<SharedNamespace>,
 }
 
 impl RedbKernel {
@@ -23,7 +27,7 @@ impl RedbKernel {
     }
 
     #[must_use]
-    pub fn namespaced(namespace: btree_redb::SharedNamespace) -> Self {
+    pub fn namespaced(namespace: SharedNamespace) -> Self {
         Self {
             database: namespace.database(),
             namespace: Some(namespace),
@@ -42,8 +46,8 @@ impl RedbKernel {
 #[derive(Debug)]
 pub struct RedbKernelTransaction {
     pub(crate) database: RedbDatabaseTransaction,
-    namespace: Option<btree_redb::SharedNamespace>,
-    decoded_budget: Option<std::sync::Mutex<(usize, usize)>>,
+    namespace: Option<SharedNamespace>,
+    decoded_budget: Option<Mutex<(usize, usize)>>,
 }
 
 impl Kernel for RedbKernel {
@@ -86,7 +90,7 @@ impl KernelTransaction for RedbKernelTransaction {
         self.database
             .set_read_limits(entries, bytes)
             .map_err(EngineError::custom)?;
-        self.decoded_budget = Some(std::sync::Mutex::new((entries, bytes)));
+        self.decoded_budget = Some(Mutex::new((entries, bytes)));
         Ok(())
     }
 
@@ -96,7 +100,7 @@ impl KernelTransaction for RedbKernelTransaction {
         };
         let mut budget = budget.lock().expect("decoded read budget lock");
         let (entries, remaining) = &mut *budget;
-        let mut bytes = core::mem::size_of::<value::Row>();
+        let mut bytes = size_of::<value::Row>();
         for value in &row.values {
             let size = match value {
                 value::Value::Text(text) => text.len(),
@@ -107,7 +111,7 @@ impl KernelTransaction for RedbKernelTransaction {
                 _ => 0,
             };
             bytes = bytes
-                .saturating_add(core::mem::size_of::<value::Value>())
+                .saturating_add(size_of::<value::Value>())
                 .saturating_add(size);
         }
         if *entries == 0 || bytes > *remaining {
@@ -115,6 +119,7 @@ impl KernelTransaction for RedbKernelTransaction {
         }
         *entries -= 1;
         *remaining -= bytes;
+        drop(budget);
         Ok(())
     }
 
@@ -122,17 +127,21 @@ impl KernelTransaction for RedbKernelTransaction {
         self.database.read_limit_exceeded()
     }
 
-    async fn ensure_table(&mut self, table: &str) -> EngineResult<()> {
-        self.database
-            .create_table::<Bytes, Bytes>(&self.table_name(table))
-            .map_err(EngineError::custom)
+    fn ensure_table(&mut self, table: &str) -> impl Future<Output = EngineResult<()>> + Send {
+        ready(
+            self.database
+                .create_table::<Bytes, Bytes>(&self.table_name(table))
+                .map_err(EngineError::custom),
+        )
     }
 
-    async fn drop_table(&mut self, table: &str) -> EngineResult<()> {
-        self.database
-            .drop_table::<Bytes, Bytes>(&self.table_name(table))
-            .map(|_| ())
-            .map_err(EngineError::custom)
+    fn drop_table(&mut self, table: &str) -> impl Future<Output = EngineResult<()>> + Send {
+        ready(
+            self.database
+                .drop_table::<Bytes, Bytes>(&self.table_name(table))
+                .map(|_| ())
+                .map_err(EngineError::custom),
+        )
     }
 
     async fn get_bytes(&self, table: &str, key: &[u8]) -> EngineResult<Option<Vec<u8>>> {
@@ -167,6 +176,7 @@ impl KernelTransaction for RedbKernelTransaction {
             for await entry in entries.range(range) {
                 yield entry.map(|(key, value)| (key.0, value.0)).map_err(EngineError::custom);
             }
+            drop(entries);
         }
     }
 
@@ -185,20 +195,26 @@ impl KernelTransaction for RedbKernelTransaction {
             .map_err(EngineError::custom)
     }
 
-    async fn commit(self) -> EngineResult<()> {
-        self.database.commit().map_err(EngineError::custom)
+    fn commit(self) -> impl Future<Output = EngineResult<()>> + Send {
+        ready(self.database.commit().map_err(EngineError::custom))
     }
 
-    async fn rollback(self) -> EngineResult<()> {
-        self.database.rollback().map_err(EngineError::custom)
+    fn rollback(self) -> impl Future<Output = EngineResult<()>> + Send {
+        ready(self.database.rollback().map_err(EngineError::custom))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, sync::Arc};
+    #![allow(
+        clippy::significant_drop_tightening,
+        reason = "test transactions are consumed by commit or rollback"
+    )]
+
+    use std::{env, fs, path::PathBuf, sync::Arc};
 
     use futures::executor::block_on;
+    use redb::backends::InMemoryBackend;
     use uuid::Uuid;
 
     use super::RedbKernel;
@@ -213,10 +229,10 @@ mod tests {
 
         let database = Arc::new(
             redb::Database::builder()
-                .create_with_backend(redb::backends::InMemoryBackend::new())
+                .create_with_backend(InMemoryBackend::new())
                 .expect("in-memory Redb backend"),
         );
-        let kernel = RedbKernel::new(database.clone());
+        let kernel = RedbKernel::new(Arc::clone(&database));
         block_on(async {
             let mut changes = kernel.subscribe_changes().expect("subscription");
             // Consume initial events using the new events() API
@@ -270,12 +286,10 @@ mod tests {
     fn logical_names_are_isolated_and_persisted() {
         let path = PathBuf::from(format!(
             "{}-engine-redb-names.redb",
-            std::env::temp_dir()
-                .join(Uuid::now_v7().to_string())
-                .display()
+            env::temp_dir().join(Uuid::now_v7().to_string()).display()
         ));
         let database = Arc::new(redb::Database::create(&path).unwrap());
-        let kernel = RedbKernel::new(database.clone());
+        let kernel = RedbKernel::new(Arc::clone(&database));
         block_on(async {
             let mut transaction = kernel.transaction().await.unwrap();
             transaction.ensure_table("alpha").await.unwrap();
@@ -303,6 +317,6 @@ mod tests {
         });
         drop(kernel);
         drop(database);
-        std::fs::remove_file(path).unwrap();
+        fs::remove_file(path).unwrap();
     }
 }

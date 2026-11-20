@@ -30,6 +30,7 @@ pub enum JsonValue {
 
 #[cfg(feature = "automerge")]
 use autosurgeon::reconcile::NoKey;
+#[cfg(feature = "automerge")]
 impl autosurgeon::Reconcile for JsonValue {
     type Key<'a> = NoKey;
 

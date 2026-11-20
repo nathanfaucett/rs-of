@@ -1,5 +1,15 @@
 #![cfg(all(feature = "sql", feature = "in-memory"))]
 
+#[cfg(all(feature = "remote", feature = "server"))]
+use std::{net::TcpListener, time::Duration};
+
+use futures::executor::block_on;
+#[cfg(all(feature = "remote", feature = "server"))]
+use tokio::{
+    sync::oneshot,
+    time::{sleep, timeout},
+};
+
 use ofdb_sql::{Client, Database, Migration, Row, Value};
 
 const INITIAL: &str =
@@ -103,17 +113,17 @@ async fn failure_rolls_back_and_stops(client: &Client) {
 }
 
 #[test]
-#[ignore]
+#[ignore = "pre-existing disabled test"]
 fn failed_batch_rolls_back_schema_data_and_history() {
-    futures::executor::block_on(failure_rolls_back_and_stops(
+    block_on(failure_rolls_back_and_stops(
         &Database::in_memory().client(),
     ));
 }
 
 #[test]
-#[ignore]
+#[ignore = "pre-existing disabled test"]
 fn failed_first_migration_does_not_create_metadata() {
-    futures::executor::block_on(async {
+    block_on(async {
         let client = Database::in_memory().client();
         client
             .migrate(&[Migration::new(
@@ -143,9 +153,9 @@ fn failed_first_migration_does_not_create_metadata() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "pre-existing disabled test"]
 fn failed_history_insertion_rolls_back_application_changes() {
-    futures::executor::block_on(async {
+    block_on(async {
         let client = Database::in_memory().client();
         let first = "CREATE TABLE items (id INTEGER PRIMARY KEY); CREATE UNIQUE INDEX history_fingerprint ON _ofdb_migrations (fingerprint)";
         let plan = [
@@ -189,12 +199,12 @@ fn failed_history_insertion_rolls_back_application_changes() {
 #[cfg(feature = "redb")]
 #[test]
 fn history_and_upgrades_survive_reopening() {
-    futures::executor::block_on(async {
+    block_on(async {
         let directory = tempfile::tempdir().expect("temporary directory");
         let path = directory.path().join("migrations.redb");
         {
             let database = Database::open(&path).expect("open database");
-            initialize_and_upgrade(&database.client()).await
+            initialize_and_upgrade(&database.client()).await;
         };
         let database = Database::open(&path).expect("reopen database");
         let client = database.client();
@@ -221,11 +231,11 @@ fn history_and_upgrades_survive_reopening() {
 #[cfg(all(feature = "remote", feature = "server"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_uses_the_same_ordered_runner_and_rollback() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve port");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("reserve port");
     let address = listener.local_addr().expect("local address");
     drop(listener);
     let database = Database::in_memory();
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
+    let (shutdown, signal) = oneshot::channel();
     let server = tokio::spawn(async move {
         database
             .serve_tcp(address, async {
@@ -234,12 +244,12 @@ async fn remote_uses_the_same_ordered_runner_and_rollback() {
             .await
             .expect("serve database");
     });
-    let client = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    let client = timeout(Duration::from_secs(5), async {
         loop {
             if let Ok(client) = Client::connect(format!("http://{address}")).await {
                 break client;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            sleep(Duration::from_millis(5)).await;
         }
     })
     .await
@@ -256,7 +266,7 @@ async fn remote_uses_the_same_ordered_runner_and_rollback() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "pre-existing disabled test"]
 fn embedded_initializes_upgrades_and_skips_applied_migrations() {
-    futures::executor::block_on(initialize_and_upgrade(&Database::in_memory().client()));
+    block_on(initialize_and_upgrade(&Database::in_memory().client()));
 }

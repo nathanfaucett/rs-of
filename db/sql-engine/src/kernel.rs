@@ -11,11 +11,19 @@ use crate::EngineResult;
 
 pub trait KernelTransaction: MaybeSend + MaybeSync {
     /// Sets a cumulative budget before owned native read materialization. Unsupported backends fail closed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backend cannot enforce the requested limits.
     fn set_read_limits(&mut self, _entries: usize, _bytes: usize) -> EngineResult<()> {
         Err(crate::EngineError::Unsupported("native read limits"))
     }
 
     /// Checks a decoded row before scan accumulation. Backends without limits accept it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the row exceeds the configured read budget.
     fn check_read_row(&self, _row: &value::Row) -> EngineResult<()> {
         Ok(())
     }

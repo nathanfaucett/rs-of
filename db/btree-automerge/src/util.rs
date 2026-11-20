@@ -24,9 +24,8 @@ where
         return Ok(None);
     };
 
-    let mut doc = match reconstructed_document.doc {
-        Some(doc) => doc,
-        None => return Ok(None),
+    let Some(mut doc) = reconstructed_document.doc else {
+        return Ok(None);
     };
 
     let compacted = if allow_compaction {
@@ -94,11 +93,15 @@ where
     F: FnOnce(&mut AutoCommit) -> BTreeResult<()>,
 {
     let mut current_doc = tx_get_document(tx, &doc_id, false, policy)
-        .await?.map_or_else(|| {
-            AutoCommit::new().with_actor(ActorId::from(
-                DocumentChangeKey::id_to_uuid(doc_id.as_slice()).as_bytes(),
-            ))
-        }, |(doc, _)| doc);
+        .await?
+        .map_or_else(
+            || {
+                AutoCommit::new().with_actor(ActorId::from(
+                    DocumentChangeKey::id_to_uuid(doc_id.as_slice()).as_bytes(),
+                ))
+            },
+            |(doc, _)| doc,
+        );
 
     let previous_heads = current_doc.get_heads();
     update_fn(&mut current_doc)?;

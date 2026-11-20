@@ -1,4 +1,7 @@
-use std::{env, fs, sync::Arc};
+use std::{env, fmt::Debug, fs, path::PathBuf, sync::Arc};
+
+use serde::de::DeserializeOwned;
+use tokio::task::yield_now;
 
 use bytes::Bytes;
 use file_system::{
@@ -9,20 +12,13 @@ use redb::ReadableDatabase;
 
 use uuid::Uuid;
 
-fn root() -> std::path::PathBuf {
+fn root() -> PathBuf {
     env::temp_dir().join(format!("file-system-{}", Uuid::now_v7()))
 }
 
 async fn full<PeerId>(file_system: &FileSystem<PeerId>)
 where
-    PeerId: Clone
-        + std::fmt::Debug
-        + Ord
-        + serde::Serialize
-        + serde::de::DeserializeOwned
-        + Send
-        + Sync
-        + 'static,
+    PeerId: Clone + Debug + Ord + serde::Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     file_system
         .set_residency("", Residency::Full)
@@ -276,7 +272,7 @@ async fn syncs_content_and_rejects_stale_responses() {
     let mut write = Box::pin(stale.write(0, Bytes::from_static(b"x")));
     tokio::select! {
         result = &mut write => assert!(result.is_err()),
-        () = tokio::task::yield_now() => { left_sync.pump().await.unwrap(); write.await.unwrap_err(); }
+        () = yield_now() => { left_sync.pump().await.unwrap(); write.await.unwrap_err(); }
     }
     assert_eq!(
         right.entry("file.txt").await.unwrap().meta,
@@ -407,7 +403,7 @@ async fn reports_unavailable_requested_content() {
     let mut read = Box::pin(handle.read(0, 1));
     tokio::select! {
         result = &mut read => assert!(result.is_err()),
-        () = tokio::task::yield_now() => { left_sync.pump().await.unwrap(); read.await.unwrap_err(); }
+        () = yield_now() => { left_sync.pump().await.unwrap(); read.await.unwrap_err(); }
     }
     fs::remove_dir_all(left_root).unwrap();
     fs::remove_dir_all(right_root).unwrap();
@@ -759,8 +755,7 @@ async fn rejects_unsupported_metadata_schema() {
 
     let error = FileSystem::open(&root, 1_u8)
         .await
-        .err()
-        .expect("unsupported metadata schema is rejected");
+        .expect_err("unsupported metadata schema is rejected");
     assert!(
         error
             .to_string()
@@ -769,9 +764,11 @@ async fn rejects_unsupported_metadata_schema() {
     let database = redb::Database::open(&metadata_path).unwrap();
     let transaction = database.begin_read().unwrap();
     transaction
-            .open_table(redb::TableDefinition::<&str, &[u8]>::new("metadata")).unwrap();
+        .open_table(redb::TableDefinition::<&str, &[u8]>::new("metadata"))
+        .unwrap();
     transaction
-            .open_table(redb::TableDefinition::<&str, &[u8]>::new("ofdb-kv")).unwrap_err();
+        .open_table(redb::TableDefinition::<&str, &[u8]>::new("ofdb-kv"))
+        .unwrap_err();
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -801,7 +798,7 @@ async fn sync_peer_continuously_converges_metadata() {
         if right.entry("notes.txt").await.is_ok() {
             break;
         }
-        tokio::task::yield_now().await;
+        yield_now().await;
     }
     assert_eq!(
         right.revision("notes.txt").await.unwrap(),

@@ -1,13 +1,14 @@
-import { Client, Transaction, type Row } from "@ofsdk/sql";
+import type { Client, Row } from "@ofsdk/sql";
+import type { DatabaseHandle } from "@ofsdk/sync-sdk";
 import { getSharedClient, migrateToSharedTables, needsMigration, migrateLocalVaultToSync } from "./storage/migrate-to-shared";
 import * as v from "valibot";
-import { VaultRegistry, createVaultRegistry } from "./storage/VaultRegistry";
+import { createVaultRegistry } from "./storage/VaultRegistry";
 import {
   parseSecretRow,
   parseFolderRow,
   parseLockSettingsRow,
   parseVaultRow,
-  parseOptionalText,
+
   parseText,
   dbParams,
   dbParam,
@@ -21,10 +22,11 @@ import {
   createAuthentication,
   verifyAuthentication,
 } from "./storage/crypto";
-import { type LockSettings, LockSettingsSchema, DEFAULT_LOCK_SETTINGS, encryptLockSettings, decryptLockSettings } from "./lock";
+import { type LockSettings, DEFAULT_LOCK_SETTINGS, encryptLockSettings, decryptLockSettings } from "./lock";
 import { type Secret, SecretSchema } from "./secrets/secret";
 import { type Folder, FolderSchema } from "./folder";
 import { type ItemMutation, validateItemSnapshot, type ItemSnapshot } from "./folder";
+import type { VaultHandleLike } from "./types";
 
 interface VaultMeta {
   id: string;
@@ -43,7 +45,7 @@ export interface EncryptedSecret {
 
 class VaultHandle {
   private key: CryptoKey;
-  private prepared: ItemSnapshot;
+
   private vaultId: string;
   private client: Client;
   private meta: VaultMeta;
@@ -58,7 +60,7 @@ class VaultHandle {
     this.client = client;
     this.meta = meta;
     this.vaultId = vaultId;
-    this.prepared = { items: [], folders: [] };
+
   }
 
   static create(
@@ -208,7 +210,6 @@ class VaultHandle {
       }
 
       await tx.commit();
-      this.prepared = await this.itemSnapshot();
     } catch (error) {
       await tx.rollback();
       throw error;
@@ -472,15 +473,15 @@ export async function unlockVault(
 export async function unlockAndMigrateVault(
   password: string,
   id: string,
-  syncClient: { createDatabase: (name: string) => Promise<any>; openDatabase: (id: string) => Promise<any> },
-): Promise<{ vault: VaultHandle; isSynced: boolean; syncHandle?: any }> {
+  syncClient: { createDatabase: (name: string) => Promise<DatabaseHandle>; openDatabase: (id: string) => Promise<DatabaseHandle> },
+): Promise<{ vault: VaultHandleLike; isSynced: boolean; syncHandle?: DatabaseHandle }> {
   // First try to unlock as local vault
   const vault = await unlockVault(password, id);
 
   // Try to migrate to sync
   try {
     const result = await migrateLocalVaultToSync(id, password, syncClient);
-    return { vault: result.syncDb as any, isSynced: true, syncHandle: result.syncHandle };
+    return { vault: result.syncDb, isSynced: true, syncHandle: result.syncHandle };
   } catch (e) {
     console.warn("Failed to migrate vault to sync:", e);
     return { vault, isSynced: false };

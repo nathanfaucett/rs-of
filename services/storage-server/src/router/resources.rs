@@ -65,7 +65,8 @@ impl of_model::storage::namespace::StorageNamespace for StorageNamespace {
     (status = 413, description = "Request exceeds 256 KiB", body = sql::DatabaseFailure),
     (status = 422, description = "Malformed request", body = sql::DatabaseFailure),
     (status = 503, description = "Content unavailable", body = sql::DatabaseFailure)),
-    security(("authorization" = [])))]
+    security(("authorization" = [])),
+    tag = "resources")]
 pub async fn ensure_database(
     State(state): State<ResourceState>,
     headers: HeaderMap,
@@ -221,7 +222,8 @@ pub async fn authorize_response(
         (status = 403, description = "Token does not permit writes"),
         (status = 503, description = "Storage runtime or IdP unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "resources"
 )]
 pub async fn create_database(
     State(state): State<ResourceState>,
@@ -250,12 +252,13 @@ pub async fn create_database(
     get,
     path = "/storage/databases",
     responses(
-        (status = 200, description = "List of database resources", body = [DatabaseResource]),
+        (status = 200, description = "Namespace database resources", body = [DatabaseResource]),
         (status = 401, description = "Invalid storage authorization"),
         (status = 403, description = "Token does not permit reads"),
         (status = 503, description = "Storage runtime or IdP unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "resources"
 )]
 pub async fn list_databases(
     State(state): State<ResourceState>,
@@ -284,10 +287,11 @@ pub async fn list_databases(
         (status = 200, description = "Database resource", body = DatabaseDetailResponse),
         (status = 401, description = "Invalid storage authorization"),
         (status = 403, description = "Token does not permit reads"),
-        (status = 404, description = "Database not found"),
+        (status = 404, description = "Database resource not found"),
         (status = 503, description = "Storage runtime or IdP unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "resources"
 )]
 pub async fn get_database(
     State(state): State<ResourceState>,
@@ -329,7 +333,8 @@ pub async fn get_database(
         (status = 404, description = "Database resource not found"),
         (status = 503, description = "Storage runtime or IdP unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "resources"
 )]
 pub async fn delete_database(
     State(state): State<ResourceState>,
@@ -362,7 +367,8 @@ pub async fn delete_database(
         (status = 403, description = "Token does not permit writes"),
         (status = 503, description = "Storage runtime or IdP unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "resources"
 )]
 pub async fn create_file_system(
     State(state): State<ResourceState>,
@@ -394,12 +400,13 @@ pub async fn create_file_system(
     get,
     path = "/storage/filesystems",
     responses(
-        (status = 200, description = "List of filesystem resources", body = [FileSystemResourceResponse]),
+        (status = 200, description = "Namespace filesystem resources", body = [FileSystemResourceResponse]),
         (status = 401, description = "Invalid storage authorization"),
         (status = 403, description = "Token does not permit reads"),
         (status = 503, description = "Storage runtime or IdP unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "resources"
 )]
 pub async fn list_file_systems(
     State(state): State<ResourceState>,
@@ -436,10 +443,11 @@ pub async fn list_file_systems(
         (status = 200, description = "Filesystem resource", body = FileSystemDetailResponse),
         (status = 401, description = "Invalid storage authorization"),
         (status = 403, description = "Token does not permit reads"),
-        (status = 404, description = "Filesystem not found"),
+        (status = 404, description = "Filesystem resource not found"),
         (status = 503, description = "Storage runtime or IdP unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "resources"
 )]
 pub async fn get_file_system(
     State(state): State<ResourceState>,
@@ -480,13 +488,14 @@ pub async fn get_file_system(
     path = "/storage/filesystems/{filesystem_id}",
     params(("filesystem_id" = String, Path, description = "Filesystem resource ID")),
     responses(
-        (status = 204, description = "Filesystem deleted"),
+        (status = 204, description = "Filesystem resource tombstoned"),
         (status = 401, description = "Invalid storage authorization"),
         (status = 403, description = "Token does not permit writes"),
-        (status = 404, description = "Filesystem not found"),
+        (status = 404, description = "Filesystem resource not found"),
         (status = 503, description = "Storage runtime or IdP unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "resources"
 )]
 pub async fn delete_file_system(
     State(state): State<ResourceState>,
@@ -516,12 +525,13 @@ pub async fn delete_file_system(
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
-    
-    
+
+    use axum::{body::Body, http::Request};
     use of_model::storage::namespace::StorageNamespace;
-    
+    use tower::ServiceExt;
 
     #[derive(Clone)]
     struct TestNamespace {
@@ -583,12 +593,14 @@ mod tests {
     path = "/sync/connect",
     request_body = SyncConnectRequest,
     responses(
-        (status = 200, description = "Sync session established", body = SyncSessionResponse),
-        (status = 401, description = "Invalid storage authorization"),
-        (status = 403, description = "Token does not permit writes"),
-        (status = 503, description = "Storage runtime or IdP unavailable")
+        (status = 200, description = "Sync session started", body = SyncSessionResponse),
+        (status = 401, description = "Invalid authorization"),
+        (status = 403, description = "Token does not permit sync"),
+        (status = 404, description = "Resource or target device not found"),
+        (status = 503, description = "Service unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "sync"
 )]
 pub async fn sync_connect(
     State(state): State<ResourceState>,
@@ -607,7 +619,7 @@ pub async fn sync_connect(
         .as_ref()
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let resource = databases
-        .get(&scope, request.resource_id.into())
+        .get(&scope, request.resource_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if resource.is_none() {
         return Err(StatusCode::NOT_FOUND);
@@ -646,7 +658,7 @@ pub async fn sync_connect(
     let response = SyncSessionResponse {
         session_id,
         resource_id: request.resource_id,
-        source_device: scope.application_id.into(),
+        source_device: scope.application_id,
         target_device: request.target_device,
         status: of_model::storage::sync::SyncStatus::Connecting,
         bytes_sent: 0,

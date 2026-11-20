@@ -49,6 +49,16 @@ import {
   RoleResponseToJSON,
 } from "../models/RoleResponse.js";
 import {
+  type SyncSelectionRequest,
+  SyncSelectionRequestFromJSON,
+  SyncSelectionRequestToJSON,
+} from "../models/SyncSelectionRequest.js";
+import {
+  type SyncSelectionResponse,
+  SyncSelectionResponseFromJSON,
+  SyncSelectionResponseToJSON,
+} from "../models/SyncSelectionResponse.js";
+import {
   type UserApplicationRoleResponse,
   UserApplicationRoleResponseFromJSON,
   UserApplicationRoleResponseToJSON,
@@ -181,6 +191,20 @@ export interface ListRolesRequest {
   limit?: number;
 }
 
+export interface ListSyncSelectionsRequest {
+  /**
+   * Device ID
+   */
+  deviceId: string;
+}
+
+export interface ListSyncTargetsRequest {
+  /**
+   * Resource ID
+   */
+  resourceId: string;
+}
+
 export interface ListUserRolesRequest {
   /**
    * Application ID
@@ -227,6 +251,17 @@ export interface RevokeRoleFromUserRequest {
    * Role ID
    */
   roleId: string;
+}
+
+export interface SetSyncSelectionRequest {
+  /**
+   * Device ID
+   */
+  deviceId: string;
+  /**
+   *
+   */
+  syncSelectionRequest: SyncSelectionRequest;
 }
 
 /**
@@ -570,6 +605,64 @@ export interface DefaultApiInterface {
   ): Promise<Array<RoleResponse>>;
 
   /**
+   * Creates request options for listSyncSelections without sending the request
+   * @param {string} deviceId Device ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listSyncSelectionsRequestOpts(
+    requestParameters: ListSyncSelectionsRequest
+  ): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {string} deviceId Device ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listSyncSelectionsRaw(
+    requestParameters: ListSyncSelectionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<SyncSelectionResponse>>;
+
+  /**
+   */
+  listSyncSelections(
+    requestParameters: ListSyncSelectionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<SyncSelectionResponse>;
+
+  /**
+   * Creates request options for listSyncTargets without sending the request
+   * @param {string} resourceId Resource ID
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listSyncTargetsRequestOpts(
+    requestParameters: ListSyncTargetsRequest
+  ): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {string} resourceId Resource ID
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  listSyncTargetsRaw(
+    requestParameters: ListSyncTargetsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<SyncSelectionResponse>>;
+
+  /**
+   */
+  listSyncTargets(
+    requestParameters: ListSyncTargetsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<SyncSelectionResponse>;
+
+  /**
    * Creates request options for listUserRoles without sending the request
    * @param {string} applicationId Application ID
    * @param {string} userId User ID
@@ -713,6 +806,37 @@ export interface DefaultApiInterface {
     requestParameters: RevokeRoleFromUserRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void>;
+
+  /**
+   * Creates request options for setSyncSelection without sending the request
+   * @param {string} deviceId Device ID
+   * @param {SyncSelectionRequest} syncSelectionRequest
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  setSyncSelectionRequestOpts(
+    requestParameters: SetSyncSelectionRequest
+  ): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {string} deviceId Device ID
+   * @param {SyncSelectionRequest} syncSelectionRequest
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  setSyncSelectionRaw(
+    requestParameters: SetSyncSelectionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<SyncSelectionResponse>>;
+
+  /**
+   */
+  setSyncSelection(
+    requestParameters: SetSyncSelectionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<SyncSelectionResponse>;
 
   /**
    * Creates request options for version without sending the request
@@ -1498,6 +1622,134 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Creates request options for listSyncSelections without sending the request
+   */
+  async listSyncSelectionsRequestOpts(
+    requestParameters: ListSyncSelectionsRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["deviceId"] == null) {
+      throw new runtime.RequiredError(
+        "deviceId",
+        'Required parameter "deviceId" was null or undefined when calling listSyncSelections().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/devices/{device_id}/sync-selections`;
+    urlPath = urlPath.replace(
+      "{device_id}",
+      encodeURIComponent(String(requestParameters["deviceId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async listSyncSelectionsRaw(
+    requestParameters: ListSyncSelectionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<SyncSelectionResponse>> {
+    const requestOptions = await this.listSyncSelectionsRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      SyncSelectionResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   */
+  async listSyncSelections(
+    requestParameters: ListSyncSelectionsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<SyncSelectionResponse> {
+    const response = await this.listSyncSelectionsRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for listSyncTargets without sending the request
+   */
+  async listSyncTargetsRequestOpts(
+    requestParameters: ListSyncTargetsRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["resourceId"] == null) {
+      throw new runtime.RequiredError(
+        "resourceId",
+        'Required parameter "resourceId" was null or undefined when calling listSyncTargets().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/resources/{resource_id}/sync-targets`;
+    urlPath = urlPath.replace(
+      "{resource_id}",
+      encodeURIComponent(String(requestParameters["resourceId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async listSyncTargetsRaw(
+    requestParameters: ListSyncTargetsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<SyncSelectionResponse>> {
+    const requestOptions = await this.listSyncTargetsRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      SyncSelectionResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   */
+  async listSyncTargets(
+    requestParameters: ListSyncTargetsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<SyncSelectionResponse> {
+    const response = await this.listSyncTargetsRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
    * Creates request options for listUserRoles without sending the request
    */
   async listUserRolesRequestOpts(
@@ -1823,6 +2075,80 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void> {
     await this.revokeRoleFromUserRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Creates request options for setSyncSelection without sending the request
+   */
+  async setSyncSelectionRequestOpts(
+    requestParameters: SetSyncSelectionRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["deviceId"] == null) {
+      throw new runtime.RequiredError(
+        "deviceId",
+        'Required parameter "deviceId" was null or undefined when calling setSyncSelection().'
+      );
+    }
+
+    if (requestParameters["syncSelectionRequest"] == null) {
+      throw new runtime.RequiredError(
+        "syncSelectionRequest",
+        'Required parameter "syncSelectionRequest" was null or undefined when calling setSyncSelection().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters["Content-Type"] = "application/json";
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/devices/{device_id}/sync-selections`;
+    urlPath = urlPath.replace(
+      "{device_id}",
+      encodeURIComponent(String(requestParameters["deviceId"]))
+    );
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+      body: SyncSelectionRequestToJSON(requestParameters["syncSelectionRequest"]),
+    };
+  }
+
+  /**
+   */
+  async setSyncSelectionRaw(
+    requestParameters: SetSyncSelectionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<SyncSelectionResponse>> {
+    const requestOptions = await this.setSyncSelectionRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      SyncSelectionResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   */
+  async setSyncSelection(
+    requestParameters: SetSyncSelectionRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<SyncSelectionResponse> {
+    const response = await this.setSyncSelectionRaw(requestParameters, initOverrides);
+    return await response.value();
   }
 
   /**

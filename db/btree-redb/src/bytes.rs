@@ -1,4 +1,4 @@
-use core::cmp::Ordering;
+use core::{any::type_name, cmp::Ordering};
 
 #[derive(Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Bytes(pub Vec<u8>);
@@ -31,12 +31,12 @@ impl redb::Value for Bytes {
         &value.0
     }
     fn type_name() -> redb::TypeName {
-        redb::TypeName::new(core::any::type_name::<Self>())
+        redb::TypeName::new(type_name::<Self>())
     }
 }
 
 impl redb::Key for Bytes {
-    fn compare(a: &[u8], b: &[u8]) -> Ordering {
-        a.cmp(b)
+    fn compare(data1: &[u8], data2: &[u8]) -> Ordering {
+        data1.cmp(data2)
     }
 }

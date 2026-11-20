@@ -27,11 +27,11 @@ use crate::{
     executor::{
         execute_in_transaction, execute_statement, resolve_row as resolve_conflicted_row,
         row_conflict_values as conflicted_row_values, row_conflicts as conflicted_row_columns,
-        row_conflicts_batch as conflicted_rows_columns,
+        row_conflicts_batch as conflicted_rows_columns, table_schema,
     },
     index::lookup as index_lookup,
     kernel::{Kernel, KernelTransaction},
-    schema::{CatalogSnapshot, index_schema},
+    schema::{CatalogSnapshot, index_schema, observe_schema},
 };
 
 #[derive(Error, Debug)]
@@ -56,6 +56,10 @@ pub enum EngineError {
 }
 
 impl EngineError {
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "accepts owned errors directly and through Result::map_err"
+    )]
     pub fn custom<T>(error: T) -> Self
     where
         T: ToString,
@@ -79,7 +83,10 @@ fn default_timestamp_provider() -> uuid::Timestamp {
     uuid::Timestamp::now(uuid::NoContext)
 }
 
-#[allow(missing_debug_implementations)]
+#[allow(
+    missing_debug_implementations,
+    reason = "kernel and reconciler contracts do not require Debug"
+)]
 pub struct Engine<K, R> {
     pub(crate) kernel: Arc<K>,
     pub(crate) reconciler: Arc<R>,
@@ -91,11 +98,11 @@ pub struct Engine<K, R> {
 impl<K, R> Clone for Engine<K, R> {
     fn clone(&self) -> Self {
         Self {
-            kernel: self.kernel.clone(),
+            kernel: Arc::clone(&self.kernel),
+            reconciler: Arc::clone(&self.reconciler),
+            timestamp_provider: self.timestamp_provider,
             #[cfg(feature = "std")]
             change_signal: self.change_signal.clone(),
-            reconciler: self.reconciler.clone(),
-            timestamp_provider: self.timestamp_provider,
         }
     }
 }
@@ -106,9 +113,9 @@ impl<K, R> From<(K, R)> for Engine<K, R> {
         Self {
             kernel: Arc::new(kernel),
             reconciler: Arc::new(reconciler),
+            timestamp_provider: default_timestamp_provider,
             #[cfg(feature = "std")]
             change_signal: ChangeSignal::default(),
-            timestamp_provider: default_timestamp_provider,
         }
     }
 }
@@ -127,14 +134,17 @@ impl<K, R> Engine<K, R> {
         Self {
             kernel: Arc::new(kernel),
             reconciler: Arc::new(reconciler),
+            timestamp_provider,
             #[cfg(feature = "std")]
             change_signal: ChangeSignal::default(),
-            timestamp_provider,
         }
     }
 }
 
-#[allow(missing_debug_implementations)]
+#[allow(
+    missing_debug_implementations,
+    reason = "kernel transactions and codecs do not require Debug"
+)]
 pub struct EngineTransaction<K, R>
 where
     K: Kernel,
@@ -152,6 +162,11 @@ where
     K: Kernel,
     R: RowCodec<K::Transaction> + MaybeSend + MaybeSync,
 {
+    /// Configures one cumulative native read budget.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a closed or aborted transaction, or unsupported limits.
     pub fn set_read_limits(&mut self, entries: usize, bytes: usize) -> EngineResult<()> {
         if self.failed {
             return Err(EngineError::InvalidQuery("Transaction is aborted"));
@@ -163,6 +178,10 @@ where
     }
 
     /// Uses the same user primary-key tuple as [`Engine::row_conflicts`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a closed or aborted transaction or failed storage reads.
     pub async fn row_conflicts(&mut self, table: &str, key: &Row) -> EngineResult<Vec<String>> {
         if self.failed {
             return Err(EngineError::InvalidQuery("Transaction is aborted"));
@@ -182,6 +201,10 @@ where
     }
 
     /// Uses user primary-key values in table-column order, as in [`Engine::row_conflicts`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a closed or aborted transaction or failed storage reads.
     pub async fn row_conflict_values(
         &self,
         table: &str,
@@ -197,6 +220,11 @@ where
         conflicted_row_values(transaction, self.engine.reconciler.as_ref(), table, key).await
     }
 
+    /// Executes statements in this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a closed transaction, failed execution, or exceeded read budget.
     pub async fn execute(&mut self, statements: Vec<Statement>) -> EngineResult<Vec<QueryResult>> {
         if self.failed {
             return Err(EngineError::InvalidQuery("Transaction is aborted"));
@@ -228,18 +256,28 @@ where
         }
     }
 
+    /// Translates and executes one SQL string in this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation or execution failure.
     pub async fn translate_and_execute<T>(
         &mut self,
         query: &str,
         translator: &T,
     ) -> EngineResult<Vec<QueryResult>>
     where
-        T: Translator,
+        T: Translator + MaybeSync,
     {
         let statements = translator.translate(query).await?;
         self.execute(statements).await
     }
 
+    /// Translates and executes one parameterized SQL string in this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation or execution failure.
     pub async fn translate_and_execute_with_params<T>(
         &mut self,
         query: &str,
@@ -247,12 +285,17 @@ where
         translator: &T,
     ) -> EngineResult<Vec<QueryResult>>
     where
-        T: Translator,
+        T: Translator + MaybeSync,
     {
         let statements = translator.translate_with_params(query, params).await?;
         self.execute(statements).await
     }
 
+    /// Commits this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an aborted or closed transaction, rollback failure, or commit failure.
     pub async fn commit(mut self) -> EngineResult<()> {
         let transaction = self
             .transaction
@@ -291,6 +334,11 @@ where
         transaction.commit().await
     }
 
+    /// Rolls back this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a closed transaction or rollback failure.
     pub async fn rollback(mut self) -> EngineResult<()> {
         let transaction = self
             .transaction
@@ -317,6 +365,11 @@ where
         &self.change_signal
     }
 
+    /// Starts an engine transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the kernel cannot begin a transaction.
     pub async fn transaction(&self) -> EngineResult<EngineTransaction<K, R>> {
         Ok(EngineTransaction {
             engine: self.clone(),
@@ -332,19 +385,26 @@ where
     /// definitions belonging to the requested tables; `Some` inspects only the named
     /// indices, in input order, and rejects missing indices.
     /// Raw states include tombstones so callers can validate catalog history membership.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for missing indices, invalid catalog state, or storage failure.
     pub async fn observe_schema(
         &self,
         tables: &[&str],
         indices: Option<&[&str]>,
     ) -> EngineResult<SchemaObservation> {
         let transaction = self.kernel.transaction().await?;
-        let result =
-            crate::schema::observe_schema(&transaction, self.reconciler.as_ref(), tables, indices)
-                .await;
+        let result = observe_schema(&transaction, self.reconciler.as_ref(), tables, indices).await;
         transaction.rollback().await?;
         result
     }
 
+    /// Reads one index definition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a missing index or storage failure.
     pub async fn index_schema(&self, name: &str) -> EngineResult<IndexSchema> {
         let transaction = self.kernel.transaction().await?;
         let schema = index_schema(&transaction, self.reconciler.as_ref(), name, None).await?;
@@ -354,6 +414,11 @@ where
             .ok_or(EngineError::InvalidQuery("Index not found"))
     }
 
+    /// Looks up one row through an index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid index key or storage failure.
     pub async fn index_lookup(&self, name: &str, values: &Row) -> EngineResult<Option<Row>> {
         let transaction = self.kernel.transaction().await?;
         let row = index_lookup(&transaction, self.reconciler.as_ref(), name, values).await?;
@@ -361,14 +426,23 @@ where
         Ok(row.map(|(_, row)| row))
     }
 
+    /// Reads one table definition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a missing table or storage failure.
     pub async fn table_schema(&self, name: &str) -> EngineResult<TableSchema> {
         let transaction = self.kernel.transaction().await?;
-        let schema =
-            crate::executor::table_schema(&transaction, self.reconciler.as_ref(), name).await?;
+        let schema = table_schema(&transaction, self.reconciler.as_ref(), name).await?;
         transaction.rollback().await?;
         Ok(schema)
     }
 
+    /// Creates a table.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid schema, an existing table, or execution failure.
     pub async fn create_table(&self, table_schema: TableSchema) -> EngineResult<()> {
         self.execute(vec![Statement::DataDefinition(
             query::DataDefinition::CreateTable {
@@ -380,6 +454,11 @@ where
         Ok(())
     }
 
+    /// Drops a table.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a missing table or execution failure.
     pub async fn drop_table(&self, table_name: &str) -> EngineResult<()> {
         self.execute(vec![Statement::DataDefinition(
             query::DataDefinition::DropTable {
@@ -391,6 +470,11 @@ where
         Ok(())
     }
 
+    /// Translates and executes one parameterized SQL string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation or execution failure.
     pub async fn translate_and_execute_with_params<T>(
         &self,
         query: &str,
@@ -398,31 +482,45 @@ where
         translator: &T,
     ) -> EngineResult<Vec<QueryResult>>
     where
-        T: Translator,
+        T: Translator + MaybeSync,
     {
         let statements = translator.translate_with_params(query, params).await?;
         self.execute(statements).await
     }
 
+    /// Translates and executes one SQL string.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation or execution failure.
     pub async fn translate_and_execute<T>(
         &self,
         query: &str,
         translator: &T,
     ) -> EngineResult<Vec<QueryResult>>
     where
-        T: Translator,
+        T: Translator + MaybeSync,
     {
         let statements = translator.translate(query).await?;
         self.execute(statements).await
     }
 
+    /// Translates a query and decodes its single result into typed rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for translation, execution, missing results, or row decoding failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the result list is unexpectedly empty after its length check.
     pub async fn translate_and_select<T, U>(
         &self,
         query: &str,
         translator: &T,
     ) -> EngineResult<Vec<U>>
     where
-        T: Translator,
+        T: Translator + MaybeSync,
         U: FromRow,
     {
         let mut results = self.translate_and_execute(query, translator).await?;
@@ -436,12 +534,21 @@ where
             .map_err(EngineError::custom)
     }
 
+    /// Executes statements in a new transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for execution or transaction failure.
     pub async fn execute(&self, statements: Vec<Statement>) -> EngineResult<Vec<QueryResult>> {
         execute_statement(self, statements).await
     }
 
     /// Apply an inbound change from push-based sync.
     /// This is used by the push-sync protocol to apply remote changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid changes, commit failure, or rollback failure.
     #[cfg(feature = "std")]
     pub async fn apply_inbound_change(
         &self,
@@ -470,6 +577,10 @@ where
 
     /// Keys contain user primary-key values in table-column order, independent of index order.
     /// Missing keys return no conflicts; internal row identities are not accepted as natural keys.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or catalog failure.
     pub async fn row_conflicts(&self, table_name: &str, key: &Row) -> EngineResult<Vec<String>> {
         let transaction = self.kernel.transaction().await?;
         let result = conflicted_row_columns(
@@ -486,6 +597,10 @@ where
 
     /// Inspects keys in input order using one fresh snapshot.
     /// Empty input is a no-op; the first error aborts inspection without partial results.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or catalog failure.
     pub async fn row_conflicts_batch(
         &self,
         table_name: &str,
@@ -505,6 +620,10 @@ where
     }
 
     /// Uses user primary-key values in table-column order, as in [`Engine::row_conflicts`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or catalog failure.
     pub async fn row_conflict_values(
         &self,
         table_name: &str,
@@ -518,6 +637,10 @@ where
     }
 
     /// Resolves a row by its user primary-key values in table-column order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid values, commit failure, or rollback failure.
     pub async fn resolve_row(
         &self,
         table_name: &str,

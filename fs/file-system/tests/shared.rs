@@ -1,11 +1,13 @@
+use std::{env, fs};
+
 use file_system::{FileSystemCatalog, Residency};
 use ofdb_kv::SharedDatabase;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn shared_filesystem_retains_content_catalog_and_retirement_in_one_file() {
-    let root = std::env::temp_dir().join(format!("offs-shared-{}", Uuid::now_v7()));
-    std::fs::create_dir(&root).expect("host root");
+    let root = env::temp_dir().join(format!("offs-shared-{}", Uuid::now_v7()));
+    fs::create_dir(&root).expect("host root");
     let path = root.join("unified.redb");
     let host = SharedDatabase::create(&path).expect("host");
     let catalog = FileSystemCatalog::open_shared(&host, "owner/app").expect("catalog");
@@ -49,27 +51,28 @@ async fn shared_filesystem_retains_content_catalog_and_retirement_in_one_file() 
         .await
         .expect("retire copy");
     fs.read("saved.txt").await.unwrap_err();
-    assert!(catalog.open_filesystem(resource.id, 1_u8).await.is_err());
+    catalog
+        .open_filesystem(resource.id, 1_u8)
+        .await
+        .expect_err("retired filesystem remains closed");
     assert_eq!(
         catalog.list().await.expect("identity retained"),
         vec![resource.clone()]
     );
     assert!(path.is_file());
-    assert_eq!(
-        std::fs::read_dir(&root)
-            .expect("single file layout")
-            .count(),
-        1
-    );
+    assert_eq!(fs::read_dir(&root).expect("single file layout").count(), 1);
     drop(fs);
     drop(catalog);
     drop(host);
     let host = SharedDatabase::create(&path).expect("restart retired host");
     let catalog = FileSystemCatalog::open_shared(&host, "owner/app").expect("retained catalog");
-    assert!(catalog.open_filesystem(resource.id, 1_u8).await.is_err());
+    catalog
+        .open_filesystem(resource.id, 1_u8)
+        .await
+        .expect_err("retired filesystem remains closed");
     catalog.delete(resource.id).await.expect("delete identity");
     assert!(catalog.snapshot().await.expect("tombstone")[0].deleted);
     drop(catalog);
     drop(host);
-    std::fs::remove_dir_all(root).expect("cleanup");
+    fs::remove_dir_all(root).expect("cleanup");
 }

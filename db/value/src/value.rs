@@ -1,4 +1,3 @@
-use std::any::type_name;
 #[cfg(all(not(feature = "std"), feature = "wasm"))]
 use alloc::{boxed::Box, format};
 #[cfg(not(feature = "std"))]
@@ -6,6 +5,8 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
+#[cfg(feature = "redb")]
+use std::any::type_name;
 
 use core::{
     cmp::Ordering,

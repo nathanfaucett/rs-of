@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, error::Error, io};
 
 use value::Row;
 
@@ -81,7 +81,7 @@ pub enum RunnerError {
     #[error("State convergence failure: {0}")]
     StateConvergenceFailure(String),
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("Chaos failure: {0}")]
     Chaos(String),
 }
@@ -106,7 +106,7 @@ pub(super) fn verify_step_result(step: &Step, actual: Vec<Row>) -> Result<(), Ru
 }
 
 pub trait TestRunner {
-    type Error: std::error::Error + Send + Sync + 'static;
+    type Error: Error + Send + Sync + 'static;
 
     fn run_case(&self, case: &TestCase) -> impl Future<Output = Result<(), Self::Error>> + Send;
 

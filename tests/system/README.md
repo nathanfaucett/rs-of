@@ -55,4 +55,4 @@ The scenarios use bounded startup/request/protocol waits and reduced test passwo
 
 One-process local composition is not evidence of multi-Node replication. Device revocation tests are not evidence of Resource ownership transfer or remote erasure; neither is a target guarantee. Database-file layout in one test is not a requirement for every deployment; see [backend deployments](../../docs/backend-deployments.md).
 
-[e2e/README.md](../../e2e/README.md) documents browser/backend commands. [e2e/runtime-validation.md](../../e2e/runtime-validation.md) contains commit-specific historical results, not current evidence without a new run.
+[e2e/README.md](../../e2e/README.md) documents browser/backend commands. GitHub Actions records current and historical results.

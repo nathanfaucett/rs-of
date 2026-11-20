@@ -143,7 +143,8 @@ async fn websocket_rejects_wrong_resource_before_sending_credentials() {
         assert!(!matches!(socket.next().await, Some(Ok(Message::Binary(_)))));
     });
     OwnerTransport::connect(&url, &identity(), "must-not-leak".into())
-            .await.unwrap_err();
+        .await
+        .unwrap_err();
     server.await.expect("server task");
 }
 

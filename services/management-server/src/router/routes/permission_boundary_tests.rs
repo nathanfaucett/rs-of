@@ -17,6 +17,7 @@ use of_model::idp::contract::permission_evaluation::IdentityResource;
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
 use of_model::idp::contract::permission_evaluation::PermissionSubject;
 use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use of_model::server::management::permissions::{CreatePermissionRequest, ListPermissionsQuery};
 
 use crate::router::{
     middleware::management_authorization::ManagementAuthorization,
@@ -30,7 +31,9 @@ async fn typed_evaluation_separates_application_and_installation_assignments() {
     std::fs::create_dir_all(&root).expect("create isolated test directory");
     let engine =
         Arc::new(ofdb_sql::Database::open(root.join("management.redb")).expect("open test engine"));
-    up(&engine).await.expect("initialize policy schema");
+    up(&engine.client())
+        .await
+        .expect("initialize policy schema");
     let state = state(Arc::clone(&engine));
     let service = &state.management_service;
     let app = Id::now_v7();
@@ -237,7 +240,7 @@ async fn all_rbac_routes_reject_cross_application_before_repository_access() {
     denied!(permissions::list_permissions(
         State(state.clone()),
         Path(target_app),
-        Query(permissions::ListPermissionsQuery {
+        Query(ListPermissionsQuery {
             offset: 0,
             limit: 10
         }),
@@ -247,7 +250,7 @@ async fn all_rbac_routes_reject_cross_application_before_repository_access() {
         State(state.clone()),
         Path(target_app),
         authorization(),
-        Json(permissions::CreatePermissionRequest {
+        Json(CreatePermissionRequest {
             name: "unauthorized".into(),
             description: None
         })
@@ -283,7 +286,9 @@ async fn application_permission_requires_live_assignment_and_does_not_expose_oth
     std::fs::create_dir_all(&root).expect("create isolated test directory");
     let engine =
         Arc::new(ofdb_sql::Database::open(root.join("management.redb")).expect("open engine"));
-    up(&engine).await.expect("initialize Management schema");
+    up(&engine.client())
+        .await
+        .expect("initialize Management schema");
     let state = state(Arc::clone(&engine));
     let service = state.management_service.as_ref();
     let app = Id::now_v7();

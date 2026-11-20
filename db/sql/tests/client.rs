@@ -1,5 +1,8 @@
 #![cfg(all(any(feature = "in-memory", feature = "redb"), feature = "sql"))]
 
+use core::future::pending;
+use std::time::Duration;
+
 use futures::executor::block_on;
 use ofdb_sql::{
     Database, FromRow, FromRowError, QueryParams, Row, SqlTranslator, Statement, TranslateError,
@@ -43,7 +46,7 @@ impl FromRow for NamedRow {
 
 #[cfg(all(feature = "in-memory", feature = "sql"))]
 #[test]
-#[ignore]
+#[ignore = "pre-existing disabled test"]
 fn embedded_client_exposes_generic_translator_helpers() {
     block_on(async {
         let database = Database::in_memory();
@@ -127,8 +130,8 @@ impl Translator for PendingTranslator {
         &self,
         _query: &str,
         _params: Option<&QueryParams>,
-    ) -> impl core::future::Future<Output = Result<Vec<Statement>, TranslateError>> {
-        core::future::pending()
+    ) -> impl Future<Output = Result<Vec<Statement>, TranslateError>> {
+        pending()
     }
 }
 
@@ -137,9 +140,7 @@ impl Translator for PendingTranslator {
 async fn deadline_covers_translation_and_is_independent_per_clone() {
     let database = Database::in_memory();
     let base = database.client();
-    let timed = base
-        .clone()
-        .with_deadline(std::time::Duration::from_millis(1));
+    let timed = base.clone().with_deadline(Duration::from_millis(1));
     let error = timed
         .translate_and_execute("pending", &PendingTranslator)
         .await

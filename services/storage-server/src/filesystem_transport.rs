@@ -25,7 +25,7 @@ use file_system::{
     OpenRequest, ScanPage, SessionRequest, SyncMessage, Transport,
 };
 
-pub(crate) const FILESYSTEM_STREAM_KIND: u8 = 2;
+pub const FILESYSTEM_STREAM_KIND: u8 = 2;
 
 const IROH_FILE_PROTOCOL_VERSION: u8 = 2;
 
@@ -34,7 +34,7 @@ const MAX_PENDING_RESPONSES: usize = 1;
 const MAX_READ_RESPONSE_CHUNK_BYTES: usize = MAX_FILESYSTEM_SYNC_FRAME_SIZE - 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct IrohResourceDescriptor {
+pub struct IrohResourceDescriptor {
     pub owner_subject: String,
     pub application_id: String,
     pub filesystem_id: String,
@@ -75,7 +75,7 @@ struct Inner {
     shutdown: watch::Sender<bool>,
 }
 
-pub(crate) struct IrohFileTransport {
+pub struct IrohFileTransport {
     inner: Arc<Inner>,
 }
 
@@ -475,7 +475,7 @@ impl IrohFileTransport {
     }
 }
 
-pub(crate) struct IrohFileHandle {
+pub struct IrohFileHandle {
     transport: IrohFileTransport,
     handle: FileHandleId,
     revision: uuid::Uuid,
@@ -484,11 +484,7 @@ pub(crate) struct IrohFileHandle {
 impl FileHandle<EndpointId> for IrohFileHandle {
     type Error = Error;
 
-    fn read<'a>(
-        &'a mut self,
-        offset: u64,
-        length: u32,
-    ) -> FileFuture<'a, Result<bytes::Bytes, Error>> {
+    fn read(&mut self, offset: u64, length: u32) -> FileFuture<'_, Result<bytes::Bytes, Error>> {
         Box::pin(async move {
             let responses = self
                 .transport
@@ -511,11 +507,7 @@ impl FileHandle<EndpointId> for IrohFileHandle {
         })
     }
 
-    fn write<'a>(
-        &'a mut self,
-        offset: u64,
-        data: bytes::Bytes,
-    ) -> FileFuture<'a, Result<u32, Error>> {
+    fn write(&mut self, offset: u64, data: bytes::Bytes) -> FileFuture<'_, Result<u32, Error>> {
         Box::pin(async move {
             match self
                 .transport
@@ -539,11 +531,11 @@ impl FileHandle<EndpointId> for IrohFileHandle {
         })
     }
 
-    fn scan<'a>(
-        &'a mut self,
+    fn scan(
+        &mut self,
         cursor: Option<String>,
         limit: u32,
-    ) -> FileFuture<'a, Result<ScanPage<EndpointId>, Error>> {
+    ) -> FileFuture<'_, Result<ScanPage<EndpointId>, Error>> {
         Box::pin(async move {
             match self
                 .transport
@@ -731,13 +723,12 @@ fn close_stream(inner: &Inner) {
 
 fn subscribe<T: Clone>(sender: &StdMutex<Option<broadcast::Sender<T>>>) -> broadcast::Receiver<T> {
     let sender = sender.lock().expect("Iroh broadcast lock poisoned");
-    match sender.as_ref() {
-        Some(sender) => sender.subscribe(),
-        None => {
-            let (sender, receiver) = broadcast::channel(1);
-            drop(sender);
-            receiver
-        }
+    if let Some(sender) = sender.as_ref() {
+        sender.subscribe()
+    } else {
+        let (sender, receiver) = broadcast::channel(1);
+        drop(sender);
+        receiver
     }
 }
 
@@ -905,7 +896,7 @@ mod authorization_tests {
         time::Duration,
     };
 
-    use tokio::sync::{Mutex, broadcast, mpsc, oneshot, watch};
+    use tokio::sync::{Mutex as TokioMutex, broadcast, mpsc, oneshot, watch};
 
     use super::{FrameAuthorizer, Inner, close_stream, send_response};
     use file_system::{FileResponse, FileServiceError};
@@ -1009,7 +1000,7 @@ mod authorization_tests {
             metadata: std::sync::Mutex::new(Some(metadata)),
             sessions: std::sync::Mutex::new(Some(sessions)),
             sessions_ready: watch::channel(false).0,
-            pending: StdMutex::new(BTreeMap::new()),
+            pending: TokioMutex::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),
             transport_handles: AtomicUsize::new(1),
             shutdown: watch::channel(false).0,
@@ -1020,7 +1011,7 @@ mod authorization_tests {
             .expect_err("policy denial must block response send");
 
         assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
-        assert!(received.try_recv().is_err());
+        received.try_recv().unwrap_err();
     }
 
     #[tokio::test]
@@ -1057,7 +1048,7 @@ mod authorization_tests {
             metadata: std::sync::Mutex::new(Some(metadata)),
             sessions: std::sync::Mutex::new(Some(sessions)),
             sessions_ready: watch::channel(false).0,
-            pending: StdMutex::new(BTreeMap::new()),
+            pending: TokioMutex::new(BTreeMap::new()),
             next_id: AtomicU64::new(1),
             transport_handles: AtomicUsize::new(1),
             shutdown: watch::channel(false).0,

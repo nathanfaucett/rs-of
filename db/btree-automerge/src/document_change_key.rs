@@ -24,7 +24,11 @@ pub struct DocumentChangeKey {
 
 impl DocumentChangeKey {
     #[must_use]
-    pub const fn new(id: DocumentId, r#type: DocumentType, change_hash: DocumentChangeHash) -> Self {
+    pub const fn new(
+        id: DocumentId,
+        r#type: DocumentType,
+        change_hash: DocumentChangeHash,
+    ) -> Self {
         Self {
             id,
             r#type,
@@ -103,6 +107,15 @@ impl DocumentChangeKey {
         bytes
     }
 
+    /// Decodes an ordered storage key.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BTreeError::InvalidDocument` when the key is malformed.
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "all malformed key encodings have one stable error"
+    )]
     pub fn decode_ordered(bytes: &[u8]) -> Result<Self, BTreeError> {
         let mut id = Vec::new();
         let mut index = 0;

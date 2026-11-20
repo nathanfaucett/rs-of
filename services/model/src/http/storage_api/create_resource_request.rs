@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * Storage Server
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CreateResourceRequest {
     #[serde(
         rename = "name",
@@ -22,8 +23,7 @@ pub struct CreateResourceRequest {
 }
 
 impl CreateResourceRequest {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self { name: None }
+    pub fn new() -> CreateResourceRequest {
+        CreateResourceRequest { name: None }
     }
 }

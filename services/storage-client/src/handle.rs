@@ -1,7 +1,22 @@
+use core::{fmt, result::Result as CoreResult};
+#[cfg(any(
+    all(feature = "native", not(target_arch = "wasm32")),
+    all(feature = "browser", target_arch = "wasm32")
+))]
+use std::env;
+
+use ofdb_kv::history::{
+    Config as KvConfig, SyncRole as KvSyncRole, SyncTransport as KvSyncTransport,
+};
 use ofdb_sql::history::{SessionConfig, SyncResult, SyncRole, SyncTransport};
 use ofdb_sql::{Database, QueryParams, QueryResult};
 use uuid::Uuid;
 
+#[cfg(any(
+    all(feature = "native", not(target_arch = "wasm32")),
+    all(feature = "browser", target_arch = "wasm32")
+))]
+use crate::transport::OwnerTransport;
 use crate::{
     error::{Result, StorageClientError},
     protocol::StoreIdentity,
@@ -35,6 +50,10 @@ impl SqlDatabaseHandle {
     pub const fn database_mut(&mut self) -> &mut Database {
         &mut self.database
     }
+    /// Executes one SQL statement.
+    ///
+    /// # Errors
+    /// Returns an error for database failure or a missing result.
     pub async fn execute(&self, sql: &str) -> Result<QueryResult> {
         self.database
             .client()
@@ -45,6 +64,10 @@ impl SqlDatabaseHandle {
             .next()
             .ok_or_else(|| StorageClientError::Database("no result".into()))
     }
+    /// Executes one parameterized SQL statement.
+    ///
+    /// # Errors
+    /// Returns an error for database failure or a missing result.
     pub async fn execute_with_params(&self, sql: &str, params: QueryParams) -> Result<QueryResult> {
         self.database
             .client()
@@ -55,6 +78,10 @@ impl SqlDatabaseHandle {
             .next()
             .ok_or_else(|| StorageClientError::Database("no result".into()))
     }
+    /// Opens a SQL transaction.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot start the transaction.
     pub async fn transaction(&self) -> Result<ofdb_sql::Transaction> {
         self.database
             .client()
@@ -64,6 +91,9 @@ impl SqlDatabaseHandle {
     }
     /// Exchanges typed SQL history on an owner-admitted resource stream.
     /// The check must reject revoked authorization or cancellation before each apply.
+    ///
+    /// # Errors
+    /// Returns an error if transport, authorization, staging, or history application fails.
     pub async fn synchronize_with<T, Q, U>(
         &self,
         transport: &mut T,
@@ -73,10 +103,10 @@ impl SqlDatabaseHandle {
         check: Q,
     ) -> Result<SyncResult>
     where
-        T: SyncTransport,
-        T::Error: core::fmt::Display,
+        T: SyncTransport + ofdb_platform::MaybeSend,
+        T::Error: fmt::Display + ofdb_platform::MaybeSend,
         Q: FnMut() -> U + ofdb_platform::MaybeSend,
-        U: Future<Output = core::result::Result<(), String>> + ofdb_platform::MaybeSend,
+        U: Future<Output = CoreResult<(), String>> + ofdb_platform::MaybeSend,
     {
         self.database
             .exchange_resource_history(transport, config, role, staging_directory, check)
@@ -87,15 +117,19 @@ impl SqlDatabaseHandle {
         all(feature = "native", not(target_arch = "wasm32")),
         all(feature = "browser", target_arch = "wasm32")
     ))]
+    /// Synchronizes through the configured owner transport.
+    ///
+    /// # Errors
+    /// Returns an error for token, transport, staging, or history failure.
     pub async fn synchronize(&self, config: Option<SessionConfig>) -> Result<SyncResult> {
         let token = (self.token_provider)().await?;
-        let mut transport = crate::transport::OwnerTransport::connect(
+        let mut transport = OwnerTransport::connect(
             &self.transport_config.sync_ws_url,
             &self.store_identity,
             token,
         )
         .await?;
-        let directory = std::env::temp_dir()
+        let directory = env::temp_dir()
             .join("of-storage-client")
             .join(self.resource_id().to_string())
             .join(self.store_identity.replica_id.to_string());
@@ -122,8 +156,8 @@ impl SqlDatabaseHandle {
         self.store_identity.store_id
     }
 }
-impl core::fmt::Debug for SqlDatabaseHandle {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for SqlDatabaseHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SqlDatabaseHandle")
             .field("resource_id", &self.resource_id())
             .finish()
@@ -147,18 +181,21 @@ impl KvStoreHandle {
         &self.database
     }
     /// Exchanges KV v3 history on an owner-admitted resource stream.
+    ///
+    /// # Errors
+    /// Returns an error if transport, authorization, or history application fails.
     pub async fn synchronize_with<T, Q, U>(
         &self,
         transport: &mut T,
-        role: ofdb_kv::history::SyncRole,
-        config: ofdb_kv::history::Config,
+        role: KvSyncRole,
+        config: KvConfig,
         check: Q,
     ) -> Result<()>
     where
-        T: ofdb_kv::history::SyncTransport,
-        T::Error: core::fmt::Display,
-        Q: FnMut() -> U,
-        U: Future<Output = core::result::Result<(), String>>,
+        T: KvSyncTransport + ofdb_platform::MaybeSend,
+        T::Error: fmt::Display + ofdb_platform::MaybeSend,
+        Q: FnMut() -> U + ofdb_platform::MaybeSend,
+        U: Future<Output = CoreResult<(), String>> + ofdb_platform::MaybeSend,
     {
         self.database
             .exchange_history(transport, role, config, check)
@@ -174,8 +211,8 @@ impl KvStoreHandle {
         self.store_identity.store_id
     }
 }
-impl core::fmt::Debug for KvStoreHandle {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for KvStoreHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("KvStoreHandle")
             .field("resource_id", &self.resource_id())
             .finish()
@@ -199,8 +236,8 @@ impl FilesystemHandle {
         self.store_identity.store_id
     }
 }
-impl core::fmt::Debug for FilesystemHandle {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for FilesystemHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FilesystemHandle")
             .field("resource_id", &self.resource_id())
             .finish()

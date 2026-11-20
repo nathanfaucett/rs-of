@@ -1,5 +1,7 @@
 use alloc::vec::Vec;
 use std::{
+    fmt, fs,
+    future::ready,
     io::{self, Read, Seek, Write},
     path::{Path, PathBuf},
     sync::Arc,
@@ -24,18 +26,17 @@ struct Tracking {
     closed: Arc<StageClosed>,
 }
 
-impl core::fmt::Debug for Tracking {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for Tracking {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Tracking")
             .field("created", &"<callback>")
             .field("closed", &"<callback>")
             .finish()
     }
 }
-impl core::fmt::Debug for FileSyncStageFactory {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter
-            .debug_struct("FileSyncStageFactory")
+impl fmt::Debug for FileSyncStageFactory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FileSyncStageFactory")
             .field("directory", &self.directory)
             .finish_non_exhaustive()
     }
@@ -43,6 +44,7 @@ impl core::fmt::Debug for FileSyncStageFactory {
 impl FileSyncStageFactory {
     /// Records exact owner-created filenames for resource retirement. Successful
     /// close forgets them; failures remain recorded for durable cleanup retry.
+    #[must_use]
     pub fn with_file_tracking(
         mut self,
         created: impl Fn(&Path) -> io::Result<()> + Send + Sync + 'static,
@@ -61,12 +63,9 @@ impl FileSyncStageFactory {
             tracking: None,
         }
     }
-}
-impl SyncStageFactory for FileSyncStageFactory {
-    type Stage = FileSyncStage;
-    type Error = io::Error;
-    async fn create(&self) -> io::Result<FileSyncStage> {
-        std::fs::create_dir_all(&self.directory)?;
+
+    fn create_sync(&self) -> io::Result<FileSyncStage> {
+        fs::create_dir_all(&self.directory)?;
         let file = tempfile::Builder::new()
             .prefix("ofdb-sync-")
             .suffix(".stage")
@@ -81,6 +80,13 @@ impl SyncStageFactory for FileSyncStageFactory {
         })
     }
 }
+impl SyncStageFactory for FileSyncStageFactory {
+    type Stage = FileSyncStage;
+    type Error = io::Error;
+    fn create(&self) -> impl Future<Output = io::Result<FileSyncStage>> + Send {
+        ready(self.create_sync())
+    }
+}
 
 #[derive(Debug)]
 pub struct FileSyncStage {
@@ -89,34 +95,21 @@ pub struct FileSyncStage {
     tracking: Option<Tracking>,
 }
 impl FileSyncStage {
-    /// Closes the handle and removes the file, reporting cleanup failure explicitly.
-    /// Drop also attempts cleanup and reports errors to stderr, without masking a session error.
-    pub fn close(mut self) -> io::Result<()> {
-        let file = self.file.take().expect("stage owns file");
-        let path = file.path().to_path_buf();
-        file.close()?;
-        if let Some(tracking) = &self.tracking {
-            (tracking.closed)(&path);
-        }
-        Ok(())
-    }
-}
-impl SyncStage for FileSyncStage {
-    type Error = io::Error;
-    async fn append(&mut self, record: Vec<u8>) -> io::Result<()> {
+    fn append_sync(&mut self, record: &[u8]) -> io::Result<()> {
         if self.finished {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "sync stage is finished",
             ));
         }
-        let length = u64::try_from(record.len())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "record length overflow"))?;
+        let length = u64::try_from(record.len()).map_err(|_error| {
+            io::Error::new(io::ErrorKind::InvalidInput, "record length overflow")
+        })?;
         let file = self.file.as_mut().expect("stage owns file");
         file.write_all(&length.to_be_bytes())?;
-        file.write_all(&record)
+        file.write_all(record)
     }
-    async fn finish(&mut self) -> io::Result<()> {
+    fn finish_sync(&mut self) -> io::Result<()> {
         if !self.finished {
             let file = self.file.as_mut().expect("stage owns file");
             file.flush()?;
@@ -125,7 +118,7 @@ impl SyncStage for FileSyncStage {
         }
         Ok(())
     }
-    async fn next_record(&mut self) -> io::Result<Option<Vec<u8>>> {
+    fn next_record_sync(&mut self) -> io::Result<Option<Vec<u8>>> {
         if !self.finished {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -150,7 +143,7 @@ impl SyncStage for FileSyncStage {
                 "truncated sync stage record",
             ));
         }
-        let length = usize::try_from(length).map_err(|_| {
+        let length = usize::try_from(length).map_err(|_error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid sync stage record length",
@@ -161,6 +154,40 @@ impl SyncStage for FileSyncStage {
         record.resize(length, 0);
         file.read_exact(&mut record)?;
         Ok(Some(record))
+    }
+
+    /// Closes the handle and removes the file, reporting cleanup failure explicitly.
+    /// Drop also attempts cleanup and reports errors to stderr, without masking a session error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if closing or removing the temporary file fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stage no longer owns its temporary file.
+    pub fn close(mut self) -> io::Result<()> {
+        let file = self.file.take().expect("stage owns file");
+        let path = file.path().to_path_buf();
+        file.close()?;
+        if let Some(tracking) = &self.tracking {
+            (tracking.closed)(&path);
+        }
+        Ok(())
+    }
+}
+impl SyncStage for FileSyncStage {
+    type Error = io::Error;
+    fn append(&mut self, record: Vec<u8>) -> impl Future<Output = io::Result<()>> + Send {
+        ready(self.append_sync(&record))
+    }
+
+    fn finish(&mut self) -> impl Future<Output = io::Result<()>> + Send {
+        ready(self.finish_sync())
+    }
+
+    fn next_record(&mut self) -> impl Future<Output = io::Result<Option<Vec<u8>>>> + Send {
+        ready(self.next_record_sync())
     }
 }
 impl Drop for FileSyncStage {

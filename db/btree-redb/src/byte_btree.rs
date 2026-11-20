@@ -134,7 +134,12 @@ impl BTreeTransaction<Vec<u8>, Vec<u8>> for RedbByteBTreeTransaction {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    #![allow(
+        clippy::significant_drop_tightening,
+        reason = "test transactions are consumed by commit"
+    )]
+
+    use std::{env, fs, path::PathBuf};
 
     use futures::{StreamExt, executor::block_on};
 
@@ -144,7 +149,7 @@ mod tests {
     fn byte_keys_use_lexicographic_ranges() {
         block_on(async {
             let path: PathBuf =
-                std::env::temp_dir().join(format!("byte-tree-{}.db", uuid::Uuid::now_v7()));
+                env::temp_dir().join(format!("byte-tree-{}.db", uuid::Uuid::now_v7()));
             let db = Arc::new(Database::create(&path).expect("create database"));
             let tree = RedbByteBTree::new(db, "bytes");
             let mut tx = tree.transaction().await.expect("begin transaction");
@@ -160,7 +165,7 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(keys, vec![vec![0], vec![0, 1]]);
             drop(tree);
-            std::fs::remove_file(path).expect("remove database");
+            fs::remove_file(path).expect("remove database");
         });
     }
 }

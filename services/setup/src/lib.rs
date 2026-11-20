@@ -63,7 +63,7 @@ pub use setup_routes::{setup_origin, setup_origin_guard, setup_router};
 pub use setup_scope::SetupScope;
 #[cfg(unix)]
 pub use setup_server::serve_setup;
-#[cfg(all(unix, feature = "testing"))]
+#[cfg(all(unix, feature = "test-support"))]
 pub use setup_server::serve_setup_verified;
 
 #[cfg(all(test, unix))]

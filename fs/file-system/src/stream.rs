@@ -1,4 +1,9 @@
-use std::sync::Arc;
+use std::{
+    fmt,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use bytes::Bytes;
 use futures_core::Stream;
@@ -12,10 +17,10 @@ pub struct ReadStream {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-type BoxStream = std::pin::Pin<Box<dyn Stream<Item = Result<Bytes, Error>> + Send>>;
+type BoxStream = Pin<Box<dyn Stream<Item = Result<Bytes, Error>> + Send>>;
 
 #[cfg(target_arch = "wasm32")]
-type BoxStream = std::pin::Pin<Box<dyn Stream<Item = Result<Bytes, Error>>>>;
+type BoxStream = Pin<Box<dyn Stream<Item = Result<Bytes, Error>>>>;
 
 struct Chunks {
     content: Arc<dyn ContentObject>,
@@ -89,16 +94,13 @@ impl ReadStream {
 impl Stream for ReadStream {
     type Item = Result<Bytes, Error>;
 
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        context: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.inner.as_mut().poll_next(context)
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.inner.as_mut().poll_next(cx)
     }
 }
 
-impl core::fmt::Debug for ReadStream {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter.debug_struct("ReadStream").finish_non_exhaustive()
+impl fmt::Debug for ReadStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReadStream").finish_non_exhaustive()
     }
 }

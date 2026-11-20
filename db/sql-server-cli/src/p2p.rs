@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     fs::{self, OpenOptions},
     io::{Error, ErrorKind, Write},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -10,7 +10,7 @@ use std::{
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets};
 use ofdb_sql::Database;
 use sync::{IrohTransport, PushSynchronizeConfig as SynchronizeConfig};
-use tokio::sync::watch;
+use tokio::{sync::watch, time::interval};
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
@@ -19,7 +19,7 @@ const ALPN: &[u8] = b"ofdb/sql/sync/1";
 
 pub async fn run(
     database: Arc<Database>,
-    secret_path: std::path::PathBuf,
+    secret_path: PathBuf,
     peers: Vec<EndpointId>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), Error> {
@@ -33,7 +33,7 @@ pub async fn run(
     let allowed_peers = Arc::new(peers.iter().copied().collect::<HashSet<_>>());
     eprintln!("SQL sync node id: {}", endpoint.id());
 
-    let mut sync_interval = tokio::time::interval(Duration::from_secs(30));
+    let mut sync_interval = interval(Duration::from_secs(30));
     loop {
         tokio::select! {
             changed = shutdown.changed() => {
@@ -148,7 +148,10 @@ fn load_secret_key(path: &Path) -> Result<SecretKey, Error> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        env, fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use super::load_secret_key;
 
@@ -158,13 +161,13 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock follows Unix epoch")
             .as_nanos();
-        let directory = std::env::temp_dir().join(format!("ofdb-sql-identity-{nonce}"));
+        let directory = env::temp_dir().join(format!("ofdb-sql-identity-{nonce}"));
         let path = directory.join("node.key");
 
         let first = load_secret_key(&path).expect("create node identity");
         let second = load_secret_key(&path).expect("reload node identity");
         assert_eq!(first.public(), second.public());
 
-        std::fs::remove_dir_all(directory).expect("remove temporary identity directory");
+        fs::remove_dir_all(directory).expect("remove temporary identity directory");
     }
 }

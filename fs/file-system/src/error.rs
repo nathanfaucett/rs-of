@@ -1,4 +1,4 @@
-use std::{fmt, io};
+use std::{error::Error as StdError, fmt, io};
 
 #[derive(Debug)]
 pub enum Error {
@@ -29,51 +29,46 @@ pub enum Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidPath => {
-                formatter.write_str("path must be relative and cannot use reserved components")
+                f.write_str("path must be relative and cannot use reserved components")
             }
-            Self::InvalidResourceId => formatter.write_str("filesystem ID must be a UUIDv7"),
-            Self::NotFound => formatter.write_str("path was not found"),
-            Self::NotDirectory => formatter.write_str("path is not a directory"),
-            Self::IsDirectory => formatter.write_str("path names a directory"),
-            Self::TypeConflict => formatter.write_str("path conflicts with an existing entry type"),
-            Self::AlreadyExists => formatter.write_str("destination already exists"),
-            Self::InvalidChunkSize => formatter.write_str("chunk size must not be zero"),
-            Self::InvalidReadLength => formatter.write_str("read length is too large"),
-            Self::InvalidScanLimit => formatter.write_str("scan limit is too large"),
-            Self::InvalidScanCursor => formatter.write_str("scan cursor is invalid"),
-            Self::StaleRevision => formatter.write_str("file handle revision is stale"),
-            Self::ContentUnavailable => formatter.write_str("content is unavailable"),
-            Self::PassthroughWrite => formatter.write_str("writes require full residency"),
-            Self::Offline => formatter.write_str("storage is offline"),
-            Self::PermissionDenied => formatter.write_str("operation denied by local policy"),
-            Self::Cancelled => formatter.write_str("sync execution cancelled"),
-            Self::NoPeers => formatter.write_str("no peers are online"),
+            Self::InvalidResourceId => f.write_str("filesystem ID must be a UUIDv7"),
+            Self::NotFound => f.write_str("path was not found"),
+            Self::NotDirectory => f.write_str("path is not a directory"),
+            Self::IsDirectory => f.write_str("path names a directory"),
+            Self::TypeConflict => f.write_str("path conflicts with an existing entry type"),
+            Self::AlreadyExists => f.write_str("destination already exists"),
+            Self::InvalidChunkSize => f.write_str("chunk size must not be zero"),
+            Self::InvalidReadLength => f.write_str("read length is too large"),
+            Self::InvalidScanLimit => f.write_str("scan limit is too large"),
+            Self::InvalidScanCursor => f.write_str("scan cursor is invalid"),
+            Self::StaleRevision => f.write_str("file handle revision is stale"),
+            Self::ContentUnavailable => f.write_str("content is unavailable"),
+            Self::PassthroughWrite => f.write_str("writes require full residency"),
+            Self::Offline => f.write_str("storage is offline"),
+            Self::PermissionDenied => f.write_str("operation denied by local policy"),
+            Self::Cancelled => f.write_str("sync execution cancelled"),
+            Self::NoPeers => f.write_str("no peers are online"),
             Self::NoReachableProvider => {
-                formatter.write_str("no reachable provider advertises the content")
+                f.write_str("no reachable provider advertises the content")
             }
             Self::UnsupportedSyncProtocolVersion(version) => {
-                write!(
-                    formatter,
-                    "unsupported filesystem sync protocol version: {version}"
-                )
+                write!(f, "unsupported filesystem sync protocol version: {version}")
             }
-            Self::SyncFrameTooLarge => {
-                formatter.write_str("filesystem sync frame exceeds size limit")
-            }
+            Self::SyncFrameTooLarge => f.write_str("filesystem sync frame exceeds size limit"),
             Self::InvalidSyncFrame(error) => {
-                write!(formatter, "invalid filesystem sync frame: {error}")
+                write!(f, "invalid filesystem sync frame: {error}")
             }
-            Self::Io(error) => error.fmt(formatter),
-            Self::Metadata(error) => write!(formatter, "metadata error: {error}"),
+            Self::Io(error) => error.fmt(f),
+            Self::Metadata(error) => write!(f, "metadata error: {error}"),
         }
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
             Self::Io(error) => Some(error),
             _ => None,

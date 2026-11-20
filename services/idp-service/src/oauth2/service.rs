@@ -693,10 +693,7 @@ where
 
         validate_authorization_request(&request, &client, self.oauth_config.require_pkce)?;
         let redirect_uri = resolve_redirect_uri(&request, &client)?;
-        let requested_scopes = request
-            .scope
-            .as_deref()
-            .map_or_default(parse_scopes);
+        let requested_scopes = request.scope.as_deref().map_or_default(parse_scopes);
         let scopes = intersect_scopes(&requested_scopes, &client.allowed_scopes);
         let normalized_scope = Self::normalize_scopes(&scopes);
 
@@ -915,10 +912,7 @@ where
                 .with_description("principal not found for user")
         })?;
 
-        let requested_scopes = request
-            .scope
-            .as_deref()
-            .map_or_default(parse_scopes);
+        let requested_scopes = request.scope.as_deref().map_or_default(parse_scopes);
         let scopes = intersect_scopes(&requested_scopes, &client.allowed_scopes);
 
         self.issue_tokens_for_client(
@@ -1093,10 +1087,7 @@ where
                 .with_description("resource must match the approved audience"));
         }
 
-        let requested_scopes = request
-            .scope
-            .as_deref()
-            .map_or_default(parse_scopes);
+        let requested_scopes = request.scope.as_deref().map_or_default(parse_scopes);
         if requested_scopes.is_empty() {
             return Err(ErrorResponse::new(ErrorCode::InvalidScope)
                 .with_description("at least one scope is required for client credentials"));
@@ -1173,10 +1164,7 @@ where
         self.validate_grant_type(&client, GrantType::RefreshToken)?;
         self.authenticate_client_for_token_endpoint(&client, client_auth)?;
 
-        let requested_scopes = request
-            .scope
-            .as_deref()
-            .map_or_default(parse_scopes);
+        let requested_scopes = request.scope.as_deref().map_or_default(parse_scopes);
         let scopes = if requested_scopes.is_empty() {
             refresh_token.scope.clone()
         } else {
@@ -1243,10 +1231,7 @@ where
         self.validate_grant_type(&client, GrantType::TokenExchange)?;
         self.authenticate_client_for_token_endpoint(&client, client_auth)?;
 
-        let requested_scopes = request
-            .scope
-            .as_deref()
-            .map_or_default(parse_scopes);
+        let requested_scopes = request.scope.as_deref().map_or_default(parse_scopes);
         let scopes = if requested_scopes.is_empty() {
             subject_token.scope.clone()
         } else {

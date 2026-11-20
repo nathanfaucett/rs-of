@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * Storage Server
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DatabaseResource {
     #[serde(rename = "id")]
     pub id: String,
@@ -24,8 +25,7 @@ pub struct DatabaseResource {
 }
 
 impl DatabaseResource {
-    #[must_use]
-    pub const fn new(id: String) -> Self {
-        Self { id, name: None }
+    pub fn new(id: String) -> DatabaseResource {
+        DatabaseResource { id, name: None }
     }
 }

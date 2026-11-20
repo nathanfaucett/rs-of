@@ -1,3 +1,7 @@
+use core::{
+    convert::Infallible,
+    fmt::{self, Display},
+};
 use kv_store::DocumentChangeKey;
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +50,10 @@ pub enum SyncRole {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "the public protocol configuration uses consistent max-prefixed names"
+)]
 pub struct Config {
     pub max_frame_bytes: usize,
     pub max_snapshots_per_batch: usize,
@@ -79,8 +87,8 @@ pub enum Error<E> {
     Storage(String),
 }
 
-impl<E: core::fmt::Display> core::fmt::Display for Error<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl<E: Display> Display for Error<E> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::PreApply(s) => write!(f, "pre-apply check failed: {s}"),
             Self::Transport(e) => write!(f, "transport error: {e}"),
@@ -112,10 +120,12 @@ pub enum Message {
     Abort,
 }
 
-pub fn encode_frame(
-    message: &Message,
-    config: Config,
-) -> Result<Vec<u8>, Error<core::convert::Infallible>> {
+/// Encodes one bounded protocol frame.
+///
+/// # Errors
+///
+/// Returns an error for codec failure or an oversized frame.
+pub fn encode_frame(message: &Message, config: Config) -> Result<Vec<u8>, Error<Infallible>> {
     let bytes = postcard::to_allocvec(message).map_err(|error| Error::Codec(error.to_string()))?;
     if bytes.len() > config.max_frame_bytes {
         return Err(Error::FrameTooLarge);
@@ -123,6 +133,15 @@ pub fn encode_frame(
     Ok(bytes)
 }
 
+/// Decodes and validates one protocol frame.
+///
+/// # Errors
+///
+/// Returns an error for an oversized or malformed frame.
+#[allow(
+    clippy::map_err_ignore,
+    reason = "all postcard and document-ID decoding failures map to InvalidFrame"
+)]
 pub fn decode_frame<E>(bytes: &[u8], config: Config) -> Result<Message, Error<E>> {
     if bytes.len() > config.max_frame_bytes {
         return Err(Error::FrameTooLarge);

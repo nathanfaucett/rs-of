@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Deserializer, Serializer, de::Error};
 
 use crate::device::contract::device_state::DeviceState;

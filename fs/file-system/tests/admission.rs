@@ -1,7 +1,8 @@
 use std::{
-    fs,
+    env, fs,
+    future::pending,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -64,6 +65,10 @@ impl FileSessionService<u8> for Exchange {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "single codec round-trip fixture for every session operation"
+)]
 async fn generic_session_codecs_preserve_open_read_write_scan_and_close_semantics() {
     async fn request(
         sync: &mut file_system::MetadataSync<'_, u8, Exchange>,
@@ -87,7 +92,7 @@ async fn generic_session_codecs_preserve_open_read_write_scan_and_close_semantic
         responses
     }
 
-    let root = std::env::temp_dir().join(format!("offs-session-{}", Uuid::now_v7()));
+    let root = env::temp_dir().join(format!("offs-session-{}", Uuid::now_v7()));
     let files = FileSystem::open(&root, 1_u8)
         .await
         .expect("filesystem opens");
@@ -266,8 +271,8 @@ async fn generic_session_codecs_preserve_open_read_write_scan_and_close_semantic
 
 #[tokio::test]
 async fn generic_metadata_codec_preserves_live_snapshots_and_tombstones() {
-    let source_root = std::env::temp_dir().join(format!("offs-codec-{}", Uuid::now_v7()));
-    let target_root = std::env::temp_dir().join(format!("offs-codec-{}", Uuid::now_v7()));
+    let source_root = env::temp_dir().join(format!("offs-codec-{}", Uuid::now_v7()));
+    let target_root = env::temp_dir().join(format!("offs-codec-{}", Uuid::now_v7()));
     let source = FileSystem::open(&source_root, 1_u8)
         .await
         .expect("source opens");
@@ -325,8 +330,8 @@ async fn generic_metadata_codec_preserves_live_snapshots_and_tombstones() {
 
 #[tokio::test]
 async fn queued_snapshots_recheck_local_decision_before_import() {
-    let left_root = std::env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
-    let right_root = std::env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
+    let left_root = env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
+    let right_root = env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
     let left = FileSystem::open(&left_root, 1_u8)
         .await
         .expect("source opens");
@@ -374,8 +379,8 @@ async fn queued_snapshots_recheck_local_decision_before_import() {
 
 #[tokio::test]
 async fn invalid_snapshot_set_rolls_back_and_retains_prior_imports_and_tombstones() {
-    let left_root = std::env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
-    let right_root = std::env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
+    let left_root = env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
+    let right_root = env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
     let left = FileSystem::open(&left_root, 1_u8)
         .await
         .expect("source opens");
@@ -432,7 +437,7 @@ async fn invalid_snapshot_set_rolls_back_and_retains_prior_imports_and_tombstone
 
 #[tokio::test]
 async fn established_handle_rechecks_every_queued_operation() {
-    let root = std::env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
+    let root = env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
     let files = FileSystem::open(&root, 1_u8)
         .await
         .expect("filesystem opens");
@@ -538,7 +543,7 @@ async fn cancellation_drops_pending_policy_and_prevents_queued_mutation() {
             self.0.store(true, Ordering::SeqCst);
         }
     }
-    let root = std::env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
+    let root = env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
     let files = FileSystem::open(&root, 1_u8)
         .await
         .expect("filesystem opens");
@@ -557,7 +562,7 @@ async fn cancellation_drops_pending_policy_and_prevents_queued_mutation() {
         Box::pin(async move {
             let _guard = guard;
             notify.notify_one();
-            std::future::pending::<bool>().await
+            pending::<bool>().await
         })
     });
     let exchange = Exchange::new();
@@ -593,7 +598,7 @@ async fn cancellation_drops_pending_policy_and_prevents_queued_mutation() {
 
 #[tokio::test]
 async fn admitted_write_survives_cancellation_during_response_backpressure() {
-    let root = std::env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
+    let root = env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
     let files = FileSystem::open(&root, 1_u8)
         .await
         .expect("filesystem opens");
@@ -686,11 +691,11 @@ async fn admitted_write_survives_cancellation_during_response_backpressure() {
 
 #[tokio::test]
 async fn cancellation_wins_when_policy_completes_in_the_same_poll() {
-    let root = std::env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
+    let root = env::temp_dir().join(format!("offs-admission-{}", Uuid::now_v7()));
     let files = FileSystem::open(&root, 1_u8)
         .await
         .expect("filesystem opens");
-    let holder = Arc::new(std::sync::Mutex::new(None::<OperationControl<u8>>));
+    let holder = Arc::new(Mutex::new(None::<OperationControl<u8>>));
     let policy_holder = Arc::clone(&holder);
     let control = OperationControl::new(move |_, _| {
         let holder = Arc::clone(&policy_holder);

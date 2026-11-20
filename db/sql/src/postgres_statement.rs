@@ -1,7 +1,9 @@
+use std::fmt::Write;
+
 use query::{
     DataDefinition, Query, QueryAggregate, QueryColumn, QueryCountTarget, QueryExpr,
-    QueryExprValue, QueryHavingCountOperator, QueryInsertValue, QueryJoinKind, QuerySelect,
-    QuerySortDirection, Statement,
+    QueryExprValue, QueryHavingCountOperator, QueryInsertValue, QueryInsertValues, QueryJoinKind,
+    QuerySelect, QuerySortDirection, Statement,
 };
 use value::{Value, ValueType};
 
@@ -15,6 +17,11 @@ pub struct PostgresStatement {
 }
 
 impl PostgresStatement {
+    /// Compiles one shared statement into PostgreSQL SQL and bound values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unsupported statements, expressions, or column defaults.
     pub fn translate(statement: &Statement) -> Result<Self, QueryError> {
         let mut output = Self {
             sql: String::new(),
@@ -22,7 +29,7 @@ impl PostgresStatement {
         };
         output.sql = match statement {
             Statement::Query(query) => output.query(query)?,
-            Statement::DataDefinition(ddl) => output.ddl(ddl)?,
+            Statement::DataDefinition(ddl) => Self::ddl(ddl)?,
         };
         Ok(output)
     }
@@ -94,11 +101,11 @@ impl PostgresStatement {
         Ok(format!("({} {op} {})", self.expr(left)?, self.expr(right)?))
     }
 
-    fn predicate(&mut self, predicate: &Option<QueryExpr>) -> Result<String, QueryError> {
-        predicate
-            .as_ref()
-            .map(|p| self.expr(p).map(|sql| format!(" WHERE {sql}")))
-            .unwrap_or_else(|| Ok(String::new()))
+    fn predicate(&mut self, predicate: Option<&QueryExpr>) -> Result<String, QueryError> {
+        predicate.map_or_else(
+            || Ok(String::new()),
+            |predicate| self.expr(predicate).map(|sql| format!(" WHERE {sql}")),
+        )
     }
 
     fn select(&mut self, select: &QuerySelect) -> Result<String, QueryError> {
@@ -147,15 +154,18 @@ impl PostgresStatement {
                 QueryJoinKind::Right => "RIGHT",
                 QueryJoinKind::Full => "FULL",
             };
-            sql.push_str(&format!(
+            write!(
+                sql,
                 " {kind} JOIN {} ON {}",
                 ident(&join.table),
                 self.expr(&join.on)?
-            ));
+            )
+            .expect("writing to String cannot fail");
         }
-        sql.push_str(&self.predicate(&select.predicate)?);
+        sql.push_str(&self.predicate(select.predicate.as_ref())?);
         if !select.group_by.is_empty() {
-            sql.push_str(&format!(" GROUP BY {}", columns_sql(&select.group_by)));
+            write!(sql, " GROUP BY {}", columns_sql(&select.group_by))
+                .expect("writing to String cannot fail");
         }
         if let Some(having) = &select.having {
             let op = match having.operator {
@@ -163,10 +173,11 @@ impl PostgresStatement {
                 QueryHavingCountOperator::GreaterThanOrEquals => ">=",
             };
             let value = self.bind(&Value::Integer(having.value))?;
-            sql.push_str(&format!(" HAVING COUNT(*) {op} {value}"));
+            write!(sql, " HAVING COUNT(*) {op} {value}").expect("writing to String cannot fail");
         }
         if !select.order_by.is_empty() {
-            sql.push_str(&format!(
+            write!(
+                sql,
                 " ORDER BY {}",
                 select
                     .order_by
@@ -181,14 +192,70 @@ impl PostgresStatement {
                     ))
                     .collect::<Vec<_>>()
                     .join(", ")
-            ));
+            )
+            .expect("writing to String cannot fail");
         }
         if let Some(limit) = select.limit {
-            sql.push_str(&format!(" LIMIT {limit}"));
+            write!(sql, " LIMIT {limit}").expect("writing to String cannot fail");
         }
         if let Some(offset) = select.offset {
-            sql.push_str(&format!(" OFFSET {offset}"));
+            write!(sql, " OFFSET {offset}").expect("writing to String cannot fail");
         }
+        Ok(sql)
+    }
+
+    fn insert_values(&mut self, insert: &QueryInsertValues) -> Result<String, QueryError> {
+        let mut rows = Vec::new();
+        for row in &insert.rows {
+            let values = row
+                .iter()
+                .map(|value| match value {
+                    QueryInsertValue::Value(value) => self.bind(value),
+                    QueryInsertValue::Default => Ok("DEFAULT".into()),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            rows.push(format!("({})", values.join(", ")));
+        }
+        if rows.is_empty() {
+            return Err(unsupported("empty INSERT"));
+        }
+        let mut sql = format!(
+            "INSERT INTO {}{} VALUES {}",
+            ident(&insert.table),
+            if insert.columns.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", names_sql(&insert.columns))
+            },
+            rows.join(", ")
+        );
+        if let Some(target) = &insert.on_conflict_do_nothing {
+            sql.push_str(" ON CONFLICT");
+            if !target.is_empty() {
+                write!(sql, " ({})", names_sql(target)).expect("writing to String cannot fail");
+            }
+            sql.push_str(" DO NOTHING");
+        }
+        if let Some((target, assignments)) = &insert.on_conflict_do_update {
+            let updates = assignments
+                .iter()
+                .map(|a| {
+                    Ok(format!(
+                        "{} = {}",
+                        ident(&a.column.column),
+                        self.value(&a.value)?
+                    ))
+                })
+                .collect::<Result<Vec<_>, QueryError>>()?;
+            write!(
+                sql,
+                " ON CONFLICT ({}) DO UPDATE SET {}",
+                names_sql(target),
+                updates.join(", ")
+            )
+            .expect("writing to String cannot fail");
+        }
+        returning_names(&mut sql, insert.returning.as_deref());
         Ok(sql)
     }
 
@@ -207,61 +274,10 @@ impl PostgresStatement {
                     ident(&insert.table),
                     values.join(", ")
                 );
-                returning_names(&mut sql, &insert.returning);
+                returning_names(&mut sql, insert.returning.as_deref());
                 Ok(sql)
             }
-            Query::InsertValues(insert) => {
-                let mut rows = Vec::new();
-                for row in &insert.rows {
-                    let values = row
-                        .iter()
-                        .map(|value| match value {
-                            QueryInsertValue::Value(value) => self.bind(value),
-                            QueryInsertValue::Default => Ok("DEFAULT".into()),
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    rows.push(format!("({})", values.join(", ")));
-                }
-                if rows.is_empty() {
-                    return Err(unsupported("empty INSERT"));
-                }
-                let mut sql = format!(
-                    "INSERT INTO {}{} VALUES {}",
-                    ident(&insert.table),
-                    if insert.columns.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", names_sql(&insert.columns))
-                    },
-                    rows.join(", ")
-                );
-                if let Some(target) = &insert.on_conflict_do_nothing {
-                    sql.push_str(" ON CONFLICT");
-                    if !target.is_empty() {
-                        sql.push_str(&format!(" ({})", names_sql(target)));
-                    }
-                    sql.push_str(" DO NOTHING");
-                }
-                if let Some((target, assignments)) = &insert.on_conflict_do_update {
-                    let updates = assignments
-                        .iter()
-                        .map(|a| {
-                            Ok(format!(
-                                "{} = {}",
-                                ident(&a.column.column),
-                                self.value(&a.value)?
-                            ))
-                        })
-                        .collect::<Result<Vec<_>, QueryError>>()?;
-                    sql.push_str(&format!(
-                        " ON CONFLICT ({}) DO UPDATE SET {}",
-                        names_sql(target),
-                        updates.join(", ")
-                    ));
-                }
-                returning_names(&mut sql, &insert.returning);
-                Ok(sql)
-            }
+            Query::InsertValues(insert) => self.insert_values(insert),
             Query::Update(update) => {
                 if !update.from.joins.is_empty() {
                     return Err(unsupported("UPDATE joins"));
@@ -281,9 +297,9 @@ impl PostgresStatement {
                     "UPDATE {} SET {}{}",
                     ident(&update.from.table),
                     assignments.join(", "),
-                    self.predicate(&update.predicate)?
+                    self.predicate(update.predicate.as_ref())?
                 );
-                returning_columns(&mut sql, &update.returning);
+                returning_columns(&mut sql, update.returning.as_deref());
                 Ok(sql)
             }
             Query::Delete(delete) => {
@@ -293,15 +309,15 @@ impl PostgresStatement {
                 let mut sql = format!(
                     "DELETE FROM {}{}",
                     ident(&delete.from.table),
-                    self.predicate(&delete.predicate)?
+                    self.predicate(delete.predicate.as_ref())?
                 );
-                returning_columns(&mut sql, &delete.returning);
+                returning_columns(&mut sql, delete.returning.as_deref());
                 Ok(sql)
             }
         }
     }
 
-    fn ddl(&mut self, ddl: &DataDefinition) -> Result<String, QueryError> {
+    fn ddl(ddl: &DataDefinition) -> Result<String, QueryError> {
         match ddl {
             DataDefinition::CreateTable {
                 schema,
@@ -309,8 +325,8 @@ impl PostgresStatement {
             }
             | DataDefinition::CreateTableWithIndexes {
                 schema,
-                indexes: _,
                 if_not_exists,
+                ..
             } => {
                 if let DataDefinition::CreateTableWithIndexes { indexes, .. } = ddl
                     && !indexes.is_empty()
@@ -332,7 +348,8 @@ impl PostgresStatement {
                     };
                     let mut sql = format!("{} {kind}", ident(&column.name));
                     if column.default != Value::Null {
-                        sql.push_str(&format!(" DEFAULT {}", default_sql(&column.default)?));
+                        write!(sql, " DEFAULT {}", default_sql(&column.default)?)
+                            .expect("writing to String cannot fail");
                     }
                     columns.push(sql);
                     if column.primary_key {
@@ -413,14 +430,14 @@ fn columns_sql(columns: &[QueryColumn]) -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
-fn returning_names(sql: &mut String, columns: &Option<Vec<String>>) {
+fn returning_names(sql: &mut String, columns: Option<&[String]>) {
     if let Some(columns) = columns {
-        sql.push_str(&format!(" RETURNING {}", names_sql(columns)));
+        write!(sql, " RETURNING {}", names_sql(columns)).expect("writing to String cannot fail");
     }
 }
-fn returning_columns(sql: &mut String, columns: &Option<Vec<QueryColumn>>) {
+fn returning_columns(sql: &mut String, columns: Option<&[QueryColumn]>) {
     if let Some(columns) = columns {
-        sql.push_str(&format!(" RETURNING {}", columns_sql(columns)));
+        write!(sql, " RETURNING {}", columns_sql(columns)).expect("writing to String cannot fail");
     }
 }
 fn default_sql(value: &Value) -> Result<String, QueryError> {

@@ -43,8 +43,7 @@ where
 
 impl<K> PartialEq for Key<K>
 where
-    K: redb::Key + 'static,
-    for<'a> K: redb::Value<SelfType<'a> = K>,
+    K: redb::Key + 'static + for<'a> redb::Value<SelfType<'a> = K>,
 {
     fn eq(&self, other: &Self) -> bool {
         K::compare(
@@ -54,17 +53,11 @@ where
     }
 }
 
-impl<K> Eq for Key<K>
-where
-    K: redb::Key + 'static,
-    for<'a> K: redb::Value<SelfType<'a> = K>,
-{
-}
+impl<K> Eq for Key<K> where K: redb::Key + 'static + for<'a> redb::Value<SelfType<'a> = K> {}
 
 impl<K> PartialOrd for Key<K>
 where
-    K: redb::Key + 'static,
-    for<'a> K: redb::Value<SelfType<'a> = K>,
+    K: redb::Key + 'static + for<'a> redb::Value<SelfType<'a> = K>,
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -73,8 +66,7 @@ where
 
 impl<K> Ord for Key<K>
 where
-    K: redb::Key + 'static,
-    for<'a> K: redb::Value<SelfType<'a> = K>,
+    K: redb::Key + 'static + for<'a> redb::Value<SelfType<'a> = K>,
 {
     fn cmp(&self, other: &Self) -> Ordering {
         K::compare(
@@ -86,8 +78,7 @@ where
 
 impl<K> redb::Value for Key<K>
 where
-    K: redb::Key + 'static,
-    for<'a> K: redb::Value<SelfType<'a> = K>,
+    K: redb::Key + 'static + for<'a> redb::Value<SelfType<'a> = K>,
 {
     type SelfType<'a>
         = Key<K::SelfType<'a>>
@@ -123,10 +114,9 @@ where
 
 impl<K> redb::Key for Key<K>
 where
-    K: redb::Key + 'static,
-    for<'a> K: redb::Value<SelfType<'a> = K>,
+    K: redb::Key + 'static + for<'a> redb::Value<SelfType<'a> = K>,
 {
-    fn compare(a: &[u8], b: &[u8]) -> Ordering {
-        K::compare(a, b)
+    fn compare(data1: &[u8], data2: &[u8]) -> Ordering {
+        K::compare(data1, data2)
     }
 }

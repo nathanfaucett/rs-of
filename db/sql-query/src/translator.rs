@@ -35,6 +35,10 @@ pub enum TranslateError {
 }
 
 impl TranslateError {
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "accepts owned errors directly and through Result::map_err"
+    )]
     pub fn custom<T>(error: T) -> Self
     where
         T: ToString,
@@ -50,12 +54,12 @@ pub trait Translator {
         &self,
         query: &str,
         params: Option<&QueryParams>,
-    ) -> impl Future<Output = Result<Vec<Statement>, TranslateError>>;
+    ) -> impl Future<Output = Result<Vec<Statement>, TranslateError>> + platform::MaybeSend;
 
     fn translate(
         &self,
         query: &str,
-    ) -> impl Future<Output = Result<Vec<Statement>, TranslateError>> {
+    ) -> impl Future<Output = Result<Vec<Statement>, TranslateError>> + platform::MaybeSend {
         self.translate_with_params(query, None)
     }
 }

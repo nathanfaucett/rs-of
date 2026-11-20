@@ -15,7 +15,12 @@ use schema::{ColumnSchema, ColumnSchemaIndex, IndexSchema, TableSchema};
 use uuid::Uuid;
 use value::{Row, Value, ValueType};
 
-use crate::{EngineError, EngineResult, KernelTransaction, RowCodec, executor::execution_stage};
+use crate::{
+    EngineError, EngineResult, KernelTransaction, RowCodec,
+    engine::SchemaObservation,
+    executor::{execution_stage, is_primary_key_index, uuid_primary_key},
+    index::indexes_for_table,
+};
 
 pub const ENGINE_TABLES_STORAGE: &str = "tables";
 pub const ENGINE_TABLE_FIELDS_STORAGE: &str = "table_fields";
@@ -23,6 +28,10 @@ pub const ENGINE_INDICES_STORAGE: &str = "indices";
 pub const ENGINE_INDEX_FIELDS_STORAGE: &str = "index_fields";
 
 /// Validates RFC UUIDv5/v7 user identities; catalog generations remain `UUIDv7`.
+///
+/// # Errors
+///
+/// Returns an error for a UUID with an unsupported version or variant.
 pub fn validate_row_id(table: &str, id: &Uuid) -> EngineResult<()> {
     let bytes = id.as_bytes();
     let version = bytes[6] >> 4;
@@ -108,7 +117,7 @@ impl TryFrom<&Row> for TableRow {
                 .values
                 .first()
                 .and_then(Value::to_text)
-                .ok_or(EngineError::custom("Invalid table name"))?,
+                .ok_or_else(|| EngineError::custom("Invalid table name"))?,
         })
     }
 }
@@ -122,31 +131,31 @@ impl TryFrom<&Row> for TableFieldRow {
             table_id: values
                 .first()
                 .and_then(Value::to_uuid)
-                .ok_or(EngineError::custom("Invalid column table identity"))?,
+                .ok_or_else(|| EngineError::custom("Invalid column table identity"))?,
             table: values
                 .get(1)
                 .and_then(Value::to_text)
-                .ok_or(EngineError::custom("Invalid column table"))?,
+                .ok_or_else(|| EngineError::custom("Invalid column table"))?,
             name: values
                 .get(2)
                 .and_then(Value::to_text)
-                .ok_or(EngineError::custom("Invalid column name"))?,
+                .ok_or_else(|| EngineError::custom("Invalid column name"))?,
             r#type: values
                 .get(3)
                 .and_then(Value::to_type)
-                .ok_or(EngineError::custom("Invalid column type"))?,
+                .ok_or_else(|| EngineError::custom("Invalid column type"))?,
             default: values
                 .get(4)
                 .cloned()
-                .ok_or(EngineError::custom("Invalid column default"))?,
+                .ok_or_else(|| EngineError::custom("Invalid column default"))?,
             position: values
                 .get(5)
                 .and_then(Value::to_integer)
-                .ok_or(EngineError::custom("Invalid column position"))?,
+                .ok_or_else(|| EngineError::custom("Invalid column position"))?,
             primary_key: values
                 .get(6)
                 .and_then(Value::to_bool)
-                .ok_or(EngineError::custom("Invalid primary key"))?,
+                .ok_or_else(|| EngineError::custom("Invalid primary key"))?,
         })
     }
 }
@@ -160,19 +169,19 @@ impl TryFrom<&Row> for IndexRow {
             name: values
                 .first()
                 .and_then(Value::to_text)
-                .ok_or(EngineError::custom("Invalid index name"))?,
+                .ok_or_else(|| EngineError::custom("Invalid index name"))?,
             table: values
                 .get(1)
                 .and_then(Value::to_text)
-                .ok_or(EngineError::custom("Invalid index table"))?,
+                .ok_or_else(|| EngineError::custom("Invalid index table"))?,
             unique: values
                 .get(2)
                 .and_then(Value::to_bool)
-                .ok_or(EngineError::custom("Invalid index uniqueness"))?,
+                .ok_or_else(|| EngineError::custom("Invalid index uniqueness"))?,
             table_id: values
                 .get(3)
                 .and_then(Value::to_uuid)
-                .ok_or(EngineError::custom("Invalid index table identity"))?,
+                .ok_or_else(|| EngineError::custom("Invalid index table identity"))?,
         })
     }
 }
@@ -186,19 +195,19 @@ impl TryFrom<&Row> for IndexFieldRow {
             index_id: values
                 .first()
                 .and_then(Value::to_uuid)
-                .ok_or(EngineError::custom("Invalid index identity"))?,
+                .ok_or_else(|| EngineError::custom("Invalid index identity"))?,
             position: values
                 .get(1)
                 .and_then(Value::to_integer)
-                .ok_or(EngineError::custom("Invalid index field position"))?,
+                .ok_or_else(|| EngineError::custom("Invalid index field position"))?,
             column: values
                 .get(2)
                 .and_then(Value::to_text)
-                .ok_or(EngineError::custom("Invalid index column"))?,
+                .ok_or_else(|| EngineError::custom("Invalid index column"))?,
             column_id: values
                 .get(3)
                 .and_then(Value::to_uuid)
-                .ok_or(EngineError::custom("Invalid index column identity"))?,
+                .ok_or_else(|| EngineError::custom("Invalid index column identity"))?,
         })
     }
 }
@@ -275,6 +284,10 @@ pub fn catalog_table_for_storage(storage: &str) -> Option<CatalogTable> {
     .find(|table| table.storage() == storage)
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "catalog reconciliation validates and repairs one namespace"
+)]
 pub async fn reconcile_schema_names<T: KernelTransaction, R: RowCodec<T>>(
     transaction: &mut T,
     codec: &R,
@@ -440,13 +453,11 @@ pub async fn reconcile_schema_names<T: KernelTransaction, R: RowCodec<T>>(
         schema
             .validate_primary_key()
             .map_err(EngineError::InvalidQuery)?;
-        if crate::executor::uuid_primary_key(&schema).is_none()
-            && !execution_stage(|| {
-                crate::index::indexes_for_table(transaction, codec, &table, None)
-            })
-            .await?
-            .iter()
-            .any(|(_, index)| crate::executor::is_primary_key_index(&schema, index))
+        if uuid_primary_key(&schema).is_none()
+            && !execution_stage(|| indexes_for_table(transaction, codec, &table, None))
+                .await?
+                .iter()
+                .any(|(_, index)| is_primary_key_index(&schema, index))
         {
             return Err(EngineError::InvalidQuery(
                 "Table has no unique primary key index",
@@ -744,12 +755,16 @@ pub async fn columns<T: KernelTransaction, R: RowCodec<T>>(
     read_columns(transaction, codec, table, table_id, |_| {}).await
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "schema observation reconstructs tables and indices in one catalog pass"
+)]
 pub async fn observe_schema<T: KernelTransaction, R: RowCodec<T>>(
     transaction: &T,
     codec: &R,
     names: &[&str],
     index_names: Option<&[&str]>,
-) -> EngineResult<crate::engine::SchemaObservation> {
+) -> EngineResult<SchemaObservation> {
     let mut states = Vec::new();
     for storage in [
         ENGINE_TABLES_STORAGE,
@@ -790,7 +805,7 @@ pub async fn observe_schema<T: KernelTransaction, R: RowCodec<T>>(
             let index = IndexRow::try_from(row)?;
             let winner = winners
                 .entry(index.name.clone())
-                .or_insert((*id, index.clone()));
+                .or_insert_with(|| (*id, index.clone()));
             if *id > winner.0 {
                 *winner = (*id, index);
             }
@@ -839,20 +854,25 @@ pub async fn observe_schema<T: KernelTransaction, R: RowCodec<T>>(
         }
         fields.sort_by_key(|field| field.position);
         let mut column_indices = Vec::new();
-        for field in fields {
+        for index_field in fields {
             let mut active = false;
             for (storage, field_id, row, deleted) in &states {
                 if *storage != ENGINE_TABLE_FIELDS_STORAGE
-                    || *field_id != field.column_id
+                    || *field_id != index_field.column_id
                     || *deleted
                 {
                     continue;
                 }
-                let column = TableFieldRow::try_from(row)?;
-                if column.table == index.table && column.name == field.column {
-                    active = true;
-                    break;
+                let TableFieldRow {
+                    table: column_table,
+                    name: column_name,
+                    ..
+                } = &TableFieldRow::try_from(row)?;
+                if column_table != &index.table || column_name != &index_field.column {
+                    continue;
                 }
+                active = true;
+                break;
             }
             if !active {
                 return Err(EngineError::InvalidQuery(
@@ -863,9 +883,11 @@ pub async fn observe_schema<T: KernelTransaction, R: RowCodec<T>>(
                 table
                     .columns
                     .iter()
-                    .position(|column| column.name == field.column)
-                    .map(|position| position as ColumnSchemaIndex)
-                    .ok_or(EngineError::InvalidQuery("Index column not found"))?,
+                    .position(|column| column.name == index_field.column)
+                    .map(|position| {
+                        ColumnSchemaIndex::try_from(position).map_err(EngineError::custom)
+                    })
+                    .ok_or(EngineError::InvalidQuery("Index column not found"))??,
             );
         }
         indices.push(IndexSchema {
@@ -1152,8 +1174,8 @@ async fn index_schema_for<T: KernelTransaction, R: RowCodec<T>>(
             schema_columns
                 .iter()
                 .position(|schema_column| schema_column.name == column)
-                .map(|position| position as ColumnSchemaIndex)
-                .ok_or(EngineError::InvalidQuery("Index column not found"))
+                .map(|position| ColumnSchemaIndex::try_from(position).map_err(EngineError::custom))
+                .ok_or(EngineError::InvalidQuery("Index column not found"))?
         })
         .collect::<EngineResult<Vec<_>>>()?;
     Ok(IndexSchema {

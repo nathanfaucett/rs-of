@@ -12,10 +12,8 @@ use serde::{Deserialize, Serialize};
 
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum IdentityAction {
     #[serde(rename = "clients_read")]
-    #[default]
     ClientsRead,
     #[serde(rename = "clients_register")]
     ClientsRegister,
@@ -43,12 +41,18 @@ pub enum IdentityAction {
     ApplicationsDelete,
     #[serde(rename = "users_read")]
     UsersRead,
+    #[serde(rename = "users_create")]
+    UsersCreate,
     #[serde(rename = "users_update")]
     UsersUpdate,
     #[serde(rename = "users_delete")]
     UsersDelete,
     #[serde(rename = "users_reset_password")]
     UsersResetPassword,
+    #[serde(rename = "users_mfa")]
+    UsersMfa,
+    #[serde(rename = "users_block")]
+    UsersBlock,
     #[serde(rename = "consents_read")]
     ConsentsRead,
     #[serde(rename = "consents_revoke")]
@@ -106,9 +110,12 @@ impl core::fmt::Display for IdentityAction {
             Self::ApplicationsUpdate => write!(f, "applications_update"),
             Self::ApplicationsDelete => write!(f, "applications_delete"),
             Self::UsersRead => write!(f, "users_read"),
+            Self::UsersCreate => write!(f, "users_create"),
             Self::UsersUpdate => write!(f, "users_update"),
             Self::UsersDelete => write!(f, "users_delete"),
             Self::UsersResetPassword => write!(f, "users_reset_password"),
+            Self::UsersMfa => write!(f, "users_mfa"),
+            Self::UsersBlock => write!(f, "users_block"),
             Self::ConsentsRead => write!(f, "consents_read"),
             Self::ConsentsRevoke => write!(f, "consents_revoke"),
             Self::KeysRead => write!(f, "keys_read"),
@@ -132,3 +139,8 @@ impl core::fmt::Display for IdentityAction {
     }
 }
 
+impl Default for IdentityAction {
+    fn default() -> IdentityAction {
+        Self::ClientsRead
+    }
+}

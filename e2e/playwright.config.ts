@@ -27,8 +27,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command:
-        "pnpm --filter @ofsdk/app exec vite dev --mode test --host 127.0.0.1 --port 5173 --strictPort",
+      command: `pnpm --filter @ofsdk/app exec vite dev --mode test --host 127.0.0.1 --port ${new URL(appURL).port} --strictPort`,
       cwd: root,
       url: appURL,
       env: appEnv,
@@ -36,8 +35,7 @@ export default defineConfig({
       timeout: 120000,
     },
     {
-      command:
-        "pnpm --filter @ofsdk/password-manager exec vite dev --mode test --host 127.0.0.1 --port 5174 --strictPort",
+      command: `pnpm --filter @ofsdk/password-manager exec vite dev --mode test --host 127.0.0.1 --port ${new URL(passwordManagerURL).port} --strictPort`,
       cwd: root,
       url: passwordManagerURL,
       env: frontendEnv,

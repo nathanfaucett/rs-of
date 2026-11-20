@@ -1,6 +1,8 @@
 use crate::{
     Key, RedbKey, RedbValue, Value,
     read_budget::{Borrowed, ReadBudget},
+    resource::retired_error,
+    table_definition,
 };
 use btree::{BTreeError, BTreeResult};
 use redb::{ReadableDatabase, ReadableTable, TableDefinition, TableHandle};
@@ -44,10 +46,7 @@ impl SharedWriteTransaction {
                 Err(BTreeError::TypeMismatch)
             };
         }
-        match self
-            .snapshot
-            .open_table(crate::table_definition::<K, V>(name))
-        {
+        match self.snapshot.open_table(table_definition::<K, V>(name)) {
             Ok(_) | Err(redb::TableError::TableDoesNotExist(_)) => {}
             Err(error) => return Err(BTreeError::custom(error)),
         }
@@ -70,6 +69,7 @@ impl SharedWriteTransaction {
                 apply: apply::<K, V>,
             },
         );
+        drop(tables);
         Ok(())
     }
     pub fn ensure_table<K: RedbKey, V: RedbValue>(&self, name: &str) -> BTreeResult<()> {
@@ -85,6 +85,7 @@ impl SharedWriteTransaction {
         {
             state.created = true;
         }
+        drop(tables);
         Ok(())
     }
     pub fn drop_table<K: RedbKey, V: RedbValue>(&self, name: &str) -> BTreeResult<bool> {
@@ -101,20 +102,21 @@ impl SharedWriteTransaction {
         table.dropped = true;
         table.created = false;
         table.writes.clear();
+        drop(tables);
         Ok(existed)
     }
     pub fn get<K: RedbKey, V: RedbValue>(&self, name: &str, key: &K) -> BTreeResult<Option<V>> {
         self.observe::<K, V>(name)?;
-        {
-            let tables = self.tables.lock().expect("shared transaction tables lock");
-            let table = tables.get(name).expect("observed table");
-            if let Some(value) = table.writes.get(K::as_bytes(key).as_ref()) {
-                return Ok(value.as_ref().map(|bytes| V::from_bytes(bytes)));
-            }
-            if table.dropped {
-                return Ok(None);
-            }
+        let tables = self.tables.lock().expect("shared transaction tables lock");
+        let table = tables.get(name).expect("observed table");
+        let key_bytes = K::as_bytes(key);
+        if let Some(value) = table.writes.get(key_bytes.as_ref()) {
+            return Ok(value.as_ref().map(|bytes| V::from_bytes(bytes)));
         }
+        if table.dropped {
+            return Ok(None);
+        }
+        drop(tables);
         match self
             .snapshot
             .open_table(TableDefinition::<Borrowed<Key<K>>, Borrowed<Value<V>>>::new(name))
@@ -167,6 +169,7 @@ impl SharedWriteTransaction {
                 }
             }
         }
+        drop(tables);
         Ok(entries.into_iter().collect())
     }
     pub fn put<K: RedbKey, V: RedbValue>(
@@ -183,6 +186,7 @@ impl SharedWriteTransaction {
             K::as_bytes(key).as_ref().to_vec(),
             value.map(|value| V::as_bytes(value).as_ref().to_vec()),
         );
+        drop(tables);
         Ok(())
     }
     pub fn commit(self) -> BTreeResult<()> {
@@ -218,7 +222,7 @@ impl SharedWriteTransaction {
                         .map_err(BTreeError::custom)?
                         .is_some()
                 {
-                    return Err(BTreeError::custom(crate::resource::retired_error()));
+                    return Err(BTreeError::custom(retired_error()));
                 }
             }
             for (name, state) in &tables {
@@ -253,7 +257,7 @@ fn apply<K: RedbKey, V: RedbValue>(
     name: &str,
     state: &TableState,
 ) -> BTreeResult<()> {
-    let definition = crate::table_definition::<K, V>(name);
+    let definition = table_definition::<K, V>(name);
     if state.dropped {
         transaction
             .delete_table(definition)

@@ -1,6 +1,8 @@
 use std::{
     collections::BTreeMap,
+    error::Error as StdError,
     fmt,
+    future::ready,
     sync::{Arc, Mutex},
 };
 
@@ -28,6 +30,14 @@ pub struct MemoryNetwork<PeerId> {
     state: Arc<MemoryNetworkState<PeerId>>,
 }
 
+impl<PeerId> fmt::Debug for MemoryNetwork<PeerId> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryNetwork")
+            .field("capacity", &self.state.capacity)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<PeerId> Clone for MemoryNetwork<PeerId> {
     fn clone(&self) -> Self {
         Self {
@@ -49,6 +59,11 @@ impl<PeerId> MemoryNetwork<PeerId> {
 }
 
 impl<PeerId: Clone + Ord> MemoryNetwork<PeerId> {
+    /// Creates a transport for one in-memory peer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the network lock is poisoned.
     #[must_use]
     pub fn transport(&self, peer: PeerId) -> MemoryTransport<PeerId> {
         let metadata = broadcast::channel(self.state.capacity).0;
@@ -80,12 +95,19 @@ impl fmt::Display for MemoryTransportError {
         })
     }
 }
-impl std::error::Error for MemoryTransportError {}
+impl StdError for MemoryTransportError {}
 
 pub struct MemoryTransport<PeerId> {
     peer: PeerId,
     network: MemoryNetwork<PeerId>,
 }
+
+impl<PeerId> fmt::Debug for MemoryTransport<PeerId> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryTransport").finish_non_exhaustive()
+    }
+}
+
 impl<PeerId: Clone> Clone for MemoryTransport<PeerId> {
     fn clone(&self) -> Self {
         Self {
@@ -111,34 +133,19 @@ where
             .cloned()
             .collect()
     }
-    async fn send(&self, peer: PeerId, message: SyncMessage<PeerId>) -> Result<(), Self::Error> {
-        let sender = self
-            .network
-            .state
-            .peers
-            .lock()
-            .expect("memory network lock poisoned")
-            .get(&peer)
-            .map(|p| p.metadata.clone())
-            .ok_or(MemoryTransportError::UnknownPeer)?;
-        let _ = sender.send((self.peer.clone(), message));
-        Ok(())
+    fn send(
+        &self,
+        peer: PeerId,
+        message: SyncMessage<PeerId>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + MaybeSend {
+        ready(self.send_sync(&peer, message))
     }
-    async fn broadcast(&self, message: SyncMessage<PeerId>) -> Result<(), Self::Error> {
-        let senders = self
-            .network
-            .state
-            .peers
-            .lock()
-            .expect("memory network lock poisoned")
-            .iter()
-            .filter(|(p, _)| *p != &self.peer)
-            .map(|(_, p)| p.metadata.clone())
-            .collect::<Vec<_>>();
-        for sender in senders {
-            let _ = sender.send((self.peer.clone(), message.clone()));
-        }
-        Ok(())
+    fn broadcast(
+        &self,
+        message: SyncMessage<PeerId>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + MaybeSend {
+        self.broadcast_sync(&message);
+        ready(Ok(()))
     }
     fn subscribe(&self) -> broadcast::Receiver<IncomingMessage<PeerId>> {
         self.network
@@ -158,28 +165,12 @@ where
     PeerId: Clone + Ord + MaybeSend + MaybeSync + 'static,
 {
     type Handle = MemoryFileHandle<PeerId>;
-    async fn open(&self, peer: PeerId, request: OpenRequest) -> Result<Self::Handle, Self::Error> {
-        let revision = request.revision.unwrap_or_else(uuid::Uuid::now_v7);
-        let handle = deterministic_handle(&request.path, request.revision);
-        let sender = self
-            .network
-            .state
-            .peers
-            .lock()
-            .expect("memory network lock poisoned")
-            .get(&peer)
-            .map(|p| p.sessions.clone())
-            .ok_or(MemoryTransportError::UnknownPeer)?;
-        let (tx, _rx) = mpsc::channel(self.network.state.capacity);
-        sender
-            .send((self.peer.clone(), FileOperation::Open(request), tx))
-            .map_err(|_| MemoryTransportError::SessionClosed)?;
-        Ok(MemoryFileHandle {
-            transport: self.clone(),
-            peer,
-            handle,
-            revision,
-        })
+    fn open(
+        &self,
+        peer: PeerId,
+        request: OpenRequest,
+    ) -> impl Future<Output = Result<Self::Handle, Self::Error>> + MaybeSend {
+        ready(self.open_sync(peer, request))
     }
     fn subscribe_file_sessions(&self) -> broadcast::Receiver<SessionRequest<PeerId>> {
         self.network
@@ -202,11 +193,47 @@ impl<PeerId> MemoryTransport<PeerId>
 where
     PeerId: Clone + Ord + MaybeSend + MaybeSync + 'static,
 {
-    fn start_request(
+    fn send_sync(
+        &self,
+        peer: &PeerId,
+        message: SyncMessage<PeerId>,
+    ) -> Result<(), MemoryTransportError> {
+        let sender = self
+            .network
+            .state
+            .peers
+            .lock()
+            .expect("memory network lock poisoned")
+            .get(peer)
+            .map(|p| p.metadata.clone())
+            .ok_or(MemoryTransportError::UnknownPeer)?;
+        let _ = sender.send((self.peer.clone(), message));
+        Ok(())
+    }
+
+    fn broadcast_sync(&self, message: &SyncMessage<PeerId>) {
+        let senders = self
+            .network
+            .state
+            .peers
+            .lock()
+            .expect("memory network lock poisoned")
+            .iter()
+            .filter(|(p, _)| *p != &self.peer)
+            .map(|(_, p)| p.metadata.clone())
+            .collect::<Vec<_>>();
+        for sender in senders {
+            let _ = sender.send((self.peer.clone(), message.clone()));
+        }
+    }
+
+    fn open_sync(
         &self,
         peer: PeerId,
-        operation: FileOperation,
-    ) -> Result<mpsc::Receiver<FileResponse<PeerId>>, MemoryTransportError> {
+        request: OpenRequest,
+    ) -> Result<MemoryFileHandle<PeerId>, MemoryTransportError> {
+        let revision = request.revision.unwrap_or_else(uuid::Uuid::now_v7);
+        let handle = deterministic_handle(&request.path, request.revision);
         let sender = self
             .network
             .state
@@ -216,10 +243,36 @@ where
             .get(&peer)
             .map(|p| p.sessions.clone())
             .ok_or(MemoryTransportError::UnknownPeer)?;
+        let (tx, _rx) = mpsc::channel(self.network.state.capacity);
+        sender
+            .send((self.peer.clone(), FileOperation::Open(request), tx))
+            .map_err(|_error| MemoryTransportError::SessionClosed)?;
+        Ok(MemoryFileHandle {
+            transport: self.clone(),
+            peer,
+            handle,
+            revision,
+        })
+    }
+
+    fn start_request(
+        &self,
+        peer: &PeerId,
+        operation: FileOperation,
+    ) -> Result<mpsc::Receiver<FileResponse<PeerId>>, MemoryTransportError> {
+        let sender = self
+            .network
+            .state
+            .peers
+            .lock()
+            .expect("memory network lock poisoned")
+            .get(peer)
+            .map(|p| p.sessions.clone())
+            .ok_or(MemoryTransportError::UnknownPeer)?;
         let (tx, rx) = mpsc::channel(self.network.state.capacity);
         sender
             .send((self.peer.clone(), operation, tx))
-            .map_err(|_| MemoryTransportError::SessionClosed)?;
+            .map_err(|_error| MemoryTransportError::SessionClosed)?;
         Ok(rx)
     }
 
@@ -245,7 +298,7 @@ where
 
     async fn request(
         &self,
-        peer: PeerId,
+        peer: &PeerId,
         operation: FileOperation,
     ) -> Result<Vec<FileResponse<PeerId>>, MemoryTransportError> {
         Ok(Self::collect(self.start_request(peer, operation)?).await)
@@ -257,7 +310,7 @@ fn deterministic_handle(path: &str, revision: Option<uuid::Uuid>) -> FileHandleI
     for (index, byte) in path.as_bytes().iter().enumerate() {
         bytes[index % 16] = bytes[index % 16]
             .wrapping_add(*byte)
-            .rotate_left((index % 8) as u32);
+            .rotate_left(u32::try_from(index % 8).expect("rotation is at most seven"));
     }
     if let Some(revision) = revision {
         for (index, byte) in revision.as_bytes().iter().enumerate() {
@@ -273,6 +326,16 @@ pub struct MemoryFileHandle<PeerId> {
     handle: FileHandleId,
     revision: uuid::Uuid,
 }
+
+impl<PeerId> fmt::Debug for MemoryFileHandle<PeerId> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryFileHandle")
+            .field("handle", &self.handle)
+            .field("revision", &self.revision)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<PeerId> FileHandle<PeerId> for MemoryFileHandle<PeerId>
 where
     PeerId: Clone + Ord + MaybeSend + MaybeSync + 'static,
@@ -284,7 +347,7 @@ where
         length: u32,
     ) -> crate::FileFuture<'_, Result<Bytes, Self::Error>> {
         let receiver = match self.transport.start_request(
-            self.peer.clone(),
+            &self.peer,
             FileOperation::Read {
                 handle: self.handle.clone(),
                 offset,
@@ -321,7 +384,7 @@ where
             let response = self
                 .transport
                 .request(
-                    self.peer.clone(),
+                    &self.peer,
                     FileOperation::Write {
                         handle: self.handle.clone(),
                         expected_revision: self.revision,
@@ -349,7 +412,7 @@ where
             let response = self
                 .transport
                 .request(
-                    self.peer.clone(),
+                    &self.peer,
                     FileOperation::Scan {
                         handle: self.handle.clone(),
                         cursor,
@@ -369,7 +432,7 @@ where
             let response = self
                 .transport
                 .request(
-                    self.peer.clone(),
+                    &self.peer,
                     FileOperation::Close {
                         handle: self.handle,
                     },

@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 use btree::{BTree, InMemoryBTree};
 use btree_redb::{Bytes, RedbByteBTree, table_definition};
@@ -9,9 +12,9 @@ use value::Value;
 const TABLE: &str = "local-kv-test";
 
 fn test_timestamp_provider() -> uuid::Timestamp {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    static NEXT: AtomicU64 = AtomicU64::new(1);
 
-    let millis = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let millis = NEXT.fetch_add(1, Ordering::Relaxed);
 
     uuid::Timestamp::from_unix_time(
         1_700_000_000 + millis / 1_000,
@@ -21,6 +24,10 @@ fn test_timestamp_provider() -> uuid::Timestamp {
     )
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one fixture exercises the complete backend contract"
+)]
 async fn exercise_store<B>(backend: B)
 where
     B: BTree<Vec<u8>, Vec<u8>> + Clone,
@@ -101,13 +108,13 @@ where
         tx.scan("test~".into().."test~".into(), 0)
             .await
             .expect("empty range"),
-        [] as [(std::string::String, value::Value); 0]
+        [] as [(String, value::Value); 0]
     );
     assert_eq!(
         tx.scan("z".into().."z~".into(), 0)
             .await
             .expect("absent prefix range"),
-        [] as [(std::string::String, value::Value); 0]
+        [] as [(String, value::Value); 0]
     );
     assert_eq!(
         tx.scan_prefix("test:", 0).await.expect("scan test prefix"),
@@ -143,7 +150,7 @@ where
         tx.scan_prefix("not-found", 0)
             .await
             .expect("scan absent prefix"),
-        [] as [(std::string::String, value::Value); 0]
+        [] as [(String, value::Value); 0]
     );
 
     tx.rollback().await.expect("roll back transaction");
@@ -192,7 +199,7 @@ where
 
 #[tokio::test]
 async fn in_memory_store_supports_kv_operations_and_scans() {
-    exercise_store(InMemoryBTree::<Vec<u8>, Vec<u8>>::new()).await;
+    Box::pin(exercise_store(InMemoryBTree::<Vec<u8>, Vec<u8>>::new())).await;
 }
 
 #[tokio::test]
@@ -206,5 +213,9 @@ async fn redb_store_supports_kv_operations_and_scans() {
         .expect("create KV table");
     write.commit().expect("commit KV table");
 
-    exercise_store(RedbByteBTree::new(database.clone(), TABLE)).await;
+    Box::pin(exercise_store(RedbByteBTree::new(
+        Arc::clone(&database),
+        TABLE,
+    )))
+    .await;
 }

@@ -38,7 +38,8 @@ impl SyncTransport for IrohTransport {
                     "sync frame exceeds 1 MiB",
                 ));
             }
-            send.write_all(&(bytes.len() as u32).to_be_bytes())
+            let length = u32::try_from(bytes.len()).expect("bounded sync frame fits u32");
+            send.write_all(&length.to_be_bytes())
                 .await
                 .map_err(Error::other)?;
             send.write_all(&bytes).await.map_err(Error::other)

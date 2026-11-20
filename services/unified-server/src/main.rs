@@ -1,6 +1,10 @@
 #![recursion_limit = "256"]
 
+use std::io;
+
+use unified_server::cli;
+
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
-    unified_server::cli::run().await
+async fn main() -> io::Result<()> {
+    cli::run().await
 }

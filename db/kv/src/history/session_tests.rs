@@ -6,6 +6,8 @@ use kv_store::KvStore;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use btree::InMemoryBTree;
     use futures::{SinkExt, executor::block_on, join, stream::StreamExt};
     use futures_channel::mpsc;
@@ -15,9 +17,9 @@ mod tests {
     use super::*;
 
     fn test_timestamp_provider() -> uuid::Timestamp {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        static NEXT: AtomicU64 = AtomicU64::new(1);
 
-        let millis = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let millis = NEXT.fetch_add(1, Ordering::Relaxed);
 
         uuid::Timestamp::from_unix_time(
             1_700_000_000 + millis / 1_000,
@@ -39,6 +41,10 @@ mod tests {
             self.receiver.next().await.ok_or(())
         }
 
+        #[allow(
+            clippy::map_err_ignore,
+            reason = "the test transport intentionally maps send failure to unit"
+        )]
         async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
             self.sender.send(frame).await.map_err(|_| ())
         }
@@ -77,10 +83,13 @@ mod tests {
         block_on(async {
             let source = KvStore::new(InMemoryBTree::new(), test_timestamp_provider);
             let mut tx = source.transaction().await.unwrap();
-            tx.set("valid", Value::Blob(b"value".to_vec()), None)
+            Box::pin(tx.set("valid", Value::Blob(b"value".to_vec()), None))
                 .await
                 .unwrap();
-            let (key, payload) = tx.export_snapshot("valid").await.unwrap().unwrap();
+            let (key, payload) = Box::pin(tx.export_snapshot("valid"))
+                .await
+                .unwrap()
+                .unwrap();
             let snapshot = KvSnapshot { key, payload };
             tx.commit().await.unwrap();
             let mut invalid = snapshot.clone();
@@ -116,12 +125,12 @@ mod tests {
                 receiver: peer_receiver,
             };
             let destination = KvStore::new(InMemoryBTree::new(), test_timestamp_provider);
-            let result = synchronize(
+            let result = Box::pin(synchronize(
                 &destination,
                 &mut responder,
                 SyncRole::Responder,
                 Config::default(),
-            )
+            ))
             .await;
             assert!(matches!(result, Err(Error::Storage(_))));
             assert_eq!(
@@ -129,7 +138,7 @@ mod tests {
                 Message::Hello { version: VERSION }
             );
             let tx = destination.transaction().await.unwrap();
-            assert_eq!(tx.get("valid", i64::MIN).await.unwrap(), None);
+            assert_eq!(Box::pin(tx.get("valid", i64::MIN)).await.unwrap(), None);
             tx.rollback().await.unwrap();
         });
     }
@@ -140,12 +149,10 @@ mod tests {
             let source = KvStore::new(InMemoryBTree::new(), test_timestamp_provider);
             let destination = KvStore::new(InMemoryBTree::new(), test_timestamp_provider);
             let mut transaction = source.transaction().await.unwrap();
-            transaction
-                .set("first", Value::Blob(b"one".to_vec()), None)
+            Box::pin(transaction.set("first", Value::Blob(b"one".to_vec()), None))
                 .await
                 .unwrap();
-            transaction
-                .set("second", Value::Blob(b"two".to_vec()), None)
+            Box::pin(transaction.set("second", Value::Blob(b"two".to_vec()), None))
                 .await
                 .unwrap();
             transaction.commit().await.unwrap();
@@ -177,14 +184,16 @@ mod tests {
 
             let source_transaction = source.transaction().await.unwrap();
             let destination_transaction = destination.transaction().await.unwrap();
-            let first_source = source_transaction.get("first", i64::MIN).await.unwrap();
-            let second_source = source_transaction.get("second", i64::MIN).await.unwrap();
-            let first_destination = destination_transaction
-                .get("first", i64::MIN)
+            let first_source = Box::pin(source_transaction.get("first", i64::MIN))
                 .await
                 .unwrap();
-            let second_destination = destination_transaction
-                .get("second", i64::MIN)
+            let second_source = Box::pin(source_transaction.get("second", i64::MIN))
+                .await
+                .unwrap();
+            let first_destination = Box::pin(destination_transaction.get("first", i64::MIN))
+                .await
+                .unwrap();
+            let second_destination = Box::pin(destination_transaction.get("second", i64::MIN))
                 .await
                 .unwrap();
             assert!(first_source.is_some() && second_source.is_some());
@@ -200,27 +209,27 @@ mod tests {
             let left = KvStore::new(InMemoryBTree::new(), test_timestamp_provider);
             let right = KvStore::new(InMemoryBTree::new(), test_timestamp_provider);
             let mut tx = left.transaction().await.unwrap();
-            tx.set("left", Value::Blob(b"L".to_vec()), None)
+            Box::pin(tx.set("left", Value::Blob(b"L".to_vec()), None))
                 .await
                 .unwrap();
-            tx.set("expired", Value::Blob(b"E".to_vec()), Some(5))
+            Box::pin(tx.set("expired", Value::Blob(b"E".to_vec()), Some(5)))
                 .await
                 .unwrap();
             tx.commit().await.unwrap();
 
             let mut tx = right.transaction().await.unwrap();
-            tx.set("right", Value::Blob(b"R".to_vec()), None)
+            Box::pin(tx.set("right", Value::Blob(b"R".to_vec()), None))
                 .await
                 .unwrap();
-            tx.set("deleted", Value::Blob(b"D".to_vec()), None)
+            Box::pin(tx.set("deleted", Value::Blob(b"D".to_vec()), None))
                 .await
                 .unwrap();
-            tx.delete("deleted").await.unwrap();
-            tx.set("recreated", Value::Blob(b"old".to_vec()), None)
+            Box::pin(tx.delete("deleted")).await.unwrap();
+            Box::pin(tx.set("recreated", Value::Blob(b"old".to_vec()), None))
                 .await
                 .unwrap();
-            tx.delete("recreated").await.unwrap();
-            tx.set("recreated", Value::Blob(b"new".to_vec()), None)
+            Box::pin(tx.delete("recreated")).await.unwrap();
+            Box::pin(tx.set("recreated", Value::Blob(b"new".to_vec()), None))
                 .await
                 .unwrap();
             tx.commit().await.unwrap();
@@ -254,7 +263,7 @@ mod tests {
                 b.unwrap();
                 if round == 0 {
                     let mut tx = left.transaction().await.unwrap();
-                    tx.set("left", Value::Blob(b"updated".to_vec()), None)
+                    Box::pin(tx.set("left", Value::Blob(b"updated".to_vec()), None))
                         .await
                         .unwrap();
                     tx.commit().await.unwrap();
@@ -263,16 +272,16 @@ mod tests {
 
             let tx = left.transaction().await.unwrap();
             assert_eq!(
-                tx.get("right", i64::MIN).await.unwrap(),
+                Box::pin(tx.get("right", i64::MIN)).await.unwrap(),
                 Some(Value::Blob(b"R".to_vec()))
             );
-            assert_eq!(tx.get("deleted", 0).await.unwrap(), None);
+            assert_eq!(Box::pin(tx.get("deleted", 0)).await.unwrap(), None);
             assert_eq!(
-                tx.get("recreated", 0).await.unwrap(),
+                Box::pin(tx.get("recreated", 0)).await.unwrap(),
                 Some(Value::Blob(b"new".to_vec()))
             );
-            assert_eq!(tx.get("expired", 5).await.unwrap(), None);
-            let snapshots = tx.export_snapshots().await.unwrap();
+            assert_eq!(Box::pin(tx.get("expired", 5)).await.unwrap(), None);
+            let snapshots = Box::pin(tx.export_snapshots()).await.unwrap();
             assert_eq!(snapshots.len(), 5);
             assert!(
                 snapshots
@@ -282,16 +291,16 @@ mod tests {
             tx.rollback().await.unwrap();
             let tx = right.transaction().await.unwrap();
             assert_eq!(
-                tx.get("left", i64::MIN).await.unwrap(),
+                Box::pin(tx.get("left", i64::MIN)).await.unwrap(),
                 Some(Value::Blob(b"updated".to_vec()))
             );
-            assert_eq!(tx.get("deleted", 0).await.unwrap(), None);
+            assert_eq!(Box::pin(tx.get("deleted", 0)).await.unwrap(), None);
             assert_eq!(
-                tx.get("recreated", 0).await.unwrap(),
+                Box::pin(tx.get("recreated", 0)).await.unwrap(),
                 Some(Value::Blob(b"new".to_vec()))
             );
-            assert_eq!(tx.get("expired", 5).await.unwrap(), None);
-            assert_eq!(snapshots, tx.export_snapshots().await.unwrap());
+            assert_eq!(Box::pin(tx.get("expired", 5)).await.unwrap(), None);
+            assert_eq!(snapshots, Box::pin(tx.export_snapshots()).await.unwrap());
             tx.rollback().await.unwrap();
         });
     }
@@ -301,14 +310,20 @@ mod tests {
         block_on(async {
             let store = KvStore::new(InMemoryBTree::new(), test_timestamp_provider);
             let (out_sender, _out_receiver) = mpsc::unbounded();
-            let (_closed_sender, closed_receiver) = mpsc::unbounded();
-            drop(_closed_sender);
+            let (closed_sender, closed_receiver) = mpsc::unbounded();
+            drop(closed_sender);
             let mut dropped = Channel {
                 sender: out_sender,
                 receiver: closed_receiver,
             };
             assert!(matches!(
-                synchronize(&store, &mut dropped, SyncRole::Responder, Config::default()).await,
+                Box::pin(synchronize(
+                    &store,
+                    &mut dropped,
+                    SyncRole::Responder,
+                    Config::default()
+                ))
+                .await,
                 Err(Error::Transport(()))
             ));
 
@@ -320,12 +335,12 @@ mod tests {
                 receiver: input_receiver,
             };
             assert!(matches!(
-                synchronize(
+                Box::pin(synchronize(
                     &store,
                     &mut malformed,
                     SyncRole::Responder,
                     Config::default()
-                )
+                ))
                 .await,
                 Err(Error::InvalidFrame)
             ));
@@ -341,12 +356,12 @@ mod tests {
                 receiver: input_receiver,
             };
             assert!(matches!(
-                synchronize(
+                Box::pin(synchronize(
                     &store,
                     &mut duplicate_control,
                     SyncRole::Responder,
                     Config::default()
-                )
+                ))
                 .await,
                 Err(Error::UnexpectedMessage)
             ));
@@ -367,12 +382,12 @@ mod tests {
                 receiver: input_receiver,
             };
             assert!(matches!(
-                synchronize(
+                Box::pin(synchronize(
                     &store,
                     &mut duplicate_end,
                     SyncRole::Responder,
                     Config::default()
-                )
+                ))
                 .await,
                 Err(Error::UnexpectedMessage)
             ));

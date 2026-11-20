@@ -1,4 +1,4 @@
-import type { DatabaseHandle, ChangeEvent, SyncState, SyncOptions } from "@ofsdk/sync-sdk";
+import type { DatabaseHandle, SyncOptions } from "@ofsdk/sync-sdk";
 import {
   deriveKey,
   encrypt,
@@ -8,7 +8,7 @@ import {
   createAuthentication,
   verifyAuthentication,
 } from "$lib/vault/storage/crypto";
-import { type LockSettings, LockSettingsSchema, DEFAULT_LOCK_SETTINGS, encryptLockSettings, decryptLockSettings } from "$lib/vault/lock";
+import { type LockSettings, DEFAULT_LOCK_SETTINGS, encryptLockSettings, decryptLockSettings } from "$lib/vault/lock";
 import { type Secret, SecretSchema } from "$lib/vault/secrets/secret";
 import { type Folder, FolderSchema } from "$lib/vault/folder";
 import { type ItemMutation, validateItemSnapshot, type ItemSnapshot } from "$lib/vault/folder";
@@ -45,7 +45,7 @@ export class SyncVaultHandle implements VaultHandleLike {
   private key: CryptoKey;
   private meta: VaultMeta;
   private handle: DatabaseHandle;
-  private prepared: ItemSnapshot;
+
   private syncSDK?: SyncSDKRef;
 
   constructor(options: SyncVaultHandleOptions) {
@@ -53,7 +53,7 @@ export class SyncVaultHandle implements VaultHandleLike {
     this.key = options.key;
     this.meta = options.meta;
     this.syncSDK = options.syncSDK;
-    this.prepared = { items: [], folders: [] };
+
   }
 
   static create(handle: DatabaseHandle, key: CryptoKey, meta: VaultMeta, syncSDK?: SyncSDKRef): SyncVaultHandle {
@@ -209,7 +209,6 @@ export class SyncVaultHandle implements VaultHandleLike {
       }
 
       await this.handle.execute("COMMIT");
-      this.prepared = await this.itemSnapshot();
     } catch (error) {
       await this.handle.execute("ROLLBACK");
       throw error;

@@ -1,4 +1,3 @@
-
 #[derive(serde::Deserialize)]
 pub struct StorageQuery {
     pub access_token: String,

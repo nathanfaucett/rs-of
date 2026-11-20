@@ -40,4 +40,4 @@ Unsupported retained state requires an explicit supported recovery or a delibera
 
 ## Qualification boundary
 
-Repository tests can prove local transaction, replay, reopen, and permission behavior without proving OS secure stores, rendered applications, WAN partitions, or multi-Device target behavior. Browser and runtime results in [e2e/runtime-validation.md](../../../e2e/runtime-validation.md) apply only to the commits recorded there; they are not current evidence by themselves.
+Repository tests can prove local transaction, replay, reopen, and permission behavior without proving OS secure stores, rendered applications, WAN partitions, or multi-Device target behavior. GitHub Actions records browser and runtime results for each tested commit. Do not present a past run as current evidence.

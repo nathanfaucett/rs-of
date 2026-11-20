@@ -10,24 +10,26 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdentityResourceOneOf7 {
     #[serde(rename = "type")]
     pub r#type: Type,
 }
 
 impl IdentityResourceOneOf7 {
-    #[must_use]
-    pub const fn new(r#type: Type) -> Self {
-        Self { r#type }
+    pub fn new(r#type: Type) -> IdentityResourceOneOf7 {
+        IdentityResourceOneOf7 { r#type }
     }
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum Type {
     #[serde(rename = "idpSecurity")]
-    #[default]
     IdpSecurity,
 }
 
+impl Default for Type {
+    fn default() -> Type {
+        Self::IdpSecurity
+    }
+}

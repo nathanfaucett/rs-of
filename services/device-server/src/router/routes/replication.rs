@@ -224,7 +224,7 @@ mod tests {
 
     #[cfg(feature = "cli")]
     use axum::{
-        extract::{Path, State},
+        extract::{Path as AxumPath, State},
         http::{HeaderMap, HeaderValue, header::AUTHORIZATION},
     };
     #[cfg(feature = "cli")]

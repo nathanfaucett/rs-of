@@ -4,6 +4,8 @@ The IdP provides conventional OAuth 2.0 and OpenID Connect. Definitions are in t
 
 The accepted target is the `rs-of` canonical monorepo, but migration is incomplete. See the [current-versus-target vision](../../../docs/goal.md), [target architecture](../../../docs/architecture.md), and [canonical monorepo ADR](../../../docs/adr/0001-canonical-monorepo.md).
 
+For implementation navigation, see [runtime IdP route registration](../../idp-server/src/router/openapi_router.rs), [unified owner composition](../../unified-server/src/runtime.rs), and the [owner E2E flow](../../../e2e/owners.e2e.ts).
+
 ## Ownership and local trust
 
 IdP owns Users, credentials, Applications, OAuth Clients, grants, and Node Signer trust. The Device context owns Device records, endpoint identity, approval/revocation, and configuration. Management owns roles and permissions and authorizes administration; it does not own Device records.

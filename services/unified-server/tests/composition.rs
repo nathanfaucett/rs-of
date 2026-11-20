@@ -1,11 +1,16 @@
 #![cfg(feature = "cli")]
 
 use std::{
+    fs,
+    net::TcpListener,
+    path::Path,
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
 
+use reqwest::{Method, redirect::Policy};
 use serde_json::{Value, json};
+use tokio::time::sleep;
 
 struct Server(Child);
 
@@ -24,7 +29,7 @@ async fn fresh_server_authenticates_all_clients_and_restarts() {
 #[tokio::test]
 async fn portless_server_restarts_with_retained_state() {
     let root = tempfile::tempdir().expect("fresh performance directory");
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("available port");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("available port");
     let port = listener.local_addr().expect("address").port();
     drop(listener);
     let client = reqwest::Client::builder()
@@ -66,7 +71,7 @@ async fn portless_server_restarts_with_retained_state() {
                 eprintln!("server restart {restart} ready in {:?}", started.elapsed());
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            sleep(Duration::from_millis(20)).await;
         }
     }
 }
@@ -74,12 +79,12 @@ async fn portless_server_restarts_with_retained_state() {
 async fn smoke() {
     let root = tempfile::tempdir().expect("temporary data directory");
     let seed = tempfile::NamedTempFile::new().expect("optional seed file");
-    std::fs::write(
+    fs::write(
         seed.path(),
         br#"{"users":[{"username":"test-user","password":"test-password"}]}"#,
     )
     .expect("seed JSON");
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("available port");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("available port");
     let port = listener.local_addr().expect("address").port();
     drop(listener);
     let base = format!("http://127.0.0.1:{port}");
@@ -117,7 +122,7 @@ async fn smoke() {
             );
             let client = reqwest::Client::builder()
                 .no_proxy()
-                .redirect(reqwest::redirect::Policy::none())
+                .redirect(Policy::none())
                 .timeout(Duration::from_secs(10))
                 .build()
                 .expect("HTTP client");
@@ -136,141 +141,18 @@ async fn smoke() {
                 startup_times.push(elapsed);
                 break client;
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            sleep(Duration::from_millis(20)).await;
         };
-        let mut entries = std::fs::read_dir(root.path())
-            .expect("local data directory")
-            .map(|entry| entry.expect("directory entry").file_name())
-            .collect::<Vec<_>>();
-        entries.sort();
-        assert_eq!(
-            entries,
-            vec!["unified.redb"],
-            "local restart must retain the single-file layout after resource use"
-        );
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                std::fs::metadata(root.path().join("unified.redb"))
-                    .expect("database metadata")
-                    .permissions()
-                    .mode()
-                    & 0o077,
-                0
-            );
-        }
-        for owner in ["idp", "device", "management", "storage"] {
-            assert_eq!(
-                client
-                    .get(format!("{base}/{owner}/health"))
-                    .send()
-                    .await
-                    .expect("health")
-                    .status(),
-                200,
-                "{owner}"
-            );
-            for path in [
-                format!("/{owner}/{owner}/health"),
-                format!("/{owner}/setup/owner/status"),
-            ] {
-                assert_eq!(
-                    client
-                        .get(format!("{base}{path}"))
-                        .send()
-                        .await
-                        .expect("absent route")
-                        .status(),
-                    404,
-                    "{path}"
-                );
-            }
-        }
-        let metadata: Value = client
-            .get(format!("{base}/idp/.well-known/openid-configuration"))
-            .send()
-            .await
-            .expect("discovery")
-            .json()
-            .await
-            .expect("metadata");
-        assert_eq!(metadata["issuer"], format!("{base}/idp"));
-        assert_eq!(
-            metadata["token_endpoint"],
-            format!("{base}/idp/oauth2/token")
-        );
-        assert_eq!(
-            metadata["authorization_endpoint"],
-            format!("{base}/idp/oauth2/auth")
-        );
-        for origin in ["http://localhost:5173", "http://localhost:5174"] {
-            let response = client
-                .request(reqwest::Method::OPTIONS, format!("{base}/idp/oauth2/token"))
-                .header("origin", origin)
-                .header("access-control-request-method", "POST")
-                .send()
-                .await
-                .expect("CORS preflight");
-            assert_eq!(response.headers()["access-control-allow-origin"], origin);
-        }
-        let response = client
-            .get(format!("{base}/idp/.well-known/jwks.json"))
-            .send()
-            .await
-            .expect("local JWKS over HTTP");
-        assert_eq!(response.status(), 200);
-        let jwks: Value = response.json().await.expect("JWKS JSON");
-        assert!(!jwks["keys"].as_array().expect("JWKS keys").is_empty());
-        if let Some(previous) = &retained_jwks {
-            assert_eq!(&jwks, previous, "restart must retain the signing key");
-        }
-        retained_jwks = Some(jwks);
+        assert_local_surface(&client, &base, root.path(), &mut retained_jwks).await;
         authenticate(&client, &base, restart == 0).await;
-        let token = client
-            .post(format!("{base}/idp/oauth2/token"))
-            .form(&[
-                ("grant_type", "password"),
-                ("client_id", "local-login"),
-                ("username", "test-user"),
-                ("password", "test-password"),
-                ("scope", "openid"),
-            ])
-            .send()
-            .await
-            .expect("seed user sign-in");
-        assert_eq!(token.status(), 200);
-        let token: Value = token.json().await.expect("seed User token");
-        let bearer = token["access_token"].as_str().expect("seed User bearer");
-        retained_filesystem =
-            Some(filesystem_restart(&client, &base, bearer, retained_filesystem.as_deref()).await);
-        if let Some(id) = &retained_resource {
-            let read = exchange_storage(
-                &client,
-                &base,
-                "local-login",
-                bearer,
-                "storage:databases",
-                "read",
-            )
-            .await;
-            assert_saved_resource(
-                &client,
-                &format!("{base}/storage/databases/{id}/sql"),
-                &read,
-            )
-            .await;
-        } else {
-            retained_resource =
-                Some(storage_roundtrip(&client, &base, "local-login", bearer).await);
-        }
-        assert_eq!(
-            std::fs::read_dir(root.path())
-                .expect("layout after resource use")
-                .count(),
-            1,
-            "resource use must not create sidecars"
-        );
+        exercise_retained_resources(
+            &client,
+            &base,
+            root.path(),
+            &mut retained_filesystem,
+            &mut retained_resource,
+        )
+        .await;
         drop(server);
     }
     eprintln!(
@@ -288,6 +170,150 @@ async fn smoke() {
         );
         assert!(!root.path().join(format!("{owner}.setup-host")).exists());
     }
+}
+
+async fn assert_local_surface(
+    client: &reqwest::Client,
+    base: &str,
+    root: &Path,
+    retained_jwks: &mut Option<Value>,
+) {
+    let mut entries = fs::read_dir(root)
+        .expect("local data directory")
+        .map(|entry| entry.expect("directory entry").file_name())
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert_eq!(
+        entries,
+        vec!["unified.redb"],
+        "local restart must retain the single-file layout after resource use"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(root.join("unified.redb"))
+                .expect("database metadata")
+                .permissions()
+                .mode()
+                & 0o077,
+            0
+        );
+    };
+    for owner in ["idp", "device", "management", "storage"] {
+        assert_eq!(
+            client
+                .get(format!("{base}/{owner}/health"))
+                .send()
+                .await
+                .expect("health")
+                .status(),
+            200,
+            "{owner}"
+        );
+        for path in [
+            format!("/{owner}/{owner}/health"),
+            format!("/{owner}/setup/owner/status"),
+        ] {
+            assert_eq!(
+                client
+                    .get(format!("{base}{path}"))
+                    .send()
+                    .await
+                    .expect("absent route")
+                    .status(),
+                404,
+                "{path}"
+            );
+        }
+    }
+    let metadata: Value = client
+        .get(format!("{base}/idp/.well-known/openid-configuration"))
+        .send()
+        .await
+        .expect("discovery")
+        .json()
+        .await
+        .expect("metadata");
+    assert_eq!(metadata["issuer"], format!("{base}/idp"));
+    assert_eq!(
+        metadata["token_endpoint"],
+        format!("{base}/idp/oauth2/token")
+    );
+    assert_eq!(
+        metadata["authorization_endpoint"],
+        format!("{base}/idp/oauth2/auth")
+    );
+    for origin in ["http://localhost:5173", "http://localhost:5174"] {
+        let response = client
+            .request(Method::OPTIONS, format!("{base}/idp/oauth2/token"))
+            .header("origin", origin)
+            .header("access-control-request-method", "POST")
+            .send()
+            .await
+            .expect("CORS preflight");
+        assert_eq!(response.headers()["access-control-allow-origin"], origin);
+    }
+    let response = client
+        .get(format!("{base}/idp/.well-known/jwks.json"))
+        .send()
+        .await
+        .expect("local JWKS over HTTP");
+    assert_eq!(response.status(), 200);
+    let jwks: Value = response.json().await.expect("JWKS JSON");
+    let keys = jwks["keys"].as_array().expect("JWKS keys");
+    let _first_key = keys.first().expect("JWKS key");
+    if let Some(previous) = &retained_jwks {
+        assert_eq!(&jwks, previous, "restart must retain the signing key");
+    }
+    *retained_jwks = Some(jwks);
+}
+
+async fn exercise_retained_resources(
+    client: &reqwest::Client,
+    base: &str,
+    root: &Path,
+    retained_filesystem: &mut Option<String>,
+    retained_resource: &mut Option<String>,
+) {
+    let token = client
+        .post(format!("{base}/idp/oauth2/token"))
+        .form(&[
+            ("grant_type", "password"),
+            ("client_id", "local-login"),
+            ("username", "test-user"),
+            ("password", "test-password"),
+            ("scope", "openid"),
+        ])
+        .send()
+        .await
+        .expect("seed user sign-in");
+    assert_eq!(token.status(), 200);
+    let token: Value = token.json().await.expect("seed User token");
+    let bearer = token["access_token"].as_str().expect("seed User bearer");
+    *retained_filesystem =
+        Some(filesystem_restart(client, base, bearer, retained_filesystem.as_deref()).await);
+    if let Some(id) = &retained_resource {
+        let read = exchange_storage(
+            client,
+            base,
+            "local-login",
+            bearer,
+            "storage:databases",
+            "read",
+        )
+        .await;
+        assert_saved_resource(client, &format!("{base}/storage/databases/{id}/sql"), &read).await;
+    } else {
+        *retained_resource = Some(storage_roundtrip(client, base, "local-login", bearer).await);
+    }
+    assert_eq!(
+        fs::read_dir(root)
+            .expect("layout after resource use")
+            .count(),
+        1,
+        "resource use must not create sidecars"
+    );
 }
 
 async fn authenticate(client: &reqwest::Client, base: &str, first_start: bool) {
@@ -324,6 +350,21 @@ async fn authenticate(client: &reqwest::Client, base: &str, first_start: bool) {
         let body = response.text().await.expect("service token response");
         assert_eq!(status, 200, "{id}: {body}");
     }
+    exercise_device(client, base, bearer, first_start).await;
+    let user: Value = client
+        .get(format!("{base}/idp/userinfo"))
+        .bearer_auth(bearer)
+        .send()
+        .await
+        .expect("userinfo")
+        .json()
+        .await
+        .expect("user JSON");
+    assert_eq!(user["email"], "admin@local.test");
+    exercise_frontends(client, base, bearer).await;
+}
+
+async fn exercise_device(client: &reqwest::Client, base: &str, bearer: &str, first_start: bool) {
     let response = client
         .post(format!("{base}/idp/oauth2/token"))
         .form(&[
@@ -403,16 +444,9 @@ async fn authenticate(client: &reqwest::Client, base: &str, first_start: bool) {
         assert_eq!(listed.as_array().expect("retained Device array").len(), 1);
         assert_eq!(listed[0]["name"], "Local HTTP device");
     }
-    let user: Value = client
-        .get(format!("{base}/idp/userinfo"))
-        .bearer_auth(bearer)
-        .send()
-        .await
-        .expect("userinfo")
-        .json()
-        .await
-        .expect("user JSON");
-    assert_eq!(user["email"], "admin@local.test");
+}
+
+async fn exercise_frontends(client: &reqwest::Client, base: &str, bearer: &str) {
     for (id, redirect) in [
         ("app", "http://localhost:5173/callback"),
         ("password-manager", "http://localhost:5174/callback"),

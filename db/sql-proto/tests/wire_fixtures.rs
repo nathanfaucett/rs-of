@@ -1,8 +1,8 @@
 use prost::Message;
 
 use proto::{
-    DataDefinition, QueryExpr, QueryExprValue, Statement, Value, data_definition, query_expr,
-    query_expr_value, value,
+    DataDefinition, DropTable, QueryExpr, QueryExprValue, Statement, Value, data_definition,
+    query_expr, query_expr_value, statement, value,
 };
 
 #[test]
@@ -40,8 +40,8 @@ fn query_expr_value_v1_wire_fixture() {
 #[test]
 fn statement_drop_table_v1_wire_fixture() {
     let statement = Statement {
-        kind: Some(proto::statement::Kind::DataDefinition(DataDefinition {
-            kind: Some(data_definition::Kind::DropTable(proto::DropTable {
+        kind: Some(statement::Kind::DataDefinition(DataDefinition {
+            kind: Some(data_definition::Kind::DropTable(DropTable {
                 table_name: "t".into(),
                 if_exists: true,
             })),

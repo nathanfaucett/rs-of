@@ -6,6 +6,7 @@ pub struct UnifiedConfig {
     pub public_base_url: Option<String>,
     pub data_dir: PathBuf,
     pub origin: String,
+    pub password_manager_origin: Option<String>,
     pub seed: Option<SeedConfig>,
 }
 

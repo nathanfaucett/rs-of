@@ -2,9 +2,10 @@
 import LockSettingsControl from "$lib/vault/LockSettings.svelte";
 import JsonExport from "$lib/vault/export/JsonExport.svelte";
 import ImportJson from "$lib/vault/import/ImportJson.svelte";
-import { Alert, Card } from "$lib/ui";
-import { notifications } from "$lib/shared/state/notifications.svelte";
+import { Alert } from "$lib/ui";
+
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+import type { LockSettings } from "$lib/vault/lock";
 import { Lock } from "@lucide/svelte";
 
 let error = $state("");
@@ -15,7 +16,7 @@ let session = 0;
 
 let vaultData = $derived(vaultStateModule.vaultData);
 
-function settingsSaved(settings: any) {
+function settingsSaved(settings: LockSettings) {
 	if (!vaultData || vaultData.inactivity.check()) return;
 	vaultData.lockSettings = settings;
 }
@@ -57,11 +58,6 @@ function finishImport(success = false) {
 	}, 0);
 }
 
-function showImport() {
-	if (!vaultData || vaultData.inactivity.check() || busy) return;
-	importing = true;
-	notice = "";
-}
 </script>
 
 <div class="flex min-h-0 grow items-start justify-center overflow-auto p-6">

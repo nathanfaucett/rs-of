@@ -1,19 +1,26 @@
 use std::{
-    fs,
-    future::Future,
+    env, fs,
+    future::poll_fn,
     path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    task::{Context, Poll, Waker},
+    time::Duration,
 };
 
 use bytes::Bytes;
+use tokio::{task::yield_now, time::timeout};
 use uuid::Uuid;
 
 use crate::{
-    Error, FileHandle, FileSessionService, FileSystem, MemoryNetwork, MemoryTransport,
+    Entry, Error, FileHandle, FileSessionService, FileSystem, MemoryNetwork, MemoryTransport,
     MetadataSync, OpenRequest, OperationControl, Residency, staged_content::ContentStep,
 };
 
 fn root() -> PathBuf {
-    std::env::temp_dir().join(format!("offs-content-fault-{}", Uuid::now_v7()))
+    env::temp_dir().join(format!("offs-content-fault-{}", Uuid::now_v7()))
 }
 
 fn files(path: &Path) -> Vec<PathBuf> {
@@ -35,12 +42,12 @@ async fn drive<F: Future>(
     server: &mut MetadataSync<'_, u8, MemoryTransport<u8>>,
 ) -> F::Output {
     tokio::pin!(future);
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    timeout(Duration::from_secs(5), async {
         loop {
             tokio::select! {
                 biased;
                 result = &mut future => return result,
-                () = tokio::task::yield_now() => server.pump().await.expect("server pumps"),
+                () = yield_now() => server.pump().await.expect("server pumps"),
             }
         }
     })
@@ -240,11 +247,11 @@ async fn cancellation_while_queued_for_execution_never_reaches_policy_or_mutatio
         .write("file", b"original")
         .await
         .expect("initial content");
-    let decisions = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let policy = std::sync::Arc::clone(&decisions);
+    let decisions = Arc::new(AtomicUsize::new(0));
+    let policy = Arc::clone(&decisions);
     let control = OperationControl::new(move |_, operation| {
         if matches!(operation, crate::RemoteOperation::Session { .. }) {
-            policy.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            policy.fetch_add(1, Ordering::SeqCst);
         }
         Box::pin(async { true })
     });
@@ -265,15 +272,15 @@ async fn cancellation_while_queued_for_execution_never_reaches_policy_or_mutatio
         .expect("open queues");
     let execution = filesystem.owner.execution.lock().await;
     let mut queued = Box::pin(server.pump());
-    std::future::poll_fn(|cx| {
+    poll_fn(|cx| {
         assert!(queued.as_mut().poll(cx).is_pending());
-        std::task::Poll::Ready(())
+        Poll::Ready(())
     })
     .await;
     control.cancel();
     queued.await.expect("unstarted request discarded");
     drop(execution);
-    assert_eq!(decisions.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(decisions.load(Ordering::SeqCst), 0);
     let read = handle.read(0, 8);
     assert!(matches!(server.pump().await, Err(Error::Cancelled)));
     assert!(matches!(
@@ -391,8 +398,7 @@ async fn retirement_drains_admitted_native_write_and_cancelled_drain_retries() {
     for projected in [false, true] {
         for cancel in [false, true] {
             let root = root();
-            let catalog =
-                std::sync::Arc::new(crate::FileSystemCatalog::open(&root).expect("catalog"));
+            let catalog = Arc::new(crate::FileSystemCatalog::open(&root).expect("catalog"));
             let resource = catalog.create(None).await.expect("resource");
             if projected {
                 catalog
@@ -409,18 +415,17 @@ async fn retirement_drains_admitted_native_write_and_cancelled_drain_retries() {
                 .set_residency("", Residency::Full)
                 .await
                 .expect("full");
-            let retiring_catalog = std::sync::Arc::clone(&catalog);
-            let retirement =
-                std::sync::Arc::new(std::sync::Mutex::new(Some(Box::pin(async move {
-                    retiring_catalog.remove_managed_copy(resource.id).await
-                }))));
-            let pending = std::sync::Arc::clone(&retirement);
+            let retiring_catalog = Arc::clone(&catalog);
+            let retirement = Arc::new(Mutex::new(Some(Box::pin(async move {
+                retiring_catalog.remove_managed_copy(resource.id).await
+            }))));
+            let pending = Arc::clone(&retirement);
             *filesystem.content_action.lock().expect("action lock") = Some((
                 ContentStep::Metadata,
                 Box::new(move || {
                     let mut pending = pending.lock().expect("retirement future");
                     let future = pending.as_mut().expect("unpolled retirement");
-                    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+                    let mut context = Context::from_waker(Waker::noop());
                     assert!(
                         future.as_mut().poll(&mut context).is_pending(),
                         "retirement must drain the admitted write"
@@ -490,15 +495,15 @@ async fn retirement_drains_admitted_native_write_and_cancelled_drain_retries() {
 #[tokio::test]
 async fn retirement_allows_admitted_session_write_to_finish_and_revokes_cloned_owner() {
     let root = root();
-    let catalog = std::sync::Arc::new(crate::FileSystemCatalog::open(&root).expect("catalog"));
+    let catalog = Arc::new(crate::FileSystemCatalog::open(&root).expect("catalog"));
     let resource = catalog.create(None).await.expect("resource");
-    let filesystem = std::sync::Arc::new(
+    let filesystem = Arc::new(
         catalog
             .open_filesystem(resource.id, 1_u8)
             .await
             .expect("native copy"),
     );
-    let cloned = std::sync::Arc::clone(&filesystem);
+    let cloned = Arc::clone(&filesystem);
     filesystem
         .set_residency("", Residency::Full)
         .await
@@ -521,16 +526,16 @@ async fn retirement_allows_admitted_session_write_to_finish_and_revokes_cloned_o
         .await
         .expect("remote open");
     server.pump().await.expect("session opened");
-    let retiring_catalog = std::sync::Arc::clone(&catalog);
-    let retirement = std::sync::Arc::new(std::sync::Mutex::new(Some(Box::pin(async move {
+    let retiring_catalog = Arc::clone(&catalog);
+    let retirement = Arc::new(Mutex::new(Some(Box::pin(async move {
         retiring_catalog.remove_managed_copy(resource.id).await
     }))));
-    let pending = std::sync::Arc::clone(&retirement);
+    let pending = Arc::clone(&retirement);
     *filesystem.content_action.lock().expect("action lock") = Some((
         ContentStep::Publish,
         Box::new(move || {
             let mut pending = pending.lock().expect("retirement future");
-            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            let mut context = Context::from_waker(Waker::noop());
             assert!(
                 pending
                     .as_mut()
@@ -539,6 +544,7 @@ async fn retirement_allows_admitted_session_write_to_finish_and_revokes_cloned_o
                     .poll(&mut context)
                     .is_pending()
             );
+            drop(pending);
         }),
     ));
     assert_eq!(
@@ -580,10 +586,9 @@ async fn retirement_allows_admitted_session_write_to_finish_and_revokes_cloned_o
 mod pure_filesystem_api_tests {
     use super::*;
     use crate::FileKind;
-    use uuid::Uuid;
 
-    fn root() -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("offs-pure-api-{}", Uuid::now_v7()))
+    fn root() -> PathBuf {
+        env::temp_dir().join(format!("offs-pure-api-{}", Uuid::now_v7()))
     }
 
     #[tokio::test]
@@ -611,7 +616,7 @@ mod pure_filesystem_api_tests {
         assert_eq!(entry2.meta.kind, FileKind::File);
         assert_eq!(entry2.meta.mode, 0o644);
 
-        std::fs::remove_dir_all(&root).expect("cleanup");
+        fs::remove_dir_all(&root).expect("cleanup");
     }
 
     #[tokio::test]
@@ -640,8 +645,8 @@ mod pure_filesystem_api_tests {
         assert_eq!(read1, b"data1");
         assert_eq!(read2, b"data2");
 
-        std::fs::remove_dir_all(&root1).expect("cleanup");
-        std::fs::remove_dir_all(&root2).expect("cleanup");
+        fs::remove_dir_all(&root1).expect("cleanup");
+        fs::remove_dir_all(&root2).expect("cleanup");
     }
 
     #[tokio::test]
@@ -677,7 +682,7 @@ mod pure_filesystem_api_tests {
         assert_eq!(entry_meta.kind, meta.kind);
         assert_eq!(entry_meta.mode, meta.mode);
 
-        std::fs::remove_dir_all(&root).expect("cleanup");
+        fs::remove_dir_all(&root).expect("cleanup");
     }
 
     #[tokio::test]
@@ -709,7 +714,7 @@ mod pure_filesystem_api_tests {
 
         // list
         let entries = fs.list("notes").await.expect("list");
-        assert_eq!(entries, [] as [file_system::Entry<std::string::String>; 0]);
+        assert_eq!(entries, [] as [Entry<String>; 0]);
 
         // write in subdirectory
         fs.write("notes/sub.txt", b"sub content")
@@ -731,7 +736,7 @@ mod pure_filesystem_api_tests {
         // delete
         fs.delete("notes/sub.txt").await.expect("delete file");
         let entries = fs.list("notes").await.expect("list after delete");
-        assert_eq!(entries, [] as [file_system::Entry<std::string::String>; 0]);
+        assert_eq!(entries, [] as [Entry<String>; 0]);
 
         fs.delete("notes").await.expect("delete dir");
         let entries = fs.list("").await.expect("list root");
@@ -746,7 +751,7 @@ mod pure_filesystem_api_tests {
         let rev = fs.revision("renamed.txt").await.expect("revision");
         assert!(!rev.is_nil());
 
-        std::fs::remove_dir_all(&root).expect("cleanup");
+        fs::remove_dir_all(&root).expect("cleanup");
     }
 
     #[tokio::test]
@@ -772,7 +777,7 @@ mod pure_filesystem_api_tests {
             assert_eq!(entry.meta.mode, 0o644);
         }
 
-        std::fs::remove_dir_all(&root).expect("cleanup");
+        fs::remove_dir_all(&root).expect("cleanup");
     }
 
     #[tokio::test]
@@ -798,7 +803,7 @@ mod pure_filesystem_api_tests {
             assert_eq!(entry.meta.mode, 0o644);
         }
 
-        std::fs::remove_dir_all(&root).expect("cleanup");
+        fs::remove_dir_all(&root).expect("cleanup");
     }
 
     #[tokio::test]
@@ -817,6 +822,6 @@ mod pure_filesystem_api_tests {
         assert_eq!(entry.meta.kind, FileKind::Directory);
         assert_eq!(entry.meta.mode, 0o755);
 
-        std::fs::remove_dir_all(&root).expect("cleanup");
+        fs::remove_dir_all(&root).expect("cleanup");
     }
 }

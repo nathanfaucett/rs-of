@@ -27,6 +27,11 @@ impl EndpointIdStore {
         Self::default()
     }
 
+    /// Returns the current endpoint identifiers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the endpoint store lock is poisoned.
     #[must_use]
     pub fn ids(&self) -> Vec<EndpointId> {
         self.ids
@@ -37,6 +42,11 @@ impl EndpointIdStore {
             .collect()
     }
 
+    /// Returns whether an endpoint identifier is present.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the endpoint store lock is poisoned.
     #[must_use]
     pub fn contains(&self, id: EndpointId) -> bool {
         self.ids
@@ -52,6 +62,11 @@ impl EndpointIdStore {
         self.changes.subscribe()
     }
 
+    /// Replaces the endpoint identifier set and notifies subscribers of changes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the endpoint store lock is poisoned.
     pub fn replace(&self, ids: impl IntoIterator<Item = EndpointId>) {
         let replacement = ids.into_iter().collect();
         {
@@ -64,6 +79,11 @@ impl EndpointIdStore {
         self.notify_changed();
     }
 
+    /// Adds an endpoint identifier and returns whether it was new.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the endpoint store lock is poisoned.
     #[must_use]
     pub fn add(&self, id: EndpointId) -> bool {
         let changed = self
@@ -77,6 +97,11 @@ impl EndpointIdStore {
         changed
     }
 
+    /// Removes an endpoint identifier and returns whether it was present.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the endpoint store lock is poisoned.
     #[must_use]
     pub fn remove(&self, id: EndpointId) -> bool {
         let changed = self

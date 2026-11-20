@@ -1,7 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * OAuth Server
+ * LIDP IdP API
  * OIDC / OAuth 2.x server implementation
  *
  * The version of the OpenAPI document: 0.1.0
@@ -32,6 +32,10 @@ export interface UserInfo {
   /**
    *
    */
+  blocked?: boolean;
+  /**
+   *
+   */
   email?: string | null;
   /**
    *
@@ -53,6 +57,10 @@ export interface UserInfo {
    *
    */
   locale?: string | null;
+  /**
+   *
+   */
+  mfaTotpEnabled?: boolean | null;
   /**
    *
    */
@@ -105,14 +113,6 @@ export interface UserInfo {
    *
    */
   zoneinfo?: string | null;
-  /**
-   *
-   */
-  blocked: boolean;
-  /**
-   *
-   */
-  mfaTotpEnabled?: boolean;
 }
 
 /**
@@ -127,7 +127,6 @@ export function instanceOfUserInfo(value: object): value is UserInfo {
       (value as Record<string, any>)["updated_at"] === undefined)
   )
     return false;
-  if (!("blocked" in value) || value["blocked"] === undefined) return false;
   return true;
 }
 
@@ -146,6 +145,7 @@ export function UserInfoFromJSONTyped(json: any, ignoreDiscriminator: boolean): 
         : json["birthdate"] === null
           ? null
           : json["birthdate"],
+    blocked: json["blocked"] == null ? undefined : json["blocked"],
     email: json["email"] === undefined ? undefined : json["email"] === null ? null : json["email"],
     emailVerified:
       json["email_verified"] === undefined
@@ -169,6 +169,12 @@ export function UserInfoFromJSONTyped(json: any, ignoreDiscriminator: boolean): 
           : json["given_name"],
     locale:
       json["locale"] === undefined ? undefined : json["locale"] === null ? null : json["locale"],
+    mfaTotpEnabled:
+      json["mfa_totp_enabled"] === undefined
+        ? undefined
+        : json["mfa_totp_enabled"] === null
+          ? null
+          : json["mfa_totp_enabled"],
     middleName:
       json["middle_name"] === undefined
         ? undefined
@@ -215,8 +221,6 @@ export function UserInfoFromJSONTyped(json: any, ignoreDiscriminator: boolean): 
         : json["zoneinfo"] === null
           ? null
           : json["zoneinfo"],
-    blocked: json["blocked"],
-    mfaTotpEnabled: json["mfa_totp_enabled"] == null ? undefined : json["mfa_totp_enabled"],
   };
 }
 
@@ -234,12 +238,14 @@ export function UserInfoToJSONTyped(
 
   return {
     birthdate: value["birthdate"],
+    blocked: value["blocked"],
     email: value["email"],
     email_verified: value["emailVerified"],
     family_name: value["familyName"],
     gender: value["gender"],
     given_name: value["givenName"],
     locale: value["locale"],
+    mfa_totp_enabled: value["mfaTotpEnabled"],
     middle_name: value["middleName"],
     name: value["name"],
     nickname: value["nickname"],
@@ -254,7 +260,5 @@ export function UserInfoToJSONTyped(
       value["updatedAt"] == null ? value["updatedAt"] : serializeDateTime(value["updatedAt"]),
     website: value["website"],
     zoneinfo: value["zoneinfo"],
-    blocked: value["blocked"],
-    mfa_totp_enabled: value["mfaTotpEnabled"],
   };
 }

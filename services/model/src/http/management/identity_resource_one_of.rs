@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Management API
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdentityResourceOneOf {
     #[serde(
         rename = "clientId",
@@ -24,9 +25,8 @@ pub struct IdentityResourceOneOf {
 }
 
 impl IdentityResourceOneOf {
-    #[must_use]
-    pub const fn new(r#type: Type) -> Self {
-        Self {
+    pub fn new(r#type: Type) -> IdentityResourceOneOf {
+        IdentityResourceOneOf {
             client_id: None,
             r#type,
         }
@@ -34,10 +34,13 @@ impl IdentityResourceOneOf {
 }
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum Type {
     #[serde(rename = "client")]
-    #[default]
     Client,
 }
 
+impl Default for Type {
+    fn default() -> Type {
+        Self::Client
+    }
+}

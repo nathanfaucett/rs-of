@@ -7,6 +7,18 @@
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
+use core::{fmt, pin::Pin};
+
+#[cfg(any(feature = "redb", feature = "server", feature = "sync"))]
+use std::io;
+#[cfg(all(feature = "server", unix))]
+use std::path::PathBuf;
+#[cfg(feature = "server")]
+use std::{error::Error as StdError, net::SocketAddr};
+#[cfg(feature = "redb")]
+use std::{path::Path, sync::Arc};
+
+use crate::error::from_engine;
 use engine::Engine;
 #[cfg(any(
     feature = "redb",
@@ -31,7 +43,7 @@ use value::{FromRow, Row, Value};
     all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
 ))]
 #[inline(never)]
-fn conflict_stage<F: core::future::Future>(make: impl FnOnce() -> F) -> core::pin::Pin<Box<F>> {
+fn conflict_stage<F: Future>(make: impl FnOnce() -> F) -> Pin<Box<F>> {
     Box::pin(make())
 }
 
@@ -42,6 +54,7 @@ fn conflict_stage<F: core::future::Future>(make: impl FnOnce() -> F) -> core::pi
     feature = "sync"
 ))]
 use engine_automerge::AutomergeRowCodec;
+
 #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
 use engine_indexeddb::IndexedDbKernel;
 #[cfg(feature = "redb")]
@@ -68,8 +81,8 @@ enum DatabaseBackend {
     InMemory(Engine<InMemoryKernel, AutomergeRowCodec>),
 }
 
-impl core::fmt::Debug for DatabaseBackend {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for DatabaseBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Self::IndexedDb(_) => f.debug_tuple("IndexedDb").field(&"...").finish(),
@@ -104,15 +117,15 @@ impl EmbeddedTransaction {
                 .await
                 .map_err(native_error)?
                 .set_read_limits(entries, bytes)
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Self::IndexedDb(transaction) => transaction
                 .set_read_limits(entries, bytes)
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
             #[cfg(feature = "in-memory")]
             Self::InMemory(transaction) => transaction
                 .set_read_limits(entries, bytes)
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
         }
     }
 
@@ -123,18 +136,18 @@ impl EmbeddedTransaction {
                 let mut transaction = transaction.read().await.map_err(native_error)?;
                 conflict_stage(|| transaction.row_conflicts(table, key))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine)
             }
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Self::IndexedDb(transaction) => {
                 conflict_stage(|| transaction.row_conflicts(table, key))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine)
             }
             #[cfg(feature = "in-memory")]
             Self::InMemory(transaction) => conflict_stage(|| transaction.row_conflicts(table, key))
                 .await
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
         }
     }
 
@@ -149,19 +162,19 @@ impl EmbeddedTransaction {
                 let transaction = transaction.read().await.map_err(native_error)?;
                 conflict_stage(|| transaction.row_conflict_values(table, key))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine)
             }
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Self::IndexedDb(transaction) => {
                 conflict_stage(|| transaction.row_conflict_values(table, key))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine)
             }
             #[cfg(feature = "in-memory")]
             Self::InMemory(transaction) => {
                 conflict_stage(|| transaction.row_conflict_values(table, key))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine)
             }
         }
     }
@@ -178,17 +191,15 @@ impl EmbeddedTransaction {
                 .map_err(native_error)?
                 .execute(statements)
                 .await
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
-            Self::IndexedDb(transaction) => transaction
-                .execute(statements)
-                .await
-                .map_err(crate::error::from_engine),
+            Self::IndexedDb(transaction) => {
+                transaction.execute(statements).await.map_err(from_engine)
+            }
             #[cfg(feature = "in-memory")]
-            Self::InMemory(transaction) => transaction
-                .execute(statements)
-                .await
-                .map_err(crate::error::from_engine),
+            Self::InMemory(transaction) => {
+                transaction.execute(statements).await.map_err(from_engine)
+            }
         }
     }
 
@@ -197,7 +208,7 @@ impl EmbeddedTransaction {
         translation: F,
     ) -> SqlResult<Vec<QueryResult>>
     where
-        F: core::future::Future<Output = SqlResult<Vec<Statement>>>,
+        F: Future<Output = SqlResult<Vec<Statement>>>,
     {
         match self {
             #[cfg(feature = "redb")]
@@ -206,18 +217,18 @@ impl EmbeddedTransaction {
                 transaction
                     .execute(translation.await?)
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine)
             }
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             Self::IndexedDb(transaction) => transaction
                 .execute(translation.await?)
                 .await
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
             #[cfg(feature = "in-memory")]
             Self::InMemory(transaction) => transaction
                 .execute(translation.await?)
                 .await
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
         }
     }
 
@@ -226,21 +237,12 @@ impl EmbeddedTransaction {
             #[cfg(feature = "redb")]
             Self::File(transaction) => {
                 let (_admitted, transaction) = transaction.take().await.map_err(native_error)?;
-                transaction
-                    .commit()
-                    .await
-                    .map_err(crate::error::from_engine)
+                transaction.commit().await.map_err(from_engine)
             }
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
-            Self::IndexedDb(transaction) => transaction
-                .commit()
-                .await
-                .map_err(crate::error::from_engine),
+            Self::IndexedDb(transaction) => transaction.commit().await.map_err(from_engine),
             #[cfg(feature = "in-memory")]
-            Self::InMemory(transaction) => transaction
-                .commit()
-                .await
-                .map_err(crate::error::from_engine),
+            Self::InMemory(transaction) => transaction.commit().await.map_err(from_engine),
         }
     }
 
@@ -249,21 +251,12 @@ impl EmbeddedTransaction {
             #[cfg(feature = "redb")]
             Self::File(transaction) => {
                 let (_admitted, transaction) = transaction.take().await.map_err(native_error)?;
-                transaction
-                    .rollback()
-                    .await
-                    .map_err(crate::error::from_engine)
+                transaction.rollback().await.map_err(from_engine)
             }
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
-            Self::IndexedDb(transaction) => transaction
-                .rollback()
-                .await
-                .map_err(crate::error::from_engine),
+            Self::IndexedDb(transaction) => transaction.rollback().await.map_err(from_engine),
             #[cfg(feature = "in-memory")]
-            Self::InMemory(transaction) => transaction
-                .rollback()
-                .await
-                .map_err(crate::error::from_engine),
+            Self::InMemory(transaction) => transaction.rollback().await.map_err(from_engine),
         }
     }
 }
@@ -277,12 +270,14 @@ macro_rules! database_call {
             DatabaseBackend::File(resource) => {
                 let admitted = resource.read().await.map_err(native_error)?;
                 let $engine = &*admitted;
-                $body.map_err(crate::error::from_engine)
+                let result = $body.map_err(from_engine);
+                drop(admitted);
+                result
             }
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
-            DatabaseBackend::IndexedDb($engine) => $body.map_err(crate::error::from_engine),
+            DatabaseBackend::IndexedDb($engine) => $body.map_err(from_engine),
             #[cfg(feature = "in-memory")]
-            DatabaseBackend::InMemory($engine) => $body.map_err(crate::error::from_engine),
+            DatabaseBackend::InMemory($engine) => $body.map_err(from_engine),
         }
     }};
 }
@@ -294,26 +289,41 @@ impl Database {
     /// Native hosting is not managed: an owner that attempted native hosting returns Unsupported.
     /// Unix-only; callers must exclusively own the pathname and marker namespace.
     /// The permanent `.ofdb-retired` marker is retained, including after success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a non-native backend or a lifecycle/filesystem failure.
     #[cfg(feature = "redb")]
-    pub async fn retire_and_remove(&self) -> std::io::Result<()> {
-        match &self.backend {
+    pub async fn retire_and_remove(&self) -> io::Result<()> {
+        let result = match &self.backend {
             DatabaseBackend::File(resource) => resource.retire_and_remove().await,
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
-            DatabaseBackend::IndexedDb(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
+            DatabaseBackend::IndexedDb(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
                 "not a native resource",
             )),
             #[cfg(feature = "in-memory")]
-            DatabaseBackend::InMemory(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
+            DatabaseBackend::InMemory(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
                 "not a native resource",
             )),
+        };
+        #[cfg(feature = "sync")]
+        if result.is_ok() {
+            if let Some(signal) = &self.changes {
+                signal.close();
+            }
         }
+        result
     }
 
     /// Resumes cleanup of a permanently retired file, refusing live native owners.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the retired file cannot be removed or still has a live owner.
     #[cfg(feature = "redb")]
-    pub fn remove_retired(path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+    pub fn remove_retired(path: impl AsRef<Path>) -> io::Result<()> {
         engine_redb::remove_retired(path)
     }
 
@@ -321,13 +331,17 @@ impl Database {
     /// `ChangeSubscription::events` returns a stream of committed changes.
     /// Merge with a KV subscription to reconcile both stores in one callback.
     /// Dropping the stream cancels its in-flight work.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if this database has no committed-change subscription.
     #[cfg(feature = "sync")]
-    pub fn sync_changes(&self) -> std::io::Result<sync::ChangeSubscription> {
+    pub fn sync_changes(&self) -> io::Result<sync::ChangeSubscription> {
         self.changes
             .clone()
             .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Unsupported,
+                io::Error::new(
+                    io::ErrorKind::Unsupported,
                     "committed changes require a persistent database",
                 )
             })
@@ -335,6 +349,10 @@ impl Database {
     }
 
     /// Interpret selected work before exporting state. Acknowledge only after successful sync.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if admission or invalidation decoding fails.
     #[cfg(feature = "sync")]
     pub async fn sync_invalidations(
         &self,
@@ -344,21 +362,21 @@ impl Database {
             #[cfg(feature = "redb")]
             DatabaseBackend::File(resource) => {
                 let engine = resource.read().await.map_err(native_error)?;
-                engine_automerge::committed_invalidations(&engine, work)
+                Box::pin(engine_automerge::committed_invalidations(&engine, work))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine)
             }
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
             DatabaseBackend::IndexedDb(engine) => {
-                engine_automerge::committed_invalidations(engine, work)
+                Box::pin(engine_automerge::committed_invalidations(engine, work))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine)
             }
             #[cfg(feature = "in-memory")]
             DatabaseBackend::InMemory(engine) => {
-                engine_automerge::committed_invalidations(engine, work)
+                Box::pin(engine_automerge::committed_invalidations(engine, work))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine)
             }
         }
     }
@@ -367,14 +385,12 @@ impl Database {
     /// Transactions materialize the whole database; stale writes fail without retry.
     #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
     pub async fn open_indexeddb(name: &str) -> SqlResult<Self> {
-        let kernel = IndexedDbKernel::open(name)
-            .await
-            .map_err(crate::error::from_engine)?;
+        let kernel = IndexedDbKernel::open(name).await.map_err(from_engine)?;
         let engine = Engine::new(kernel, AutomergeRowCodec::new());
         Ok(Self {
+            backend: DatabaseBackend::IndexedDb(engine),
             #[cfg(feature = "sync")]
             changes: None,
-            backend: DatabaseBackend::IndexedDb(engine),
         })
     }
 
@@ -384,6 +400,10 @@ impl Database {
     }
 
     /// Opens an isolated SQL catalog in a shared host. Retirement removes only this namespace.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace or native resource cannot be opened.
     #[cfg(feature = "redb")]
     pub fn open_shared(host: &engine_redb::SharedDatabase, name: &str) -> SqlResult<Self> {
         let namespace = host
@@ -400,28 +420,36 @@ impl Database {
             .inspect(|engine| engine.change_signal().clone())
             .map_err(native_error)?;
         Ok(Self {
+            backend: DatabaseBackend::File(resource),
             #[cfg(feature = "sync")]
             changes: Some(changes),
-            backend: DatabaseBackend::File(resource),
         })
     }
 
     /// Opens or initializes native persistence. Use `open_existing` for acknowledged resources.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database cannot be opened or initialized.
     #[cfg(feature = "redb")]
-    pub fn open(path: impl AsRef<std::path::Path>) -> SqlResult<Self> {
+    pub fn open(path: impl AsRef<Path>) -> SqlResult<Self> {
         Self::open_native(path.as_ref(), true)
     }
 
     /// Validates and opens existing native persistence without creating or initializing it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the existing database cannot be validated or opened.
     #[cfg(feature = "redb")]
-    pub fn open_existing(path: impl AsRef<std::path::Path>) -> SqlResult<Self> {
+    pub fn open_existing(path: impl AsRef<Path>) -> SqlResult<Self> {
         Self::open_native(path.as_ref(), false)
     }
 
     #[cfg(feature = "redb")]
-    fn open_native(path: &std::path::Path, create: bool) -> SqlResult<Self> {
+    fn open_native(path: &Path, create: bool) -> SqlResult<Self> {
         let database = engine_redb::open_unretired(path, create).map_err(native_error)?;
-        let database = engine_redb::RedbDatabase::new(std::sync::Arc::new(database));
+        let database = engine_redb::RedbDatabase::new(Arc::new(database));
         let resource = engine_redb::NativeResource::new(
             path,
             Engine::new(
@@ -435,9 +463,9 @@ impl Database {
             .inspect(|engine| engine.change_signal().clone())
             .map_err(native_error)?;
         Ok(Self {
+            backend: DatabaseBackend::File(resource),
             #[cfg(feature = "sync")]
             changes: Some(changes),
-            backend: DatabaseBackend::File(resource),
         })
     }
 
@@ -447,9 +475,9 @@ impl Database {
         let kernel = InMemoryKernel::new();
         let engine = Engine::new(kernel, AutomergeRowCodec::new());
         Self {
+            backend: DatabaseBackend::InMemory(engine),
             #[cfg(feature = "sync")]
             changes: None,
-            backend: DatabaseBackend::InMemory(engine),
         }
     }
 
@@ -458,10 +486,7 @@ impl Database {
             #[cfg(feature = "redb")]
             DatabaseBackend::File(resource) => {
                 let engine = resource.read().await.map_err(native_error)?;
-                let transaction = engine
-                    .transaction()
-                    .await
-                    .map_err(crate::error::from_engine)?;
+                let transaction = engine.transaction().await.map_err(from_engine)?;
                 Ok(EmbeddedTransaction::File(
                     resource.transaction(Box::new(transaction)),
                 ))
@@ -471,13 +496,13 @@ impl Database {
                 .transaction()
                 .await
                 .map(EmbeddedTransaction::IndexedDb)
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
             #[cfg(feature = "in-memory")]
             DatabaseBackend::InMemory(engine) => engine
                 .transaction()
                 .await
                 .map(EmbeddedTransaction::InMemory)
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
         }
     }
 
@@ -546,7 +571,7 @@ impl Database {
         translator: &T,
     ) -> SqlResult<Vec<QueryResult>>
     where
-        T: Translator,
+        T: Translator + platform::MaybeSync,
     {
         database_call!(self, |engine| {
             engine
@@ -561,7 +586,7 @@ impl Database {
         translator: &T,
     ) -> SqlResult<Vec<QueryResult>>
     where
-        T: Translator,
+        T: Translator + platform::MaybeSync,
     {
         database_call!(self, |engine| engine
             .translate_and_execute(query, translator)
@@ -574,7 +599,7 @@ impl Database {
         translator: &T,
     ) -> SqlResult<Vec<U>>
     where
-        T: Translator,
+        T: Translator + platform::MaybeSync,
         U: FromRow,
     {
         database_call!(self, |engine| engine
@@ -582,34 +607,49 @@ impl Database {
             .await)
     }
 
+    /// Serves SQL requests over TCP until shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if hosting or the server fails.
     #[cfg(feature = "server")]
     pub async fn serve_tcp(
         &self,
-        address: std::net::SocketAddr,
-        shutdown: impl core::future::Future<Output = ()> + Send + 'static,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        address: SocketAddr,
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), Box<dyn StdError + Send + Sync>> {
         self.serve_tcp_with_tls(address, None, shutdown).await
     }
 
+    /// Serves SQL requests over TCP with optional TLS until shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if TLS configuration, hosting, or the server fails.
     #[cfg(feature = "server")]
     pub async fn serve_tcp_with_tls(
         &self,
-        address: std::net::SocketAddr,
+        address: SocketAddr,
         identity: Option<(Vec<u8>, Vec<u8>)>,
-        shutdown: impl core::future::Future<Output = ()> + Send + 'static,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), Box<dyn StdError + Send + Sync>> {
         self.serve_tcp_with_mtls(address, identity, None, shutdown)
             .await
     }
 
+    /// Serves SQL requests over TCP with optional mutual TLS until shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if TLS configuration, hosting, or the server fails.
     #[cfg(feature = "server")]
     pub async fn serve_tcp_with_mtls(
         &self,
-        address: std::net::SocketAddr,
+        address: SocketAddr,
         mut identity: Option<(Vec<u8>, Vec<u8>)>,
         client_ca: Option<Vec<u8>>,
-        shutdown: impl core::future::Future<Output = ()> + Send + 'static,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), Box<dyn StdError + Send + Sync>> {
         match &self.backend {
             #[cfg(feature = "redb")]
             DatabaseBackend::File(engine) => {
@@ -618,6 +658,7 @@ impl Database {
                         let engine = engine.hosting_backend().await?;
                         let server =
                             crate::Server::tcp(address, crate::EngineExecutor::new(engine.clone()));
+                        drop(engine);
                         let server = match identity.take() {
                             Some((certificate, private_key)) => {
                                 server.tls_identity(certificate, private_key)
@@ -667,12 +708,17 @@ impl Database {
         }
     }
 
+    /// Serves SQL requests over a Unix socket until shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if hosting or the server fails.
     #[cfg(all(feature = "server", unix))]
     pub async fn serve_unix(
         &self,
-        path: impl Into<std::path::PathBuf>,
-        shutdown: impl core::future::Future<Output = ()> + Send + 'static,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        path: impl Into<PathBuf> + Send,
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), Box<dyn StdError + Send + Sync>> {
         match &self.backend {
             #[cfg(feature = "redb")]
             DatabaseBackend::File(engine) => {
@@ -705,6 +751,10 @@ impl Database {
     #[cfg(feature = "sync")]
     /// Synchronization. Streams local changes to peer and applies remote changes.
     /// Uses the engine's change subscription for outbound events and applies inbound events via the reconciler.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if change subscription, transport, or remote application fails.
     #[cfg(feature = "sync")]
     pub async fn synchronize<T: SyncTransport>(
         &self,
@@ -740,6 +790,7 @@ impl Database {
                                 .apply_inbound_change(&table, row_uuid, &change_id, &blob)
                                 .await
                                 .map_err(|e| e.to_string())?;
+                            drop(engine);
                             Ok(())
                         }
                         #[cfg(all(
@@ -780,7 +831,10 @@ impl Database {
 mod tests {
     use super::*;
     use futures::executor::block_on;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        env, fs, process,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn conflict_query_futures_keep_engine_state_indirect() {
@@ -790,10 +844,10 @@ mod tests {
         let key = Row::new(Vec::new());
         let keys = [key.clone()];
         let sizes = [
-            core::mem::size_of_val(&database.query_row_conflicts("security", &key)),
-            core::mem::size_of_val(&database.query_row_conflicts_batch("security", &keys)),
-            core::mem::size_of_val(&database.query_row_conflict_values("security", &key)),
-            core::mem::size_of_val(&database.query_resolve_row("security", &key, Vec::new())),
+            size_of_val(&database.query_row_conflicts("security", &key)),
+            size_of_val(&database.query_row_conflicts_batch("security", &keys)),
+            size_of_val(&database.query_row_conflict_values("security", &key)),
+            size_of_val(&database.query_resolve_row("security", &key, Vec::new())),
         ];
         assert!(
             sizes.iter().all(|size| *size < 4096),
@@ -839,8 +893,8 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let database_path = std::env::temp_dir()
-                .join(format!("ofdb-database-{}-{nanos}.redb", std::process::id()));
+            let database_path =
+                env::temp_dir().join(format!("ofdb-database-{}-{nanos}.redb", process::id()));
 
             {
                 let database = Database::open(&database_path).unwrap();
@@ -860,13 +914,17 @@ mod tests {
                 .translate_and_execute("SELECT id FROM users", &crate::SqlTranslator)
                 .await
                 .expect("query persisted schema");
-            let _ = std::fs::remove_file(&database_path);
+            let _ = fs::remove_file(&database_path);
         });
     }
 }
 
 #[cfg(feature = "redb")]
-fn native_error(error: std::io::Error) -> QueryError {
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies owned I/O errors"
+)]
+fn native_error(error: io::Error) -> QueryError {
     QueryError::new(crate::ErrorKind::Storage, error.to_string())
 }
 

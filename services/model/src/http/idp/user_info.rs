@@ -1,5 +1,6 @@
+use alloc::{string::String, vec::Vec};
 /*
- * OAuth Server
+ * LIDP IdP API
  *
  * OIDC / OAuth 2.x server implementation
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UserInfo {
     #[serde(
         rename = "birthdate",
@@ -19,6 +20,8 @@ pub struct UserInfo {
         skip_serializing_if = "Option::is_none"
     )]
     pub birthdate: Option<Option<String>>,
+    #[serde(rename = "blocked", skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<bool>,
     #[serde(
         rename = "email",
         default,
@@ -61,6 +64,13 @@ pub struct UserInfo {
         skip_serializing_if = "Option::is_none"
     )]
     pub locale: Option<Option<String>>,
+    #[serde(
+        rename = "mfa_totp_enabled",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub mfa_totp_enabled: Option<Option<bool>>,
     #[serde(
         rename = "middle_name",
         default,
@@ -137,23 +147,20 @@ pub struct UserInfo {
         skip_serializing_if = "Option::is_none"
     )]
     pub zoneinfo: Option<Option<String>>,
-    #[serde(rename = "blocked")]
-    pub blocked: bool,
-    #[serde(rename = "mfa_totp_enabled", skip_serializing_if = "Option::is_none")]
-    pub mfa_totp_enabled: Option<bool>,
 }
 
 impl UserInfo {
-    #[must_use]
-    pub const fn new(sub: String, updated_at: String, blocked: bool) -> Self {
-        Self {
+    pub fn new(sub: String, updated_at: String) -> UserInfo {
+        UserInfo {
             birthdate: None,
+            blocked: None,
             email: None,
             email_verified: None,
             family_name: None,
             gender: None,
             given_name: None,
             locale: None,
+            mfa_totp_enabled: None,
             middle_name: None,
             name: None,
             nickname: None,
@@ -167,8 +174,6 @@ impl UserInfo {
             updated_at,
             website: None,
             zoneinfo: None,
-            blocked,
-            mfa_totp_enabled: None,
         }
     }
 }

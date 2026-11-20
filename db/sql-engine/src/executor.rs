@@ -1,3 +1,5 @@
+use core::{cmp::Ordering, slice::from_ref};
+
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
@@ -25,6 +27,10 @@ where
     Box::pin(make())
 }
 
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "UUID generation keeps one fallible call pattern across execution"
+)]
 fn next_uuid(timestamp_provider: TimestampProvider) -> EngineResult<Uuid> {
     Ok(Uuid::new_v7(timestamp_provider()))
 }
@@ -34,13 +40,15 @@ use crate::{
     change::apply_local_change,
     codec::RowCodec,
     engine::{Engine, TimestampProvider},
+    index::{indexes_for_table, lookup as index_lookup, rebuild_table},
     kernel::{Kernel, KernelTransaction},
     schema::{
         CatalogSnapshot, ENGINE_INDEX_FIELDS_STORAGE, ENGINE_INDICES_STORAGE,
-        ENGINE_TABLE_FIELDS_STORAGE, ENGINE_TABLES_STORAGE, cached_table_schema,
-        catalog_table_for_storage, column_id, columns as schema_columns, ensure as ensure_schema,
-        index_storage, largest_schema_name_claim, lookup_table_id, lookup_table_id_with_rows,
-        lookup_table_name, table_schema as schema_table_schema, table_schema_with_fields,
+        ENGINE_TABLE_FIELDS_STORAGE, ENGINE_TABLES_STORAGE, IndexRow, TableFieldRow, TableRow,
+        cached_table_schema, catalog_table_for_storage, column_id, columns as schema_columns,
+        drop_inactive_index_storage, ensure as ensure_schema, index_schema, index_storage,
+        largest_schema_name_claim, lookup_table_id, lookup_table_id_with_rows, lookup_table_name,
+        table_schema as schema_table_schema, table_schema_with_fields, validate_row_id,
     },
 };
 
@@ -59,18 +67,8 @@ where
     R: RowCodec<K::Transaction> + MaybeSend + MaybeSync,
 {
     let read_only = is_read_only(&statements);
-    let mut transaction = engine.kernel.transaction().await?;
-    let mut changes = Vec::new();
-    let mut catalog = None;
-    match Box::pin(execute_in_transaction(
-        engine,
-        &mut transaction,
-        statements,
-        &mut changes,
-        &mut catalog,
-    ))
-    .await
-    {
+    let mut transaction = engine.transaction().await?;
+    match transaction.execute(statements).await {
         Ok(results) => {
             if read_only {
                 transaction.rollback().await?;
@@ -217,7 +215,7 @@ where
             })
             .await
         }
-        _ => Err(EngineError::Unsupported(
+        DataDefinition::AlterIndex { .. } => Err(EngineError::Unsupported(
             "only CREATE TABLE and ALTER TABLE ADD COLUMN are supported",
         )),
     }
@@ -350,7 +348,7 @@ where
             schema,
             if_not_exists,
         } => {
-            if crate::schema::index_schema(transaction, codec, &schema.name, None)
+            if index_schema(transaction, codec, &schema.name, None)
                 .await?
                 .is_some()
             {
@@ -419,7 +417,7 @@ where
     T: KernelTransaction,
     R: RowCodec<T>,
 {
-    if crate::schema::index_schema(transaction, codec, &index_name, None)
+    if index_schema(transaction, codec, &index_name, None)
         .await?
         .is_some()
     {
@@ -467,8 +465,8 @@ where
                 .columns
                 .iter()
                 .position(|column| column.name == *name)
-                .map(|index| index as u32)
-                .ok_or(EngineError::InvalidQuery("Index column not found"))
+                .map(|index| u32::try_from(index).map_err(EngineError::custom))
+                .ok_or(EngineError::InvalidQuery("Index column not found"))?
         })
         .collect()
 }
@@ -526,6 +524,10 @@ where
     Ok(QueryResult::default())
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "table contents and dependent catalog entries are removed in one transaction"
+)]
 async fn drop_table_contents<T, R>(
     transaction: &mut T,
     codec: &R,
@@ -558,7 +560,7 @@ where
         while let Some(row) = rows.next().await {
             let (id, value, deleted) = row?;
             if value.values.get(1).and_then(Value::as_text) == Some(table) {
-                indexes.push((id, crate::schema::IndexRow::try_from(&value)?.name, deleted));
+                indexes.push((id, IndexRow::try_from(&value)?.name, deleted));
             }
         }
         indexes
@@ -600,7 +602,7 @@ where
             )
             .await?;
         }
-        crate::schema::drop_inactive_index_storage(transaction, codec, &index_name).await?;
+        drop_inactive_index_storage(transaction, codec, &index_name).await?;
     }
 
     let fields = {
@@ -609,7 +611,7 @@ where
         let mut ids = Vec::new();
         while let Some(row) = rows.next().await {
             let (id, value, deleted) = row?;
-            if !deleted && crate::schema::TableFieldRow::try_from(&value)?.table == table {
+            if !deleted && TableFieldRow::try_from(&value)?.table == table {
                 ids.push(id);
             }
         }
@@ -632,7 +634,7 @@ where
         let mut ids = Vec::new();
         while let Some(row) = rows.next().await {
             let (id, value, _) = row?;
-            if crate::schema::TableRow::try_from(&value)?.name == table {
+            if TableRow::try_from(&value)?.name == table {
                 ids.push(id);
             }
         }
@@ -667,8 +669,7 @@ where
     T: KernelTransaction,
     R: RowCodec<T>,
 {
-    let Some((id, index)) = crate::schema::index_schema(transaction, codec, name, None).await?
-    else {
+    let Some((id, index)) = index_schema(transaction, codec, name, None).await? else {
         return if if_exists {
             Ok(())
         } else {
@@ -678,7 +679,7 @@ where
     let table = table_schema(transaction, codec, &index.table_name).await?;
     if uuid_primary_key(&table).is_none()
         && is_primary_key_index(&table, &index)
-        && !crate::index::indexes_for_table(transaction, codec, &table.name, None)
+        && !indexes_for_table(transaction, codec, &table.name, None)
             .await?
             .iter()
             .any(|(_, other)| other.name != index.name && is_primary_key_index(&table, other))
@@ -735,7 +736,7 @@ where
     R: RowCodec<T>,
 {
     let table_schema = table_schema(transaction, codec, &schema.table_name).await?;
-    if crate::schema::index_schema(transaction, codec, &schema.name, None)
+    if index_schema(transaction, codec, &schema.name, None)
         .await?
         .is_some()
     {
@@ -820,14 +821,14 @@ where
             field,
             Row::new(vec![
                 Value::Uuid(id),
-                Value::Integer(position as i64),
+                Value::Integer(i64::try_from(position).map_err(EngineError::custom)?),
                 Value::from(column),
                 Value::Uuid(column_id),
             ]),
         )
         .await?;
     }
-    execution_stage(|| crate::index::rebuild_table(transaction, codec, &table, true)).await
+    execution_stage(|| rebuild_table(transaction, codec, &table, true)).await
 }
 
 async fn create_table<T, R>(
@@ -855,8 +856,9 @@ where
         .columns
         .iter()
         .enumerate()
-        .filter_map(|(index, column)| column.primary_key.then_some(index as u32))
-        .collect();
+        .filter(|(_, column)| column.primary_key)
+        .map(|(index, _)| u32::try_from(index).map_err(EngineError::custom))
+        .collect::<EngineResult<Vec<_>>>()?;
     if uuid_primary_key(&table_schema).is_none()
         && !indexes
             .iter()
@@ -922,6 +924,10 @@ where
     Ok(())
 }
 
+#[allow(
+    clippy::map_err_ignore,
+    reason = "column position overflow has one stable error"
+)]
 async fn add_column<T: KernelTransaction, R: RowCodec<T>>(
     transaction: &mut T,
     codec: &R,
@@ -1022,7 +1028,7 @@ where
                 .as_uuid()
                 .copied()
                 .ok_or(EngineError::InvalidQuery("Primary key must be a UUID"))?;
-            crate::schema::validate_row_id(&schema.name, &id)?;
+            validate_row_id(&schema.name, &id)?;
             id
         }
         None => next_uuid(timestamp_provider)?,
@@ -1101,6 +1107,10 @@ where
     reconciler.row_is_deleted(transaction, table, &row).await
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "multi-row validation, conflict handling, and writes share one transaction"
+)]
 async fn insert_values<T, R>(
     transaction: &mut T,
     reconciler: &R,
@@ -1186,14 +1196,13 @@ where
                     .as_uuid()
                     .copied()
                     .ok_or(EngineError::InvalidQuery("Primary key must be a UUID"))?;
-                crate::schema::validate_row_id(&table, &id)?;
+                validate_row_id(&table, &id)?;
                 reconciler
                     .get_row(transaction, &table, &id)
                     .await?
                     .map(|row| (id, row))
             } else {
-                let indexes =
-                    crate::index::indexes_for_table(transaction, reconciler, &table, None).await?;
+                let indexes = indexes_for_table(transaction, reconciler, &table, None).await?;
                 let (_, index) = indexes
                     .iter()
                     .find(|(_, index)| is_primary_key_index(&schema, index))
@@ -1205,7 +1214,7 @@ where
                         .map(|index| row.values[*index as usize].clone())
                         .collect(),
                 );
-                crate::index::lookup(transaction, reconciler, &index.name, &key).await?
+                index_lookup(transaction, reconciler, &index.name, &key).await?
             };
             if let Some((row_id, mut existing)) = existing {
                 let Some((_, assignments)) = &insert.on_conflict_do_update else {
@@ -1368,13 +1377,15 @@ where
         }
     }
 
-    match returning {
-        Some(columns) => Ok(QueryResult::new_with_columns(
-            returned_rows,
-            columns.into_iter().map(|(_, column)| column).collect(),
-        )),
-        None => Ok(QueryResult::default()),
-    }
+    returning.map_or_else(
+        || Ok(QueryResult::default()),
+        |columns| {
+            Ok(QueryResult::new_with_columns(
+                returned_rows,
+                columns.into_iter().map(|(_, column)| column).collect(),
+            ))
+        },
+    )
 }
 
 async fn delete_rows<T, R>(
@@ -1426,13 +1437,15 @@ where
         }
     }
 
-    match returning {
-        Some(columns) => Ok(QueryResult::new_with_columns(
-            returned_rows,
-            columns.into_iter().map(|(_, column)| column).collect(),
-        )),
-        None => Ok(QueryResult::default()),
-    }
+    returning.map_or_else(
+        || Ok(QueryResult::default()),
+        |columns| {
+            Ok(QueryResult::new_with_columns(
+                returned_rows,
+                columns.into_iter().map(|(_, column)| column).collect(),
+            ))
+        },
+    )
 }
 
 pub async fn row_conflicts<T, R>(
@@ -1446,16 +1459,12 @@ where
     T: KernelTransaction,
     R: RowCodec<T>,
 {
-    Ok(row_conflicts_batch(
-        transaction,
-        reconciler,
-        table_name,
-        core::slice::from_ref(key),
-        catalog,
+    Ok(
+        row_conflicts_batch(transaction, reconciler, table_name, from_ref(key), catalog)
+            .await?
+            .pop()
+            .expect("one key produces one conflict result"),
     )
-    .await?
-    .pop()
-    .expect("one key produces one conflict result"))
 }
 
 pub async fn row_conflicts_batch<T, R>(
@@ -1497,9 +1506,9 @@ where
                         .columns
                         .get(index)
                         .map(|column| column.name.clone())
-                        .ok_or(EngineError::custom(
-                            "Conflicted column is missing from schema",
-                        ))
+                        .ok_or_else(|| {
+                            EngineError::custom("Conflicted column is missing from schema")
+                        })
                 })
                 .collect::<EngineResult<Vec<_>>>()?,
         );
@@ -1531,9 +1540,7 @@ where
                 .columns
                 .get(index)
                 .map(|column| column.name.clone())
-                .ok_or(EngineError::custom(
-                    "Conflicted column is missing from schema",
-                ))?;
+                .ok_or_else(|| EngineError::custom("Conflicted column is missing from schema"))?;
             Ok((name, values))
         })
         .collect()
@@ -1692,6 +1699,14 @@ fn column_index(
         .ok_or(EngineError::InvalidQuery(unknown_column))
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "SELECT validation, grouping, ordering, and projection share one read pass"
+)]
+#[allow(
+    clippy::map_err_ignore,
+    reason = "aggregate count overflow has one stable error"
+)]
 async fn select_rows<T, R>(
     transaction: &T,
     reconciler: &R,
@@ -1752,7 +1767,7 @@ where
         let (_, column) = projection
             .get_mut(position)
             .ok_or(EngineError::InvalidQuery("Invalid computed projection"))?;
-        column.name = concat.alias.clone();
+        column.name.clone_from(&concat.alias);
         column.source_table = None;
         column.source_column = None;
     }
@@ -1966,7 +1981,7 @@ where
                     return order;
                 }
             }
-            core::cmp::Ordering::Equal
+            Ordering::Equal
         });
     }
 
@@ -2015,6 +2030,10 @@ where
     ))
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "join validation and row materialization share one read pass"
+)]
 async fn select_join_rows<T, R>(
     transaction: &T,
     reconciler: &R,
@@ -2430,7 +2449,8 @@ pub fn is_primary_key_index(schema: &TableSchema, index: &IndexSchema) -> bool {
         .columns
         .iter()
         .enumerate()
-        .filter_map(|(index, column)| column.primary_key.then_some(index as u32))
+        .filter(|(_, column)| column.primary_key)
+        .map(|(index, _)| u32::try_from(index).unwrap_or(u32::MAX))
         .collect();
     let mut columns = index.column_indices.clone();
     columns.sort_unstable();
@@ -2496,7 +2516,7 @@ async fn key_row_id<T: KernelTransaction, R: RowCodec<T>>(
             return Err(EngineError::InvalidQuery("Primary key has the wrong type"));
         }
     }
-    let indexes = crate::index::indexes_for_table(transaction, codec, &schema.name, None).await?;
+    let indexes = indexes_for_table(transaction, codec, &schema.name, None).await?;
     let (_, index) = indexes
         .iter()
         .find(|(_, index)| is_primary_key_index(schema, index))
@@ -2515,7 +2535,7 @@ async fn key_row_id<T: KernelTransaction, R: RowCodec<T>>(
         })
         .collect();
     Ok(
-        crate::index::lookup(transaction, codec, &index.name, &Row::new(values))
+        index_lookup(transaction, codec, &index.name, &Row::new(values))
             .await?
             .map(|(id, _)| id),
     )

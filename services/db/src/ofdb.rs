@@ -242,7 +242,7 @@ pub mod validators {
 mod tests {
     #[cfg(feature = "ofdb")]
     use super::up;
-    
+
     #[cfg(feature = "ofdb")]
     use ofdb_sql::Database as SqlDatabase;
 

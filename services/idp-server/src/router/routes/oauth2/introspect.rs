@@ -25,9 +25,10 @@ const VALIDATE_TOKEN_SCOPE: &str = IDP_TOKEN_VALIDATE_SCOPE;
         (status = 401, description = "Invalid caller or inspected token"),
         (status = 403, description = "Caller is not permitted to validate tokens")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "super_routes_oauth2_introspect"
 )]
-pub(crate) async fn introspect(
+pub async fn introspect(
     State(state): State<RouterState>,
     headers: HeaderMap,
     Json(request): Json<IntrospectionRequest>,
@@ -72,7 +73,7 @@ fn allows_audience(allowed_audiences: &[String], audience: &str) -> bool {
     allowed_audiences.iter().any(|allowed| allowed == audience)
 }
 
-fn not_authorized() -> ErrorResponse {
+const fn not_authorized() -> ErrorResponse {
     ErrorResponse::new(ErrorCode::NotAuthorized)
 }
 

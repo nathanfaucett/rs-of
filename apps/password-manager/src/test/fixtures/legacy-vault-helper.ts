@@ -1,6 +1,6 @@
 import { Database } from "@ofsdk/sql";
 import { vaultMigrations } from "./migrations";
-import { VaultRegistry, createVaultRegistry } from "./VaultRegistry";
+import { createVaultRegistry } from "./VaultRegistry";
 import { SharedDb } from "./SharedDb";
 
 export const fixturePassword = "synthetic-master-password";

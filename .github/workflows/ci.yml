@@ -5,146 +5,300 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  ci-image:
+    name: CI image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - &checkout
+        name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Select CI image
+        id: image
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+        run: |
+          playwright=$(python3 -c 'import json; print(json.load(open("package.json"))["devDependencies"]["@playwright/test"])')
+          {
+            echo "image=${IMAGE_REPOSITORY,,}:ci-${{ hashFiles('.github/ci/Dockerfile', 'package.json') }}"
+            echo "playwright=${playwright}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and cache CI image
+        uses: docker/build-push-action@v7
+        with:
+          context: .github/ci
+          file: .github/ci/Dockerfile
+          build-args: |
+            PLAYWRIGHT_VERSION=${{ steps.image.outputs.playwright }}
+          tags: ${{ steps.image.outputs.image }}
+          push: true
+          cache-from: |
+            type=gha,scope=ci
+            type=registry,ref=${{ steps.image.outputs.image }}
+          cache-to: |
+            type=gha,scope=ci,mode=max
+
   docs:
     name: Documentation links
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
+      - *checkout
 
       - name: Check Markdown local links and anchors
         run: python3 scripts/check_docs.py
 
-  lint:
-    name: Lint
+  fmt:
+    name: Rust formatting
+    needs: ci-image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    container: &ci-container
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - *checkout
 
-      - name: Install Rust (with rustfmt + clippy)
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-          components: rustfmt, clippy
+      - name: Check Rust formatting
+        run: just fmt-check
 
-      - name: Install just
-        run: cargo install just --locked
+  lint:
+    name: Cargo clippy
+    needs: ci-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    container: *ci-container
+    steps:
+      - *checkout
 
       - name: Cache cargo
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
             target
-          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Rust fmt check
-        run: just fmt-check
+          key: ${{ runner.os }}-trixie-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cargo clippy
         run: just clippy
 
   cargo-tests:
     name: Cargo tests
-    needs: lint
+    needs: ci-image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    container: *ci-container
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Install just
-        run: cargo install just --locked
-
-      - name: Install llvm-cov
-        run: cargo install cargo-llvm-cov --locked
-
-      - name: Install crap
-        run: cargo install cargo-crap --locked
-
-      - name: Install cargo-hack
-        run: cargo install cargo-hack --locked
+      - *checkout
 
       - name: Cache cargo
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-trixie-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install Node for exported SDK scenarios
-        uses: actions/setup-node@v4
+      - &cache-pnpm
+        name: Cache pnpm store
+        uses: actions/cache@v4
         with:
-          node-version-file: .nvmrc
+          path: /root/.local/share/pnpm/store
+          key: ${{ runner.os }}-trixie-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-trixie-pnpm-
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.1
-
-      - name: Install SDK build dependencies
+      - &install-frontend-dependencies
+        name: Install frontend dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Show rustc/cargo
-        run: rustc --version && cargo --version
+      - name: Show toolchain versions
+        run: rustc --version && cargo --version && node --version && pnpm --version
 
       - name: Test feature combinations
         run: just crap-summary
 
+  password-manager:
+    name: Password manager frontend
+    needs: ci-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    container: *ci-container
+    steps:
+      - *checkout
+
+      - *cache-pnpm
+
+      - *install-frontend-dependencies
+
+      - name: Test password manager
+        run: pnpm --filter @ofsdk/password-manager test
+
+      - name: Check password manager
+        run: pnpm --filter @ofsdk/password-manager check
+
+      - name: Build password manager
+        run: pnpm --filter @ofsdk/password-manager build
+
+      - name: Lint password manager
+        run: pnpm --filter @ofsdk/password-manager lint
+
   openapi:
     name: OpenAPI contracts and SDKs
+    needs: ci-image
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container: *ci-container
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
+      - *checkout
 
-      - name: Install Rust
-        run: rustup toolchain install stable --profile minimal --component rustfmt
+      - name: Check OpenAPI toolchain
+        run: rustc --version && cargo --version && protoc --version
 
-      - name: Install Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
+      - *cache-pnpm
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.1
-
-      - name: Install Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Install native build prerequisites
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libdbus-1-dev
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
+      - *install-frontend-dependencies
 
       - name: Verify complete contracts and deterministic SDKs
         run: pnpm openapi:check --committed
+
+  e2e:
+    name: Real backend E2E
+    needs: [ci-image, docs, cargo-tests, openapi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    concurrency:
+      group: e2e-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    container:
+      image: ${{ needs.ci-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --ipc=host
+    env:
+      RUSTUP_TOOLCHAIN: "1.100"
+    steps:
+      - *checkout
+
+      - name: Check E2E toolchain
+        run: |
+          rustc --version
+          cargo --version
+          rustup target list --installed | grep -x wasm32-unknown-unknown
+          wasm-pack --version
+          protoc --version
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            target
+            db/wasm/target
+          key: ${{ runner.os }}-trixie-e2e-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - *cache-pnpm
+
+      - *install-frontend-dependencies
+
+      - name: Cache Chromium
+        uses: actions/cache@v4
+        with:
+          path: /root/.cache/ms-playwright
+          key: ${{ runner.os }}-trixie-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install browser
+        run: pnpm exec playwright install chromium
+
+      - name: Check lifecycle supervision
+        run: pnpm test:e2e:lifecycle
+
+      - name: Build frontend dependencies
+        run: pnpm e2e:prepare
+
+      - name: Check E2E types
+        run: pnpm test:e2e:check
+
+      - name: Check isolated frontend logic
+        run: pnpm --filter @ofsdk/app test
+
+      - name: Build real backend before the startup deadline
+        id: backend-build
+        run: cargo build --locked -p unified-server
+
+      - name: App browser HTTP integration (Vitest)
+        if: ${{ !cancelled() && steps.backend-build.outcome == 'success' }}
+        env:
+          E2E_BACKEND_BIN: ./target/debug/unified-server
+        run: pnpm --filter @ofsdk/app test:backend
+
+      - name: Password-manager browser integration (Vitest)
+        if: ${{ !cancelled() && steps.backend-build.outcome == 'success' }}
+        env:
+          E2E_BACKEND_BIN: ./target/debug/unified-server
+        run: pnpm --filter @ofsdk/password-manager test:backend
+
+      - name: User flows (Playwright)
+        if: ${{ !cancelled() && steps.backend-build.outcome == 'success' }}
+        env:
+          E2E_BACKEND_BIN: ./target/debug/unified-server
+        run: pnpm test:e2e
+
+      - name: Retain failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-backend-e2e
+          path: |
+            apps/*/.vitest-attachments
+            apps/**/__screenshots__
+            .tmp/e2e-results/
+            .tmp/e2e-report/
+          include-hidden-files: true
+          retention-days: 7

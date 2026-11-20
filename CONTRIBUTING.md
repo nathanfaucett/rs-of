@@ -52,7 +52,7 @@ Use the tracked local Markdown issue tracker in `.scratch/` for durable work and
 - Context design documents: current contracts and constraints for that context.
 - OpenAPI: HTTP routes and payloads.
 - Rustdoc and TypeScript declarations: API signatures.
-- E2E evidence: commands and results tied to a specific commit or CI run.
+- E2E evidence: GitHub Actions logs and artifacts tied to a specific commit or run.
 
 Do not duplicate route tables, method inventories, or implementation-status tables across documents. Run:
 
@@ -62,16 +62,23 @@ just docs-check
 
 ## Validation by change
 
-| Change | Required focused checks | Broader checks when behavior or risk requires |
-| --- | --- | --- |
-| Documentation only | `just docs-check`, `git diff --check` | Render or execute changed examples where practical |
-| Rust crate | Focused crate tests, `cargo fmt --all -- --check`, focused Clippy | `cargo hack test --feature-powerset --workspace --all-targets`, `just crap` |
-| TypeScript package | Filtered build, test, lint, and type check | `pnpm test`, dependent package checks |
-| Public HTTP contract | OpenAPI generation/checks and generated-client tests | Real-backend owner and browser tests |
-| Browser/WASM | Filtered WASM build and browser tests | `pnpm test:backend`, `pnpm test:e2e`, supported browser matrix |
-| Deployment/lifecycle | Focused process tests | Independent create/join/restart and platform qualification |
+| Change               | Required focused checks                                           | Broader checks when behavior or risk requires                               |
+| -------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Documentation only   | `just docs-check`, `git diff --check`                             | Render or execute changed examples where practical                          |
+| Rust crate           | Focused crate tests, `cargo fmt --all -- --check`, focused Clippy | `cargo hack test --feature-powerset --workspace --all-targets`, `just crap` |
+| TypeScript package   | Filtered build, test, lint, and type check                        | `pnpm test`, dependent package checks                                       |
+| Public HTTP contract | OpenAPI generation/checks and generated-client tests              | Real-backend owner and browser tests                                        |
+| Browser/WASM         | Filtered WASM build and browser tests                             | `pnpm test:backend`, `pnpm test:e2e`, supported browser matrix              |
+| Deployment/lifecycle | Focused process tests                                             | Independent create/join/restart and platform qualification                  |
 
 Do not claim a check passed unless you ran it or can link to a specific CI result. Record unrun or failed qualification explicitly.
+
+Inspect current CI runs and failed-step logs with:
+
+```bash
+gh run list
+gh run view --log-failed
+```
 
 Useful commands:
 

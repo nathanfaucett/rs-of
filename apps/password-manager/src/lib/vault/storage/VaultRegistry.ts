@@ -1,5 +1,5 @@
-import { Client, type Row } from "@ofsdk/sql";
-import * as v from "valibot";
+import type { Client, Row } from "@ofsdk/sql";
+
 import {
   parseVaultRow,
   type VaultRow,

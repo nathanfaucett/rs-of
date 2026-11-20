@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Device API
  *
@@ -10,8 +11,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// `OwnerCopyCleanup` : Exact current Management binding; only an authenticated Storage service may acknowledge it.
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// OwnerCopyCleanup : Exact current Management binding; only an authenticated Storage service may acknowledge it.
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OwnerCopyCleanup {
     #[serde(rename = "cleanupId")]
@@ -28,15 +29,14 @@ pub struct OwnerCopyCleanup {
 
 impl OwnerCopyCleanup {
     /// Exact current Management binding; only an authenticated Storage service may acknowledge it.
-    #[must_use]
-    pub const fn new(
+    pub fn new(
         cleanup_id: String,
         device_id: String,
         endpoint_id: String,
         new_owner_subject: String,
         old_owner_subject: String,
-    ) -> Self {
-        Self {
+    ) -> OwnerCopyCleanup {
+        OwnerCopyCleanup {
             cleanup_id,
             device_id,
             endpoint_id,

@@ -19,41 +19,41 @@ pub enum Error<T> {
 impl<T> fmt::Display for Error<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (module, e) = match self {
-            Self::Reqwest(e) => ("reqwest", e.to_string()),
-            Self::Serde(e) => ("serde", e.to_string()),
-            Self::Io(e) => ("IO", e.to_string()),
-            Self::ResponseError(e) => ("response", format!("status code {}", e.status)),
+            Error::Reqwest(e) => ("reqwest", e.to_string()),
+            Error::Serde(e) => ("serde", e.to_string()),
+            Error::Io(e) => ("IO", e.to_string()),
+            Error::ResponseError(e) => ("response", format!("status code {}", e.status)),
         };
-        write!(f, "error in {module}: {e}")
+        write!(f, "error in {}: {}", module, e)
     }
 }
 
 impl<T: fmt::Debug> error::Error for Error<T> {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         Some(match self {
-            Self::Reqwest(e) => e,
-            Self::Serde(e) => e,
-            Self::Io(e) => e,
-            Self::ResponseError(_) => return None,
+            Error::Reqwest(e) => e,
+            Error::Serde(e) => e,
+            Error::Io(e) => e,
+            Error::ResponseError(_) => return None,
         })
     }
 }
 
 impl<T> From<reqwest::Error> for Error<T> {
     fn from(e: reqwest::Error) -> Self {
-        Self::Reqwest(e)
+        Error::Reqwest(e)
     }
 }
 
 impl<T> From<serde_json::Error> for Error<T> {
     fn from(e: serde_json::Error) -> Self {
-        Self::Serde(e)
+        Error::Serde(e)
     }
 }
 
 impl<T> From<std::io::Error> for Error<T> {
     fn from(e: std::io::Error) -> Self {
-        Self::Io(e)
+        Error::Io(e)
     }
 }
 
@@ -61,28 +61,28 @@ pub fn urlencode<T: AsRef<str>>(s: T) -> String {
     ::url::form_urlencoded::byte_serialize(s.as_ref().as_bytes()).collect()
 }
 
-#[must_use]
 pub fn parse_deep_object(prefix: &str, value: &serde_json::Value) -> Vec<(String, String)> {
     if let serde_json::Value::Object(object) = value {
         let mut params = vec![];
 
         for (key, value) in object {
             match value {
-                serde_json::Value::Object(_) => {
-                    params.append(&mut parse_deep_object(&format!("{prefix}[{key}]"), value))
-                }
+                serde_json::Value::Object(_) => params.append(&mut parse_deep_object(
+                    &format!("{}[{}]", prefix, key),
+                    value,
+                )),
                 serde_json::Value::Array(array) => {
                     for (i, value) in array.iter().enumerate() {
                         params.append(&mut parse_deep_object(
-                            &format!("{prefix}[{key}][{i}]"),
+                            &format!("{}[{}][{}]", prefix, key, i),
                             value,
                         ));
                     }
                 }
                 serde_json::Value::String(s) => {
-                    params.push((format!("{prefix}[{key}]"), s.clone()))
+                    params.push((format!("{}[{}]", prefix, key), s.clone()))
                 }
-                _ => params.push((format!("{prefix}[{key}]"), value.to_string())),
+                _ => params.push((format!("{}[{}]", prefix, key), value.to_string())),
             }
         }
 
@@ -95,7 +95,7 @@ pub fn parse_deep_object(prefix: &str, value: &serde_json::Value) -> Vec<(String
 /// Internal use only
 /// A content type supported by this client.
 #[allow(dead_code)]
-pub enum ContentType {
+pub(super) enum ContentType {
     Json,
     Text,
     Unsupported(String),
@@ -104,11 +104,11 @@ pub enum ContentType {
 impl From<&str> for ContentType {
     fn from(content_type: &str) -> Self {
         if content_type.starts_with("application") && content_type.contains("json") {
-            Self::Json
+            return Self::Json;
         } else if content_type.starts_with("text/plain") {
-            Self::Text
+            return Self::Text;
         } else {
-            Self::Unsupported(content_type.to_string())
+            return Self::Unsupported(content_type.to_string());
         }
     }
 }

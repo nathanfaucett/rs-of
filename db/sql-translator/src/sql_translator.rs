@@ -1,3 +1,5 @@
+use core::{future::ready, str::from_utf8};
+
 #[cfg(not(feature = "std"))]
 use alloc::{
     boxed::Box,
@@ -131,40 +133,42 @@ impl<'a> ParameterBindings<'a> {
 }
 
 impl Translator for SqlTranslator {
-    async fn translate_with_params(
+    fn translate_with_params(
         &self,
         query: &str,
         params: Option<&QueryParams>,
-    ) -> TranslateResult<Vec<Statement>> {
-        let dialect = PostgreSqlDialect {};
-        let mut tokens = Tokenizer::new(&dialect, query)
-            .tokenize_with_location()
-            .map_err(TranslateError::custom)?;
-        if tokens.iter().any(|token| {
-            matches!(
-                &token.token,
-                Token::Word(word) if word.value.eq_ignore_ascii_case("AUTOINCREMENT")
-            )
-        }) {
-            return Err(TranslateError::custom("AUTOINCREMENT is not supported"));
-        }
-        for token in &mut tokens {
-            if matches!(token.token, Token::Question) {
-                token.token = Token::Placeholder("?".into());
+    ) -> impl Future<Output = TranslateResult<Vec<Statement>>> + platform::MaybeSend {
+        ready((|| {
+            let dialect = PostgreSqlDialect {};
+            let mut tokens = Tokenizer::new(&dialect, query)
+                .tokenize_with_location()
+                .map_err(TranslateError::custom)?;
+            if tokens.iter().any(|token| {
+                matches!(
+                    &token.token,
+                    Token::Word(word) if word.value.eq_ignore_ascii_case("AUTOINCREMENT")
+                )
+            }) {
+                return Err(TranslateError::custom("AUTOINCREMENT is not supported"));
             }
-        }
-        let stmts = Parser::new(&dialect)
-            .with_tokens_with_locations(tokens)
-            .parse_statements()
-            .map_err(TranslateError::custom)?;
+            for token in &mut tokens {
+                if matches!(token.token, Token::Question) {
+                    token.token = Token::Placeholder("?".into());
+                }
+            }
+            let stmts = Parser::new(&dialect)
+                .with_tokens_with_locations(tokens)
+                .parse_statements()
+                .map_err(TranslateError::custom)?;
 
-        let mut bindings = ParameterBindings::new(params);
-        let mut results = Vec::with_capacity(stmts.len());
-        for stmt in stmts {
-            results.push(translate_stmt(stmt, &mut bindings)?);
-        }
-        bindings.finish()?;
-        Ok(results)
+            let mut bindings = ParameterBindings::new(params);
+            let mut results = Vec::with_capacity(stmts.len());
+            for stmt in stmts {
+                results.push(translate_stmt(stmt, &mut bindings)?);
+            }
+            bindings.finish()?;
+            Ok(results)
+        })())
     }
 }
 
@@ -300,22 +304,26 @@ fn translate_stmt(
         ast::Statement::Insert(insert) => translate_insert(insert, bindings),
         ast::Statement::Update(update) => translate_update(update, bindings),
         ast::Statement::Delete(delete) => translate_delete(delete, bindings),
-        ast::Statement::CreateTable(create_table) => translate_create_table(create_table),
+        ast::Statement::CreateTable(create_table) => translate_create_table(&create_table),
         ast::Statement::Drop {
             object_type,
             if_exists,
             names,
             ..
-        } => translate_drop(object_type, if_exists, names),
-        ast::Statement::AlterTable(alter_table) => translate_alter_table(alter_table),
-        ast::Statement::CreateIndex(create_index) => translate_create_index(create_index),
-        ast::Statement::AlterIndex { name, operation } => translate_alter_index(name, operation),
+        } => translate_drop(object_type, if_exists, &names),
+        ast::Statement::AlterTable(alter_table) => translate_alter_table(&alter_table),
+        ast::Statement::CreateIndex(create_index) => translate_create_index(&create_index),
+        ast::Statement::AlterIndex { name, operation } => translate_alter_index(&name, operation),
         _ => Err(TranslateError::custom(format!(
             "Unsupported SQL statement: {stmt:?}"
         ))),
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "SELECT validation and translation share one parser state"
+)]
 fn translate_query(
     mut query: ast::Query,
     bindings: &mut ParameterBindings<'_>,
@@ -330,9 +338,8 @@ fn translate_query(
         return Err(TranslateError::custom("FETCH is not supported"));
     }
 
-    let select = match *query.body {
-        ast::SetExpr::Select(select) => select,
-        _ => unreachable!(),
+    let ast::SetExpr::Select(select) = *query.body else {
+        unreachable!()
     };
 
     let distinct = match select.distinct {
@@ -361,7 +368,9 @@ fn translate_query(
                 "GROUP BY modifiers are not supported",
             ));
         }
-        _ => return Err(TranslateError::custom("GROUP BY ALL is not supported")),
+        ast::GroupByExpr::All(_) => {
+            return Err(TranslateError::custom("GROUP BY ALL is not supported"));
+        }
     };
     let (from, aliases) = translate_from(&select.from)?;
     let mut text_concats = Vec::new();
@@ -461,7 +470,9 @@ fn translate_query(
                     })
                 })
                 .collect::<TranslateResult<Vec<_>>>(),
-            _ => Err(TranslateError::custom("ORDER BY ALL is not supported")),
+            ast::OrderByKind::All(_) => {
+                Err(TranslateError::custom("ORDER BY ALL is not supported"))
+            }
         })
         .transpose()?
         .unwrap_or_default();
@@ -500,6 +511,10 @@ fn translate_query(
     })))
 }
 
+#[allow(
+    clippy::map_err_ignore,
+    reason = "literal parse failures have stable translation errors"
+)]
 fn translate_having_count(expr: Expr) -> TranslateResult<QueryHavingCount> {
     let Expr::BinaryOp { left, op, right } = expr else {
         return Err(TranslateError::custom("Unsupported HAVING expression"));
@@ -561,6 +576,10 @@ fn translate_count(function: &ast::Function) -> TranslateResult<QueryAggregate> 
     }
 }
 
+#[allow(
+    clippy::map_err_ignore,
+    reason = "literal parse failures have stable translation errors"
+)]
 fn parse_nonnegative_integer(expression: Expr) -> TranslateResult<usize> {
     match expression {
         Expr::Value(ast::ValueWithSpan {
@@ -585,7 +604,7 @@ fn translate_from(
     }
     let twj = from
         .first()
-        .ok_or(TranslateError::custom("Missing FROM clause"))?;
+        .ok_or_else(|| TranslateError::custom("Missing FROM clause"))?;
     let (table, alias) = translate_table_factor(
         &twj.relation,
         "Only simple table references supported in FROM",
@@ -718,6 +737,14 @@ fn translate_projection_expr(
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "expression variants share one recursive translation entry point"
+)]
+#[allow(
+    clippy::map_err_ignore,
+    reason = "literal parse failures have stable translation errors"
+)]
 fn translate_expr(
     aliases: &BTreeMap<String, String>,
     expr: Expr,
@@ -725,7 +752,7 @@ fn translate_expr(
 ) -> TranslateResult<QueryExpr> {
     match expr {
         Expr::BinaryOp { left, op, right } => {
-            translate_binary_expr(aliases, *left, op, *right, bindings)
+            translate_binary_expr(aliases, *left, &op, *right, bindings)
         }
         Expr::Identifier(ident) => Ok(column_expr(String::new(), ident.value)),
         Expr::CompoundIdentifier(idents) if idents.len() == 2 => Ok(column_expr(
@@ -840,7 +867,7 @@ const fn column_expr(table: String, column: String) -> QueryExpr {
 fn translate_binary_expr(
     aliases: &BTreeMap<String, String>,
     left: Expr,
-    op: ast::BinaryOperator,
+    op: &ast::BinaryOperator,
     right: Expr,
     bindings: &mut ParameterBindings<'_>,
 ) -> TranslateResult<QueryExpr> {
@@ -862,6 +889,10 @@ fn translate_binary_expr(
     }
 }
 
+#[allow(
+    clippy::map_err_ignore,
+    reason = "literal parse failures have stable translation errors"
+)]
 fn translate_value(value: ast::Value) -> TranslateResult<Value> {
     match value {
         ast::Value::Number(number, _) if number.contains('.') => number
@@ -879,8 +910,8 @@ fn translate_value(value: ast::Value) -> TranslateResult<Value> {
             .0
             .iter()
             .map(|pair| {
-                let byte = core::str::from_utf8(pair)
-                    .map_err(|_| TranslateError::custom("Invalid BLOB literal"))?;
+                let byte =
+                    from_utf8(pair).map_err(|_| TranslateError::custom("Invalid BLOB literal"))?;
                 u8::from_str_radix(byte, 16)
                     .map_err(|_| TranslateError::custom("Invalid BLOB literal"))
             })
@@ -1200,7 +1231,11 @@ fn unique_columns(columns: &[ast::IndexColumn]) -> TranslateResult<Vec<String>> 
         .collect()
 }
 
-fn translate_create_table(create_table: ast::CreateTable) -> TranslateResult<Statement> {
+#[allow(
+    clippy::too_many_lines,
+    reason = "table and index validation share one schema construction pass"
+)]
+fn translate_create_table(create_table: &ast::CreateTable) -> TranslateResult<Statement> {
     let table_name = object_name_to_string(&create_table.name)?;
     for column in &create_table.columns {
         if column.options.iter().any(|option| {
@@ -1240,7 +1275,7 @@ fn translate_create_table(create_table: ast::CreateTable) -> TranslateResult<Sta
                 let column = columns
                     .iter_mut()
                     .find(|column| column.name == name)
-                    .ok_or(TranslateError::custom("PRIMARY KEY column not found"))?;
+                    .ok_or_else(|| TranslateError::custom("PRIMARY KEY column not found"))?;
                 column.primary_key = true;
             }
         }
@@ -1278,7 +1313,7 @@ fn translate_create_table(create_table: ast::CreateTable) -> TranslateResult<Sta
                     |name| name.value.clone(),
                 ),
                 table_name: schema.name.clone(),
-                column_indices: vec![ordinal as u32],
+                column_indices: vec![u32::try_from(ordinal).map_err(TranslateError::custom)?],
                 unique: true,
             });
         }
@@ -1311,8 +1346,8 @@ fn translate_create_table(create_table: ast::CreateTable) -> TranslateResult<Sta
                         .columns
                         .iter()
                         .position(|column| column.name == *name)
-                        .map(|index| index as u32)
-                        .ok_or(TranslateError::custom("UNIQUE column not found"))
+                        .map(|index| u32::try_from(index).map_err(TranslateError::custom))
+                        .ok_or_else(|| TranslateError::custom("UNIQUE column not found"))?
                 })
                 .collect::<TranslateResult<Vec<_>>>()?,
             unique: true,
@@ -1338,7 +1373,7 @@ fn translate_create_table(create_table: ast::CreateTable) -> TranslateResult<Sta
 fn translate_drop(
     object_type: ast::ObjectType,
     if_exists: bool,
-    names: Vec<ast::ObjectName>,
+    names: &[ast::ObjectName],
 ) -> TranslateResult<Statement> {
     if names.is_empty() {
         return Err(TranslateError::custom("No object names in DROP"));
@@ -1360,7 +1395,7 @@ fn translate_drop(
     }
 }
 
-fn translate_alter_table(alter_table: ast::AlterTable) -> TranslateResult<Statement> {
+fn translate_alter_table(alter_table: &ast::AlterTable) -> TranslateResult<Statement> {
     let table_name = object_name_to_string(&alter_table.name)?;
     let operations = alter_table
         .operations
@@ -1382,13 +1417,11 @@ fn translate_alter_table(alter_table: ast::AlterTable) -> TranslateResult<Statem
     }))
 }
 
-fn translate_create_index(create_index: ast::CreateIndex) -> TranslateResult<Statement> {
+fn translate_create_index(create_index: &ast::CreateIndex) -> TranslateResult<Statement> {
     let index_name = create_index
         .name
         .as_ref()
-        .ok_or(TranslateError::custom(
-            "CREATE INDEX requires an index name",
-        ))
+        .ok_or_else(|| TranslateError::custom("CREATE INDEX requires an index name"))
         .and_then(object_name_to_string)?;
     let table_name = object_name_to_string(&create_index.table_name)?;
     let column_names = create_index
@@ -1421,10 +1454,10 @@ fn translate_create_index(create_index: ast::CreateIndex) -> TranslateResult<Sta
 }
 
 fn translate_alter_index(
-    name: ast::ObjectName,
+    name: &ast::ObjectName,
     operation: ast::AlterIndexOperation,
 ) -> TranslateResult<Statement> {
-    let index_name = object_name_to_string(&name)?;
+    let index_name = object_name_to_string(name)?;
 
     let op = match operation {
         ast::AlterIndexOperation::RenameIndex { index_name } => AlterIndexOperation::Rename {

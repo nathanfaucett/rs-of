@@ -32,4 +32,4 @@ Filesystem metadata completion is not proof of Full-content backup. Passthrough 
 
 ## Evidence boundary
 
-Focused tests do not qualify WAN behavior, real OS credential stores, rendered applications, every crash point, or multi-User shared Devices. Results in [e2e/runtime-validation.md](../../../e2e/runtime-validation.md) are commit-specific historical evidence and must not be presented as current without a new run.
+Focused tests do not qualify WAN behavior, real OS credential stores, rendered applications, every crash point, or multi-User shared Devices. GitHub Actions records results for each tested commit. Do not present a past run as current evidence.

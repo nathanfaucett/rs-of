@@ -1,5 +1,5 @@
 /*
- * OAuth Server
+ * LIDP IdP API
  *
  * OIDC / OAuth 2.x server implementation
  *
@@ -10,13 +10,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// `TokenEndpointAuthMethod` : Client token endpoint authentication methods (RFC 7591 / OIDC).
+/// TokenEndpointAuthMethod : Client token endpoint authentication methods (RFC 7591 / OIDC).
 /// Client token endpoint authentication methods (RFC 7591 / OIDC).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-#[derive(Default)]
 pub enum TokenEndpointAuthMethod {
     #[serde(rename = "client_secret_basic")]
-    #[default]
     ClientSecretBasic,
     #[serde(rename = "client_secret_post")]
     ClientSecretPost,
@@ -40,3 +38,8 @@ impl core::fmt::Display for TokenEndpointAuthMethod {
     }
 }
 
+impl Default for TokenEndpointAuthMethod {
+    fn default() -> TokenEndpointAuthMethod {
+        Self::ClientSecretBasic
+    }
+}

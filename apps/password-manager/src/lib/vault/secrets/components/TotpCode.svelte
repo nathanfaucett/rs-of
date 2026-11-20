@@ -49,7 +49,7 @@ async function copy() {
     }
 }
 
-function activate() {
+function _activate() {
     let parameters: TotpParameters | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let active = true;
@@ -110,11 +110,11 @@ function activate() {
 <svelte:document onvisibilitychange={() => reconcile()} />
 <svelte:window onfocus={() => reconcile()} onpageshow={() => reconcile()} />
 
-<section aria-label="Authenticator code" class="flex flex-col gap-2" {@attach activate}>
+<section aria-label="Authenticator code" class="flex flex-col gap-2" {@attach _activate}>
     {#if error}
         <p role="alert">{error}</p>
     {:else if current}
-        <p class="mb-0 font-mono" aria-label="TOTP code">{current.code}</p>
+        <p class="mb-0 font-mono">{current.code}</p>
         <button class="btn btn-secondary btn-md" type="button" disabled={copying} onclick={() => void copy()}>Copy TOTP code</button>
         <p role="timer" aria-label="TOTP time remaining">{current.remaining} {current.remaining === 1 ? "second" : "seconds"} remaining</p>
     {:else}

@@ -1,3 +1,5 @@
+use core::slice::from_ref;
+
 use proto::{
     ExecuteRequest, TransactionRequest, TransactionResponse, transaction_request::Command,
     transaction_response::Outcome,
@@ -31,6 +33,11 @@ impl Transaction {
         }
     }
 
+    /// Returns conflicts for one key in this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid response.
     pub async fn row_conflicts(
         &mut self,
         table: &str,
@@ -39,7 +46,7 @@ impl Transaction {
         match self
             .exchange(Command::RowConflicts(conflict_request(
                 table,
-                core::slice::from_ref(key),
+                from_ref(key),
             )))
             .await?
         {
@@ -50,6 +57,11 @@ impl Transaction {
         }
     }
 
+    /// Returns conflict values for one key in this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid response.
     pub async fn row_conflict_values(
         &mut self,
         table: &str,
@@ -58,7 +70,7 @@ impl Transaction {
         match self
             .exchange(Command::RowConflictValues(conflict_request(
                 table,
-                core::slice::from_ref(key),
+                from_ref(key),
             )))
             .await?
         {
@@ -67,6 +79,11 @@ impl Transaction {
         }
     }
 
+    /// Executes statements in this transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid result.
     pub async fn execute(
         &mut self,
         statements: Vec<Statement>,
@@ -93,10 +110,20 @@ impl Transaction {
         }
     }
 
+    /// Commits the remote transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid completion response.
     pub async fn commit(mut self) -> Result<(), QueryError> {
         self.finish(Command::Commit(())).await
     }
 
+    /// Rolls back the remote transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid completion response.
     pub async fn rollback(mut self) -> Result<(), QueryError> {
         self.finish(Command::Rollback(())).await
     }
@@ -108,6 +135,10 @@ impl Transaction {
         }
     }
 
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "a closed request stream has one stable transport error"
+    )]
     async fn exchange(&mut self, command: Command) -> Result<Outcome, QueryError> {
         // Cancellation must close the request stream, not leave an unread response for the next call.
         let sender = self

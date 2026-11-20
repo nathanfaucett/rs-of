@@ -1,3 +1,4 @@
+use core::fmt;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -8,14 +9,29 @@ use btree::{BTree, BTreeError};
 use kv::KvStore;
 use kv_proto as proto;
 use kv_proto::kvdb::{
-    DeleteResponse, GetResponse, ScanAllResponse, ScanEntry, ScanResponse, SetResponse,
+    DeleteRequest, DeleteResponse, GetRequest, GetResponse, ScanAllRequest, ScanAllResponse,
+    ScanEntry, ScanPrefixRequest, ScanRequest, ScanResponse, SetRequest, SetResponse,
+    TransactionRequest,
+    kv_service_server::{KvService as KvServiceTrait, KvServiceServer},
 };
-use tonic::{Request, Response, Status};
+use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::UnixListener;
+use tokio_stream::wrappers::TcpListenerStream;
+#[cfg(unix)]
+use tokio_stream::wrappers::UnixListenerStream;
+use tonic::{
+    Code, Request, Response, Status, Streaming, async_trait,
+    codegen::Bytes,
+    transport::{Certificate, Identity, Server as TonicServer, ServerTlsConfig},
+};
+
+use crate::transaction::{TransactionStream, stream};
 
 #[derive(Debug)]
 enum Endpoint {
     Tcp(SocketAddr),
-    TcpListener(tokio::net::TcpListener),
+    TcpListener(TcpListener),
     #[cfg(unix)]
     Unix(PathBuf),
 }
@@ -23,7 +39,7 @@ enum Endpoint {
 #[derive(Clone, Debug)]
 pub struct KvService<S>
 where
-    S: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,
+    S: BTree<Vec<u8>, Vec<u8>> + fmt::Debug,
 {
     store: Arc<KvStore<S>>,
     max_decoding_message_size: Option<usize>,
@@ -31,7 +47,7 @@ where
 
 impl<S> KvService<S>
 where
-    S: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,
+    S: BTree<Vec<u8>, Vec<u8>> + fmt::Debug,
 {
     pub fn new(store: KvStore<S>) -> Self {
         Self {
@@ -45,9 +61,9 @@ where
         self
     }
 
-    pub fn into_tonic_service(self) -> proto::kvdb::kv_service_server::KvServiceServer<Self> {
+    pub fn into_tonic_service(self) -> KvServiceServer<Self> {
         let max_decoding_message_size = self.max_decoding_message_size;
-        let service = proto::kvdb::kv_service_server::KvServiceServer::new(self);
+        let service = KvServiceServer::new(self);
         match max_decoding_message_size {
             Some(size) => service.max_decoding_message_size(size),
             None => service,
@@ -55,28 +71,22 @@ where
     }
 }
 
-#[tonic::async_trait]
-impl<S> proto::kvdb::kv_service_server::KvService for KvService<S>
+#[async_trait]
+impl<S> KvServiceTrait for KvService<S>
 where
-    S: BTree<Vec<u8>, Vec<u8>> + Send + Sync + 'static + core::fmt::Debug,
+    S: BTree<Vec<u8>, Vec<u8>> + Send + Sync + 'static + fmt::Debug,
 {
-    type TransactionStream = crate::transaction::TransactionStream;
+    type TransactionStream = TransactionStream;
 
     async fn transaction(
         &self,
-        request: Request<tonic::Streaming<proto::kvdb::TransactionRequest>>,
+        request: Request<Streaming<TransactionRequest>>,
     ) -> Result<Response<Self::TransactionStream>, Status> {
         let transaction = self.store.transaction().await.map_err(status_from_error)?;
-        Ok(Response::new(crate::transaction::stream(
-            transaction,
-            request.into_inner(),
-        )))
+        Ok(Response::new(stream(transaction, request.into_inner())))
     }
 
-    async fn get(
-        &self,
-        request: Request<proto::kvdb::GetRequest>,
-    ) -> Result<Response<proto::kvdb::GetResponse>, Status> {
+    async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
         let request = request.into_inner();
         let key = request.key;
         let now = current_time_millis()?;
@@ -89,10 +99,7 @@ where
         }))
     }
 
-    async fn set(
-        &self,
-        request: Request<proto::kvdb::SetRequest>,
-    ) -> Result<Response<proto::kvdb::SetResponse>, Status> {
+    async fn set(&self, request: Request<SetRequest>) -> Result<Response<SetResponse>, Status> {
         let request = request.into_inner();
         let key = request.key;
         let value = kv_proto::required_value(request.value)?;
@@ -109,8 +116,8 @@ where
 
     async fn delete(
         &self,
-        request: Request<proto::kvdb::DeleteRequest>,
-    ) -> Result<Response<proto::kvdb::DeleteResponse>, Status> {
+        request: Request<DeleteRequest>,
+    ) -> Result<Response<DeleteResponse>, Status> {
         let request = request.into_inner();
         let key = request.key;
 
@@ -121,10 +128,7 @@ where
         Ok(Response::new(DeleteResponse {}))
     }
 
-    async fn scan(
-        &self,
-        request: Request<proto::kvdb::ScanRequest>,
-    ) -> Result<Response<proto::kvdb::ScanResponse>, Status> {
+    async fn scan(&self, request: Request<ScanRequest>) -> Result<Response<ScanResponse>, Status> {
         let request = request.into_inner();
         let start = request.start;
         let _end = request.end;
@@ -150,8 +154,8 @@ where
 
     async fn scan_prefix(
         &self,
-        request: Request<proto::kvdb::ScanPrefixRequest>,
-    ) -> Result<Response<proto::kvdb::ScanResponse>, Status> {
+        request: Request<ScanPrefixRequest>,
+    ) -> Result<Response<ScanResponse>, Status> {
         let request = request.into_inner();
         let now = current_time_millis()?;
         let entries = self
@@ -176,8 +180,8 @@ where
 
     async fn scan_all(
         &self,
-        request: Request<proto::kvdb::ScanAllRequest>,
-    ) -> Result<Response<proto::kvdb::ScanAllResponse>, Status> {
+        request: Request<ScanAllRequest>,
+    ) -> Result<Response<ScanAllResponse>, Status> {
         let _request = request.into_inner();
         let now = current_time_millis()?;
 
@@ -199,17 +203,17 @@ where
 #[derive(Debug)]
 pub struct Server<S>
 where
-    S: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,
+    S: BTree<Vec<u8>, Vec<u8>> + fmt::Debug,
 {
     endpoint: Endpoint,
     service: KvService<S>,
-    tls_identity: Option<tonic::transport::Identity>,
-    tls_client_ca: Option<tonic::transport::Certificate>,
+    tls_identity: Option<Identity>,
+    tls_client_ca: Option<Certificate>,
 }
 
 impl<S> Server<S>
 where
-    S: BTree<Vec<u8>, Vec<u8>> + core::fmt::Debug,
+    S: BTree<Vec<u8>, Vec<u8>> + fmt::Debug,
 {
     pub fn tcp(address: SocketAddr, store: KvStore<S>) -> Self {
         Self {
@@ -220,7 +224,7 @@ where
         }
     }
 
-    pub fn tcp_listener(listener: tokio::net::TcpListener, store: KvStore<S>) -> Self {
+    pub fn tcp_listener(listener: TcpListener, store: KvStore<S>) -> Self {
         Self {
             endpoint: Endpoint::TcpListener(listener),
             service: KvService::new(store),
@@ -239,24 +243,29 @@ where
         }
     }
 
+    #[must_use]
     pub fn tls_identity(mut self, certificate: Vec<u8>, private_key: Vec<u8>) -> Self {
-        self.tls_identity = Some(tonic::transport::Identity::from_pem(
-            certificate,
-            private_key,
-        ));
+        self.tls_identity = Some(Identity::from_pem(certificate, private_key));
         self
     }
 
+    #[must_use]
     pub fn tls_client_ca(mut self, certificate: Vec<u8>) -> Self {
-        self.tls_client_ca = Some(tonic::transport::Certificate::from_pem(certificate));
+        self.tls_client_ca = Some(Certificate::from_pem(certificate));
         self
     }
 
+    #[must_use]
     pub fn max_decoding_message_size(mut self, size: usize) -> Self {
         self.service = self.service.max_decoding_message_size(size);
         self
     }
 
+    /// Serves KV requests until shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for TLS configuration, listener setup, or transport failure.
     pub async fn serve(
         self,
         shutdown: impl Future<Output = ()> + Send + 'static,
@@ -265,9 +274,9 @@ where
         S: BTree<Vec<u8>, Vec<u8>> + Send + Sync + 'static,
     {
         let service = self.service.into_tonic_service();
-        let mut builder = tonic::transport::Server::builder();
+        let mut builder = TonicServer::builder();
         if let Some(identity) = self.tls_identity {
-            let mut tls = tonic::transport::ServerTlsConfig::new().identity(identity);
+            let mut tls = ServerTlsConfig::new().identity(identity);
             if let Some(client_ca) = self.tls_client_ca {
                 tls = tls.client_ca_root(client_ca);
             }
@@ -280,7 +289,7 @@ where
                 .await
                 .map_err(Into::into),
             Endpoint::TcpListener(listener) => {
-                let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
+                let incoming = TcpListenerStream::new(listener);
                 builder
                     .add_service(service)
                     .serve_with_incoming_shutdown(incoming, shutdown)
@@ -289,8 +298,8 @@ where
             }
             #[cfg(unix)]
             Endpoint::Unix(path) => {
-                let listener = tokio::net::UnixListener::bind(path)?;
-                let incoming = tokio_stream::wrappers::UnixListenerStream::new(listener);
+                let listener = UnixListener::bind(path)?;
+                let incoming = UnixListenerStream::new(listener);
                 builder
                     .add_service(service)
                     .serve_with_incoming_shutdown(incoming, shutdown)
@@ -309,10 +318,10 @@ pub fn current_time_millis() -> Result<i64, Status> {
     i64::try_from(millis).map_err(status_from_error)
 }
 
-pub fn status_from_error(error: impl std::error::Error + 'static) -> Status {
-    let kind = if let Some(error) = (&error as &dyn std::error::Error).downcast_ref::<BTreeError>()
-    {
-        match error {
+pub fn status_from_error(error: impl Error + 'static) -> Status {
+    let kind = (&error as &dyn Error).downcast_ref::<BTreeError>().map_or(
+        proto::ErrorKind::Internal,
+        |error| match error {
             BTreeError::InvalidDocument => proto::ErrorKind::InvalidDocument,
             BTreeError::TypeMismatch => proto::ErrorKind::TypeMismatch,
             BTreeError::Conflict => proto::ErrorKind::Conflict,
@@ -320,15 +329,9 @@ pub fn status_from_error(error: impl std::error::Error + 'static) -> Status {
             BTreeError::RollbackFailed => proto::ErrorKind::RollbackFailed,
             BTreeError::UnsupportedOperation => proto::ErrorKind::UnsupportedOperation,
             BTreeError::Custom(_) => proto::ErrorKind::Storage,
-        }
-    } else {
-        proto::ErrorKind::Internal
-    };
+        },
+    );
     let message = error.to_string();
     let details = proto::encode_error_details(kind, &message);
-    Status::with_details(
-        tonic::Code::Internal,
-        message,
-        tonic::codegen::Bytes::from(details),
-    )
+    Status::with_details(Code::Internal, message, Bytes::from(details))
 }

@@ -9,7 +9,12 @@ use value::Row;
 
 use crate::{
     Engine, EngineResult, Kernel, KernelTransaction, RowCodec, Uuid,
-    schema::{active_table_names, catalog_table_for_storage, ensure, reconcile_schema_names},
+    executor::execution_stage,
+    index::{rebuild_table, update_row},
+    schema::{
+        active_table_names, active_user_row, catalog_table_for_storage, ensure,
+        reconcile_schema_names, validate_row_id,
+    },
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -41,6 +46,11 @@ where
     K: Kernel,
     R: RowCodec<K::Transaction> + MaybeSend + MaybeSync,
 {
+    /// Runs a read operation in one transaction and rolls it back afterward.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for setup, operation, or rollback failure.
     pub async fn read_transaction<F, O>(&self, operation: F) -> EngineResult<O>
     where
         F: for<'a> FnOnce(&'a R, &'a K::Transaction) -> platform::BoxFuture<'a, EngineResult<O>>,
@@ -52,6 +62,11 @@ where
         result
     }
 
+    /// Mutates one row in a transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for validation, operation, index maintenance, or transaction failure.
     pub async fn mutate_transaction<F, O>(
         &self,
         table: &str,
@@ -65,7 +80,7 @@ where
             Option<Row>,
         ) -> platform::BoxFuture<'a, EngineResult<(O, Option<Row>)>>,
     {
-        crate::schema::validate_row_id(table, &row)?;
+        validate_row_id(table, &row)?;
         let mut transaction = self.kernel.transaction().await?;
         let result: EngineResult<O> = async {
             ensure(&mut transaction, self.reconciler.as_ref()).await?;
@@ -76,15 +91,9 @@ where
             let (output, new) =
                 operation(self.reconciler.as_ref(), &mut transaction, old.clone()).await?;
             if catalog_table_for_storage(table).is_none()
-                && crate::schema::active_user_row(
-                    &transaction,
-                    self.reconciler.as_ref(),
-                    table,
-                    &row,
-                )
-                .await?
+                && active_user_row(&transaction, self.reconciler.as_ref(), table, &row).await?
             {
-                crate::index::update_row(
+                update_row(
                     &mut transaction,
                     self.reconciler.as_ref(),
                     table,
@@ -94,13 +103,7 @@ where
                     false,
                 )
                 .await?;
-                crate::index::rebuild_table(
-                    &mut transaction,
-                    self.reconciler.as_ref(),
-                    table,
-                    false,
-                )
-                .await?;
+                rebuild_table(&mut transaction, self.reconciler.as_ref(), table, false).await?;
             }
             Ok(output)
         }
@@ -117,6 +120,11 @@ where
         }
     }
 
+    /// Mutates several tables in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for setup, operation, schema reconciliation, or commit failure.
     pub async fn mutate_tables<F, O>(&self, tables: &[String], operation: F) -> EngineResult<O>
     where
         F: for<'a> FnOnce(
@@ -130,6 +138,10 @@ where
 
     /// Validate transaction-derived output synchronously before committing mutations.
     /// Rejection rolls back the transaction. Validation must not block or reenter it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for setup, operation, validation, schema reconciliation, or commit failure.
     pub async fn mutate_tables_validated<F, O, V>(
         &self,
         tables: &[String],
@@ -162,13 +174,8 @@ where
                     self.reconciler
                         .ensure_table(&mut transaction, &table)
                         .await?;
-                    crate::executor::execution_stage(|| {
-                        crate::index::rebuild_table(
-                            &mut transaction,
-                            self.reconciler.as_ref(),
-                            &table,
-                            false,
-                        )
+                    execution_stage(|| {
+                        rebuild_table(&mut transaction, self.reconciler.as_ref(), &table, false)
                     })
                     .await?;
                 }
@@ -188,6 +195,15 @@ where
         }
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "row validation, mutations, and index maintenance share one transaction"
+    )]
+    /// Mutates several rows in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for validation, operation, index maintenance, or transaction failure.
     pub async fn mutate_rows<F, O>(&self, rows: &[(String, Uuid)], operation: F) -> EngineResult<O>
     where
         F: for<'a> FnOnce(
@@ -196,7 +212,7 @@ where
         ) -> platform::BoxFuture<'a, EngineResult<(O, Vec<RowMutation>)>>,
     {
         for (table, row) in rows {
-            crate::schema::validate_row_id(table, row)?;
+            validate_row_id(table, row)?;
         }
         let mut transaction = self.kernel.transaction().await?;
         let result: EngineResult<O> = async {
@@ -208,7 +224,7 @@ where
             }
             let (output, mutations) = operation(self.reconciler.as_ref(), &mut transaction).await?;
             for mutation in &mutations {
-                crate::schema::validate_row_id(&mutation.table, &mutation.row)?;
+                validate_row_id(&mutation.table, &mutation.row)?;
             }
             let catalog_changed = mutations
                 .iter()
@@ -218,7 +234,7 @@ where
             }
             for mutation in mutations {
                 if catalog_table_for_storage(&mutation.table).is_none()
-                    && crate::schema::active_user_row(
+                    && active_user_row(
                         &transaction,
                         self.reconciler.as_ref(),
                         &mutation.table,
@@ -226,7 +242,7 @@ where
                     )
                     .await?
                 {
-                    crate::index::update_row(
+                    update_row(
                         &mut transaction,
                         self.reconciler.as_ref(),
                         &mutation.table,
@@ -252,36 +268,19 @@ where
                     self.reconciler
                         .ensure_table(&mut transaction, &table)
                         .await?;
-                    crate::index::rebuild_table(
-                        &mut transaction,
-                        self.reconciler.as_ref(),
-                        &table,
-                        false,
-                    )
-                    .await?;
+                    rebuild_table(&mut transaction, self.reconciler.as_ref(), &table, false)
+                        .await?;
                     continue;
                 }
                 let Some((_, row)) = rows.iter().find(|(row_table, _)| row_table == &table) else {
                     continue;
                 };
-                if crate::schema::active_user_row(
-                    &transaction,
-                    self.reconciler.as_ref(),
-                    &table,
-                    row,
-                )
-                .await?
-                {
+                if active_user_row(&transaction, self.reconciler.as_ref(), &table, row).await? {
                     self.reconciler
                         .ensure_table(&mut transaction, &table)
                         .await?;
-                    crate::index::rebuild_table(
-                        &mut transaction,
-                        self.reconciler.as_ref(),
-                        &table,
-                        false,
-                    )
-                    .await?;
+                    rebuild_table(&mut transaction, self.reconciler.as_ref(), &table, false)
+                        .await?;
                 }
             }
             Ok(output)
@@ -299,6 +298,11 @@ where
         }
     }
 
+    /// Lists active table names.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for setup, catalog reads, or rollback failure.
     pub async fn table_names(&self) -> EngineResult<Vec<String>> {
         let mut transaction = self.kernel.transaction().await?;
         ensure(&mut transaction, self.reconciler.as_ref()).await?;

@@ -1,9 +1,9 @@
-use std::{env, fs};
+use std::{env, fs, path::PathBuf};
 
 use file_system::{CatalogEntry, Error, FileSystemCatalog, FileSystemId};
 use uuid::Uuid;
 
-fn root() -> std::path::PathBuf {
+fn root() -> PathBuf {
     env::temp_dir().join(format!("file-system-catalog-{}", Uuid::now_v7()))
 }
 
@@ -68,7 +68,10 @@ async fn deletion_is_a_durable_tombstone_exported_in_snapshot() {
         catalog.open_filesystem(resource.id, 1_u8).await,
         Err(Error::NotFound)
     ));
-    assert_eq!(catalog.list().await.expect("list resources"), [] as [file_system::FileSystemResource; 0]);
+    assert_eq!(
+        catalog.list().await.expect("list resources"),
+        [] as [file_system::FileSystemResource; 0]
+    );
     let snapshot = catalog.snapshot().await.expect("export snapshot");
     assert_eq!(snapshot.len(), 1);
     assert!(snapshot[0].deleted);
@@ -81,7 +84,10 @@ async fn deletion_is_a_durable_tombstone_exported_in_snapshot() {
         .import_snapshot(&reopened.snapshot().await.expect("snapshot after restart"))
         .await
         .expect("import snapshot");
-    assert_eq!(imported.list().await.expect("list imported"), [] as [file_system::FileSystemResource; 0]);
+    assert_eq!(
+        imported.list().await.expect("list imported"),
+        [] as [file_system::FileSystemResource; 0]
+    );
     assert!(matches!(
         imported.open_filesystem(resource.id, 1_u8).await,
         Err(Error::NotFound)
@@ -116,7 +122,10 @@ async fn imported_tombstone_wins_over_a_live_catalog_entry() {
         }])
         .await
         .expect("import stale live record");
-    assert_eq!(catalog.list().await.expect("list resources"), [] as [file_system::FileSystemResource; 0]);
+    assert_eq!(
+        catalog.list().await.expect("list resources"),
+        [] as [file_system::FileSystemResource; 0]
+    );
     fs::remove_dir_all(root).expect("remove test root");
 }
 
@@ -165,7 +174,8 @@ async fn deselecting_projected_resource_evicts_only_local_copy_without_tombstone
         catalog
             .projected_selected()
             .await
-            .expect("projection deselected"), [] as [file_system::FileSystemId; 0]
+            .expect("projection deselected"),
+        [] as [file_system::FileSystemId; 0]
     );
 
     drop(filesystem);

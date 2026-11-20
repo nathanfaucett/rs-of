@@ -1,4 +1,12 @@
-use std::{env, fs, sync::Arc};
+use std::{
+    env, fs,
+    future::pending,
+    io,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    sync::Arc,
+    thread,
+};
 
 use file_system::{Error, FileHandle, FileSystemCatalog, OpenRequest, Residency};
 use futures_util::StreamExt;
@@ -143,6 +151,10 @@ async fn passthrough_denies_delete_and_rename_including_descendants_and_destinat
 }
 
 #[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "single restart and retry lifecycle fixture"
+)]
 async fn created_copy_cleanup_failure_retries_after_native_reopen_without_catalog_mutation() {
     if let Ok(root) = env::var("OFFS_REOPEN_ROOT") {
         let catalog = FileSystemCatalog::open(&root).expect("fresh process catalog reopen");
@@ -318,7 +330,7 @@ async fn created_copy_cleanup_failure_retries_after_native_reopen_without_catalo
     ));
     drop(retained);
     drop(restarted);
-    let child = std::process::Command::new(env::current_exe().expect("test executable"))
+    let child = Command::new(env::current_exe().expect("test executable"))
         .args([
             "--exact",
             "created_copy_cleanup_failure_retries_after_native_reopen_without_catalog_mutation",
@@ -370,7 +382,7 @@ async fn retirement_cancels_pending_sync_admission_and_invalidates_live_sessions
                 ..
             }
         ) {
-            Box::pin(std::future::pending())
+            Box::pin(pending())
         } else {
             Box::pin(async { true })
         }
@@ -563,7 +575,7 @@ async fn retirement_cancels_unpublished_content_stage_without_touching_provider(
 async fn native_process_lease_blocks_cleanup_until_owner_releases() {
     use std::time::{Duration, Instant};
 
-    fn wait_for(path: &std::path::Path) {
+    fn wait_for(path: &Path) {
         let deadline = Instant::now() + Duration::from_secs(10);
         while !path.exists() {
             assert!(
@@ -571,11 +583,11 @@ async fn native_process_lease_blocks_cleanup_until_owner_releases() {
                 "test-only process handshake watchdog: {}",
                 path.display()
             );
-            std::thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(10));
         }
     }
     if let Ok(root) = env::var("OFFS_LEASE_ROOT") {
-        let root = std::path::PathBuf::from(root);
+        let root = PathBuf::from(root);
         let id = env::var("OFFS_LEASE_ID").expect("resource ID");
         let filesystem = file_system::FileSystem::open(root.join("filesystems").join(id), 1_u8)
             .await
@@ -604,7 +616,7 @@ async fn native_process_lease_blocks_cleanup_until_owner_releases() {
     let catalog = FileSystemCatalog::open(&root).expect("catalog");
     let resource = catalog.create(None).await.expect("resource");
     let before = catalog.snapshot().await.expect("identity");
-    let child = std::process::Command::new(env::current_exe().expect("test executable"))
+    let child = Command::new(env::current_exe().expect("test executable"))
         .args([
             "--exact",
             "native_process_lease_blocks_cleanup_until_owner_releases",
@@ -612,13 +624,13 @@ async fn native_process_lease_blocks_cleanup_until_owner_releases() {
         ])
         .env("OFFS_LEASE_ROOT", &root)
         .env("OFFS_LEASE_ID", resource.id.as_uuid().to_string())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("native owner process");
     wait_for(&root.join("ready"));
     assert!(
-        matches!(catalog.remove_managed_copy(resource.id).await, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock)
+        matches!(catalog.remove_managed_copy(resource.id).await, Err(Error::Io(error)) if error.kind() == io::ErrorKind::WouldBlock)
     );
     let local_root = root
         .join("filesystems")

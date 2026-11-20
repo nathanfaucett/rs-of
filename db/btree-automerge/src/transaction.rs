@@ -15,6 +15,11 @@ use crate::{
     util::{tx_insert_snapshot, tx_remove_document, tx_update},
 };
 
+/// Reconstructs one document from a transaction.
+///
+/// # Errors
+///
+/// Returns an error when storage reads or document reconstruction fails.
 pub async fn get_document<T>(transaction: &T, key: &DocumentId) -> BTreeResult<Option<AutoCommit>>
 where
     T: BTreeRead<DocumentChangeKey, Vec<u8>>,

@@ -1,18 +1,19 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:net";
 import { test } from "node:test";
-import { startBackend } from "./backend.mjs";
+import { promisify } from "node:util";
+import {
+  appURL,
+  backendURL,
+  freePort,
+  passwordManagerURL,
+  startBackend,
+} from "./backend.mjs";
 
-async function freePort() {
-  const server = createServer();
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address();
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
+const execFileAsync = promisify(execFile);
 
 // This process fixture tests supervision only; domain E2E tests always run Rust.
 const fixture = `
@@ -23,6 +24,8 @@ if (process.argv[2] === 'local') {
   const args = process.argv.slice(2);
   assert.equal(args[args.indexOf('--data-dir') + 1], process.env.E2E_DATA_DIR);
   assert.equal(args[args.indexOf('--port') + 1], process.env.E2E_PORT);
+  assert.equal(args[args.indexOf('--origin') + 1], ${JSON.stringify(appURL)});
+  assert.equal(args[args.indexOf('--password-manager-origin') + 1], ${JSON.stringify(passwordManagerURL)});
   assert.ok(!args.includes('--no-tls'));
   assert.equal(process.env.RUST_MIN_STACK, '67108864');
 }
@@ -34,21 +37,62 @@ http.createServer((req, res) => {
 `;
 
 const options = async (env = {}) => ({
-  port: await freePort(),
   command: process.execPath,
   args: ["-e", fixture],
   env,
   timeoutMs: 1000,
 });
 
-test("waits for all owners, isolates data, and stops the process before removing data", async () => {
+test("allocates runner URLs with distinct dynamic ports", () => {
+  const urls = [backendURL, appURL, passwordManagerURL];
+  assert.equal(new Set(urls.map((url) => new URL(url).port)).size, 3);
+  for (const url of urls) {
+    assert.ok(!["1355", "5173", "5174"].includes(new URL(url).port));
+  }
+});
+
+test("shares explicit runner ports with subprocesses and validates them", async () => {
+  const module = JSON.stringify(new URL("./backend.mjs", import.meta.url).href);
+  const code = `import { backendURL, appURL, passwordManagerURL } from ${module}; console.log(JSON.stringify([backendURL, appURL, passwordManagerURL]));`;
+  const env = {
+    ...process.env,
+    E2E_BACKEND_PORT: "41001",
+    E2E_APP_PORT: "41002",
+    E2E_PASSWORD_MANAGER_PORT: "41003",
+  };
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["--input-type=module", "-e", code],
+    {
+      env,
+    },
+  );
+  assert.deepEqual(JSON.parse(stdout), [
+    "http://127.0.0.1:41001",
+    "http://127.0.0.1:41002",
+    "http://127.0.0.1:41003",
+  ]);
+  await assert.rejects(
+    execFileAsync(process.execPath, ["--input-type=module", "-e", code], {
+      env: { ...env, E2E_BACKEND_PORT: "0" },
+    }),
+    /E2E_BACKEND_PORT must be an integer/,
+  );
+});
+
+test("waits for all owners, allocates dynamic ports, isolates data, and stops the process before removing data", async () => {
   const first = await startBackend(await options());
   const second = await startBackend(await options());
   try {
+    assert.notEqual(first.baseURL, second.baseURL);
+    assert.notEqual(new URL(first.baseURL).port, "1355");
     assert.notEqual(first.dataDir, second.dataDir);
     await access(`${first.dataDir}/started`);
     for (const owner of ["idp", "device", "storage", "management"]) {
-      assert.equal((await fetch(`${first.baseURL}/${owner}/health`)).status, 200);
+      assert.equal(
+        (await fetch(`${first.baseURL}/${owner}/health`)).status,
+        200,
+      );
     }
   } finally {
     await Promise.all([first.stop(), second.stop()]);
@@ -59,7 +103,10 @@ test("waits for all owners, isolates data, and stops the process before removing
 });
 
 test("times out when any owner is unhealthy and cleans up the failed process", async () => {
-  const config = await options({ UNHEALTHY: "1" });
+  const config = {
+    ...(await options({ UNHEALTHY: "1" })),
+    port: await freePort(),
+  };
   await assert.rejects(startBackend(config), /management.*health/);
   await assert.rejects(fetch(`http://127.0.0.1:${config.port}/idp/health`));
 });
@@ -73,7 +120,7 @@ test("refuses an occupied port instead of accepting another backend's health", a
         port: Number(new URL(existing.baseURL).port),
         args: ["-e", "setTimeout(() => {}, 10000)"],
       }),
-      /already in use/
+      /already in use/,
     );
   } finally {
     await existing.stop();
@@ -114,7 +161,7 @@ test("uses an explicit prebuilt binary without falling back to Cargo", async () 
       port: await freePort(),
       timeoutMs: 500,
     }),
-    /ENOENT/
+    /ENOENT/,
   );
 });
 

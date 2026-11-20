@@ -11,7 +11,7 @@ use value::{Row, Value};
 
 use crate::{
     EngineError, EngineResult, KernelTransaction, RowCodec, RowTable,
-    executor::{materialize_defaults, uuid_primary_key, validate_row},
+    executor::{execution_stage, materialize_defaults, uuid_primary_key, validate_row},
     schema::{ENGINE_INDICES_STORAGE, index_schema, index_storage, table_schema_for},
 };
 
@@ -100,15 +100,17 @@ pub async fn lookup<T: KernelTransaction, R: RowCodec<T>>(
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "index rebuild validation and writes share one transaction"
+)]
 pub async fn rebuild_table<T: KernelTransaction, R: RowCodec<T>>(
     transaction: &mut T,
     codec: &R,
     table: &str,
     enforce_unique: bool,
 ) -> EngineResult<()> {
-    let indexes =
-        crate::executor::execution_stage(|| indexes_for_table(transaction, codec, table, None))
-            .await?;
+    let indexes = execution_stage(|| indexes_for_table(transaction, codec, table, None)).await?;
     for (name, _) in &indexes {
         transaction.ensure_table(name).await?;
         let stale = {
@@ -124,10 +126,8 @@ pub async fn rebuild_table<T: KernelTransaction, R: RowCodec<T>>(
             transaction.remove_entry(name, &key).await?;
         }
     }
-    let schema = crate::executor::execution_stage(|| {
-        table_schema_for(transaction, codec, table, table.into())
-    })
-    .await?;
+    let schema =
+        execution_stage(|| table_schema_for(transaction, codec, table, table.into())).await?;
     let mut states = {
         let stream = codec.scan_row_states(transaction, table);
         pin_mut!(stream);

@@ -5,6 +5,8 @@ use std::{
     task::{Context, Poll},
 };
 
+use core::fmt;
+
 use futures::{Stream, future::join_all, stream::FuturesUnordered};
 use tokio::sync::watch;
 
@@ -61,6 +63,7 @@ pub struct ChangeEvent {
 struct History {
     revision: u64,
     batches: VecDeque<(u64, Vec<StorageInvalidation>, Vec<ChangeEvent>)>,
+    closed: bool,
 }
 
 /// Backend-owned notification of successfully committed storage mutations.
@@ -69,8 +72,8 @@ pub struct ChangeSignal {
     history: watch::Sender<History>,
 }
 
-impl core::fmt::Debug for ChangeSignal {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for ChangeSignal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ChangeSignal").finish_non_exhaustive()
     }
 }
@@ -97,6 +100,11 @@ impl ChangeSignal {
         }
     }
 
+    /// Closes this change stream without requiring every signal clone to drop.
+    pub fn close(&self) {
+        self.history.send_modify(|history| history.closed = true);
+    }
+
     /// Unknown writes require broad comparison. Publish synchronously before writer release.
     pub fn committed(&self) {
         self.committed_with([StorageInvalidation::All]);
@@ -104,6 +112,10 @@ impl ChangeSignal {
 
     /// Retains at most 128 commits, each at most 128 keys / 16 KiB of identity bytes.
     /// Oversized commits and lagging consumers select broad reconciliation instead.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the committed revision counter is exhausted.
     pub fn committed_with(&self, invalidations: impl IntoIterator<Item = StorageInvalidation>) {
         let mut batch = Vec::new();
         let mut bytes = 0;
@@ -143,6 +155,10 @@ impl ChangeSignal {
 
     /// Called by storage backend on successful commit.
     /// Includes the incremental blob so consumers don't need to re-fetch.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the committed revision counter is exhausted.
     pub fn committed_with_events(&self, events: impl IntoIterator<Item = ChangeEvent>) {
         let events: Vec<ChangeEvent> = events.into_iter().collect();
         let mut invalidations = Vec::new();
@@ -263,7 +279,7 @@ impl ChangeSubscription {
                 .iter()
                 .map(|source| source.history.clone())
                 .map(|mut history| async move {
-                    let _ = history.wait_for(|_| false).await;
+                    let _ = history.wait_for(|history| history.closed).await;
                 }),
         )
         .await;
@@ -277,8 +293,8 @@ pub struct EventStream<'a> {
     delivered_any: bool,
 }
 
-impl core::fmt::Debug for EventStream<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for EventStream<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventStream")
             .field("delivered_any", &self.delivered_any)
             .finish_non_exhaustive()
@@ -293,7 +309,10 @@ impl Stream for EventStream<'_> {
 
         // Try to deliver events from each source
         for source in &mut *this.sources {
-            let history = source.history.borrow();
+            let history = source.history.borrow_and_update();
+            if history.closed {
+                return Poll::Ready(None);
+            }
             let batches = &history.batches;
 
             // Deliver events from current batch position
@@ -317,6 +336,7 @@ impl Stream for EventStream<'_> {
                 source.event_cursor += 1;
                 source.event_index = 0;
             }
+            drop(history);
         }
 
         // No undelivered historical events.
@@ -341,8 +361,7 @@ impl Stream for EventStream<'_> {
                 // New changes available, will be delivered on next poll
                 Poll::Pending
             }
-            Poll::Ready(Some(Err(_))) => Poll::Ready(None),
-            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Ready(Some(Err(_)) | None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
     }

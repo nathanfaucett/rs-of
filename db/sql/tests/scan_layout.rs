@@ -59,7 +59,7 @@ async fn native_conflict_checks_reuse_raw_table_catalog_within_budget() {
                 .row_conflicts("items", &key)
                 .await
                 .expect("public conflict inspection"),
-            [] as [std::string::String; 0]
+            [] as [String; 0]
         );
     }
     let elapsed = started.elapsed();
@@ -95,7 +95,7 @@ async fn native_conflict_checks_with_many_tables_keep_fixed_budget() {
                 .row_conflicts("items", &key)
                 .await
                 .expect("public conflict inspection"),
-            [] as [std::string::String; 0]
+            [] as [String; 0]
         );
     }
     let elapsed = started.elapsed();
@@ -133,7 +133,7 @@ async fn native_conflict_checks_with_large_catalog_keep_fixed_budget() {
                 .row_conflicts("items", &key)
                 .await
                 .expect("public conflict inspection"),
-            [] as [std::string::String; 0]
+            [] as [String; 0]
         );
     }
     let elapsed = started.elapsed();
@@ -199,6 +199,10 @@ async fn native_select_with_large_catalog_keeps_scan_within_budget() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "commit consumes the transaction"
+)]
 async fn native_scans_observe_catalog_changes_defaults_and_tombstones_per_operation() {
     let directory = tempfile::tempdir().expect("native evolving catalog store");
     let path = directory.path().join("catalog.redb");
@@ -248,7 +252,7 @@ async fn native_scans_observe_catalog_changes_defaults_and_tombstones_per_operat
             .row_conflicts("items", &key)
             .await
             .expect("current snapshot conflicts"),
-        [] as [std::string::String; 0]
+        [] as [String; 0]
     );
     transaction.commit().await.expect("persist current catalog");
     drop(client);

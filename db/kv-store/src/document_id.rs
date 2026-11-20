@@ -16,6 +16,11 @@ pub fn encode_document_id(key: &str, generation: Uuid) -> Vec<u8> {
     id
 }
 
+/// Decodes a logical key and `UUIDv7` generation from an ordered document identifier.
+///
+/// # Errors
+///
+/// Returns `BTreeError::InvalidDocument` for malformed identifiers or non-v7 generations.
 pub fn decode_document_id(id: &[u8]) -> Result<(String, Uuid), BTreeError> {
     let mut key = Vec::new();
     let mut index = 0;

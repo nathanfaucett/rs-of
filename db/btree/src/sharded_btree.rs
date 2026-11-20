@@ -6,7 +6,7 @@ use std::sync::Arc;
 use dashmap::{DashMap, Entry, mapref::one::RefMut};
 use std::collections::btree_map::BTreeMap;
 
-use core::{hash::Hash, marker::PhantomData, ops::RangeBounds};
+use core::{fmt, hash::Hash, marker::PhantomData, ops::RangeBounds};
 
 use platform::{MaybeSend, MaybeSync};
 
@@ -72,12 +72,12 @@ where
     }
 
     /// Dynamically add a shard to the keyspace routing table
-    pub fn add_shard(&mut self, token_boundary: S::Key, shard: F::BTree) {
+    pub fn add_shard(&self, token_boundary: S::Key, shard: F::BTree) {
         self.shards.insert(token_boundary, shard);
     }
 
     /// Dynamically remove a shard from the routing table
-    pub fn remove_shard(&mut self, token_boundary: &S::Key) -> Option<F::BTree> {
+    pub fn remove_shard(&self, token_boundary: &S::Key) -> Option<F::BTree> {
         self.shards.remove(token_boundary).map(|(_, shard)| shard)
     }
 }
@@ -105,7 +105,7 @@ where
     where
         R: RangeBounds<K> + Clone + MaybeSend,
     {
-        let shards = self.shards.clone();
+        let shards = Arc::clone(&self.shards);
 
         stream!({
             let mut items = BTreeMap::new();
@@ -146,9 +146,9 @@ where
 
         Ok(ShardedBTreeTransaction {
             transactions: txs,
-            shards: self.shards.clone(),
-            factory: self.factory.clone(),
-            sharder: self.sharder.clone(),
+            shards: Arc::clone(&self.shards),
+            factory: Arc::clone(&self.factory),
+            sharder: Arc::clone(&self.sharder),
             _marker: PhantomData,
         })
     }
@@ -168,14 +168,14 @@ where
     _marker: PhantomData<(K, V)>,
 }
 
-impl<K, V, F, S> core::fmt::Debug for ShardedBTreeTransaction<K, V, F, S>
+impl<K, V, F, S> fmt::Debug for ShardedBTreeTransaction<K, V, F, S>
 where
     K: BTreeKey + MaybeSend + MaybeSync,
     V: BTreeValue + MaybeSend + MaybeSync,
     F: BTreeShardFactory<K, V, S::Key>,
     S: Sharder<K>,
 {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ShardedBTreeTransaction")
             .finish_non_exhaustive()
     }
@@ -281,7 +281,7 @@ where
         tx.remove(key).await
     }
 
-    fn remove_range<R>(&mut self, _range: R) -> impl Stream<Item = BTreeResult<(K, V)>> + MaybeSend
+    fn remove_range<R>(&mut self, range: R) -> impl Stream<Item = BTreeResult<(K, V)>> + MaybeSend
     where
         R: RangeBounds<K> + Clone + MaybeSend,
     {
@@ -292,7 +292,7 @@ where
 
             let mut items = BTreeMap::new();
             for mut entry in self.transactions.iter_mut() {
-                let s = entry.value_mut().remove_range(_range.clone());
+                let s = entry.value_mut().remove_range(range.clone());
                 pin_mut!(s);
 
                 while let Some(item) = s.next().await {

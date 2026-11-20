@@ -31,10 +31,7 @@ fn json_number_compares_all_representations() {
 
     assert_ne!(JsonNumber::I64(-1), JsonNumber::U64(u64::MAX));
     assert_eq!(JsonNumber::I64(1), JsonNumber::U64(1));
-    assert_eq!(
-        JsonNumber::I64(1).cmp(&JsonNumber::U64(1)),
-        Ordering::Equal
-    );
+    assert_eq!(JsonNumber::I64(1).cmp(&JsonNumber::U64(1)), Ordering::Equal);
 }
 
 #[cfg(feature = "serde_json")]
@@ -84,7 +81,10 @@ fn value_type_ranks_follow_variant_order() {
     ];
 
     for (rank, value_type) in types.iter().enumerate() {
-        assert_eq!(value_type.rank(), u8::try_from(rank).expect("rank fits in u8"));
+        assert_eq!(
+            value_type.rank(),
+            u8::try_from(rank).expect("rank fits in u8")
+        );
     }
 }
 

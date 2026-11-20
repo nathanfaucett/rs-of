@@ -1,5 +1,7 @@
 #![cfg(feature = "postgres")]
 
+use std::env;
+
 use ofdb_sql::{
     Client, PostgresStatement, QueryErrorKind, QueryParams, Row, SqlTranslator, Translator, Value,
 };
@@ -17,13 +19,21 @@ async fn translates_owner_schema_and_bound_values() {
         insert.sql,
         "INSERT INTO \"devices\" (\"id\", \"data\", \"created_at\") VALUES ($1, $2, $3)"
     );
-    assert_eq!(insert.params[2], Value::Integer(1700000000000));
+    assert_eq!(insert.params[2], Value::Integer(1_700_000_000_000));
 }
 
 #[tokio::test]
 #[ignore = "requires OF_TEST_POSTGRES_URL for a disposable PostgreSQL database"]
+#[allow(
+    clippy::too_many_lines,
+    reason = "single end-to-end PostgreSQL transaction lifecycle fixture"
+)]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "commit consumes the transaction"
+)]
 async fn postgres_values_and_failed_transactions() {
-    let url = std::env::var("OF_TEST_POSTGRES_URL").expect("set disposable PostgreSQL URL");
+    let url = env::var("OF_TEST_POSTGRES_URL").expect("set disposable PostgreSQL URL");
     let client = Client::connect_postgres(&url)
         .await
         .expect("connect PostgreSQL");
@@ -101,17 +111,18 @@ async fn postgres_values_and_failed_transactions() {
         .execute_sql(schema, None)
         .await
         .expect("create table before translation failure");
-    assert!(transaction.execute_sql("not SQL", None).await.is_err());
+    transaction
+        .execute_sql("not SQL", None)
+        .await
+        .expect_err("translation failure aborts the transaction");
     assert!(
         transaction.commit().await.is_err(),
         "translation failure cannot commit prior writes"
     );
-    assert!(
-        client
-            .execute_sql("SELECT * FROM postgres_adapter_values", None)
-            .await
-            .is_err()
-    );
+    client
+        .execute_sql("SELECT * FROM postgres_adapter_values", None)
+        .await
+        .expect_err("failed transaction rolls back schema");
 
     let mut transaction = client
         .transaction()

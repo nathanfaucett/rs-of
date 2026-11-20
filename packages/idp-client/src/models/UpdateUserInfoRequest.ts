@@ -1,7 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * OAuth Server
+ * LIDP IdP API
  * OIDC / OAuth 2.x server implementation
  *
  * The version of the OpenAPI document: 0.1.0
@@ -22,67 +22,67 @@ export interface UpdateUserInfoRequest {
   /**
    *
    */
-  name?: string;
+  birthdate?: string | null;
   /**
    *
    */
-  givenName?: string;
+  email?: string | null;
   /**
    *
    */
-  familyName?: string;
+  emailVerified?: boolean | null;
   /**
    *
    */
-  middleName?: string;
+  familyName?: string | null;
   /**
    *
    */
-  nickname?: string;
+  givenName?: string | null;
   /**
    *
    */
-  profile?: string;
+  locale?: string | null;
   /**
    *
    */
-  picture?: string;
+  middleName?: string | null;
   /**
    *
    */
-  website?: string;
+  name?: string | null;
   /**
    *
    */
-  sex?: string;
+  nickname?: string | null;
   /**
    *
    */
-  birthdate?: string;
+  phoneNumber?: string | null;
   /**
    *
    */
-  zoneinfo?: string;
+  phoneNumberVerified?: boolean | null;
   /**
    *
    */
-  locale?: string;
+  picture?: string | null;
   /**
    *
    */
-  email?: string;
+  profile?: string | null;
   /**
    *
    */
-  emailVerified?: boolean;
+  sex?: string | null;
   /**
    *
    */
-  phoneNumber?: string;
+  website?: string | null;
   /**
    *
    */
-  phoneNumberVerified?: boolean;
+  zoneinfo?: string | null;
 }
 
 /**
@@ -106,22 +106,22 @@ export function UpdateUserInfoRequestFromJSONTyped(
     Object.keys(json).some(
       (key) =>
         ![
-          "name",
-          "given_name",
-          "family_name",
-          "middle_name",
-          "nickname",
-          "profile",
-          "picture",
-          "website",
-          "sex",
           "birthdate",
-          "zoneinfo",
-          "locale",
           "email",
           "email_verified",
+          "family_name",
+          "given_name",
+          "locale",
+          "middle_name",
+          "name",
+          "nickname",
           "phone_number",
           "phone_number_verified",
+          "picture",
+          "profile",
+          "sex",
+          "website",
+          "zoneinfo",
         ].includes(key)
     )
   )
@@ -130,23 +130,71 @@ export function UpdateUserInfoRequestFromJSONTyped(
     return json;
   }
   return {
-    name: json["name"] == null ? undefined : json["name"],
-    givenName: json["given_name"] == null ? undefined : json["given_name"],
-    familyName: json["family_name"] == null ? undefined : json["family_name"],
-    middleName: json["middle_name"] == null ? undefined : json["middle_name"],
-    nickname: json["nickname"] == null ? undefined : json["nickname"],
-    profile: json["profile"] == null ? undefined : json["profile"],
-    picture: json["picture"] == null ? undefined : json["picture"],
-    website: json["website"] == null ? undefined : json["website"],
-    sex: json["sex"] == null ? undefined : json["sex"],
-    birthdate: json["birthdate"] == null ? undefined : json["birthdate"],
-    zoneinfo: json["zoneinfo"] == null ? undefined : json["zoneinfo"],
-    locale: json["locale"] == null ? undefined : json["locale"],
-    email: json["email"] == null ? undefined : json["email"],
-    emailVerified: json["email_verified"] == null ? undefined : json["email_verified"],
-    phoneNumber: json["phone_number"] == null ? undefined : json["phone_number"],
+    birthdate:
+      json["birthdate"] === undefined
+        ? undefined
+        : json["birthdate"] === null
+          ? null
+          : json["birthdate"],
+    email: json["email"] === undefined ? undefined : json["email"] === null ? null : json["email"],
+    emailVerified:
+      json["email_verified"] === undefined
+        ? undefined
+        : json["email_verified"] === null
+          ? null
+          : json["email_verified"],
+    familyName:
+      json["family_name"] === undefined
+        ? undefined
+        : json["family_name"] === null
+          ? null
+          : json["family_name"],
+    givenName:
+      json["given_name"] === undefined
+        ? undefined
+        : json["given_name"] === null
+          ? null
+          : json["given_name"],
+    locale:
+      json["locale"] === undefined ? undefined : json["locale"] === null ? null : json["locale"],
+    middleName:
+      json["middle_name"] === undefined
+        ? undefined
+        : json["middle_name"] === null
+          ? null
+          : json["middle_name"],
+    name: json["name"] === undefined ? undefined : json["name"] === null ? null : json["name"],
+    nickname:
+      json["nickname"] === undefined
+        ? undefined
+        : json["nickname"] === null
+          ? null
+          : json["nickname"],
+    phoneNumber:
+      json["phone_number"] === undefined
+        ? undefined
+        : json["phone_number"] === null
+          ? null
+          : json["phone_number"],
     phoneNumberVerified:
-      json["phone_number_verified"] == null ? undefined : json["phone_number_verified"],
+      json["phone_number_verified"] === undefined
+        ? undefined
+        : json["phone_number_verified"] === null
+          ? null
+          : json["phone_number_verified"],
+    picture:
+      json["picture"] === undefined ? undefined : json["picture"] === null ? null : json["picture"],
+    profile:
+      json["profile"] === undefined ? undefined : json["profile"] === null ? null : json["profile"],
+    sex: json["sex"] === undefined ? undefined : json["sex"] === null ? null : json["sex"],
+    website:
+      json["website"] === undefined ? undefined : json["website"] === null ? null : json["website"],
+    zoneinfo:
+      json["zoneinfo"] === undefined
+        ? undefined
+        : json["zoneinfo"] === null
+          ? null
+          : json["zoneinfo"],
   };
 }
 
@@ -163,21 +211,21 @@ export function UpdateUserInfoRequestToJSONTyped(
   }
 
   return {
-    name: value["name"],
-    given_name: value["givenName"],
-    family_name: value["familyName"],
-    middle_name: value["middleName"],
-    nickname: value["nickname"],
-    profile: value["profile"],
-    picture: value["picture"],
-    website: value["website"],
-    sex: value["sex"],
     birthdate: value["birthdate"],
-    zoneinfo: value["zoneinfo"],
-    locale: value["locale"],
     email: value["email"],
     email_verified: value["emailVerified"],
+    family_name: value["familyName"],
+    given_name: value["givenName"],
+    locale: value["locale"],
+    middle_name: value["middleName"],
+    name: value["name"],
+    nickname: value["nickname"],
     phone_number: value["phoneNumber"],
     phone_number_verified: value["phoneNumberVerified"],
+    picture: value["picture"],
+    profile: value["profile"],
+    sex: value["sex"],
+    website: value["website"],
+    zoneinfo: value["zoneinfo"],
   };
 }

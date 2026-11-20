@@ -1,6 +1,8 @@
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
 
+use core::{error::Error, fmt};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryErrorKind {
@@ -48,10 +50,10 @@ impl QueryError {
     }
 }
 
-impl core::error::Error for QueryError {}
+impl Error for QueryError {}
 
-impl core::fmt::Display for QueryError {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter.write_str(&self.message)
+impl fmt::Display for QueryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
     }
 }

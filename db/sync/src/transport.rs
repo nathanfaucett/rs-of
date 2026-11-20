@@ -1,4 +1,6 @@
-use crate::protocol::Message;
+use core::fmt::Debug;
+
+use crate::protocol::{Message, SessionId};
 
 /// Bidirectional transport for synchronization.
 ///
@@ -6,7 +8,7 @@ use crate::protocol::Message;
 /// and provide async send/receive operations for Message frames.
 pub trait SyncTransport {
     /// Transport-specific error type.
-    type Error: core::fmt::Debug + Send + Sync + 'static;
+    type Error: Debug + Send + Sync + 'static;
 
     /// Send a sync message.
     ///
@@ -27,7 +29,7 @@ pub trait SyncTransport {
     fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>>;
 
     /// Optional: Get the peer's session ID if available.
-    fn session_id(&self) -> Option<crate::protocol::SessionId> {
+    fn session_id(&self) -> Option<SessionId> {
         None
     }
 }
@@ -38,6 +40,8 @@ pub mod mock {
     use super::*;
     use crate::protocol::Config;
     use std::collections::VecDeque;
+    use std::future::ready;
+    use std::io::{Error, ErrorKind};
     use std::sync::{Arc, Mutex};
 
     /// In-memory mock transport for testing.
@@ -61,10 +65,10 @@ pub mod mock {
 
         pub fn peer(&self) -> Self {
             Self {
-                inbound: self.outbound.clone(),
-                outbound: self.inbound.clone(),
+                inbound: Arc::clone(&self.outbound),
+                outbound: Arc::clone(&self.inbound),
                 config: self.config.clone(),
-                closed: self.closed.clone(),
+                closed: Arc::clone(&self.closed),
             }
         }
 
@@ -90,42 +94,36 @@ pub mod mock {
     }
 
     impl SyncTransport for MockTransport {
-        type Error = std::io::Error;
+        type Error = Error;
 
-        async fn send(&mut self, msg: Message) -> Result<(), Self::Error> {
-            if *self.closed.lock().unwrap() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "peer closed",
-                ));
-            }
-            self.outbound.lock().unwrap().push_back(msg);
-            Ok(())
+        fn send(&mut self, msg: Message) -> impl Future<Output = Result<(), Self::Error>> {
+            let result = if *self.closed.lock().unwrap() {
+                Err(Error::new(ErrorKind::BrokenPipe, "peer closed"))
+            } else {
+                self.outbound.lock().unwrap().push_back(msg);
+                Ok(())
+            };
+            ready(result)
         }
 
-        async fn receive(&mut self) -> Result<Message, Self::Error> {
-            if *self.closed.lock().unwrap() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "peer closed",
-                ));
-            }
-            if let Some(msg) = self.inbound.lock().unwrap().pop_front() {
-                return Ok(msg);
-            }
-            // In real implementation this would wait on a condvar or channel
-            // For mock, we return error to indicate no more messages
-            Err(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "peer closed",
-            ))
+        fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> {
+            let result = if *self.closed.lock().unwrap() {
+                Err(Error::new(ErrorKind::BrokenPipe, "peer closed"))
+            } else {
+                self.inbound
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .ok_or_else(|| Error::new(ErrorKind::BrokenPipe, "peer closed"))
+            };
+            ready(result)
         }
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::protocol::make_hello;
+        use crate::protocol::{make_hello, make_hello_ack};
 
         #[tokio::test]
         async fn mock_transport_send_receive() {
@@ -155,7 +153,7 @@ pub mod mock {
             assert_eq!(received, hello);
 
             // Server sends hello ack
-            let ack = crate::protocol::make_hello_ack(true);
+            let ack = make_hello_ack(true);
             peer.send(ack.clone()).await.unwrap();
 
             // Client receives ack

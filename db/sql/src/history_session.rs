@@ -1,6 +1,17 @@
-use super::{Database, DatabaseBackend};
+use core::{fmt::Display, pin::Pin};
+use std::path::Path;
+
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, string::ToString};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
+
+use super::{Database, DatabaseBackend};
+#[cfg(feature = "redb")]
+use crate::database::native_error;
+use crate::error::from_engine;
 use history::{SessionConfig, SyncError, SyncResult, SyncRole, SyncTransport};
 use value::Value;
 #[cfg(feature = "redb")]
@@ -9,107 +20,128 @@ type NativeStageFactory = history::NativeSyncStageFactory;
 type NativeStageFactory = history::FileSyncStageFactory;
 
 #[inline(never)]
-fn sync_stage<F: core::future::Future>(make: impl FnOnce() -> F) -> core::pin::Pin<Box<F>> {
+fn sync_stage<F: Future>(make: impl FnOnce() -> F) -> Pin<Box<F>> {
     Box::pin(make())
 }
 
 impl Database {
+    /// Returns the synchronization manifest for this database.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if native admission or manifest construction fails.
     pub async fn history_manifest(&self) -> Result<history::SyncManifest, crate::Error> {
         match &self.backend {
             #[cfg(feature = "redb")]
             DatabaseBackend::File(resource) => {
-                let guard = resource
-                    .read()
-                    .await
-                    .map_err(crate::database::native_error)?;
+                let guard = resource.read().await.map_err(native_error)?;
                 let engine = &*guard;
-                history::sync_manifest_for(engine)
+                let result = Box::pin(history::sync_manifest_for(engine))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine);
+                drop(guard);
+                result
             }
             #[cfg(feature = "in-memory")]
-            DatabaseBackend::InMemory(engine) => history::sync_manifest_for(engine)
+            DatabaseBackend::InMemory(engine) => Box::pin(history::sync_manifest_for(engine))
                 .await
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
         }
     }
-    pub async fn export_history(
-        &self,
-    ) -> Result<alloc::vec::Vec<history::SyncStateUnit>, crate::Error> {
+    /// Exports all synchronization state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if native admission or state export fails.
+    pub async fn export_history(&self) -> Result<Vec<history::SyncStateUnit>, crate::Error> {
         match &self.backend {
             #[cfg(feature = "redb")]
             DatabaseBackend::File(resource) => {
-                let guard = resource
-                    .read()
-                    .await
-                    .map_err(crate::database::native_error)?;
+                let guard = resource.read().await.map_err(native_error)?;
                 let engine = &*guard;
-                history::export_sync_state_for(engine)
+                let result = history::export_sync_state_for(engine)
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine);
+                drop(guard);
+                result
             }
             #[cfg(feature = "in-memory")]
             DatabaseBackend::InMemory(engine) => history::export_sync_state_for(engine)
                 .await
-                .map_err(crate::error::from_engine),
+                .map_err(from_engine),
         }
     }
     /// Trusted native restore. The caller must authorize the payload; network owners must use checked exchange.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if native admission or state application fails.
     pub async fn apply_history(&self, unit: history::SyncStateUnit) -> Result<(), crate::Error> {
         match &self.backend {
             #[cfg(feature = "redb")]
             DatabaseBackend::File(resource) => {
-                let guard = resource
-                    .read()
-                    .await
-                    .map_err(crate::database::native_error)?;
+                let guard = resource.read().await.map_err(native_error)?;
                 let engine = &*guard;
-                history::apply_sync_state_for(engine, unit)
+                let result = Box::pin(history::apply_sync_state_for(engine, unit))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine);
+                drop(guard);
+                result
             }
             #[cfg(feature = "in-memory")]
-            DatabaseBackend::InMemory(engine) => history::apply_sync_state_for(engine, unit)
-                .await
-                .map_err(crate::error::from_engine),
+            DatabaseBackend::InMemory(engine) => {
+                Box::pin(history::apply_sync_state_for(engine, unit))
+                    .await
+                    .map_err(from_engine)
+            }
         }
     }
     /// Atomically restores a trusted catalog and its rows, without an untrusted peer admission policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if native admission or batch state application fails.
     pub async fn import_history(
         &self,
-        units: alloc::vec::Vec<history::SyncStateUnit>,
+        units: Vec<history::SyncStateUnit>,
     ) -> Result<(), crate::Error> {
         match &self.backend {
             #[cfg(feature = "redb")]
             DatabaseBackend::File(resource) => {
-                let guard = resource
-                    .read()
-                    .await
-                    .map_err(crate::database::native_error)?;
+                let guard = resource.read().await.map_err(native_error)?;
                 let engine = &*guard;
-                history::apply_sync_state_batch_for(engine, units)
+                let result = Box::pin(history::apply_sync_state_batch_for(engine, units))
                     .await
-                    .map_err(crate::error::from_engine)
+                    .map_err(from_engine);
+                drop(guard);
+                result
             }
             #[cfg(feature = "in-memory")]
-            DatabaseBackend::InMemory(engine) => history::apply_sync_state_batch_for(engine, units)
-                .await
-                .map_err(crate::error::from_engine),
+            DatabaseBackend::InMemory(engine) => {
+                Box::pin(history::apply_sync_state_batch_for(engine, units))
+                    .await
+                    .map_err(from_engine)
+            }
         }
     }
+    /// Exchanges history for one resource with admission checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport, validation, staging, or synchronization failure.
     pub async fn exchange_resource_history<T, Q, U>(
         &self,
         transport: &mut T,
         config: &SessionConfig,
         role: SyncRole,
-        directory: impl AsRef<std::path::Path>,
+        directory: impl AsRef<Path>,
         check: Q,
     ) -> Result<SyncResult, SyncError<T::Error>>
     where
-        T: SyncTransport,
-        T::Error: core::fmt::Display,
+        T: SyncTransport + platform::MaybeSend,
+        T::Error: Display + platform::MaybeSend,
         Q: FnMut() -> U + platform::MaybeSend,
-        U: core::future::Future<Output = Result<(), String>> + platform::MaybeSend,
+        U: Future<Output = Result<(), String>> + platform::MaybeSend,
     {
         let factory = self.native_stage_factory(directory);
         match &self.backend {
@@ -136,7 +168,7 @@ impl Database {
                 .map_err(|error| SyncError::PreApply(error.to_string()))?,
         }
     }
-    fn native_stage_factory(&self, directory: impl AsRef<std::path::Path>) -> NativeStageFactory {
+    fn native_stage_factory(&self, directory: impl AsRef<Path>) -> NativeStageFactory {
         let factory = history::FileSyncStageFactory::new(directory);
         match &self.backend {
             #[cfg(feature = "redb")]
@@ -165,26 +197,29 @@ impl Database {
             DatabaseBackend::InMemory(_) => factory.into(),
         }
     }
+    /// Exchanges validated table history with admission checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport, validation, staging, or synchronization failure.
     pub async fn exchange_history<T, V, C, Q, U>(
         &self,
         transport: &mut T,
         config: &SessionConfig,
         role: SyncRole,
-        directory: impl AsRef<std::path::Path>,
+        directory: impl AsRef<Path>,
         tables: &[&str],
         validate: V,
         validate_candidate: C,
         check: Q,
     ) -> Result<SyncResult, SyncError<T::Error>>
     where
-        T: SyncTransport,
-        T::Error: core::fmt::Display,
-        V: Fn(&str, &str, &Value) -> Result<(), alloc::string::String>
-            + platform::MaybeSend
-            + platform::MaybeSync,
-        C: Fn(&history::SyncCandidateView) -> Result<(), alloc::string::String> + Send + Sync,
+        T: SyncTransport + platform::MaybeSend,
+        T::Error: Display + platform::MaybeSend,
+        V: Fn(&str, &str, &Value) -> Result<(), String> + platform::MaybeSend + platform::MaybeSync,
+        C: Fn(&history::SyncCandidateView) -> Result<(), String> + Send + Sync,
         Q: FnMut() -> U + platform::MaybeSend,
-        U: core::future::Future<Output = Result<(), alloc::string::String>> + platform::MaybeSend,
+        U: Future<Output = Result<(), String>> + platform::MaybeSend,
     {
         let factory = self.native_stage_factory(directory);
         let factory = &factory;

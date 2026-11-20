@@ -5,11 +5,14 @@ import {
 	fixturePassword,
 	fixturePlaintext,
 } from "./authentication-fixtures";
-import { createVault, listVaults, unlockVault } from "./vault";
-import { SharedDb } from "./storage/SharedDb";
+import { createVault, listVaults, unlockVault, type VaultIdentity } from "./vault";
 import { clearStorage, getStorageClient } from "../../test/utils";
 import { prepareBackupRestore } from "./backup";
 import { encrypt, fromBase64 } from "./storage/crypto";
+
+type ExecuteRawParams = Parameters<Transaction["executeRaw"]>[1];
+type Envelope = Record<string, unknown> & { kdf: Record<string, unknown> };
+type Payload = { secrets: Record<string, unknown>[] };
 
 afterEach(async () => {
 	await clearStorage();
@@ -94,15 +97,15 @@ it("rejects wrong passwords, missing metadata, tampering, truncation and unsuppo
 	const { value: backup } = await populatedBackup();
 	const envelope = JSON.parse(backup);
 	const mutations = [
-        ["version", (e: any) => Object.assign({}, e, { version: 99 })],
-        ["format", (e: any) => Object.assign({}, e, { format: "unknown" })],
-        ["kdf.name", (e: any) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { name: "scrypt" }) })],
-        ["kdf.iterations", (e: any) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { iterations: 1 }) })],
-        ["kdf.hash", (e: any) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { hash: "SHA-256" }) })],
-        ["kdf.salt", (e: any) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { salt: "wrong" }) })],
-        ["nonce", (e: any) => Object.assign({}, e, { nonce: "AA==" })],
-        ["ciphertext", (e: any) => Object.assign({}, e, { ciphertext: "AA==" })],
-        ["extra field", (e: any) => Object.assign({}, e, { extra: "field" })],
+        ["version", (e: Envelope) => Object.assign({}, e, { version: 99 })],
+        ["format", (e: Envelope) => Object.assign({}, e, { format: "unknown" })],
+        ["kdf.name", (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { name: "scrypt" }) })],
+        ["kdf.iterations", (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { iterations: 1 }) })],
+        ["kdf.hash", (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { hash: "SHA-256" }) })],
+        ["kdf.salt", (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { salt: "wrong" }) })],
+        ["nonce", (e: Envelope) => Object.assign({}, e, { nonce: "AA==" })],
+        ["ciphertext", (e: Envelope) => Object.assign({}, e, { ciphertext: "AA==" })],
+        ["extra field", (e: Envelope) => Object.assign({}, e, { extra: "field" })],
 	];
 	for (const [, mutation] of mutations) {
 		const damaged = JSON.stringify(mutation(envelope));
@@ -151,8 +154,10 @@ it.skip("authenticates and validates the complete payload, not only its first re
 	] as const) {
 		const damaged = JSON.parse(JSON.stringify(payload));
 		if (field.includes("[")) {
-			const [arr, idx, prop] = field.match(/(\w+)\[(\d+)\]\.(\w+)/)!.slice(1);
-			damaged[arr][parseInt(idx)][prop] = value;
+			const match = field.match(/(\w+)\[(\d+)\]\.(\w+)/);
+			if (!match) throw new Error("Invalid test field path");
+			const [arr, idx, prop] = match.slice(1);
+			damaged[arr][parseInt(idx, 10)][prop] = value;
 		} else {
 			const [obj, prop] = field.split(".");
 			damaged[obj][prop] = value;
@@ -182,15 +187,15 @@ it("rejects an existing vault ID without changing source data and permits an ind
 }, 15000);
 
 it("does not publish a partial destination after a schema storage failure", async () => {
-	const { id, value: backup } = await populatedBackup();
+	const { value: backup } = await populatedBackup();
 	const prepared = await prepareBackupRestore(fixturePassword, backup);
-	const { client } = await getStorageClient();
+	await getStorageClient();
 	let injected = false;
 	let schemaSaved = false;
 	const original = Transaction.prototype.executeRaw;
 	const fault = vi
 		.spyOn(Transaction.prototype, "executeRaw")
-		.mockImplementation(async function (this: any, sql: string, ...args: any[]) {
+		.mockImplementation(async function (this: Transaction, sql: string, ...args: [params?: ExecuteRawParams]) {
 			if (sql.includes("CREATE") || sql.includes("migration") || sql.includes("vaults")) {
 				schemaSaved = true;
 				return original.call(this, sql, ...args);
@@ -208,13 +213,13 @@ it("does not publish a partial destination after a schema storage failure", asyn
 }, 15000);
 
 it("does not publish a partial destination after a commit storage failure", async () => {
-	const { id, value: backup } = await populatedBackup();
+	const { value: backup } = await populatedBackup();
 	const prepared = await prepareBackupRestore(fixturePassword, backup);
 	let writes = 0;
 	const original = Transaction.prototype.executeRaw;
 	const fault = vi
 		.spyOn(Transaction.prototype, "executeRaw")
-		.mockImplementation(async function (this: any, sql: string, ...args: any[]) {
+		.mockImplementation(async function (this: Transaction, sql: string, ...args: [params?: ExecuteRawParams]) {
 			if (sql.includes("secrets") && sql.includes("INSERT")) {
 				writes++;
 				if (writes >= 2) {
@@ -229,17 +234,17 @@ it("does not publish a partial destination after a commit storage failure", asyn
 }, 15000);
 
 it("does not publish when a SQL write reports success but is not durable", async () => {
-	const { id, value: backup } = await populatedBackup();
+	const { value: backup } = await populatedBackup();
 	const prepared = await prepareBackupRestore(fixturePassword, backup);
-	const { client } = await getStorageClient();
+	await getStorageClient();
 	let writes = 0;
 	const original = Transaction.prototype.executeRaw;
 	const fault = vi
 		.spyOn(Transaction.prototype, "executeRaw")
-		.mockImplementation(async function (this: any, sql: string, ...args: any[]) {
+		.mockImplementation(async function (this: Transaction, sql: string, ...args: [params?: ExecuteRawParams]) {
 			writes++;
 			if (writes >= 2) {
-				const result = await original.call(this, sql, ...args);
+				await original.call(this, sql, ...args);
 				throw new DOMException("Not durable", "UnknownError");
 			}
 			return original.call(this, sql, ...args);
@@ -251,12 +256,12 @@ it("does not publish when a SQL write reports success but is not durable", async
 it("does not publish on registry failure and reports an uncertain outcome if publication cannot be read back", async () => {
 	const { id, value: backup } = await populatedBackup();
 	const prepared = await prepareBackupRestore(fixturePassword, backup);
-	const { client } = await getStorageClient();
+	await getStorageClient();
 	const originalReserve = Transaction.prototype.executeRaw;
 	let denied = false;
 	const fault = vi
 		.spyOn(Transaction.prototype, "executeRaw")
-		.mockImplementation(async function (this: any, sql: string, ...args: any[]) {
+		.mockImplementation(async function (this: Transaction, sql: string, ...args: [params?: ExecuteRawParams]) {
 			if (sql.includes("vaults") && !denied) {
 				denied = true;
 				throw new DOMException("Denied", "QuotaExceededError");
@@ -282,7 +287,7 @@ it("publishes exactly one complete vault when two authenticated restores race", 
 	const results = await Promise.allSettled([r1.restore(), r2.restore()]);
 	const successful = results.filter((r) => r.status === "fulfilled");
 	expect(successful.length).toBe(1);
-	const restored = (successful[0] as PromiseFulfilledResult<any>).value;
+	const restored = (successful[0] as PromiseFulfilledResult<VaultIdentity>).value;
 	const entries = await listVaults();
 	expect(entries.filter((e) => e.id === id)).toHaveLength(1);
 	const reopened = await unlockVault(fixturePassword, restored.id);
@@ -320,12 +325,12 @@ it.skip("rejects authenticated but malformed logical records and excessive recor
 		)),
 	);
 	for (const mutation of [
-		(p: any) => ({ ...p, secrets: [{ ...p.secrets[0], ciphertext: "AA==" }] }),
-		(p: any) => ({ ...p, secrets: [{ ...p.secrets[0], nonce: "AA==" }] }),
-		(p: any) => ({ ...p, secrets: [{ ...p.secrets[0], id: "not-uuid" }] }),
-		(p: any) => ({ ...p, secrets: [{ ...p.secrets[0], name: "" }] }),
-		(p: any) => ({ ...p, secrets: Array(10001).fill(p.secrets[0]) }),
-		(p: any) => ({ ...p, secrets: [{ ...p.secrets[0], ciphertext: "AA==" }], folders: [] }),
+		(p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], ciphertext: "AA==" }] }),
+		(p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], nonce: "AA==" }] }),
+		(p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], id: "not-uuid" }] }),
+		(p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], name: "" }] }),
+		(p: Payload) => ({ ...p, secrets: Array(10001).fill(p.secrets[0]) }),
+		(p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], ciphertext: "AA==" }], folders: [] }),
 	] as const) {
 		const damaged = mutation(payload);
 		const reencrypted = await encrypt(derived, JSON.stringify(damaged));

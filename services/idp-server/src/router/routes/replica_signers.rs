@@ -29,9 +29,10 @@ use crate::router::{
         (status = 201, description = "Replica signer approved"),
         (status = 403, description = "Caller is not authorized")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "super_routes_replica_signers"
 )]
-pub(crate) async fn enroll_replica_signer(
+pub async fn enroll_replica_signer(
     State(state): State<RouterState>,
     actor: StandardAuthorization,
     Json(body): Json<EnrollReplicaSigner>,
@@ -91,9 +92,10 @@ pub(crate) async fn enroll_replica_signer(
     params(("member_id" = String, Path)),
     request_body = RotateReplicaSigner,
     responses((status = 200, description = "Replica signer rotated")),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "super_routes_replica_signers"
 )]
-pub(crate) async fn rotate_replica_signer(
+pub async fn rotate_replica_signer(
     State(state): State<RouterState>,
     Path(member_id): Path<Id>,
     actor: StandardAuthorization,
@@ -139,9 +141,10 @@ pub(crate) async fn rotate_replica_signer(
     path = "/replica-signers/{member_id}",
     params(("member_id" = String, Path)),
     responses((status = 200, description = "Replica signer revoked")),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "super_routes_replica_signers"
 )]
-pub(crate) async fn revoke_replica_signer(
+pub async fn revoke_replica_signer(
     State(state): State<RouterState>,
     Path(member_id): Path<Id>,
     actor: StandardAuthorization,

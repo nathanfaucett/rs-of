@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Seek, SeekFrom, Write},
+    io::{self, Seek, SeekFrom, Write},
     path::PathBuf,
 };
 
@@ -51,17 +51,13 @@ impl Staged for StagedContent {
         Box::pin(async { self.file.write_all(bytes).map_err(Error::from) })
     }
 
-    fn copy_from(
-        &mut self,
-        file_id: Uuid,
-        revision: Uuid,
-    ) -> BoxFuture<'_, Result<(), Error>> {
+    fn copy_from(&mut self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
             let source = self
                 .content_root
                 .join(file_id.to_string())
                 .join(revision.to_string());
-            std::io::copy(&mut File::open(source)?, &mut self.file)?;
+            io::copy(&mut File::open(source)?, &mut self.file)?;
             Ok(())
         })
     }

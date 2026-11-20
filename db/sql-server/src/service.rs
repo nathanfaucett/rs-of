@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use proto::{
     ExecuteRequest, ExecuteResponse, TransactionRequest, TransactionResponse,
-    query_service_server::QueryService as QueryServiceTrait, transaction_request::Command,
+    query_service_server::{QueryService as QueryServiceTrait, QueryServiceServer},
+    transaction_request::Command,
     transaction_response::Outcome,
 };
 use protocol::{
@@ -12,7 +13,7 @@ use protocol::{
 use query::QueryErrorKind;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response, Status, Streaming, async_trait, codegen::Bytes};
 
 #[derive(Debug)]
 pub struct QueryService<E> {
@@ -44,9 +45,9 @@ impl<E> QueryService<E> {
     }
 
     #[must_use]
-    pub fn into_tonic_service(self) -> proto::query_service_server::QueryServiceServer<Self> {
+    pub fn into_tonic_service(self) -> QueryServiceServer<Self> {
         let max_decoding_message_size = self.max_decoding_message_size;
-        let service = proto::query_service_server::QueryServiceServer::new(self);
+        let service = QueryServiceServer::new(self);
         match max_decoding_message_size {
             Some(size) => service.max_decoding_message_size(size),
             None => service,
@@ -54,13 +55,17 @@ impl<E> QueryService<E> {
     }
 }
 
-#[tonic::async_trait]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one stream loop owns transaction sequencing and terminal commands"
+)]
+#[async_trait]
 impl<E: QueryExecutor + 'static> QueryServiceTrait for QueryService<E> {
     type TransactionStream = ReceiverStream<Result<TransactionResponse, Status>>;
 
     async fn transaction(
         &self,
-        request: Request<tonic::Streaming<TransactionRequest>>,
+        request: Request<Streaming<TransactionRequest>>,
     ) -> Result<Response<Self::TransactionStream>, Status> {
         let mut transaction = self
             .executor
@@ -161,9 +166,11 @@ impl<E: QueryExecutor + 'static> QueryServiceTrait for QueryService<E> {
                             } else {
                                 let result = transaction.rollback().await;
                                 if matches!(request.command, Some(Command::Commit(()))) {
-                                    result.and(Err(QueryServiceError::Rejected(
-                                        "Cannot commit an aborted transaction".into(),
-                                    )))
+                                    result.and_then(|()| {
+                                        Err(QueryServiceError::Rejected(
+                                            "Cannot commit an aborted transaction".into(),
+                                        ))
+                                    })
                                 } else {
                                     result
                                 }
@@ -357,7 +364,7 @@ fn status_from_error(error: QueryServiceError) -> Status {
     Status::with_details(
         code,
         message.clone(),
-        tonic::codegen::Bytes::from(encode_error_detail(kind, &message)),
+        Bytes::from(encode_error_detail(kind, &message)),
     )
 }
 

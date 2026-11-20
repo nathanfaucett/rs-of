@@ -13,6 +13,14 @@
  */
 
 import { mapValues } from "../runtime.js";
+import type { SyncStatus } from "./SyncStatus.js";
+import {
+  SyncStatusFromJSON,
+  SyncStatusFromJSONTyped,
+  SyncStatusToJSON,
+  SyncStatusToJSONTyped,
+} from "./SyncStatus.js";
+
 /**
  *
  * @export
@@ -22,23 +30,7 @@ export interface SyncSessionResponse {
   /**
    *
    */
-  sessionId: string;
-  /**
-   *
-   */
-  resourceId: string;
-  /**
-   *
-   */
-  sourceDevice: string;
-  /**
-   *
-   */
-  targetDevice: string;
-  /**
-   *
-   */
-  status: SyncSessionResponseStatusEnum;
+  bytesReceived: number;
   /**
    *
    */
@@ -46,33 +38,36 @@ export interface SyncSessionResponse {
   /**
    *
    */
-  bytesReceived: number;
+  resourceId: string;
+  /**
+   *
+   */
+  sessionId: string;
+  /**
+   *
+   */
+  sourceDevice: string;
+  /**
+   *
+   */
+  status: SyncStatus;
+  /**
+   *
+   */
+  targetDevice: string;
 }
-
-/**
- * @export
- */
-export const SyncSessionResponseStatusEnum = {
-  Connecting: "connecting",
-  Syncing: "syncing",
-  Completed: "completed",
-  Failed: "failed",
-  Cancelled: "cancelled",
-} as const;
-export type SyncSessionResponseStatusEnum =
-  (typeof SyncSessionResponseStatusEnum)[keyof typeof SyncSessionResponseStatusEnum];
 
 /**
  * Check if a given object implements the SyncSessionResponse interface.
  */
 export function instanceOfSyncSessionResponse(value: object): value is SyncSessionResponse {
-  if (!("sessionId" in value) || value["sessionId"] === undefined) return false;
-  if (!("resourceId" in value) || value["resourceId"] === undefined) return false;
-  if (!("sourceDevice" in value) || value["sourceDevice"] === undefined) return false;
-  if (!("targetDevice" in value) || value["targetDevice"] === undefined) return false;
-  if (!("status" in value) || value["status"] === undefined) return false;
-  if (!("bytesSent" in value) || value["bytesSent"] === undefined) return false;
   if (!("bytesReceived" in value) || value["bytesReceived"] === undefined) return false;
+  if (!("bytesSent" in value) || value["bytesSent"] === undefined) return false;
+  if (!("resourceId" in value) || value["resourceId"] === undefined) return false;
+  if (!("sessionId" in value) || value["sessionId"] === undefined) return false;
+  if (!("sourceDevice" in value) || value["sourceDevice"] === undefined) return false;
+  if (!("status" in value) || value["status"] === undefined) return false;
+  if (!("targetDevice" in value) || value["targetDevice"] === undefined) return false;
   return true;
 }
 
@@ -84,34 +79,17 @@ export function SyncSessionResponseFromJSONTyped(
   json: any,
   ignoreDiscriminator: boolean
 ): SyncSessionResponse {
-  if (
-    json &&
-    typeof json === "object" &&
-    Object.keys(json).some(
-      (key) =>
-        ![
-          "sessionId",
-          "resourceId",
-          "sourceDevice",
-          "targetDevice",
-          "status",
-          "bytesSent",
-          "bytesReceived",
-        ].includes(key)
-    )
-  )
-    throw new Error("Unexpected SyncSessionResponse field");
   if (json == null) {
     return json;
   }
   return {
-    sessionId: json["sessionId"],
-    resourceId: json["resourceId"],
-    sourceDevice: json["sourceDevice"],
-    targetDevice: json["targetDevice"],
-    status: json["status"],
-    bytesSent: json["bytesSent"],
     bytesReceived: json["bytesReceived"],
+    bytesSent: json["bytesSent"],
+    resourceId: json["resourceId"],
+    sessionId: json["sessionId"],
+    sourceDevice: json["sourceDevice"],
+    status: SyncStatusFromJSON(json["status"]),
+    targetDevice: json["targetDevice"],
   };
 }
 
@@ -128,12 +106,12 @@ export function SyncSessionResponseToJSONTyped(
   }
 
   return {
-    sessionId: value["sessionId"],
-    resourceId: value["resourceId"],
-    sourceDevice: value["sourceDevice"],
-    targetDevice: value["targetDevice"],
-    status: value["status"],
-    bytesSent: value["bytesSent"],
     bytesReceived: value["bytesReceived"],
+    bytesSent: value["bytesSent"],
+    resourceId: value["resourceId"],
+    sessionId: value["sessionId"],
+    sourceDevice: value["sourceDevice"],
+    status: SyncStatusToJSON(value["status"]),
+    targetDevice: value["targetDevice"],
   };
 }

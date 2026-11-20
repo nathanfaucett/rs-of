@@ -1,5 +1,7 @@
 use std::{
     collections::BTreeMap,
+    fmt,
+    future::ready,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -26,6 +28,11 @@ pub struct AlpnAllowlist {
 }
 
 impl AlpnAllowlist {
+    /// Permits one peer and ALPN pair for a bounded duration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the allowlist mutex is poisoned.
     pub fn allow_for(&self, peer: iroh::EndpointId, alpn: &[u8], duration: Duration) {
         let mut peers = self.peers.lock().expect("ALPN allowlist lock poisoned");
         peers.retain(|_, expires_at| *expires_at > Instant::now());
@@ -59,42 +66,45 @@ impl AllowlistHook {
     }
 }
 
-impl std::fmt::Debug for AllowlistHook {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("AllowlistHook")
-            .finish_non_exhaustive()
+impl fmt::Debug for AllowlistHook {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AllowlistHook").finish_non_exhaustive()
     }
 }
 
 impl EndpointHooks for AllowlistHook {
-    async fn before_connect<'a>(
+    fn before_connect<'a>(
         &'a self,
         remote_addr: &'a iroh::EndpointAddr,
         alpn: &'a [u8],
-    ) -> BeforeConnectOutcome {
-        if self.allowed.contains(remote_addr.id)
-            || self.alpn_allowlist.contains(remote_addr.id, alpn)
-            || (alpn == PAIRING_ALPN && self.pairing_enabled.load(Ordering::Acquire))
-        {
-            BeforeConnectOutcome::Accept
-        } else {
-            BeforeConnectOutcome::Reject
-        }
+    ) -> impl Future<Output = BeforeConnectOutcome> {
+        ready(
+            if self.allowed.contains(remote_addr.id)
+                || self.alpn_allowlist.contains(remote_addr.id, alpn)
+                || (alpn == PAIRING_ALPN && self.pairing_enabled.load(Ordering::Acquire))
+            {
+                BeforeConnectOutcome::Accept
+            } else {
+                BeforeConnectOutcome::Reject
+            },
+        )
     }
 
-    async fn after_handshake<'a>(&'a self, conn: &'a Connection) -> AfterHandshakeOutcome {
+    fn after_handshake<'a>(
+        &'a self,
+        conn: &'a Connection,
+    ) -> impl Future<Output = AfterHandshakeOutcome> {
         let allowed = self.allowed.contains(conn.remote_id());
         let pairing = conn.alpn() == PAIRING_ALPN && self.pairing_enabled.load(Ordering::Acquire);
         let alpn_allowed = self.alpn_allowlist.contains(conn.remote_id(), conn.alpn());
-        if allowed || pairing || alpn_allowed {
+        ready(if allowed || pairing || alpn_allowed {
             AfterHandshakeOutcome::Accept
         } else {
             AfterHandshakeOutcome::Reject {
                 error_code: VarInt::from_u32(0x100),
                 reason: b"endpoint is not allowlisted".to_vec(),
             }
-        }
+        })
     }
 }
 
@@ -102,7 +112,11 @@ impl EndpointHooks for AllowlistHook {
 mod tests {
     use std::{
         collections::BTreeSet,
-        sync::{Arc, atomic::AtomicBool},
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
     };
 
     use iroh::{
@@ -147,7 +161,7 @@ mod tests {
             BeforeConnectOutcome::Reject
         ));
 
-        pairing_enabled.store(true, std::sync::atomic::Ordering::Release);
+        pairing_enabled.store(true, Ordering::Release);
         assert!(matches!(
             hook.before_connect(&untrusted_addr, PAIRING_ALPN).await,
             BeforeConnectOutcome::Accept
@@ -155,7 +169,7 @@ mod tests {
 
         let bootstrap_alpn = b"bootstrap/1";
         let alpn_allowlist = AlpnAllowlist::default();
-        alpn_allowlist.allow_for(untrusted, bootstrap_alpn, std::time::Duration::from_secs(1));
+        alpn_allowlist.allow_for(untrusted, bootstrap_alpn, Duration::from_secs(1));
         let hook = AllowlistHook::new(
             EndpointIdStore::new(),
             Arc::new(AtomicBool::new(false)),

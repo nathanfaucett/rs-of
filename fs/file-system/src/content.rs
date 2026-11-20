@@ -49,11 +49,7 @@ pub trait Staged: MaybeSend {
     fn write<'a>(&'a mut self, bytes: &'a [u8]) -> BoxFuture<'a, Result<(), Error>>;
 
     /// Copies a previous revision's bytes as the staged revision's starting content.
-    fn copy_from(
-        &mut self,
-        file_id: Uuid,
-        revision: Uuid,
-    ) -> BoxFuture<'_, Result<(), Error>>;
+    fn copy_from(&mut self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<(), Error>>;
 
     fn write_at<'a>(&'a mut self, offset: u64, bytes: &'a [u8])
     -> BoxFuture<'a, Result<(), Error>>;

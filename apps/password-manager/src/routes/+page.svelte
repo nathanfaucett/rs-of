@@ -2,6 +2,7 @@
 import { onMount } from "svelte";
 import { isRedirect } from "@sveltejs/kit";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
+import type { VaultIdentity } from "$lib/vault/vault";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import { Eye, EyeOff } from "@lucide/svelte";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
@@ -73,7 +74,7 @@ async function unlockVault() {
     }
 }
 
-function selectVault(identity: { id: string; name: string }) {
+function selectVault(identity: VaultIdentity) {
     notice = "";
     error = "";
     password = "";

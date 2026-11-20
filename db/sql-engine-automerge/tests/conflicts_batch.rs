@@ -10,6 +10,10 @@ fn id(value: u64) -> Uuid {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn row_conflicts_batch_validates_catalog_before_schema_dependent_keys() {
     block_on(async {
         let kernel = InMemoryKernel::new();

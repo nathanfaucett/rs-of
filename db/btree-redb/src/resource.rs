@@ -1,23 +1,29 @@
+use core::fmt;
 use std::{
+    ffi::OsString,
     fs,
     io::{self, Write},
     ops::{Deref, DerefMut},
-    path::{Path, PathBuf},
+    path::{Path, PathBuf, absolute},
+    str::from_utf8,
     sync::{Arc, Mutex as StdMutex, Weak},
 };
 
 use async_lock::{Mutex, MutexGuard, RwLock, RwLockReadGuard};
 use futures::future::{AbortHandle, Abortable};
 
-use crate::stage_cleanup::{NativeStageTracker, OwnedFile};
+use crate::{
+    SharedNamespace,
+    stage_cleanup::{NativeStageTracker, OwnedFile},
+};
 
 #[derive(Clone)]
 pub struct NativeResource<R> {
     inner: Arc<Inner<R>>,
 }
 
-impl<R> core::fmt::Debug for NativeResource<R> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl<R> fmt::Debug for NativeResource<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NativeResource")
             .field("inner", &self.inner)
             .finish()
@@ -31,8 +37,8 @@ struct Inner<R> {
     state: StdMutex<State>,
 }
 
-impl<R> core::fmt::Debug for Inner<R> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl<R> fmt::Debug for Inner<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Inner")
             .field("location", &self.location)
             .field("stages", &self.stages)
@@ -46,7 +52,7 @@ enum Location {
         path: PathBuf,
         identity: Option<String>,
     },
-    Shared(crate::SharedNamespace),
+    Shared(SharedNamespace),
 }
 
 #[derive(Default)]
@@ -63,12 +69,10 @@ trait Erase {
 
 impl<T: Send> Erase for Mutex<Option<T>> {
     fn erase(&self) -> bool {
-        if let Some(mut transaction) = self.try_lock() {
+        self.try_lock().is_some_and(|mut transaction| {
             transaction.take();
             true
-        } else {
-            false
-        }
+        })
     }
 }
 
@@ -88,6 +92,15 @@ fn marker(path: &Path) -> PathBuf {
 // ponytail: namespace IO is serialized process-wide; use per-path locks if open/retire throughput matters.
 static NAMESPACE: StdMutex<()> = StdMutex::new(());
 
+/// Opens a database only when its permanent retirement fence is absent.
+///
+/// # Errors
+///
+/// Returns an error for invalid paths, retired resources, or database open failures.
+///
+/// # Panics
+///
+/// Panics if the process-wide namespace lock is poisoned.
 pub fn open_unretired(path: &Path, create: bool) -> io::Result<redb::Database> {
     let _namespace = NAMESPACE.lock().expect("native namespace lock");
     check_not_retired(path)?;
@@ -121,7 +134,7 @@ fn sync_parent(path: &Path) -> io::Result<()> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
+        .unwrap_or_else(|| Path::new("."));
     fs::File::open(parent)?.sync_all()
 }
 
@@ -183,7 +196,7 @@ fn read_record(path: &Path) -> io::Result<(String, Vec<OwnedFile>)> {
     }
     let bytes = fs::read(marker_path)?;
     let mut fields = bytes.split(|byte| *byte == 0);
-    let header = std::str::from_utf8(fields.next().expect("record contains header"))
+    let header = from_utf8(fields.next().expect("record contains header"))
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     if !header.starts_with("ofdb-retired-v1 ") || header.split_whitespace().count() != 3 {
         return Err(io::Error::new(
@@ -193,7 +206,7 @@ fn read_record(path: &Path) -> io::Result<(String, Vec<OwnedFile>)> {
     }
     let mut stages = Vec::new();
     while let Some(identity) = fields.next() {
-        let identity = std::str::from_utf8(identity)
+        let identity = from_utf8(identity)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
             .to_owned();
         let path = fields.next().ok_or_else(|| {
@@ -202,12 +215,11 @@ fn read_record(path: &Path) -> io::Result<(String, Vec<OwnedFile>)> {
         #[cfg(unix)]
         let path = {
             use std::os::unix::ffi::OsStringExt;
-            PathBuf::from(std::ffi::OsString::from_vec(path.to_vec()))
+            PathBuf::from(OsString::from_vec(path.to_vec()))
         };
         #[cfg(not(unix))]
         let path = PathBuf::from(
-            std::str::from_utf8(path)
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
+            from_utf8(path).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
         );
         if !path.is_absolute() {
             return Err(io::Error::new(
@@ -222,6 +234,14 @@ fn read_record(path: &Path) -> io::Result<(String, Vec<OwnedFile>)> {
 
 /// Resumes exact-file cleanup. A native lock probe refuses cleanup while another
 /// owner still holds persistence. The permanent marker fences ordinary opens.
+///
+/// # Errors
+///
+/// Returns an error when identity validation, locking, or owned-file removal fails.
+///
+/// # Panics
+///
+/// Panics if the process-wide namespace lock is poisoned.
 pub fn remove_retired(path: impl AsRef<Path>) -> io::Result<()> {
     let path = path.as_ref();
     let _namespace = NAMESPACE.lock().expect("native namespace lock");
@@ -250,10 +270,15 @@ pub fn remove_retired(path: impl AsRef<Path>) -> io::Result<()> {
     remove_owned_file(&persistence)
 }
 
-impl<R: Clone> NativeResource<R> {
+impl<R: Clone + Send + Sync> NativeResource<R> {
+    /// Creates a file-backed native resource.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the path or file identity cannot be inspected.
     pub fn new(path: impl AsRef<Path>, backend: R) -> io::Result<Self> {
         let path = path.as_ref().to_path_buf();
-        let path = std::path::absolute(path)?;
+        let path = absolute(path)?;
         let identity = match file_identity(&path) {
             Ok(identity) => Some(identity),
             Err(error) if error.kind() == io::ErrorKind::Unsupported => None,
@@ -270,13 +295,18 @@ impl<R: Clone> NativeResource<R> {
     }
 
     #[must_use]
-    pub fn shared_namespace(&self) -> Option<crate::SharedNamespace> {
+    pub fn shared_namespace(&self) -> Option<SharedNamespace> {
         match &self.inner.location {
             Location::Shared(namespace) => Some(namespace.clone()),
             Location::File { .. } => None,
         }
     }
 
+    /// Inspects an available backend without waiting for retirement.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the backend is retiring or absent.
     pub fn inspect<T>(&self, read: impl FnOnce(&R) -> T) -> io::Result<T> {
         let backend = self
             .inner
@@ -291,6 +321,11 @@ impl<R: Clone> NativeResource<R> {
         self.inner.stages.clone()
     }
 
+    /// Admits a read operation while the resource remains active.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the resource is retired.
     pub async fn read(&self) -> io::Result<ResourceGuard<'_, R>> {
         self.admit().await
     }
@@ -322,21 +357,37 @@ impl<R: Clone> NativeResource<R> {
         Ok(ResourceGuard { backend: guard })
     }
 
+    /// Registers a transaction for coordinated retirement.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the resource state lock is poisoned.
     pub fn transaction<T: Send + 'static>(&self, transaction: T) -> NativeTransaction<R, T> {
         let slot = Arc::new(Mutex::new(Some(transaction)));
-        let erased: Arc<dyn Erase + Send + Sync> = slot.clone();
+        let erased = Arc::clone(&slot);
+        let erased: Arc<dyn Erase + Send + Sync> = erased;
         let mut state = self.inner.state.lock().expect("resource state lock");
         state
             .transactions
             .retain(|transaction| transaction.strong_count() != 0);
         state.transactions.push(Arc::downgrade(&erased));
+        drop(state);
         NativeTransaction {
             owner: self.clone(),
             slot,
         }
     }
 
-    pub async fn hosting<F: core::future::Future>(&self, operation: F) -> io::Result<F::Output> {
+    /// Marks unmanaged hosting as active for the duration of an operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the resource has already retired.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the resource state lock is poisoned.
+    pub async fn hosting<F: Future + Send>(&self, operation: F) -> io::Result<F::Output> {
         {
             let mut state = self.inner.state.lock().expect("resource state lock");
             if state.retired {
@@ -347,11 +398,29 @@ impl<R: Clone> NativeResource<R> {
         Ok(operation.await)
     }
 
+    /// Acquires the backend for unmanaged hosting.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the resource is retired.
     pub async fn hosting_backend(&self) -> io::Result<ResourceGuard<'_, R>> {
         self.admit().await
     }
 
-    pub async fn session<F: core::future::Future>(&self, operation: F) -> io::Result<F::Output> {
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "an aborted session has one stable retirement error"
+    )]
+    /// Runs an operation that retirement can abort.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the resource retires before or during the operation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the resource state lock is poisoned.
+    pub async fn session<F: Future + Send>(&self, operation: F) -> io::Result<F::Output> {
         let (handle, registration) = AbortHandle::new_pair();
         let handle = Arc::new(handle);
         {
@@ -369,6 +438,15 @@ impl<R: Clone> NativeResource<R> {
         result
     }
 
+    /// Retires the resource and removes its owned persistence.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when hosting is unmanaged or retirement and cleanup fail.
+    ///
+    /// # Panics
+    ///
+    /// Panics if resource locks are poisoned or transaction draining fails.
     pub async fn retire_and_remove(&self) -> io::Result<()> {
         if let Location::Shared(namespace) = &self.inner.location {
             {
@@ -402,6 +480,7 @@ impl<R: Clone> NativeResource<R> {
             }
             namespace.retire().await?;
             backend.take();
+            drop(backend);
             return Ok(());
         }
         let Location::File { path, identity } = &self.inner.location else {
@@ -444,7 +523,9 @@ impl<R: Clone> NativeResource<R> {
                 );
             }
         }
+        drop(state);
         backend.take();
+        drop(backend);
         self.inner.stages.cleanup()?;
         remove_retired(path)
     }
@@ -494,8 +575,8 @@ pub struct ResourceGuard<'a, R> {
     backend: RwLockReadGuard<'a, Option<R>>,
 }
 
-impl<R> core::fmt::Debug for ResourceGuard<'_, R> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl<R> fmt::Debug for ResourceGuard<'_, R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ResourceGuard").finish_non_exhaustive()
     }
 }
@@ -514,13 +595,18 @@ pub struct NativeTransaction<R, T> {
     slot: Arc<Mutex<Option<T>>>,
 }
 
-impl<R, T> core::fmt::Debug for NativeTransaction<R, T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl<R, T> fmt::Debug for NativeTransaction<R, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NativeTransaction").finish_non_exhaustive()
     }
 }
 
-impl<R: Clone, T> NativeTransaction<R, T> {
+impl<R: Clone + Send + Sync, T: Send> NativeTransaction<R, T> {
+    /// Acquires a live transaction guard.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the resource or transaction has retired.
     pub async fn read(&self) -> io::Result<TransactionGuard<'_, R, T>> {
         let owner = self.owner.admit().await?;
         let slot = self.slot.lock().await;
@@ -533,6 +619,11 @@ impl<R: Clone, T> NativeTransaction<R, T> {
         })
     }
 
+    /// Takes ownership of a live transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the resource or transaction has retired.
     pub async fn take(&self) -> io::Result<(ResourceGuard<'_, R>, T)> {
         let owner = self.owner.admit().await?;
         let transaction = self.slot.lock().await.take().ok_or_else(retired_error)?;
@@ -545,8 +636,8 @@ pub struct TransactionGuard<'a, R, T> {
     slot: MutexGuard<'a, Option<T>>,
 }
 
-impl<R, T> core::fmt::Debug for TransactionGuard<'_, R, T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl<R, T> fmt::Debug for TransactionGuard<'_, R, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TransactionGuard").finish_non_exhaustive()
     }
 }
@@ -564,10 +655,18 @@ impl<R, T> DerefMut for TransactionGuard<'_, R, T> {
 }
 
 impl<R: Clone + Send + Sync + 'static> NativeResource<R> {
-    pub fn new_shared(namespace: crate::SharedNamespace, backend: R) -> io::Result<Self> {
-        let location = Location::Shared(namespace.clone());
-        let inner = namespace.owner(|| Inner {
-            location,
+    /// Creates or reuses a shared native resource.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the namespace is retired or its owner type conflicts.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a namespace or resource lock is poisoned.
+    pub fn new_shared(namespace: SharedNamespace, backend: R) -> io::Result<Self> {
+        let inner = namespace.clone().owner(|| Inner {
+            location: Location::Shared(namespace),
             stages: NativeStageTracker::default(),
             backend: RwLock::new(Some(backend)),
             state: StdMutex::new(State::default()),

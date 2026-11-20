@@ -1,12 +1,18 @@
-use crate::protocol::{
-    Config, Error, Message, PushResult, PushSynchronizeConfig, PushSynchronizeError, SyncResult,
-};
-use crate::transport::SyncTransport;
+use std::{collections::HashMap, mem::take, time::Duration};
+
 use btree::{ChangeEvent, StorageKey};
-use futures::{Stream, StreamExt};
-use std::collections::HashMap;
-use std::time::Duration;
+use futures::{Stream, StreamExt, future::pending};
 use thiserror::Error;
+use tokio::time::timeout;
+
+use crate::{
+    SyncRole,
+    protocol::{
+        Config, Error, HelloConfig, Message, PushResult, PushSynchronizeConfig,
+        PushSynchronizeError, SyncResult,
+    },
+    transport::SyncTransport,
+};
 
 /// Error during synchronization.
 #[derive(Debug, Error)]
@@ -40,7 +46,7 @@ impl<E> From<Error<E>> for SynchronizeError<E> {
 /// Configuration for synchronize.
 #[derive(Debug, Clone)]
 pub struct SynchronizeConfig {
-    pub role: crate::SyncRole,
+    pub role: SyncRole,
     /// Protocol configuration.
     pub protocol: Config,
     /// Maximum time to wait for handshake.
@@ -54,7 +60,7 @@ pub struct SynchronizeConfig {
 impl Default for SynchronizeConfig {
     fn default() -> Self {
         Self {
-            role: crate::SyncRole::Initiator,
+            role: SyncRole::Initiator,
             protocol: Config::default(),
             handshake_timeout: Duration::from_secs(10),
             message_timeout: Duration::from_secs(30),
@@ -84,6 +90,18 @@ impl Default for SynchronizeConfig {
 ///
 /// # Returns
 /// `SyncResult` with statistics, or `SynchronizeError` on failure.
+///
+/// # Errors
+///
+/// Returns an error for handshake, timeout, transport, protocol, or inbound apply failures.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one select loop keeps protocol state transitions and termination together"
+)]
+#[allow(
+    clippy::map_err_ignore,
+    reason = "an elapsed timeout maps to the stable session-timeout error"
+)]
 pub async fn synchronize<T, F, S, Fut>(
     mut transport: T,
     mut outbound: S,
@@ -98,20 +116,20 @@ where
 {
     let mut result = SyncResult::default();
     let mut local_generations: HashMap<StorageKey, u64> = HashMap::new();
-    let mut remote_generations: HashMap<StorageKey, u64> = HashMap::new();
+
     let mut pending_acks: HashMap<StorageKey, u64> = HashMap::new();
     let mut outstanding = HashMap::new();
     let mut sent_done = false;
-    let mut _received_done = false;
+    let mut received_done = false;
 
-    let hello = Message::Hello(crate::protocol::HelloConfig {
+    let hello = Message::Hello(HelloConfig {
         protocol_version: 1,
         manifest_digest: [0; 32],
         config: config.protocol.clone(),
     });
     let handshake = async {
         match config.role {
-            crate::SyncRole::Initiator => {
+            SyncRole::Initiator => {
                 transport
                     .send(hello)
                     .await
@@ -130,13 +148,13 @@ where
                     )),
                 }
             }
-            crate::SyncRole::Responder => {
+            SyncRole::Responder => {
                 let accepted = matches!(
                     transport
                         .receive()
                         .await
                         .map_err(SynchronizeError::Transport)?,
-                    Message::Hello(crate::protocol::HelloConfig {
+                    Message::Hello(HelloConfig {
                         protocol_version: 1,
                         ..
                     })
@@ -158,7 +176,7 @@ where
             }
         }
     };
-    tokio::time::timeout(config.handshake_timeout, handshake)
+    timeout(config.handshake_timeout, handshake)
         .await
         .map_err(|_| SynchronizeError::SessionTimeout)??;
 
@@ -172,7 +190,7 @@ where
             // Outbound: send local ChangeEvents
             event = async {
                 if outbound_exhausted {
-                    futures::future::pending().await
+                    pending().await
                 } else {
                     outbound.next().await
                 }
@@ -203,9 +221,9 @@ where
             // Inbound: receive and process messages
             msg = async {
                 if inbound_closed {
-                    futures::future::pending().await
+                    pending().await
                 } else {
-                    tokio::time::timeout(config.message_timeout, transport.receive()).await
+                    timeout(config.message_timeout, transport.receive()).await
                 }
             }, if !inbound_closed => {
                 match msg {
@@ -216,7 +234,7 @@ where
                                 // Track remote generation
                                 let generation = event.generation;
                                 let key = event.key.clone();
-                                remote_generations.insert(key.clone(), generation);
+
 
                                 // Apply to local storage
                                 apply_inbound(event).await
@@ -229,13 +247,13 @@ where
                                 // Send ACK if immediate
                                 if config.protocol.immediate_ack {
                                     let ack = Message::Ack {
-                                        acknowledgments: std::mem::take(&mut pending_acks),
+                                        acknowledgments: take(&mut pending_acks),
                                     };
                                     transport.send(ack).await
                                         .map_err(SynchronizeError::Transport)?;
                                 }
                             }
-                            Message::SnapshotRequest { key: _, min_generation: _ } => {
+                            Message::SnapshotRequest { .. } => {
                                 // TODO: Implement snapshot serving
                                 // For now, send Close to indicate we can't serve
                                 let close = Message::Close;
@@ -255,17 +273,12 @@ where
                                     if outstanding.get(&key).is_some_and(|pending| *pending <= generation) { outstanding.remove(&key); }
                                 }
                             }
-                            Message::Done { final_generations } => {
-                                _received_done = true;
-                                // Update remote generations with final values
-                                remote_generations.extend(final_generations);
+                            Message::Done { .. } => {
+                                received_done = true;
                             }
                             Message::Close => { break; }
-                            Message::HelloAck { .. } => {
-                                // Ignore duplicate hello ack
-                            }
-                            Message::Hello { .. } => {
-                                // Ignore duplicate hello
+                            Message::HelloAck { .. } | Message::Hello { .. } => {
+                                // Ignore duplicate handshake messages
                             }
                         }
                     }
@@ -278,7 +291,7 @@ where
                 }
             }
             // Check termination conditions
-            () = async {}, if outbound_exhausted && outstanding.is_empty() && (_received_done || inbound_closed) => {
+            () = async {}, if outbound_exhausted && outstanding.is_empty() && (received_done || inbound_closed) => {
                 break;
             }
         }
@@ -286,7 +299,7 @@ where
         // Send batched ACKs if not immediate
         if !config.protocol.immediate_ack && !pending_acks.is_empty() {
             let ack = Message::Ack {
-                acknowledgments: std::mem::take(&mut pending_acks),
+                acknowledgments: take(&mut pending_acks),
             };
             transport
                 .send(ack)
@@ -331,7 +344,7 @@ where
 {
     // Convert PushSynchronizeConfig to SynchronizeConfig
     let sync_config = SynchronizeConfig {
-        role: crate::SyncRole::Initiator,
+        role: SyncRole::Initiator,
         protocol: config.protocol,
         handshake_timeout: Duration::from_millis(config.handshake_timeout_ms),
         message_timeout: Duration::from_millis(config.message_timeout_ms),
@@ -350,17 +363,15 @@ where
             }
             SynchronizeError::PeerClosed => PushSynchronizeError::Protocol("peer closed".into()),
             SynchronizeError::HandshakeFailed(e) => PushSynchronizeError::Protocol(e),
-            SynchronizeError::GenerationGap { key, have, need } => {
-                PushSynchronizeError::Protocol(format!(
-                    "generation gap for key {key:?}: have {have}, need {need}"
-                ))
-            }
+            SynchronizeError::GenerationGap { key, have, need } => PushSynchronizeError::Protocol(
+                format!("generation gap for key {key:?}: have {have}, need {need}"),
+            ),
         })?;
 
     // Convert SyncResult to PushResult
     Ok(PushResult {
-        sent: result.events_sent as usize,
-        received: result.events_received as usize,
+        sent: usize::try_from(result.events_sent).unwrap_or(usize::MAX),
+        received: usize::try_from(result.events_received).unwrap_or(usize::MAX),
         conflicts_resolved: 0,
     })
 }
@@ -369,6 +380,7 @@ where
 mod tests {
     use super::*;
     use futures::{channel::mpsc, stream};
+    use std::future::ready;
     use std::sync::{Arc, Mutex};
 
     struct Channel(
@@ -377,10 +389,12 @@ mod tests {
     );
     impl SyncTransport for Channel {
         type Error = String;
-        async fn send(&mut self, message: Message) -> Result<(), String> {
-            self.0
-                .unbounded_send(message)
-                .map_err(|error| error.to_string())
+        fn send(&mut self, msg: Message) -> impl Future<Output = Result<(), String>> {
+            ready(
+                self.0
+                    .unbounded_send(msg)
+                    .map_err(|error| error.to_string()),
+            )
         }
         async fn receive(&mut self) -> Result<Message, String> {
             self.1.next().await.ok_or_else(|| "closed".into())
@@ -391,14 +405,14 @@ mod tests {
         let (a, ar) = mpsc::unbounded();
         let (b, br) = mpsc::unbounded();
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let left_seen = seen.clone();
-        let right_seen = seen.clone();
+        let left_seen = Arc::clone(&seen);
+        let right_seen = Arc::clone(&seen);
         let event = |key: &[u8], byte| ChangeEvent {
             key: StorageKey::kv(key.to_vec()),
             blob: vec![byte],
             generation: 1,
         };
-        let result = tokio::time::timeout(Duration::from_secs(2), async {
+        let result = timeout(Duration::from_secs(2), async {
             tokio::join!(
                 synchronize(
                     Channel(a, br),
@@ -408,7 +422,7 @@ mod tests {
                         async { Ok(()) }
                     },
                     SynchronizeConfig {
-                        role: crate::SyncRole::Initiator,
+                        role: SyncRole::Initiator,
                         ..Default::default()
                     }
                 ),
@@ -420,7 +434,7 @@ mod tests {
                         async { Ok(()) }
                     },
                     SynchronizeConfig {
-                        role: crate::SyncRole::Responder,
+                        role: SyncRole::Responder,
                         ..Default::default()
                     }
                 ),

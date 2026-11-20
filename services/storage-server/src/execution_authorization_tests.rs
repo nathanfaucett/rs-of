@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex as StdMutex,
         atomic::{AtomicU64, AtomicUsize},
     },
     time::Duration,
@@ -13,10 +13,10 @@ use device_service::device_repo::DeviceRepo;
 use device_service::ofdb::device_repo::DbDeviceRepo;
 use file_system::FileResponse;
 use idp_service::{
-    password_config::PasswordConfig, replica::user_repo::DbUserRepo, repo::user_repo::UserRepo,
+    password_config::PasswordConfig, replica::DbUserRepo, repo::user_repo::UserRepo,
 };
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
-use management_service::local_permissions::LocalPermissions;
+use management_service::LocalPermissions;
 use management_service::ofdb::permission_repo::DbPermissionRepo;
 use management_service::ofdb::role_repo::DbRoleRepo;
 use management_service::service::ManagementService;
@@ -129,7 +129,7 @@ async fn queued_write_fixture(in_flight: bool) {
             let resume = resume.clone();
             tokio::spawn(async move {
                 resume.notified().await;
-                write_loop(inner.clone(), send, received, inner.shutdown.subscribe()).await
+                write_loop(inner.clone(), send, received, inner.shutdown.subscribe()).await;
             })
         };
         service.remove_role_from_user(of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID, actor, role).await.expect("learn local denial while queued");

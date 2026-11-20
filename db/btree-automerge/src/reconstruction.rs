@@ -36,19 +36,18 @@ impl ReconstructedDocument {
         }
         if let Some(doc) = self.doc.as_mut() {
             doc.load_incremental(data).map_err(BTreeError::custom)?;
+        } else if key.r#type().is_snapshot() {
+            self.doc.replace(
+                AutoCommit::load(data)
+                    .map_err(BTreeError::custom)?
+                    .with_actor(key.actor_id()),
+            );
+        } else {
+            return Err(BTreeError::custom(format!(
+                "Expected delta for document {:x?}, but found snapshot",
+                key.id()
+            )));
         }
-            else if key.r#type().is_snapshot() {
-                self.doc.replace(
-                    AutoCommit::load(data)
-                        .map_err(BTreeError::custom)?
-                        .with_actor(key.actor_id()),
-                );
-            } else {
-                return Err(BTreeError::custom(format!(
-                    "Expected delta for document {:x?}, but found snapshot",
-                    key.id()
-                )));
-            }
 
         self.deltas += 1;
         self.bytes_size += data.len();
@@ -69,9 +68,9 @@ struct PendingDocument {
 }
 
 impl PendingDocument {
-    fn new(key: DocumentChangeKey, data: Vec<u8>) -> Self {
+    fn new(key: DocumentChangeKey, data: &[u8]) -> Self {
         let mut document = ReconstructedDocument::new(key.id().clone());
-        let error = document.apply(&key, &data).err();
+        let error = document.apply(&key, data).err();
         Self {
             document,
             keys: vec![key],
@@ -79,13 +78,13 @@ impl PendingDocument {
         }
     }
 
-    fn apply(&mut self, key: DocumentChangeKey, data: Vec<u8>) {
-        self.keys.push(key.clone());
+    fn apply(&mut self, key: DocumentChangeKey, data: &[u8]) {
         if self.error.is_none()
-            && let Err(error) = self.document.apply(&key, &data)
+            && let Err(error) = self.document.apply(&key, data)
         {
             self.error = Some(error);
         }
+        self.keys.push(key);
     }
 
     fn finish(self) -> ReconstructedRangeDocument {
@@ -127,8 +126,8 @@ where
             }
 
             match pending.as_mut() {
-                Some(document) => document.apply(key, data),
-                None => pending = Some(PendingDocument::new(key, data)),
+                Some(document) => document.apply(key, &data),
+                None => pending = Some(PendingDocument::new(key, &data)),
             }
         }
 

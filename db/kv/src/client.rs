@@ -1,3 +1,5 @@
+use core::fmt;
+
 #[cfg(feature = "remote")]
 use std::path::Path;
 use std::time::Duration;
@@ -62,10 +64,9 @@ impl Clone for Backend {
     }
 }
 
-impl core::fmt::Debug for Client {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter
-            .debug_struct("Client")
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
             .field(
                 "backend",
                 &match &self.backend {
@@ -85,6 +86,11 @@ impl core::fmt::Debug for Client {
 }
 
 impl Client {
+    /// Starts a transaction on the embedded or remote backend.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport failure or an invalid ready response.
     pub async fn transaction(&self) -> Result<crate::Transaction, Error> {
         self.request(async {
             #[cfg(all(
@@ -166,6 +172,11 @@ impl Client {
     }
 
     #[cfg(feature = "remote")]
+    /// Connects to a remote KV service.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid endpoint or connection failure.
     pub async fn connect(uri: impl AsRef<str>) -> Result<Self, Error> {
         let endpoint = Endpoint::from_shared(uri.as_ref().to_owned())
             .map_err(|error| Error::Connect(error.to_string()))?;
@@ -173,6 +184,11 @@ impl Client {
     }
 
     #[cfg(feature = "remote")]
+    /// Connects to a remote KV service with a trusted CA.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid TLS or endpoint configuration, or connection failure.
     pub async fn connect_with_ca(
         uri: impl AsRef<str>,
         ca_certificate: impl AsRef<[u8]>,
@@ -187,6 +203,11 @@ impl Client {
     }
 
     #[cfg(feature = "remote")]
+    /// Connects to a remote KV service with a CA and client identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid TLS or endpoint configuration, or connection failure.
     pub async fn connect_with_identity(
         uri: impl AsRef<str>,
         ca_certificate: impl AsRef<[u8]>,
@@ -216,19 +237,22 @@ impl Client {
     }
 
     #[cfg(all(feature = "remote", unix))]
+    /// Connects to a remote KV service over a Unix socket.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the socket connection fails.
+    #[cfg(all(feature = "remote", unix))]
     pub async fn connect_unix(path: impl AsRef<Path>) -> Result<Self, Error> {
         use hyper_util::rt::TokioIo;
+        use tokio::net::UnixStream;
         use tower::service_fn;
 
         let path = path.as_ref().to_owned();
         let channel = Endpoint::from_static("http://[::]:50051")
             .connect_with_connector(service_fn(move |_| {
                 let path = path.clone();
-                async move {
-                    tokio::net::UnixStream::connect(path)
-                        .await
-                        .map(TokioIo::new)
-                }
+                async move { UnixStream::connect(path).await.map(TokioIo::new) }
             }))
             .await
             .map_err(|error| Error::Connect(error.to_string()))?;
@@ -238,8 +262,13 @@ impl Client {
         })
     }
 
+    /// Gets a value by key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage, transport, or decoding failure.
     pub async fn get(&self, key: &str) -> Result<Option<Value>, Error> {
-        self.request(async {
+        Box::pin(self.request(async {
             match &self.backend {
                 #[cfg(any(
                     feature = "in-memory",
@@ -258,10 +287,15 @@ impl Client {
                     kv_proto::optional_value(response.into_inner().value).map_err(map_status)
                 }
             }
-        })
+        }))
         .await
     }
 
+    /// Sets a value with an optional expiry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage, transport, or encoding failure.
     pub async fn set(
         &self,
         key: &str,
@@ -269,7 +303,7 @@ impl Client {
         expires_at: Option<i64>,
     ) -> Result<(), Error> {
         let value = value.into();
-        self.request(async {
+        Box::pin(self.request(async {
             match &self.backend {
                 #[cfg(any(
                     feature = "in-memory",
@@ -290,12 +324,17 @@ impl Client {
                     Ok(())
                 }
             }
-        })
+        }))
         .await
     }
 
+    /// Deletes a key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage or transport failure.
     pub async fn delete(&self, key: &str) -> Result<(), Error> {
-        self.request(async {
+        Box::pin(self.request(async {
             match &self.backend {
                 #[cfg(any(
                     feature = "in-memory",
@@ -314,12 +353,17 @@ impl Client {
                     Ok(())
                 }
             }
-        })
+        }))
         .await
     }
 
+    /// Scans a key range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage, transport, or decoding failure.
     pub async fn scan(&self, start: &str, end: &str) -> Result<Vec<(String, Value)>, Error> {
-        self.request(async {
+        Box::pin(self.request(async {
             match &self.backend {
                 #[cfg(any(
                     feature = "in-memory",
@@ -339,12 +383,17 @@ impl Client {
                     kv_proto::scan_entries(response.into_inner().entries).map_err(map_status)
                 }
             }
-        })
+        }))
         .await
     }
 
+    /// Scans values whose keys start with a prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage, transport, or decoding failure.
     pub async fn scan_prefix(&self, prefix: &str) -> Result<Vec<(String, Value)>, Error> {
-        self.request(async {
+        Box::pin(self.request(async {
             match &self.backend {
                 #[cfg(any(
                     feature = "in-memory",
@@ -363,12 +412,17 @@ impl Client {
                     kv_proto::scan_entries(response.into_inner().entries).map_err(map_status)
                 }
             }
-        })
+        }))
         .await
     }
 
+    /// Scans every value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for storage, transport, or decoding failure.
     pub async fn scan_all(&self) -> Result<Vec<(String, Value)>, Error> {
-        self.request(async {
+        Box::pin(self.request(async {
             match &self.backend {
                 #[cfg(any(
                     feature = "in-memory",
@@ -385,10 +439,14 @@ impl Client {
                     kv_proto::scan_entries(response.into_inner().entries).map_err(map_status)
                 }
             }
-        })
+        }))
         .await
     }
 
+    #[allow(
+        clippy::map_err_ignore,
+        reason = "an elapsed deadline has one stable timeout error"
+    )]
     async fn request<T>(
         &self,
         request: impl Future<Output = Result<T, Error>>,
@@ -403,6 +461,10 @@ impl Client {
 }
 
 #[cfg(feature = "remote")]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "tonic status converter is used directly and through Result::map_err"
+)]
 pub fn map_status(status: tonic::Status) -> Error {
     if let Some((kind, message)) = kv_proto::decode_error_details(status.details()) {
         return Error::Query {

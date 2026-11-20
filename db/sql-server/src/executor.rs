@@ -1,4 +1,4 @@
-use core::pin::Pin;
+use core::{fmt, pin::Pin};
 use engine::{Engine, EngineError, EngineTransaction, Kernel, RowCodec};
 use protocol::{ConflictValues, QueryExecutor, QueryServiceError, QueryTransaction};
 use query::{QueryResult, Statement};
@@ -13,8 +13,8 @@ impl<K, R> EngineExecutor<K, R> {
     }
 }
 
-impl<K, R> core::fmt::Debug for EngineExecutor<K, R> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl<K, R> fmt::Debug for EngineExecutor<K, R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("EngineExecutor").finish_non_exhaustive()
     }
 }

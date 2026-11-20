@@ -1,14 +1,14 @@
 // Browser implementation of @ofsdk/sync-sdk
 
-import { BehaviorSubject, Observable, Subject } from "rxjs";
+import { BehaviorSubject, type Observable, Subject } from "rxjs";
 import { StorageClient } from "@ofsdk/storage-client";
-import { SyncClient, StoreIdentity } from "@ofsdk/storage-sync-client";
+import { SyncClient, type StoreIdentity } from "@ofsdk/storage-sync-client";
 import {
   Database,
   JsPushSyncTransport,
   PushSynchronizeConfig,
 } from "@ofsdk/sql";
-import {
+import type {
   SyncConfig,
   SyncSDK,
   DatabaseHandle,
@@ -29,7 +29,7 @@ type WithId = { id: string; [key: string]: unknown };
 /** Browser sync SDK implementation */
 export class BrowserSyncSDK implements SyncSDK {
   private storageClient: StorageClient;
-  private syncClient: SyncClient | null = null;
+  private config: SyncConfig;
   private databases = new Map<string, BrowserDatabaseHandle<unknown>>();
   private kvStores = new Map<string, BrowserKvStoreHandle<unknown>>();
   private filesystems = new Map<string, BrowserFilesystemHandle>();
@@ -39,9 +39,9 @@ export class BrowserSyncSDK implements SyncSDK {
     vectorClock: {},
   });
   public readonly state$ = this._globalState$.asObservable();
-  private closed = false;
 
-  constructor(private config: SyncConfig) {
+  constructor(config: SyncConfig) {
+    this.config = config;
     this.storageClient = new StorageClient({
       idpBaseUrl: config.apiUrl.replace("/storage", "/idp"),
       storageBaseUrl: config.apiUrl,
@@ -54,18 +54,6 @@ export class BrowserSyncSDK implements SyncSDK {
       resource: string,
       actions: ("read" | "write")[],
     ) => storageClient.getStorageToken(resource, actions);
-  }
-
-  /** Initialize the sync client */
-  private async initSyncClient(): Promise<SyncClient> {
-    if (this.syncClient) return this.syncClient;
-
-    this.syncClient = new SyncClient({
-      storageApiUrl: this.config.apiUrl,
-      tokenProvider: () => this.config.getToken(),
-    });
-
-    return this.syncClient;
   }
 
   /** SQL database sync */
@@ -227,7 +215,6 @@ export class BrowserSyncSDK implements SyncSDK {
   }
 
   async close(): Promise<void> {
-    this.closed = true;
     for (const db of this.databases.values()) {
       await db.close();
     }
@@ -255,15 +242,23 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
   private sqlDatabase: Database | null = null;
   private syncClient: SyncClient | null = null;
   private closed = false;
+  private handle: {
+    sqlDatabase: Database;
+    resourceId: string;
+    storeIdentity: StoreIdentity;
+  };
+  private config: SyncConfig;
 
   constructor(
-    private handle: {
+    handle: {
       sqlDatabase: Database;
       resourceId: string;
       storeIdentity: StoreIdentity;
     },
-    private config: SyncConfig,
+    config: SyncConfig,
   ) {
+    this.handle = handle;
+    this.config = config;
     this.sqlDatabase = handle.sqlDatabase;
   }
 
@@ -301,7 +296,7 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
     return this._state$.asObservable();
   }
 
-  async sync(options?: SyncOptions): Promise<void> {
+  async sync(_options?: SyncOptions): Promise<void> {
     if (!this.sqlDatabase || this.closed) return;
 
     this._state$.next({ ...this._state$.value, status: "connecting" });
@@ -363,18 +358,17 @@ class BrowserKvStoreHandle<T = unknown> implements KvStoreHandle<T> {
     version: 0,
     vectorClock: {},
   });
-  private closed = false;
 
   constructor(
-    private handle: { resourceId: string; storeIdentity: StoreIdentity },
-    private config: SyncConfig,
+    _handle: { resourceId: string; storeIdentity: StoreIdentity },
+    _config: SyncConfig,
   ) {}
 
-  async get(key: string): Promise<T | undefined> {
+  async get(_key: string): Promise<T | undefined> {
     return undefined;
   }
 
-  async set(key: string, value: T): Promise<void> {
+  async set(_key: string, value: T): Promise<void> {
     this._changes$.next({
       type: "local-upsert",
       doc: value,
@@ -394,13 +388,12 @@ class BrowserKvStoreHandle<T = unknown> implements KvStoreHandle<T> {
     return this._state$.asObservable();
   }
 
-  async sync(options?: SyncOptions): Promise<void> {
+  async sync(_options?: SyncOptions): Promise<void> {
     this._state$.next({ ...this._state$.value, status: "connecting" });
     this._state$.next({ ...this._state$.value, status: "synced" });
   }
 
   async close(): Promise<void> {
-    this.closed = true;
     this._changes$.complete();
     this._state$.complete();
   }
@@ -414,11 +407,10 @@ class BrowserFilesystemHandle implements FilesystemHandle {
     version: 0,
     vectorClock: {},
   });
-  private closed = false;
 
   constructor(
-    private handle: { resourceId: string; storeIdentity: StoreIdentity },
-    private config: SyncConfig,
+    _handle: { resourceId: string; storeIdentity: StoreIdentity },
+    _config: SyncConfig,
   ) {}
 
   async read(_path: string): Promise<Uint8Array> {
@@ -445,13 +437,12 @@ class BrowserFilesystemHandle implements FilesystemHandle {
     return this._state$.asObservable();
   }
 
-  async sync(options?: SyncOptions): Promise<void> {
+  async sync(_options?: SyncOptions): Promise<void> {
     this._state$.next({ ...this._state$.value, status: "connecting" });
     this._state$.next({ ...this._state$.value, status: "synced" });
   }
 
   async close(): Promise<void> {
-    this.closed = true;
     this._changes$.complete();
     this._state$.complete();
   }

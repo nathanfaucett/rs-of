@@ -1,13 +1,24 @@
 use std::{io, sync::Arc, time::Duration};
 
-use axum::{Router, extract::Request, http::StatusCode, response::IntoResponse};
+use axum::{
+    Router,
+    extract::Request,
+    http::{HeaderValue, StatusCode},
+    response::IntoResponse,
+};
 use db::adapters::EmbeddedDatabase;
+use reqwest::{Client, Url, redirect::Policy};
+use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::config::UnifiedConfig;
 
+/// Routes each request to its owner prefix.
+///
+/// # Panics
+/// Panics if an owner router violates Axum's infallible response contract.
 pub fn compose_router(idp: Router, management: Router, device: Router, storage: Router) -> Router {
     Router::new().fallback(move |request: Request| {
         let router = match request.uri().path().split('/').nth(1) {
@@ -38,14 +49,8 @@ fn base_url(config: &UnifiedConfig) -> String {
         .to_owned()
 }
 
-pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> {
-    if !config.listen_addr.ip().is_loopback() || config.listen_addr.port() == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "local mode requires a fixed loopback address",
-        ));
-    }
-    let origin = reqwest::Url::parse(&config.origin).map_err(io::Error::other)?;
+fn frontend_origin(value: &str) -> io::Result<Url> {
+    let origin = Url::parse(value).map_err(io::Error::other)?;
     if !matches!(origin.scheme(), "http" | "https")
         || origin.host_str().is_none()
         || !origin.username().is_empty()
@@ -59,9 +64,33 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
             "origin must be an HTTP origin without a path, credentials, query, or fragment",
         ));
     }
-    let http_client = reqwest::Client::builder()
+    Ok(origin)
+}
+
+/// Builds the four-owner local router over one retained database.
+///
+/// # Errors
+/// Returns an error for invalid configuration, database failure, or owner initialization failure.
+pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> {
+    if !config.listen_addr.ip().is_loopback() || config.listen_addr.port() == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "local mode requires a fixed loopback address",
+        ));
+    }
+    let origin = frontend_origin(&config.origin)?;
+    let password_manager = if let Some(origin) = config.password_manager_origin.as_deref() {
+        frontend_origin(origin)?
+    } else {
+        let mut password_manager = origin.clone();
+        password_manager
+            .set_port(Some(5174))
+            .map_err(|()| io::Error::other("invalid frontend port"))?;
+        password_manager
+    };
+    let http_client = Client::builder()
         .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
+        .redirect(Policy::none())
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(io::Error::other)?;
@@ -80,18 +109,15 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
         &config.data_dir,
         &idp_base,
         &config.origin,
+        config.password_manager_origin.as_deref(),
         Some(Arc::new(shared_database.clone())),
         Some(shared_db.storage.clone()),
-        &config
-            .seed
-            .as_ref()
-            .map(|seed| {
-                seed.users
-                    .iter()
-                    .map(|user| (user.username.clone(), user.password.clone()))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default(),
+        &config.seed.as_ref().map_or_default(|seed| {
+            seed.users
+                .iter()
+                .map(|user| (user.username.clone(), user.password.clone()))
+                .collect::<Vec<_>>()
+        }),
     )
     .await?;
     let device = device_server::build_local_router(
@@ -117,19 +143,16 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
         &idp_base,
         &device_base,
         Some(Arc::new(shared_db.database.clone())),
+        Some(shared_db.storage.clone()),
         Some(http_client),
     )
     .await?;
-    let app_origin: axum::http::HeaderValue = origin
+    let app_origin: HeaderValue = origin
         .origin()
         .ascii_serialization()
         .parse()
         .map_err(io::Error::other)?;
-    let mut password_manager = origin;
-    password_manager
-        .set_port(Some(5174))
-        .map_err(|_| io::Error::other("invalid frontend port"))?;
-    let password_manager_origin: axum::http::HeaderValue = password_manager
+    let password_manager_origin: HeaderValue = password_manager
         .origin()
         .ascii_serialization()
         .parse()
@@ -142,8 +165,12 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
     Ok(compose_router(idp, management, device, storage.router()).layer(cors))
 }
 
+/// Serves local composition until cancellation.
+///
+/// # Errors
+/// Returns an error if the listener, composition, or HTTP server fails.
 pub async fn serve(config: UnifiedConfig, cancellation: CancellationToken) -> io::Result<()> {
-    let listener = tokio::net::TcpListener::bind(config.listen_addr).await?;
+    let listener = TcpListener::bind(config.listen_addr).await?;
     let router = compose_local_router(&config).await?;
     axum::serve(listener, router)
         .with_graceful_shutdown(cancellation.cancelled_owned())
@@ -161,6 +188,7 @@ mod tests {
             public_base_url: Some("https://unified.localhost:1355/".into()),
             data_dir: ".data".into(),
             origin: "http://localhost:5173".into(),
+            password_manager_origin: None,
             seed: None,
         };
         assert_eq!(base_url(&config), "https://unified.localhost:1355");

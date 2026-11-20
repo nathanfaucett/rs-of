@@ -50,9 +50,6 @@ const sortOptions = $derived([
 
 const hasActiveFilters = $derived(searchText || itemType !== "all" || favoritesOnly);
 
-function getFolderCount(folderId: string): number {
-	return folders.length; // placeholder - actual count would come from workflow
-}
 </script>
 
 <nav class="flex flex-col h-full bg-surface border-r border-line">
@@ -62,7 +59,7 @@ function getFolderCount(folderId: string): number {
 			<h2 class="text-base font-semibold text-ink truncate">Filters</h2>
 		</div>
 		{#if hasActiveFilters}
-			<button class="btn btn-ghost btn-sm" onclick={onClearFilters}>
+			<button class="btn btn-ghost btn-sm" type="button" onclick={onClearFilters}>
 				<X class="w-3 h-3 mr-1" />Clear
 			</button>
 		{/if}
@@ -74,6 +71,7 @@ function getFolderCount(folderId: string): number {
 			<div class="p-2 space-y-1 max-h-48 overflow-y-auto">
 				<button
 					class="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-ink rounded transition-colors hover:bg-surface-hover"
+					type="button"
 					onclick={() => onFolderFilterChange("all")}
 					aria-pressed={folderFilter === "all"}
 				>
@@ -87,11 +85,12 @@ function getFolderCount(folderId: string): number {
 				</button>
 				<button
 					class="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-ink rounded transition-colors hover:bg-surface-hover"
+					type="button"
 					onclick={() => onFolderFilterChange("unfiled")}
 					aria-pressed={folderFilter === "unfiled"}
 				>
 					<span class="flex w-5 h-5 items-center justify-center text-muted-foreground">
-						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 							<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
 							<circle cx="12" cy="7" r="4" />
 						</svg>
@@ -104,6 +103,7 @@ function getFolderCount(folderId: string): number {
 				{#each folders as folder (folder.id)}
 					<button
 						class="flex w-full items-center gap-2 px-2 py-1.5 text-sm text-ink rounded transition-colors hover:bg-surface-hover"
+						type="button"
 						onclick={() => onFolderFilterChange(folder.id)}
 						aria-pressed={folderFilter === folder.id}
 					>

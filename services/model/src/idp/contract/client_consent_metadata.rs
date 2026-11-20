@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 
 use crate::idp::contract::application_registration::ApplicationRegistration;

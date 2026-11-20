@@ -1,5 +1,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
+#[cfg(feature = "sharded")]
+use core::{hash::Hash, marker::PhantomData};
 #[cfg(feature = "std")]
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -7,12 +9,15 @@ use async_lock::RwLock;
 use async_stream::stream;
 use core::{
     borrow::Borrow,
+    future::ready,
     ops::{Bound, RangeBounds},
 };
 
 use futures::Stream;
 use platform::{MaybeSend, MaybeSync};
 
+#[cfg(feature = "sharded")]
+use crate::sharded_btree::BTreeShardFactory;
 use crate::{BTree, BTreeKey, BTreeRead, BTreeResult, BTreeTransaction, BTreeValue};
 
 #[derive(Debug, Clone)]
@@ -99,24 +104,23 @@ impl<K, V> Default for InMemoryTransactionPatch<K, V> {
 #[cfg(feature = "sharded")]
 #[derive(Debug, Default, Clone)]
 pub struct InMemoryBTreeShardFactory<K, V> {
-    _marker: core::marker::PhantomData<(K, V)>,
+    _marker: PhantomData<(K, V)>,
 }
 
 #[cfg(feature = "sharded")]
-impl<K, V, Key> crate::sharded_btree::BTreeShardFactory<K, V, Key>
-    for InMemoryBTreeShardFactory<K, V>
+impl<K, V, Key> BTreeShardFactory<K, V, Key> for InMemoryBTreeShardFactory<K, V>
 where
     K: BTreeKey + Clone + MaybeSend + MaybeSync,
     V: BTreeValue + Clone + MaybeSend + MaybeSync,
-    Key: Clone + Eq + core::hash::Hash + MaybeSend + MaybeSync,
+    Key: Clone + Eq + Hash + MaybeSend + MaybeSync,
 {
     type BTree = InMemoryBTree<K, V>;
 
-    async fn create(&self, _token: &Key) -> BTreeResult<Self::BTree> {
-        Ok(InMemoryBTree::new())
+    fn create(&self, _token: &Key) -> impl Future<Output = BTreeResult<Self::BTree>> {
+        ready(Ok(InMemoryBTree::new()))
     }
-    async fn delete(&self, _token: &Key) -> BTreeResult<()> {
-        Ok(())
+    fn delete(&self, _token: &Key) -> impl Future<Output = BTreeResult<()>> {
+        ready(Ok(()))
     }
 }
 
@@ -126,10 +130,10 @@ where
     V: BTreeValue + Clone,
 {
     pub fn get(&self, base: &BTreeMap<K, V>, key: &K) -> Option<V> {
-        match self.inner.get(key) {
-            Some(entry) => entry.as_option().cloned(),
-            None => base.get(key).cloned(),
-        }
+        self.inner.get(key).map_or_else(
+            || base.get(key).cloned(),
+            |entry| entry.as_option().cloned(),
+        )
     }
 
     pub fn insert(&mut self, key: K, value: V) {
@@ -288,12 +292,12 @@ where
     K: BTreeKey + Clone + MaybeSend + MaybeSync,
     V: BTreeValue + Clone + MaybeSend + MaybeSync,
 {
-    async fn insert(&mut self, key: K, value: V) -> BTreeResult<()>
+    fn insert(&mut self, key: K, value: V) -> impl Future<Output = BTreeResult<()>>
     where
         K: Ord,
     {
         self.patch.insert(key, value);
-        Ok(())
+        ready(Ok(()))
     }
 
     async fn update<F>(&mut self, key: K, update_fn: F) -> BTreeResult<Option<()>>
@@ -301,7 +305,8 @@ where
         K: Ord,
         F: FnOnce(&mut V) -> BTreeResult<()>,
     {
-        if let Some(value) = self.patch.get(&*self.inner.read().await, &key) {
+        let value = self.patch.get(&*self.inner.read().await, &key);
+        if let Some(value) = value {
             let mut value_clone = value;
             update_fn(&mut value_clone)?;
             self.patch.insert(key.clone(), value_clone);
@@ -335,8 +340,8 @@ where
         Ok(())
     }
 
-    async fn rollback(self) -> BTreeResult<()> {
-        Ok(())
+    fn rollback(self) -> impl Future<Output = BTreeResult<()>> {
+        ready(Ok(()))
     }
 }
 
@@ -347,11 +352,11 @@ where
 {
     type Transaction = InMemoryBTreeTransaction<K, V>;
 
-    async fn transaction(&self) -> BTreeResult<Self::Transaction> {
-        Ok(InMemoryBTreeTransaction {
-            inner: self.inner.clone(),
+    fn transaction(&self) -> impl Future<Output = BTreeResult<Self::Transaction>> {
+        ready(Ok(InMemoryBTreeTransaction {
+            inner: Arc::clone(&self.inner),
             patch: InMemoryTransactionPatch::default(),
-        })
+        }))
     }
 }
 

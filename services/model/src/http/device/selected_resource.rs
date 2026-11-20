@@ -1,3 +1,4 @@
+use alloc::string::String;
 /*
  * LIDP Device API
  *
@@ -10,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SelectedResource {
     #[serde(rename = "applicationId")]
     pub application_id: String,
@@ -23,14 +24,13 @@ pub struct SelectedResource {
 }
 
 impl SelectedResource {
-    #[must_use]
-    pub const fn new(
+    pub fn new(
         application_id: String,
         kind: String,
         owner_subject: String,
         resource_id: String,
-    ) -> Self {
-        Self {
+    ) -> SelectedResource {
+        SelectedResource {
             application_id,
             kind,
             owner_subject,

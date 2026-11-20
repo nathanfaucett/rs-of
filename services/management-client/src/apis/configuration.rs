@@ -30,15 +30,14 @@ pub struct ApiKey {
 }
 
 impl Configuration {
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new() -> Configuration {
+        Configuration::default()
     }
 }
 
 impl Default for Configuration {
     fn default() -> Self {
-        Self {
+        Configuration {
             response_limit: 1024 * 1024,
             request_limit: 1024 * 1024,
             base_path: "https://localhost/management".to_owned(),

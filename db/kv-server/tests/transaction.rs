@@ -5,16 +5,18 @@ use kv::KvStore;
 use kv_proto::{
     ErrorKind, decode_error_details,
     kvdb::{
-        DeleteRequest, GetRequest, ScanAllRequest, ScanEntry, ScanPrefixRequest, ScanRequest,
-        SetRequest, TransactionRequest, TransactionResponse, kv_service_client::KvServiceClient,
-        transaction_request::Command, transaction_response::Outcome,
+        DeleteRequest, GetRequest, GetResponse, ScanAllRequest, ScanEntry, ScanPrefixRequest,
+        ScanRequest, SetRequest, TransactionRequest, TransactionResponse,
+        kv_service_client::KvServiceClient, transaction_request::Command,
+        transaction_response::Outcome,
     },
 };
 use ofdb_kv_server::Server;
 use tokio::{
+    net::TcpListener,
     sync::{mpsc, oneshot},
     task::JoinHandle,
-    time::timeout,
+    time::{sleep, timeout},
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Streaming, transport::Channel};
@@ -30,7 +32,7 @@ struct Host {
 impl Host {
     async fn new(backend: InMemoryBTree<Vec<u8>, Vec<u8>>) -> Self {
         let store = KvStore::new(backend, || uuid::Timestamp::now(uuid::NoContext));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("test listener must bind");
         let address = listener
@@ -117,7 +119,7 @@ fn set(key: &str, value: &[u8], expires_at: Option<i64>) -> Command {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "networked gRPC integration test"]
 async fn transaction_reads_writes_scans_and_commits() {
     let mut host = Host::new(InMemoryBTree::new()).await;
     let (sender, mut responses) = host.transaction().await;
@@ -138,7 +140,7 @@ async fn transaction_reads_writes_scans_and_commits() {
             Command::Get(GetRequest { key: "a".into() })
         )
         .await,
-        Outcome::Got(kv_proto::kvdb::GetResponse {
+        Outcome::Got(GetResponse {
             value: Some(kv_proto::value_to_proto(Value::Blob(b"one".to_vec())))
         })
     );
@@ -151,7 +153,7 @@ async fn transaction_reads_writes_scans_and_commits() {
             })
         )
         .await,
-        Outcome::Got(kv_proto::kvdb::GetResponse { value: None })
+        Outcome::Got(GetResponse { value: None })
     );
     for (request, keys) in [
         (
@@ -200,9 +202,12 @@ async fn transaction_reads_writes_scans_and_commits() {
         .transaction()
         .await
         .expect("verification transaction must start");
-    assert_eq!(tx.get("a", 0).await.expect("read must succeed"), None);
     assert_eq!(
-        tx.get("b", 0).await.expect("read must succeed"),
+        Box::pin(tx.get("a", 0)).await.expect("read must succeed"),
+        None
+    );
+    assert_eq!(
+        Box::pin(tx.get("b", 0)).await.expect("read must succeed"),
         Some(Value::Blob(b"two".to_vec()))
     );
     tx.rollback().await.expect("verification must roll back");
@@ -233,7 +238,7 @@ async fn rollback_and_stream_closure_discard_writes() {
             _ => {
                 drop(responses);
                 // Keep the request stream open while the response stream is cancelled.
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                sleep(Duration::from_millis(50)).await;
                 drop(sender);
             }
         }
@@ -243,7 +248,9 @@ async fn rollback_and_stream_closure_discard_writes() {
             .await
             .expect("verification transaction must start");
         assert_eq!(
-            tx.get("uncommitted", 0).await.expect("read must succeed"),
+            Box::pin(tx.get("uncommitted", 0))
+                .await
+                .expect("read must succeed"),
             None
         );
         tx.rollback().await.expect("verification must roll back");
@@ -252,7 +259,7 @@ async fn rollback_and_stream_closure_discard_writes() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "networked gRPC integration test"]
 async fn operation_error_preserves_category_and_transaction_remains_usable() {
     let backend = InMemoryBTree::new();
     let mut tx = backend

@@ -13,7 +13,7 @@ let syncSuccess = $state("");
 async function handleSyncToDevice() {
   if (!targetDeviceId.trim() || isSyncing) return;
   const vaultData = vaultStateModule.vaultData;
-  if (!vaultData || !vaultData.isSynced) return;
+  if (!vaultData?.isSynced) return;
 
   const vault = vaultData.vault as SyncVaultHandle;
 
@@ -31,15 +31,6 @@ async function handleSyncToDevice() {
   }
 }
 
-function getSyncStatusTone(status: string): "success" | "warning" | "danger" | "info" {
-  switch (status) {
-    case "synced": return "success";
-    case "connecting": return "info";
-    case "disconnected": return "warning";
-    case "error": return "danger";
-    default: return "info";
-  }
-}
 </script>
 
 <Card class="w-full">

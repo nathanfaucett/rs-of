@@ -104,7 +104,7 @@ async fn fixture() -> (
         kernel.clone(),
         CountingCodec {
             inner: AutomergeRowCodec::new(),
-            reads: reads.clone(),
+            reads: Arc::clone(&reads),
         },
     );
     database
@@ -120,6 +120,10 @@ async fn fixture() -> (
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn index_schema_reads_known_field_ids_without_rescanning_the_catalog() {
     block_on(async {
         let (database, _, reads) = fixture().await;
@@ -148,6 +152,10 @@ fn index_schema_reads_known_field_ids_without_rescanning_the_catalog() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn insert_reuses_current_table_schema_for_each_additional_index() {
     block_on(async {
         let mut costs = Vec::new();
@@ -218,6 +226,10 @@ fn insert_reuses_current_table_schema_for_each_additional_index() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn index_updates_use_fresh_schema_after_ddl_in_the_same_batch() {
     block_on(async {
         let (database, _, _) = fixture().await;
@@ -270,6 +282,10 @@ fn index_updates_use_fresh_schema_after_ddl_in_the_same_batch() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn index_updates_validate_a_competing_winner_in_its_own_table() {
     block_on(async {
         let (database, kernel, _) = fixture().await;
@@ -348,6 +364,14 @@ fn index_updates_validate_a_competing_winner_in_its_own_table() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "each mutation checks one independent catalog case"
+)]
 fn index_schema_rechecks_exact_field_identity_and_complete_current_catalog() {
     block_on(async {
         for mutation in [

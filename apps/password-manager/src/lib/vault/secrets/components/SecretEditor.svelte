@@ -1,5 +1,4 @@
 <script lang="ts">
-import { onMount } from "svelte";
 import CardFields from "./CardFields.svelte";
 import IdentityFields from "./IdentityFields.svelte";
 import SshKeyFields from "./SshKeyFields.svelte";
@@ -8,24 +7,7 @@ import PasswordInput from "./PasswordInput.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import type { VaultHandleLike } from "$lib/vault/types";
 import { createLocalSecretWorkflow } from "../workflow.svelte";
-import type { Secret } from "../secret";
-import {
-    createSecretDraft,
-    type EditableKind,
-    type EditableSecret,
-    type SecretDraft,
-} from "../secret-draft";
-import * as v from "valibot";
-import {
-    CardSchema,
-    IdentitySchema,
-    LoginSchema,
-    SecureNoteSchema,
-    SshKeySchema,
-} from "../secret";
-import { SvelteDate } from "svelte/reactivity";
-import { UnacknowledgedStorageWriteError } from "../collection";
-import { StaleItemMutationError } from "../../folder";
+import type { EditableKind, EditableSecret } from "../secret-draft";
 
 interface Props {
     vault: VaultHandleLike;
@@ -47,7 +29,7 @@ $effect(() => {
 });
 
 let error = $state("");
-let notice = $state("");
+
 let loading = $state(false);
 
 async function loadRecord() {
@@ -104,12 +86,11 @@ function handleCancel() {
     onCancel();
 }
 
-function customFieldIssue(editorRecord: EditableSecret | null, fields: SecretDraft["fields"], index: number) {
-    // Simplified - just return undefined for now
-    return undefined;
-}
 </script>
 
+{#if error}
+    <Alert tone="danger">{error}</Alert>
+{/if}
 {#if loading}
     <div class="flex items-center justify-center h-64">
         <p class="text-muted-foreground">Loading secret...</p>
@@ -174,12 +155,12 @@ function customFieldIssue(editorRecord: EditableSecret | null, fields: SecretDra
                                     {/snippet}
                                 </Field>
                                 <button class="btn btn-ghost btn-md text-danger-text" type="button" aria-label={`Remove website ${i + 1}`} onclick={() => draft.uris.splice(i, 1)}>
-                                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                                 </button>
                             </div>
                         {/each}
                         <button class="btn btn-secondary btn-md self-start" type="button" onclick={() => draft.uris.push({ uri: "", match: null })}>
-                            <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>Add website
+                            <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>Add website
                         </button>
                     </fieldset>
                 {:else if draft.kind === "card"}
@@ -194,7 +175,7 @@ function customFieldIssue(editorRecord: EditableSecret | null, fields: SecretDra
             <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
                 <legend class="text-sm font-medium">Custom fields</legend>
                 {#each draft.fields as field, i (field)}
-                    {@const issue = customFieldIssue(editor.record, draft.fields, i)}
+
                     <div class="flex flex-wrap items-end gap-2">
                         <Field id={`field-name-${i}`} label={`Field name ${i + 1}`} required>
                             {#snippet children(control)}
@@ -228,12 +209,12 @@ function customFieldIssue(editorRecord: EditableSecret | null, fields: SecretDra
                             {/snippet}
                         </Field>
                         <button class="btn btn-ghost btn-md text-danger-text" type="button" aria-label={`Remove custom field ${i + 1}`} onclick={() => draft.fields.splice(i, 1)}>
-                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                         </button>
                     </div>
                 {/each}
                 <button class="btn btn-secondary btn-md self-start" type="button" onclick={() => draft.fields.push({ name: "", value: "", type: "text" })}>
-                    <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>Add custom field
+                    <svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>Add custom field
                 </button>
             </fieldset>
             <Field id="notes" label="Notes">

@@ -44,9 +44,10 @@ test("encrypted vault CRUD reaches real Storage and rejects a wrong password", a
     await expect(unlockSyncVault("wrong-password", vault.id, handle)).rejects.toThrow();
     const reopened = await unlockSyncVault(password, vault.id, handle);
     expect(reopened).not.toBeNull();
-    expect(await reopened!.decryptSecret(item)).toBe("E2E private note");
-    await reopened!.encryptAndStore(JSON.stringify({ ...item, notes: "Updated private note" }));
-    expect((await reopened!.loadSecrets())[0].notes).toBe("Updated private note");
+    if (!reopened) throw new Error("Expected vault to reopen");
+    expect(await reopened.decryptSecret(item)).toBe("E2E private note");
+    await reopened.encryptAndStore(JSON.stringify({ ...item, notes: "Updated private note" }));
+    expect((await reopened.loadSecrets())[0].notes).toBe("Updated private note");
     await handle.sync({ direction: "push" });
     const updated = await storage.executeSql(
       handle.id,
@@ -56,9 +57,9 @@ test("encrypted vault CRUD reaches real Storage and rejects a wrong password", a
     expect(updated.results[0].rows).toHaveLength(1);
     expect(updated.results[0].rows).not.toEqual(remote.results[0].rows);
     expect(JSON.stringify(updated)).not.toContain("Updated private note");
-    await reopened!.deleteSecret(item.id);
+    await reopened.deleteSecret(item.id);
     await handle.sync({ direction: "push" });
-    expect(await reopened!.loadSecrets()).toEqual([]);
+    expect(await reopened.loadSecrets()).toEqual([]);
     const deleted = await storage.executeSql(
       handle.id,
       { statements: [{ sql: "SELECT ciphertext FROM secrets", params: [] }] },

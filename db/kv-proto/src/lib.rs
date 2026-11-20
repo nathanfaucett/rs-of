@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-#![allow(clippy::double_must_use)]
 
 #[cfg(feature = "file-descriptor-set")]
 pub use kvdb::FILE_DESCRIPTOR_SET;

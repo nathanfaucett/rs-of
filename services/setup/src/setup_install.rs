@@ -117,7 +117,10 @@ pub struct CancelInstallation {
 }
 
 impl CancelInstallation {
-    pub(crate) const fn new(installation: Arc<Installation>, cancellation: CancellationToken) -> Self {
+    pub(crate) const fn new(
+        installation: Arc<Installation>,
+        cancellation: CancellationToken,
+    ) -> Self {
         Self {
             installation,
             cancellation,

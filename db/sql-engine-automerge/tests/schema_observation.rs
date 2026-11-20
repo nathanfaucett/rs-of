@@ -5,6 +5,10 @@ use uuid::Uuid;
 use value::{Row, Value};
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn table_names_preserve_live_identities_order_and_fresh_transactions() {
     block_on(async {
         let kernel = InMemoryKernel::new();
@@ -12,7 +16,7 @@ fn table_names_preserve_live_identities_order_and_fresh_transactions() {
         let database = Engine::new(kernel.clone(), AutomergeRowCodec::new());
         assert_eq!(
             database.table_names().await.expect("empty catalog"),
-            [] as [std::string::String; 0]
+            [] as [String; 0]
         );
 
         let ids = [
@@ -89,6 +93,10 @@ fn table_names_preserve_live_identities_order_and_fresh_transactions() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn table_names_reject_fresh_malformed_live_and_deleted_raw_rows() {
     block_on(async {
         for deleted in [false, true] {
@@ -144,6 +152,10 @@ fn table_names_reject_fresh_malformed_live_and_deleted_raw_rows() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn bulk_schema_observation_preserves_order_defaults_indices_and_current_visibility() {
     block_on(async {
         let database = Engine::new(InMemoryKernel::new(), AutomergeRowCodec::new());
@@ -212,6 +224,14 @@ fn bulk_schema_observation_preserves_order_defaults_indices_and_current_visibili
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "bulk observation validates every table and index identity"
+)]
 fn bulk_schema_observation_uses_largest_table_identity_and_checks_index_column_identity() {
     block_on(async {
         let kernel = InMemoryKernel::new();
@@ -358,6 +378,10 @@ fn bulk_schema_observation_uses_largest_table_identity_and_checks_index_column_i
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn bulk_schema_discovery_omits_dropped_indices_but_retains_raw_tombstones() {
     block_on(async {
         let database = Engine::new(InMemoryKernel::new(), AutomergeRowCodec::new());
@@ -388,6 +412,10 @@ fn bulk_schema_discovery_omits_dropped_indices_but_retains_raw_tombstones() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn bulk_schema_discovery_filters_by_winning_index_table_not_losing_definition() {
     block_on(async {
         let kernel = InMemoryKernel::new();
@@ -464,6 +492,10 @@ fn bulk_schema_discovery_filters_by_winning_index_table_not_losing_definition() 
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn bulk_schema_observation_rejects_current_malformed_unrelated_catalogs() {
     block_on(async {
         for storage in [

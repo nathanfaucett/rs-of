@@ -34,4 +34,4 @@ Transport choice does not require one shared physical database or one database f
 
 Protocol unit tests, an attached browser session, and a synchronized SQL result establish different facts. KV, filesystem metadata, and filesystem content require their own evidence. Do not infer backup or multi-Device authorization from a mounted route.
 
-[e2e/runtime-validation.md](../../../e2e/runtime-validation.md) records results for specific older commits. It is useful reproduction history, not current qualification without a new run.
+GitHub Actions records qualification results for each tested commit. Do not present a past run as current evidence.

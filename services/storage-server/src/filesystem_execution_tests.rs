@@ -241,7 +241,7 @@ async fn delayed_http_policy_cannot_release_queued_filesystem_content_after_loca
     use std::{
         collections::BTreeMap,
         sync::{
-            Mutex,
+            Mutex as StdMutex,
             atomic::{AtomicU64, AtomicUsize},
         },
     };

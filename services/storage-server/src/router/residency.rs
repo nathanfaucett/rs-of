@@ -53,7 +53,8 @@ async fn require_target(
         (status = 500, description = "Owner Residency read failed"),
         (status = 503, description = "Local Storage or identity service unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "resources::residency"
 )]
 pub async fn get_file_system_residency(
     State(state): State<ResourceState>,
@@ -103,7 +104,8 @@ pub async fn get_file_system_residency(
         (status = 500, description = "Owner Residency update failed; retry/read current mode"),
         (status = 503, description = "Local Storage or identity service unavailable")
     ),
-    security(("authorization" = []))
+    security(("authorization" = [])),
+    tag = "resources::residency"
 )]
 pub async fn put_file_system_residency(
     State(state): State<ResourceState>,

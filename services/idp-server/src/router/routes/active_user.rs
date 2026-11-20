@@ -9,8 +9,8 @@ use of_model::idp::contract::error_response::ErrorResponse;
 use of_model::idp::contract::service_scopes::IDP_USER_LOOKUP_SCOPE;
 
 #[utoipa::path(get, path = "/users/{user_id}/active", params(("user_id" = String, Path)),
-    responses((status = 204, description = "Current conflict-clear active User"), (status = 401, description = "Invalid Client token"), (status = 403, description = "Missing exact service permission"), (status = 404, description = "User is not active")), security(("authorization" = [])))]
-pub(crate) async fn active_user(
+    responses((status = 204, description = "Current conflict-clear active User"), (status = 401, description = "Invalid Client token"), (status = 403, description = "Missing exact service permission"), (status = 404, description = "User is not active")), security(("authorization" = [])), tag = "super_routes_active_user")]
+pub async fn active_user(
     State(state): State<RouterState>,
     Path(user_id): Path<Id>,
     headers: HeaderMap,

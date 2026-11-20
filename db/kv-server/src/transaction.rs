@@ -48,7 +48,7 @@ where
                     };
                     let outcome = match result {
                         Ok(()) => Outcome::Completed(()),
-                        Err(error) => error_outcome(status_from_error(error)),
+                        Err(error) => error_outcome(&status_from_error(error)),
                     };
                     let _ = sender
                         .send(Ok(TransactionResponse {
@@ -62,7 +62,7 @@ where
                         () = sender.closed() => break,
                         result = execute(&mut transaction, command) => result,
                     };
-                    result.unwrap_or_else(error_outcome)
+                    result.unwrap_or_else(|status| error_outcome(&status))
                 }
                 None => Outcome::ErrorDetail(kv_proto::encode_error_details(
                     kv_proto::ErrorKind::Internal,
@@ -144,6 +144,6 @@ where
     }))
 }
 
-fn error_outcome(status: Status) -> Outcome {
+fn error_outcome(status: &Status) -> Outcome {
     Outcome::ErrorDetail(status.details().to_vec())
 }

@@ -1,8 +1,13 @@
 use std::{
     collections::VecDeque,
-    fs,
+    env, fs,
+    future::{pending, poll_fn, ready},
+    path::{Path, PathBuf},
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     task::Poll,
 };
 
@@ -12,14 +17,14 @@ use file_system::{
     MemoryTransport, OpenRequest, OperationControl, Residency, ScanPage, SessionRequest,
     SyncMessage, Transport,
 };
-use tokio::sync::broadcast;
+use tokio::sync::{Notify, broadcast};
 use uuid::Uuid;
 
 #[derive(Clone)]
 enum Chunk {
     Bytes(Bytes),
     Pending,
-    Wait(Arc<tokio::sync::Notify>),
+    Wait(Arc<Notify>),
     Error,
     End,
 }
@@ -52,7 +57,7 @@ impl FileHandle<u8> for Handle {
                 .expect("script has next read");
             match chunk {
                 Chunk::Bytes(bytes) => Ok(bytes),
-                Chunk::Pending => std::future::pending().await,
+                Chunk::Pending => pending().await,
                 Chunk::Wait(notify) => {
                     notify.notified().await;
                     Ok(Bytes::new())
@@ -65,11 +70,7 @@ impl FileHandle<u8> for Handle {
     fn write(&mut self, _: u64, _: Bytes) -> FileFuture<'_, Result<u32, Error>> {
         Box::pin(async { Err(Error::Offline) })
     }
-    fn scan(
-        &mut self,
-        _: Option<String>,
-        _: u32,
-    ) -> FileFuture<'_, Result<ScanPage<u8>, Error>> {
+    fn scan(&mut self, _: Option<String>, _: u32) -> FileFuture<'_, Result<ScanPage<u8>, Error>> {
         Box::pin(async { Err(Error::Offline) })
     }
     fn close(self: Box<Self>) -> FileFuture<'static, Result<(), Error>> {
@@ -85,13 +86,13 @@ impl Transport<u8> for Exchange {
         self.inner
             .send(peer, message)
             .await
-            .map_err(|_| Error::Offline)
+            .map_err(|_error| Error::Offline)
     }
     async fn broadcast(&self, message: SyncMessage<u8>) -> Result<(), Error> {
         self.inner
             .broadcast(message)
             .await
-            .map_err(|_| Error::Offline)
+            .map_err(|_error| Error::Offline)
     }
     fn subscribe(&self) -> broadcast::Receiver<IncomingMessage<u8>> {
         self.inner.subscribe()
@@ -99,10 +100,10 @@ impl Transport<u8> for Exchange {
 }
 impl FileSessionService<u8> for Exchange {
     type Handle = Handle;
-    async fn open(&self, _: u8, _: OpenRequest) -> Result<Handle, Error> {
-        Ok(Handle {
+    fn open(&self, _: u8, _: OpenRequest) -> impl Future<Output = Result<Handle, Error>> + Send {
+        ready(Ok(Handle {
             exchange: self.clone(),
-        })
+        }))
     }
     fn subscribe_file_sessions(&self) -> broadcast::Receiver<SessionRequest<u8>> {
         self.inner.subscribe_file_sessions()
@@ -110,8 +111,8 @@ impl FileSessionService<u8> for Exchange {
 }
 
 struct Fixture {
-    source_root: std::path::PathBuf,
-    target_root: std::path::PathBuf,
+    source_root: PathBuf,
+    target_root: PathBuf,
     source: FileSystem<u8>,
     target: FileSystem<u8>,
     source_transport: MemoryTransport<u8>,
@@ -119,8 +120,8 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(chunks: Vec<Chunk>) -> Self {
-        let source_root = std::env::temp_dir().join(format!("offs-integrity-{}", Uuid::now_v7()));
-        let target_root = std::env::temp_dir().join(format!("offs-integrity-{}", Uuid::now_v7()));
+        let source_root = env::temp_dir().join(format!("offs-integrity-{}", Uuid::now_v7()));
+        let target_root = env::temp_dir().join(format!("offs-integrity-{}", Uuid::now_v7()));
         let source = FileSystem::open(&source_root, 1)
             .await
             .expect("source opens");
@@ -163,8 +164,8 @@ impl Fixture {
             .expect("metadata queues");
         sync.pump().await.expect("metadata imports");
     }
-    fn temporary_files(&self) -> Vec<std::path::PathBuf> {
-        fn walk(path: &std::path::Path, output: &mut Vec<std::path::PathBuf>) {
+    fn temporary_files(&self) -> Vec<PathBuf> {
+        fn walk(path: &Path, output: &mut Vec<PathBuf>) {
             for entry in fs::read_dir(path).expect("data directory") {
                 let path = entry.expect("entry").path();
                 if path.is_dir() {
@@ -186,7 +187,7 @@ impl Drop for Fixture {
     }
 }
 async fn poll_until_staged<F: Future>(future: &mut Pin<Box<F>>) {
-    std::future::poll_fn(|cx| {
+    poll_fn(|cx| {
         assert!(
             future.as_mut().poll(cx).is_pending(),
             "fetch must be waiting on the second chunk"
@@ -216,7 +217,7 @@ async fn cancelling_a_polled_multichunk_fetch_cleans_staging_and_retries() {
     assert_eq!(fs::read(&stages[0]).expect("staged bytes"), b"partial");
     control.cancel();
     assert!(matches!(fetch.await, Err(Error::Cancelled)));
-    assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
+    assert_eq!(fixture.temporary_files(), [] as [PathBuf; 0]);
     assert!(matches!(
         fixture.target.read("file").await,
         Err(Error::ContentUnavailable)
@@ -230,7 +231,7 @@ async fn cancelling_a_polled_multichunk_fetch_cleans_staging_and_retries() {
         fixture.target.read("file").await.expect("complete visible"),
         b"complete"
     );
-    assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
+    assert_eq!(fixture.temporary_files(), [] as [PathBuf; 0]);
 }
 
 #[tokio::test]
@@ -260,7 +261,7 @@ async fn dropping_a_polled_fetch_and_stream_errors_remove_only_abandoned_staging
         } else {
             assert!(matches!(sync.fetch("file").await, Err(Error::Offline)));
         }
-        assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
+        assert_eq!(fixture.temporary_files(), [] as [PathBuf; 0]);
         assert!(matches!(
             fixture.target.read("file").await,
             Err(Error::ContentUnavailable)
@@ -279,7 +280,7 @@ async fn dropping_a_polled_fetch_and_stream_errors_remove_only_abandoned_staging
 
 #[tokio::test]
 async fn revision_change_during_staging_cannot_replace_newer_valid_content() {
-    let release = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(Notify::new());
     let fixture = Fixture::new(vec![
         Chunk::Bytes(Bytes::from_static(b"old transfer")),
         Chunk::Wait(Arc::clone(&release)),
@@ -296,7 +297,7 @@ async fn revision_change_during_staging_cannot_replace_newer_valid_content() {
         .expect("newer local revision");
     release.notify_one();
     assert!(matches!(fetch.await, Err(Error::StaleRevision)));
-    assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
+    assert_eq!(fixture.temporary_files(), [] as [PathBuf; 0]);
     assert_eq!(
         fixture
             .target
@@ -317,17 +318,17 @@ async fn revision_change_during_staging_cannot_replace_newer_valid_content() {
 
 #[tokio::test]
 async fn complete_staging_still_requires_a_new_publication_decision() {
-    let release = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(Notify::new());
     let fixture = Fixture::new(vec![
         Chunk::Bytes(Bytes::from_static(b"complete")),
         Chunk::Wait(Arc::clone(&release)),
     ])
     .await;
-    let allowed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let allowed = Arc::new(AtomicBool::new(true));
     let policy = Arc::clone(&allowed);
     let control = OperationControl::new(move |_, _| {
         let policy = Arc::clone(&policy);
-        Box::pin(async move { policy.load(std::sync::atomic::Ordering::SeqCst) })
+        Box::pin(async move { policy.load(Ordering::SeqCst) })
     });
     let mut sync = fixture
         .target
@@ -336,10 +337,10 @@ async fn complete_staging_still_requires_a_new_publication_decision() {
     fixture.metadata(&mut sync).await;
     let mut fetch = Box::pin(sync.fetch("file"));
     poll_until_staged(&mut fetch).await;
-    allowed.store(false, std::sync::atomic::Ordering::SeqCst);
+    allowed.store(false, Ordering::SeqCst);
     release.notify_one();
     assert!(matches!(fetch.await, Err(Error::PermissionDenied)));
-    assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
+    assert_eq!(fixture.temporary_files(), [] as [PathBuf; 0]);
     assert!(matches!(
         fixture.target.read("file").await,
         Err(Error::ContentUnavailable)
@@ -396,5 +397,5 @@ async fn imported_new_revision_needs_new_content_and_keeps_earlier_complete_byte
             .expect("new content visible"),
         b"replacement"
     );
-    assert_eq!(fixture.temporary_files(), [] as [std::path::PathBuf; 0]);
+    assert_eq!(fixture.temporary_files(), [] as [PathBuf; 0]);
 }

@@ -1,8 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
-    fs,
-    io,
+    fs, io,
     path::PathBuf,
     pin::Pin,
     sync::{Arc, Mutex as StdMutex},
@@ -601,18 +600,19 @@ where
                     .await
                     .map_err(crate::persistence::error)?
                     .into_iter()
-                    .map(|(_, value)| {
-                        let ofdb_kv::Value::Json(value) = value else {
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "invalid filesystem namespace record",
-                            ));
-                        };
-                        serde_json::from_value(
+                    .map(|(_, value)| match value {
+                        ofdb_kv::Value::Blob(value) => {
+                            serde_json::from_slice(&value).map_err(io::Error::other)
+                        }
+                        ofdb_kv::Value::Json(value) => serde_json::from_value(
                             serde_json::Value::try_from(value)
                                 .map_err(crate::persistence::error)?,
                         )
-                        .map_err(io::Error::other)
+                        .map_err(io::Error::other),
+                        _ => Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "invalid filesystem namespace record",
+                        )),
                     })
                     .collect()
             })
@@ -682,11 +682,11 @@ where
                             .map_err(|error| error.to_string())?
                             .client();
                     crate::persistence::run(async {
-                        let value = serde_json::to_value(id).map_err(io::Error::other)?;
+                        let value = serde_json::to_vec(id).map_err(io::Error::other)?;
                         registry
                             .set(
                                 &format!("namespace:{name}"),
-                                ofdb_kv::Value::Json(value.into()),
+                                ofdb_kv::Value::Blob(value),
                                 None,
                             )
                             .await
@@ -780,6 +780,7 @@ mod tests {
 
     use super::storage_namespace_id;
 
+    #[derive(Clone, Copy)]
     struct Namespace {
         user_sub: &'static str,
         application_id: of_model::id::Id,
@@ -1398,7 +1399,8 @@ mod tests {
             runtime
                 .list_resources(&scope)
                 .await
-                .expect("deleted catalog lists"), [] as [file_system::FileSystemResource; 0]
+                .expect("deleted catalog lists"),
+            [] as [file_system::FileSystemResource; 0]
         );
         assert!(
             runtime
@@ -1556,13 +1558,10 @@ mod tests {
             .join("filesystems")
             .join(projected_id.as_uuid().to_string());
         assert!(projected_root.exists());
-        let session = crate::service::ScopedStorageService::open_resource(
-            &runtime,
-            namespace,
-            projected_id,
-        )
-        .await
-        .expect("open domain session before deselection");
+        let session =
+            crate::service::ScopedStorageService::open_resource(&runtime, namespace, projected_id)
+                .await
+                .expect("open domain session before deselection");
 
         runtime
             .remove_unselected_projected_resources(&[])

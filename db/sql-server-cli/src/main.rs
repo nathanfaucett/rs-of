@@ -1,7 +1,7 @@
 #[cfg(feature = "p2p")]
 mod p2p;
 
-use std::{io, net::SocketAddr, path::PathBuf};
+use std::{error::Error as StdError, fs, io, net::SocketAddr, path::PathBuf};
 
 use clap::Parser;
 #[cfg(feature = "p2p")]
@@ -9,6 +9,7 @@ use iroh::EndpointId;
 #[cfg(feature = "p2p")]
 use std::str::FromStr;
 use std::sync::Arc;
+use tokio::{signal, sync::watch, task::JoinHandle};
 
 #[derive(Debug, Parser)]
 #[command(about = "Run an ofdb SQL database server")]
@@ -38,11 +39,11 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn main() -> Result<(), Box<dyn StdError + Send + Sync>> {
     run(Args::parse()).await
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn run(args: Args) -> Result<(), Box<dyn StdError + Send + Sync>> {
     #[cfg(feature = "p2p")]
     let secret_path = args.database.with_extension("iroh-key");
     let database = Arc::new(ofdb_sql::Database::open(args.database)?);
@@ -56,9 +57,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 
     let result = database
         .serve_tcp_with_mtls(args.address, identity, client_ca, async {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to listen for Ctrl-C");
+            signal::ctrl_c().await.expect("failed to listen for Ctrl-C");
         })
         .await;
     #[cfg(feature = "p2p")]
@@ -72,10 +71,9 @@ fn load_identity(
     private_key: Option<PathBuf>,
 ) -> io::Result<Option<(Vec<u8>, Vec<u8>)>> {
     match (certificate, private_key) {
-        (Some(certificate), Some(private_key)) => Ok(Some((
-            std::fs::read(certificate)?,
-            std::fs::read(private_key)?,
-        ))),
+        (Some(certificate), Some(private_key)) => {
+            Ok(Some((fs::read(certificate)?, fs::read(private_key)?)))
+        }
         (None, None) => Ok(None),
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -93,7 +91,7 @@ fn load_client_ca(
             io::ErrorKind::InvalidInput,
             "client CA requires OFDB_TLS_CERT and OFDB_TLS_KEY",
         )),
-        (Some(certificate), true) => Ok(Some(std::fs::read(certificate)?)),
+        (Some(certificate), true) => Ok(Some(fs::read(certificate)?)),
         (None, _) => Ok(None),
     }
 }
@@ -104,10 +102,10 @@ fn start_p2p(
     secret_path: PathBuf,
     sync_peers: Vec<EndpointId>,
 ) -> (
-    tokio::sync::watch::Sender<bool>,
-    Option<tokio::task::JoinHandle<Result<(), io::Error>>>,
+    watch::Sender<bool>,
+    Option<JoinHandle<Result<(), io::Error>>>,
 ) {
-    let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
+    let (shutdown_sender, shutdown_receiver) = watch::channel(false);
     let task = if sync_peers.is_empty() {
         None
     } else {
@@ -123,9 +121,9 @@ fn start_p2p(
 
 #[cfg(feature = "p2p")]
 async fn finish_p2p(
-    shutdown_sender: tokio::sync::watch::Sender<bool>,
-    task: Option<tokio::task::JoinHandle<Result<(), io::Error>>>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    shutdown_sender: watch::Sender<bool>,
+    task: Option<JoinHandle<Result<(), io::Error>>>,
+) -> Result<(), Box<dyn StdError + Send + Sync>> {
     let _ = shutdown_sender.send(true);
     if let Some(task) = task {
         task.await??;
@@ -137,10 +135,10 @@ async fn finish_p2p(
 fn merge_sync_peers(
     cli_peers: Vec<EndpointId>,
     peers_file: Option<PathBuf>,
-) -> Result<Vec<EndpointId>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Vec<EndpointId>, Box<dyn StdError + Send + Sync>> {
     let mut peers = cli_peers;
     if let Some(path) = peers_file {
-        let content = std::fs::read_to_string(&path)?;
+        let content = fs::read_to_string(&path)?;
         for line in content.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
@@ -154,7 +152,7 @@ fn merge_sync_peers(
 
 #[cfg(test)]
 mod tests {
-    use std::{io::ErrorKind, path::PathBuf};
+    use std::{fs, io::ErrorKind, path::PathBuf};
 
     #[cfg(feature = "p2p")]
     use super::merge_sync_peers;
@@ -194,7 +192,7 @@ mod tests {
         let file = dir.path().join("peers.txt");
         let key1 = SecretKey::generate().public();
         let key2 = SecretKey::generate().public();
-        let mut f = std::fs::File::create(&file).unwrap();
+        let mut f = fs::File::create(&file).unwrap();
         writeln!(f, "{key1}").unwrap();
         writeln!(f, "# comment").unwrap();
         writeln!(f, "{key2}").unwrap();
@@ -215,7 +213,7 @@ mod tests {
         let key1 = SecretKey::generate().public();
         let key2 = SecretKey::generate().public();
         let key3 = SecretKey::generate().public();
-        let mut f = std::fs::File::create(&file).unwrap();
+        let mut f = fs::File::create(&file).unwrap();
         writeln!(f, "{key2}").unwrap();
         let peers = merge_sync_peers(vec![key1, key3], Some(file)).unwrap();
         assert_eq!(peers.len(), 3);

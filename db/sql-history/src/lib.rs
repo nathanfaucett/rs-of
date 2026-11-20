@@ -1,10 +1,10 @@
 #![no_std]
 
 extern crate alloc;
-#[cfg(any(all(
+#[cfg(all(
     feature = "native-stage",
     not(all(target_arch = "wasm32", target_os = "unknown"))
-)))]
+))]
 extern crate std;
 
 mod candidate;

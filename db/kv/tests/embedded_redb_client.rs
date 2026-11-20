@@ -3,6 +3,10 @@ use ofdb_kv::Database;
 use ofdb_kv::Value;
 
 #[test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit or rollback"
+)]
 fn existing_named_table_transactions_reopen_without_conversion() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let path = directory.path().join("named.redb");
@@ -68,6 +72,10 @@ fn unsupported_named_table_is_not_replaced() {
 }
 
 #[test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit or rollback"
+)]
 fn redb_client_shares_storage_and_survives_database_drop() {
     let directory = tempfile::tempdir().expect("create temporary directory");
     let path = directory.path().join("embedded.redb");

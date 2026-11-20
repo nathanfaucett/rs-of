@@ -1,5 +1,10 @@
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::significant_drop_tightening,
+        reason = "test transactions are consumed by commit"
+    )]
+
     use std::sync::Arc;
 
     use btree::BTreeTransaction;

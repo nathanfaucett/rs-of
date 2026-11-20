@@ -30,6 +30,7 @@ impl Mutations {
             .entry((table.to_owned(), key))
             .or_insert_with(|| (old, None));
         values.1 = new;
+        drop(keys);
     }
 
     pub fn table(&self, table: &str, old: bool, new: bool) {
@@ -42,6 +43,7 @@ impl Mutations {
         let mut tables = self.tables.lock().expect("transaction table mutation lock");
         let state = tables.entry(table.to_owned()).or_insert((old, old));
         state.1 = new;
+        drop(tables);
     }
 
     pub fn invalidations(&self) -> Vec<StorageInvalidation> {

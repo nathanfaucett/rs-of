@@ -40,7 +40,7 @@ struct Fixture {
 impl Fixture {
     async fn new() -> Self {
         let identity = Arc::new(Database::in_memory());
-        db::ofdb::up(&identity)
+        db::ofdb::up(&identity.client())
             .await
             .expect("identity policy schema");
         let database = Arc::new(Database::in_memory());

@@ -1,5 +1,16 @@
 #![cfg(all(feature = "sql", feature = "in-memory"))]
 
+use core::slice::from_ref;
+#[cfg(all(feature = "remote", feature = "server"))]
+use std::{net::TcpListener, time::Duration};
+
+use futures::executor::block_on;
+#[cfg(all(feature = "remote", feature = "server"))]
+use tokio::{
+    sync::oneshot,
+    time::{sleep, timeout},
+};
+
 use ofdb_sql::{Client, Database, ErrorKind, Migration, MigrationPhase, QueryParams, Row, Value};
 
 const FIRST: &str = "UPDATE items SET amount = 20";
@@ -57,7 +68,7 @@ async fn reject(client: &Client, plan: &[Migration], phase: MigrationPhase, vers
 
 #[test]
 fn invalid_plan_preserves_translation_detail_with_safe_migration_formatting() {
-    futures::executor::block_on(async {
+    block_on(async {
         let client = Database::in_memory().client();
         let sql = "INVALID private-value";
         let query_error = client
@@ -89,12 +100,10 @@ fn timed_plan_validation_uses_the_normal_sql_deadline_runner() {
         .client()
         .with_deadline(Duration::from_secs(1));
     let sql = "INVALID private-value";
-    let query = catch_unwind(AssertUnwindSafe(|| {
-        futures::executor::block_on(client.execute_sql(sql, None))
-    }));
+    let query = catch_unwind(AssertUnwindSafe(|| block_on(client.execute_sql(sql, None))));
     assert!(query.is_err(), "native timed SQL requires a Tokio timer");
     let migration = catch_unwind(AssertUnwindSafe(|| {
-        futures::executor::block_on(client.migrate(&[Migration::new(1, "m1", sql)]))
+        block_on(client.migrate(&[Migration::new(1, "m1", sql)]))
     }));
     assert!(
         migration.is_err(),
@@ -288,7 +297,7 @@ async fn rejects_history_changes_with_active_version(client: &Client) {
         fixture(client).await;
         let first = Migration::new(1, "m1", FIRST);
         client
-            .migrate(core::slice::from_ref(&first))
+            .migrate(from_ref(&first))
             .await
             .expect("initialize history");
         let second = Migration::new(2, "m2", format!("UPDATE items SET amount = 99; {tamper}"));
@@ -320,19 +329,19 @@ async fn validation_suite(client: &Client) {
 }
 
 #[test]
-#[ignore]
+#[ignore = "pre-existing disabled test"]
 fn embedded_rejects_invalid_plans_and_history_without_changes() {
-    futures::executor::block_on(validation_suite(&Database::in_memory().client()));
+    block_on(validation_suite(&Database::in_memory().client()));
 }
 
 #[cfg(all(feature = "remote", feature = "server"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_rejects_invalid_plans_and_history_without_changes() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve port");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("reserve port");
     let address = listener.local_addr().expect("local address");
     drop(listener);
     let database = Database::in_memory();
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
+    let (shutdown, signal) = oneshot::channel();
     let server = tokio::spawn(async move {
         database
             .serve_tcp(address, async {
@@ -341,12 +350,12 @@ async fn remote_rejects_invalid_plans_and_history_without_changes() {
             .await
             .expect("serve database");
     });
-    let client = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    let client = timeout(Duration::from_secs(5), async {
         loop {
             if let Ok(client) = Client::connect(format!("http://{address}")).await {
                 break client;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            sleep(Duration::from_millis(5)).await;
         }
     })
     .await

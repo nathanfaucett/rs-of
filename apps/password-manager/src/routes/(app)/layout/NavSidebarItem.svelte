@@ -22,7 +22,7 @@ let { icon, label, active = false, collapsed = false, onclick, onkeydown }: Prop
 {/snippet}
 
 <button
-	role="menuitem"
+	type="button"
 	aria-current={active ? "page" : undefined}
 	aria-label={label}
 	class="relative flex w-full items-center gap-3 px-3 py-2 text-sm font-medium transition-colors rounded-lg

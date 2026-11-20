@@ -1,5 +1,5 @@
 // Node.js implementation of @ofsdk/sync-sdk
-import { EventEmitter } from "events";
+import { EventEmitter } from "node:events";
 import { Subject, BehaviorSubject } from "rxjs";
 import { StorageClient } from "@ofsdk/storage-client";
 import { SyncClient } from "@ofsdk/storage-sync-client";
@@ -7,9 +7,8 @@ import { Database, JsPushSyncTransport, PushSynchronizeConfig, } from "@ofsdk/sq
 import { execute } from "./sql";
 /** Node.js sync SDK implementation */
 export class NodeSyncSDK extends EventEmitter {
-    config;
     storageClient;
-    syncClient = null;
+    config;
     databases = new Map();
     kvStores = new Map();
     filesystems = new Map();
@@ -19,7 +18,6 @@ export class NodeSyncSDK extends EventEmitter {
         vectorClock: {},
     });
     state$ = this._globalState$.asObservable();
-    closed = false;
     constructor(config) {
         super();
         this.config = config;
@@ -29,16 +27,6 @@ export class NodeSyncSDK extends EventEmitter {
             clientId: config.appId,
             bearerToken: config.getToken,
         });
-    }
-    /** Initialize the sync client */
-    async initSyncClient() {
-        if (this.syncClient)
-            return this.syncClient;
-        this.syncClient = new SyncClient({
-            storageApiUrl: this.config.apiUrl,
-            tokenProvider: () => this.config.getToken(),
-        });
-        return this.syncClient;
     }
     /** SQL database sync */
     sql = {
@@ -153,7 +141,6 @@ export class NodeSyncSDK extends EventEmitter {
         };
     }
     async close() {
-        this.closed = true;
         for (const db of this.databases.values()) {
             await db.close();
         }
@@ -171,8 +158,6 @@ export class NodeSyncSDK extends EventEmitter {
 }
 /** Node.js SQL database handle */
 class NodeDatabaseHandle {
-    handle;
-    config;
     _changes$ = new Subject();
     _state$ = new BehaviorSubject({
         status: "disconnected",
@@ -182,6 +167,8 @@ class NodeDatabaseHandle {
     sqlDatabase = null;
     syncClient = null;
     closed = false;
+    handle;
+    config;
     constructor(handle, config) {
         this.handle = handle;
         this.config = config;
@@ -216,7 +203,7 @@ class NodeDatabaseHandle {
     get state$() {
         return this._state$.asObservable();
     }
-    async sync(options) {
+    async sync(_options) {
         if (!this.sqlDatabase || this.closed)
             return;
         this._state$.next({ ...this._state$.value, status: "connecting" });
@@ -262,23 +249,17 @@ class NodeDatabaseHandle {
 }
 /** Node.js KV store handle */
 class NodeKvStoreHandle {
-    handle;
-    config;
     _changes$ = new Subject();
     _state$ = new BehaviorSubject({
         status: "disconnected",
         version: 0,
         vectorClock: {},
     });
-    closed = false;
-    constructor(handle, config) {
-        this.handle = handle;
-        this.config = config;
-    }
-    async get(key) {
+    constructor(_handle, _config) { }
+    async get(_key) {
         return undefined;
     }
-    async set(key, value) {
+    async set(_key, value) {
         this._changes$.next({
             type: "local-upsert",
             doc: value,
@@ -294,31 +275,24 @@ class NodeKvStoreHandle {
     get state$() {
         return this._state$.asObservable();
     }
-    async sync(options) {
+    async sync(_options) {
         this._state$.next({ ...this._state$.value, status: "connecting" });
         this._state$.next({ ...this._state$.value, status: "synced" });
     }
     async close() {
-        this.closed = true;
         this._changes$.complete();
         this._state$.complete();
     }
 }
 /** Node.js filesystem handle */
 class NodeFilesystemHandle {
-    handle;
-    config;
     _changes$ = new Subject();
     _state$ = new BehaviorSubject({
         status: "disconnected",
         version: 0,
         vectorClock: {},
     });
-    closed = false;
-    constructor(handle, config) {
-        this.handle = handle;
-        this.config = config;
-    }
+    constructor(_handle, _config) { }
     async read(_path) {
         throw new Error("Filesystem not initialized");
     }
@@ -337,12 +311,11 @@ class NodeFilesystemHandle {
     get state$() {
         return this._state$.asObservable();
     }
-    async sync(options) {
+    async sync(_options) {
         this._state$.next({ ...this._state$.value, status: "connecting" });
         this._state$.next({ ...this._state$.value, status: "synced" });
     }
     async close() {
-        this.closed = true;
         this._changes$.complete();
         this._state$.complete();
     }

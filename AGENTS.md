@@ -53,7 +53,7 @@ Use the multi-context layout rooted at `GLOSSARY-MAP.md`. See `docs/agents/domai
 
 - Keep glossaries limited to domain definitions.
 - Keep HTTP routes/payloads in OpenAPI and API signatures in Rustdoc/TypeScript declarations.
-- Keep current behavior, target design, and commit-specific evidence separate.
+- Keep current behavior and target design separate. Keep commit-specific evidence in CI records.
 - Avoid duplicated route tables, source inventories, and manually maintained status tables.
 - Run `just docs-check` for documentation changes.
 

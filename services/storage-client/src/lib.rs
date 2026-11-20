@@ -23,7 +23,10 @@ pub mod native;
 #[cfg(feature = "browser")]
 pub mod browser;
 
-use core::fmt::{Debug, Display};
+use core::{
+    fmt::{self, Debug, Display},
+    str::FromStr,
+};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -59,12 +62,12 @@ impl From<ResourceId> for Uuid {
 }
 
 impl Display for ResourceId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.0, f)
     }
 }
 
-impl core::str::FromStr for ResourceId {
+impl FromStr for ResourceId {
     type Err = uuid::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -112,12 +115,12 @@ impl From<DeviceId> for Uuid {
 }
 
 impl Display for DeviceId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.0, f)
     }
 }
 
-impl core::str::FromStr for DeviceId {
+impl FromStr for DeviceId {
     type Err = uuid::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -156,12 +159,12 @@ impl From<ApplicationId> for Uuid {
 }
 
 impl Display for ApplicationId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.0, f)
     }
 }
 
-impl core::str::FromStr for ApplicationId {
+impl FromStr for ApplicationId {
     type Err = uuid::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -185,6 +188,7 @@ pub struct SyncResult {
 
 /// Sync session handle.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncSession {
     pub session_id: String,
     pub resource_id: ResourceId,
@@ -194,12 +198,16 @@ pub struct SyncSession {
 
 /// Sync status.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum SyncStatus {
+    #[serde(rename = "connecting")]
     Connecting,
+    #[serde(rename = "syncing")]
     Synchronizing,
+    #[serde(rename = "completed")]
     Synced,
+    #[serde(rename = "cancelled")]
     Disconnected,
+    #[serde(rename = "failed")]
     Error,
 }
 
@@ -262,6 +270,7 @@ pub struct OpenFilesystemRequest {
 
 /// Sync to device request.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncToDeviceRequest {
     pub resource_id: ResourceId,
     pub target_device: DeviceId,

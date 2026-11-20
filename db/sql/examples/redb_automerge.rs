@@ -1,17 +1,23 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    env, fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use futures::executor::block_on;
 
 use ofdb_sql::{Database, SqlTranslator};
 
-fn database_path() -> std::path::PathBuf {
+fn database_path() -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time before Unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("db-redb-automerge-example-{nanos}.redb"))
+    env::temp_dir().join(format!("db-redb-automerge-example-{nanos}.redb"))
 }
 
 fn main() {
-    futures::executor::block_on(async {
+    block_on(async {
         let path = database_path();
         let database = Database::open(&path).expect("open Redb database");
 
@@ -23,6 +29,6 @@ fn main() {
             )
             .await
             .expect("create users");
-        std::fs::remove_file(path).expect("remove Redb database");
+        fs::remove_file(path).expect("remove Redb database");
     });
 }

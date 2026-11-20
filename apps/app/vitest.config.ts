@@ -1,6 +1,7 @@
 import { sveltekit } from "@sveltejs/kit/vite";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
+import { appURL } from "../../e2e/backend.mjs";
 import { appEnv } from "../../e2e/frontend-env.mjs";
 
 Object.assign(process.env, appEnv);
@@ -13,7 +14,11 @@ export default defineConfig({
 
     testTimeout: 60000,
     browser: {
-      api: { host: "127.0.0.1", port: 5173, strictPort: true },
+      api: {
+        host: "127.0.0.1",
+        port: Number(new URL(appURL).port),
+        strictPort: true,
+      },
       enabled: true,
       provider: playwright(),
       instances: [

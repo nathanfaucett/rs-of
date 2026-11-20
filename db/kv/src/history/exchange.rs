@@ -1,4 +1,9 @@
+use postcard::experimental::serialized_size;
+
 use core::{
+    fmt::Debug,
+    future::ready,
+    mem::take,
     pin::pin,
     task::{Context, Waker},
 };
@@ -12,6 +17,11 @@ use super::{
     decode_frame, encode_frame, protocol::VERSION,
 };
 
+/// Synchronizes history without a pre-apply check.
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, or history failure.
 pub async fn synchronize<B, T>(
     store: &KvStore<B>,
     transport: &mut T,
@@ -22,14 +32,15 @@ where
     B: BTree<Vec<u8>, Vec<u8>>,
     T: SyncTransport,
 {
-    synchronize_checked(store, transport, role, config, || {
-        core::future::ready(Ok(()))
-    })
-    .await
+    synchronize_checked(store, transport, role, config, || ready(Ok(()))).await
 }
 
 /// Broad discovery, native incremental transfer, and merge-preserving snapshot recovery.
 /// Checks run before complete atomic incoming batches. Discard transport after failure.
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, pre-apply, or history failure.
 pub async fn synchronize_checked<B, T, Q, U>(
     store: &KvStore<B>,
     transport: &mut T,
@@ -54,11 +65,16 @@ where
     .await
 }
 
-/// Select work before opening read snapshots. Both peers compare the union of their
-/// keys; either peer's All forces broad discovery. Acknowledge selected work only
-/// after success. New peers, reconnects and unknown/gapped work must select All.
-/// Local subscriptions cannot observe remote-only writes: callers must arrange a
+/// Select work before opening read snapshots.
+///
+/// Both peers compare the union of their keys; either peer's All forces broad discovery.
+/// Acknowledge selected work only after success. New peers, reconnects and unknown/gapped work
+/// must select All. Local subscriptions cannot observe remote-only writes: callers must arrange a
 /// remote wakeup/receive loop or explicitly reconcile, even when local work is empty.
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, pre-apply, or history failure.
 pub async fn synchronize_selected_checked<B, T, Q, U>(
     store: &KvStore<B>,
     invalidations: &[KvInvalidation],
@@ -81,7 +97,7 @@ where
                 .iter()
                 .filter_map(|item| match item {
                     KvInvalidation::Generation { key, .. } => Some(key.clone()),
-                    _ => None,
+                    KvInvalidation::All => None,
                 })
                 .collect::<BTreeSet<_>>()
                 .into_iter()
@@ -92,12 +108,12 @@ where
     match role {
         SyncRole::Initiator => {
             send(transport, Message::Hello { version: VERSION }, config).await?;
-            hello(receive(transport, config).await?)?;
+            hello(&receive(transport, config).await?)?;
             send(transport, Message::Selection(local.clone()), config).await?;
             remote = selection(receive(transport, config).await?)?;
         }
         SyncRole::Responder => {
-            hello(receive(transport, config).await?)?;
+            hello(&receive(transport, config).await?)?;
             send(transport, Message::Hello { version: VERSION }, config).await?;
             remote = selection(receive(transport, config).await?)?;
             send(transport, Message::Selection(local.clone()), config).await?;
@@ -141,10 +157,10 @@ fn selection<E>(message: Message) -> Result<Option<Vec<String>>, Error<E>> {
         Err(Error::UnexpectedMessage)
     }
 }
-fn hello<E>(message: Message) -> Result<(), Error<E>> {
+const fn hello<E>(message: &Message) -> Result<(), Error<E>> {
     match message {
         Message::Hello { version: VERSION } => Ok(()),
-        Message::Hello { version } => Err(Error::UnsupportedVersion(version)),
+        Message::Hello { version } => Err(Error::UnsupportedVersion(*version)),
         _ => Err(Error::UnexpectedMessage),
     }
 }
@@ -197,7 +213,7 @@ async fn send_inventory<T: SyncTransport>(
     send(transport, Message::End, config).await
 }
 fn encoded_size<E>(value: &impl serde::Serialize) -> Result<usize, Error<E>> {
-    postcard::experimental::serialized_size(value).map_err(|error| Error::Codec(error.to_string()))
+    serialized_size(value).map_err(|error| Error::Codec(error.to_string()))
 }
 
 fn batch_fits<E>(bytes: usize, count: usize, config: Config) -> Result<bool, Error<E>> {
@@ -254,6 +270,10 @@ async fn receive_inventory<T: SyncTransport>(
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "one directional session owns inventory, deltas, snapshots, and completion"
+)]
 async fn send_direction<B: BTree<Vec<u8>, Vec<u8>>, T: SyncTransport>(
     store: &KvStore<B>,
     transport: &mut T,
@@ -450,7 +470,7 @@ where
                 send(transport, Message::Applied, config).await?;
                 continue;
             }
-            message = Message::Snapshots(core::mem::take(&mut snapshots).into_values().collect());
+            message = Message::Snapshots(take(&mut snapshots).into_values().collect());
         }
         let applied = match apply_batch(store, &message, &recovery, check).await {
             Ok(applied) => applied,
@@ -581,6 +601,6 @@ async fn receive<T: SyncTransport>(
         config,
     )
 }
-fn storage_error<E: core::fmt::Debug, T>(error: E) -> Error<T> {
+fn storage_error<E: Debug, T>(error: E) -> Error<T> {
     Error::Storage(format!("{error:?}"))
 }

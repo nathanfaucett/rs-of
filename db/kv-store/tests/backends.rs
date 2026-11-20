@@ -1,4 +1,10 @@
-use std::sync::Arc;
+use std::{
+    env, fs,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use btree_redb::{Bytes, RedbByteBTree, table_definition};
 use futures::executor::block_on;
@@ -8,8 +14,8 @@ use uuid::Uuid;
 use value::Value;
 
 fn test_timestamp_provider() -> uuid::Timestamp {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let millis = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let millis = NEXT.fetch_add(1, Ordering::Relaxed);
     uuid::Timestamp::from_unix_time(
         1_700_000_000 + millis / 1_000,
         (millis % 1_000) as u32 * 1_000_000,
@@ -19,10 +25,18 @@ fn test_timestamp_provider() -> uuid::Timestamp {
 }
 
 #[test]
-#[ignore]
+#[ignore = "native Redb integration test"]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential native backend integration test"
+)]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "test transactions are consumed by commit or rollback"
+)]
 fn redb_public_api_persists_live_values_and_tombstones_after_reopen() {
     block_on(async {
-        let path = std::env::temp_dir().join(format!("kv-{}.db", Uuid::now_v7()));
+        let path = env::temp_dir().join(format!("kv-{}.db", Uuid::now_v7()));
         let db = Arc::new(Database::create(&path).unwrap());
         let table = "kv-data";
         let tx = db.begin_write().unwrap();
@@ -30,7 +44,7 @@ fn redb_public_api_persists_live_values_and_tombstones_after_reopen() {
             .unwrap();
         tx.commit().unwrap();
         let store = KvStore::new(
-            RedbByteBTree::new(db.clone(), table),
+            RedbByteBTree::new(Arc::clone(&db), table),
             test_timestamp_provider,
         );
 
@@ -76,7 +90,7 @@ fn redb_public_api_persists_live_values_and_tombstones_after_reopen() {
 
         let db = Arc::new(Database::open(&path).unwrap());
         let store = KvStore::new(
-            RedbByteBTree::new(db.clone(), table),
+            RedbByteBTree::new(Arc::clone(&db), table),
             test_timestamp_provider,
         );
         let read = store.transaction().await.unwrap();
@@ -97,6 +111,6 @@ fn redb_public_api_persists_live_values_and_tombstones_after_reopen() {
         read.rollback().await.unwrap();
         drop(store);
         drop(db);
-        std::fs::remove_file(path).unwrap();
+        fs::remove_file(path).unwrap();
     });
 }

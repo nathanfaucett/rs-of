@@ -1,12 +1,16 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, vec::Vec};
+use core::future::ready;
 
 use engine::{
     DocumentChangeId as SyncChangeId, EngineError, EngineResult, KernelTransaction, RowCodec,
     RowReconciler as SyncRowCodec, Uuid,
 };
-use futures::{StreamExt, stream::Stream};
+use futures::{
+    StreamExt,
+    stream::{Stream, unfold},
+};
 use value::{Row, Value};
 
 pub struct TestCodec;
@@ -76,35 +80,35 @@ impl<T: KernelTransaction> RowCodec<T> for TestCodec {
             .transpose()
     }
 
-    async fn encode_row(
+    fn encode_row(
         &self,
         _transaction: &T,
         _table: &str,
         _row: &Uuid,
         value: &Row,
         _changed_columns: &[usize],
-    ) -> EngineResult<Vec<u8>> {
-        postcard::to_allocvec(value).map_err(EngineError::custom)
+    ) -> impl Future<Output = EngineResult<Vec<u8>>> + Send {
+        ready(postcard::to_allocvec(value).map_err(EngineError::custom))
     }
 
-    async fn conflicted_columns(
+    fn conflicted_columns(
         &self,
         _transaction: &T,
         _table: &str,
         _row: &Uuid,
         _table_rows: &[(Uuid, Row)],
         _table_fields: &[Row],
-    ) -> EngineResult<Vec<usize>> {
-        Ok(Vec::new())
+    ) -> impl Future<Output = EngineResult<Vec<usize>>> + Send {
+        ready(Ok(Vec::new()))
     }
 
-    async fn conflict_values(
+    fn conflict_values(
         &self,
         _transaction: &T,
         _table: &str,
         _row: &Uuid,
-    ) -> EngineResult<Vec<(usize, Vec<Value>)>> {
-        Ok(Vec::new())
+    ) -> impl Future<Output = EngineResult<Vec<(usize, Vec<Value>)>>> + Send {
+        ready(Ok(Vec::new()))
     }
 
     async fn encode_resolution(
@@ -141,13 +145,13 @@ impl<T: KernelTransaction> RowCodec<T> for TestCodec {
         self.remove_row(transaction, table, row).await
     }
 
-    async fn row_is_deleted(
+    fn row_is_deleted(
         &self,
         _transaction: &T,
         _table: &str,
         _row: &Uuid,
-    ) -> EngineResult<bool> {
-        Ok(false)
+    ) -> impl Future<Output = EngineResult<bool>> + Send {
+        ready(Ok(false))
     }
 }
 
@@ -158,7 +162,7 @@ impl<T: KernelTransaction> SyncRowCodec<T> for TestCodec {
         table: &'a str,
     ) -> impl futures::Stream<Item = EngineResult<Uuid>> + Send + 'a {
         let entries = transaction.scan_bytes(table);
-        futures::stream::unfold(Box::pin(entries), |mut entries| async move {
+        unfold(Box::pin(entries), |mut entries| async move {
             match entries.as_mut().next().await {
                 None => None,
                 Some(Err(EngineError::Custom(message))) if message == "Table not found" => None,
@@ -194,33 +198,33 @@ impl<T: KernelTransaction> SyncRowCodec<T> for TestCodec {
         self.merge_row(transaction, table, row, state).await
     }
 
-    async fn export_metadata(
+    fn export_metadata(
         &self,
         _transaction: &T,
         _table: &str,
         _row: Uuid,
-    ) -> EngineResult<Vec<u8>> {
-        Ok(Vec::new())
+    ) -> impl Future<Output = EngineResult<Vec<u8>>> + Send {
+        ready(Ok(Vec::new()))
     }
 
-    async fn merge_metadata(
+    fn merge_metadata(
         &self,
         _transaction: &mut T,
         _table: &str,
         _row: Uuid,
         _metadata: &[u8],
-    ) -> EngineResult<()> {
-        Ok(())
+    ) -> impl Future<Output = EngineResult<()>> + Send {
+        ready(Ok(()))
     }
 
-    async fn change_inventory(
+    fn change_inventory(
         &self,
         _transaction: &T,
         _table: &str,
         _row: Uuid,
         _max_bytes: usize,
-    ) -> EngineResult<Vec<SyncChangeId>> {
-        Ok(Vec::new())
+    ) -> impl Future<Output = EngineResult<Vec<SyncChangeId>>> + Send {
+        ready(Ok(Vec::new()))
     }
 
     async fn export_change(
@@ -241,14 +245,14 @@ impl<T: KernelTransaction> SyncRowCodec<T> for TestCodec {
         Ok(payload)
     }
 
-    async fn apply_change(
+    fn apply_change(
         &self,
         _transaction: &mut T,
         _table: &str,
         _row: Uuid,
         _id: &SyncChangeId,
         _payload: &[u8],
-    ) -> EngineResult<()> {
-        Err(EngineError::SyncDependencyUnavailable)
+    ) -> impl Future<Output = EngineResult<()>> + Send {
+        ready(Err(EngineError::SyncDependencyUnavailable))
     }
 }

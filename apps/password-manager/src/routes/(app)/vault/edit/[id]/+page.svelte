@@ -4,7 +4,7 @@ import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 import SecretEditor from "$lib/vault/secrets/components/SecretEditor.svelte";
 import PageHeader from "$lib/ui/PageHeader.svelte";
 import { ArrowLeft } from "@lucide/svelte";
-import type { Secret } from "$lib/vault/secrets/secret";
+
 
 let { data, params } = $props();
 let vaultData = $derived(vaultStateModule.vaultData);

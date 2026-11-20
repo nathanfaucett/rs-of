@@ -1,7 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * OAuth Server
+ * LIDP IdP API
  * OIDC / OAuth 2.x server implementation
  *
  * The version of the OpenAPI document: 0.1.0
@@ -22,19 +22,19 @@ export interface SetUserMfaRequest {
   /**
    *
    */
-  method: string;
+  enable: boolean;
   /**
    *
    */
-  enable: boolean;
+  method: string;
 }
 
 /**
  * Check if a given object implements the SetUserMfaRequest interface.
  */
 export function instanceOfSetUserMfaRequest(value: object): value is SetUserMfaRequest {
-  if (!("method" in value) || value["method"] === undefined) return false;
   if (!("enable" in value) || value["enable"] === undefined) return false;
+  if (!("method" in value) || value["method"] === undefined) return false;
   return true;
 }
 
@@ -49,15 +49,15 @@ export function SetUserMfaRequestFromJSONTyped(
   if (
     json &&
     typeof json === "object" &&
-    Object.keys(json).some((key) => !["method", "enable"].includes(key))
+    Object.keys(json).some((key) => !["enable", "method"].includes(key))
   )
     throw new Error("Unexpected SetUserMfaRequest field");
   if (json == null) {
     return json;
   }
   return {
-    method: json["method"],
     enable: json["enable"],
+    method: json["method"],
   };
 }
 
@@ -74,7 +74,7 @@ export function SetUserMfaRequestToJSONTyped(
   }
 
   return {
-    method: value["method"],
     enable: value["enable"],
+    method: value["method"],
   };
 }

@@ -9,8 +9,11 @@ use std::{
 use server_common::{bind_addr, public_base_url, serve};
 
 use clap::Parser;
+#[cfg(feature = "completions")]
 use clap_complete::Shell;
-use cli::{CliArgs, run_completions, shutdown_signal};
+#[cfg(feature = "completions")]
+use cli::run_completions;
+use cli::{CliArgs, shutdown_signal};
 use env_logger::Env;
 
 use tokio::{select, spawn, time::sleep};

@@ -32,6 +32,10 @@ export interface VersionResponse {
   /**
    *
    */
+  features?: Array<string>;
+  /**
+   *
+   */
   name: string;
   /**
    *
@@ -62,6 +66,7 @@ export function VersionResponseFromJSONTyped(
   }
   return {
     build: json["build"] == null ? json["build"] : parseDateTime(json["build"]),
+    features: json["features"] == null ? undefined : json["features"],
     name: json["name"],
     version: json["version"],
   };
@@ -81,6 +86,7 @@ export function VersionResponseToJSONTyped(
 
   return {
     build: value["build"] == null ? value["build"] : serializeDateTime(value["build"]),
+    features: value["features"],
     name: value["name"],
     version: value["version"],
   };

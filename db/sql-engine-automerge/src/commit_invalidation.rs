@@ -13,9 +13,15 @@ pub enum SqlInvalidation {
     Row { table: String, row: Uuid },
 }
 
-/// Map committed physical changes above storage. Catalog changes require dependency
-/// reconciliation; unknown user-table keys require a table scan. Derived indexes are
-/// not replicated identities. Select work before calling this or opening export snapshots.
+/// Maps committed physical changes to SQL invalidations.
+///
+/// Catalog changes require dependency reconciliation; unknown user-table keys require a table
+/// scan. Derived indexes are not replicated identities. Select work before calling this or
+/// opening export snapshots.
+///
+/// # Errors
+///
+/// Returns an error for storage or catalog failure.
 pub async fn committed_invalidations<K: Kernel>(
     engine: &Engine<K, AutomergeRowCodec>,
     work: &ChangeWork,
@@ -47,13 +53,13 @@ pub async fn committed_invalidations<K: Kernel>(
                 .filter(|row| engine::validate_row_id(table, row).is_ok()),
             _ => None,
         };
-        result.insert(match row {
-            Some(row) => SqlInvalidation::Row {
+        result.insert(row.map_or_else(
+            || SqlInvalidation::Table(table.clone()),
+            |row| SqlInvalidation::Row {
                 table: table.clone(),
                 row,
             },
-            None => SqlInvalidation::Table(table.clone()),
-        });
+        ));
     }
     let broad_tables = result
         .iter()

@@ -1,3 +1,4 @@
+use alloc::{string::String, vec::Vec};
 /*
  * LIDP Management API
  *
@@ -10,10 +11,12 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VersionResponse {
     #[serde(rename = "build")]
     pub build: String,
+    #[serde(rename = "features", skip_serializing_if = "Option::is_none")]
+    pub features: Option<Vec<String>>,
     #[serde(rename = "name")]
     pub name: String,
     #[serde(rename = "version")]
@@ -21,10 +24,10 @@ pub struct VersionResponse {
 }
 
 impl VersionResponse {
-    #[must_use]
-    pub const fn new(build: String, name: String, version: String) -> Self {
-        Self {
+    pub fn new(build: String, name: String, version: String) -> VersionResponse {
+        VersionResponse {
             build,
+            features: None,
             name,
             version,
         }

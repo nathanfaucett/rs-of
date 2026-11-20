@@ -25,6 +25,14 @@ fn field(table: Uuid, name: &str, position: i64, kind: ValueType, default: Value
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one fixture checks table state, tombstones, conflicts, and freshness"
+)]
 fn table_state_observation_preserves_defaults_tombstones_conflicts_and_freshness() {
     block_on(async {
         let kernel = InMemoryKernel::new();
@@ -153,6 +161,10 @@ fn table_state_observation_preserves_defaults_tombstones_conflicts_and_freshness
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn table_state_observation_rejects_malformed_losing_values_even_on_tombstones() {
     block_on(async {
         for deleted in [false, true] {
@@ -235,6 +247,14 @@ fn table_state_observation_rejects_malformed_losing_values_even_on_tombstones() 
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one fixture checks identity, defaults, and stored fallback"
+)]
 fn catalog_snapshot_preserves_largest_identity_defaults_and_stored_fallback() {
     block_on(async {
         let kernel = InMemoryKernel::new();
@@ -398,6 +418,10 @@ fn catalog_snapshot_preserves_largest_identity_defaults_and_stored_fallback() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn catalog_snapshot_rejects_malformed_unrelated_table_before_invalid_key() {
     block_on(async {
         let kernel = InMemoryKernel::new();
@@ -461,6 +485,10 @@ fn catalog_snapshot_rejects_malformed_unrelated_table_before_invalid_key() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn catalog_snapshot_limit_zero_preserves_aggregate_validation_and_metadata() {
     block_on(async {
         let database = engine::Engine::new(InMemoryKernel::new(), AutomergeRowCodec::new());
@@ -529,6 +557,10 @@ fn catalog_snapshot_limit_zero_preserves_aggregate_validation_and_metadata() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn catalog_snapshot_read_batches_keep_table_schemas_and_observe_writes() {
     block_on(async {
         let database = engine::Engine::new(InMemoryKernel::new(), AutomergeRowCodec::new());
@@ -595,6 +627,10 @@ fn catalog_snapshot_read_batches_keep_table_schemas_and_observe_writes() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
 fn catalog_snapshot_read_batches_reject_current_malformed_unrelated_fields() {
     block_on(async {
         let kernel = InMemoryKernel::new();
@@ -634,6 +670,14 @@ fn catalog_snapshot_read_batches_reject_current_malformed_unrelated_fields() {
 }
 
 #[test]
+#[allow(
+    clippy::large_futures,
+    reason = "sequential integration test operations"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "each malformed or nonmatching row is checked independently"
+)]
 fn catalog_snapshot_select_decodes_malformed_nonmatching_rows() {
     block_on(async {
         let kernel = InMemoryKernel::new();

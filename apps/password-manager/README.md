@@ -56,4 +56,4 @@ pnpm --filter @ofsdk/password-manager test:backend
 pnpm --filter @ofsdk/password-manager test:e2e
 ```
 
-Backend tests start an isolated real local backend. They must not replace remote synchronization with local-only assertions. Record failures and unqualified flows in the relevant E2E evidence rather than claiming success from unit tests.
+Backend tests start an isolated real local backend. They must not replace remote synchronization with local-only assertions. Record failures and qualification limits in CI results rather than claiming success from unit tests.

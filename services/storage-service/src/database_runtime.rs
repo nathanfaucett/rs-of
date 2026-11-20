@@ -693,8 +693,9 @@ mod tests {
             .await
             .expect("retire resource");
         sql.client()
-                .execute_sql("SELECT * FROM notes", None)
-                .await.unwrap_err();
+            .execute_sql("SELECT * FROM notes", None)
+            .await
+            .unwrap_err();
         kv.client().get("saved").await.unwrap_err();
         database
             .client()
@@ -735,9 +736,10 @@ mod tests {
             .expect("fresh SQL")
             .expect("same resource identity");
         fresh
-                .client()
-                .execute_sql("SELECT * FROM notes", None)
-                .await.unwrap_err();
+            .client()
+            .execute_sql("SELECT * FROM notes", None)
+            .await
+            .unwrap_err();
         let fresh_kv = runtime
             .open_kv_selected(&scope, resource.id)
             .expect("fresh KV")
@@ -1058,9 +1060,10 @@ mod tests {
             .expect("all covered old-owner copies retired");
         runtime.open(&scope, old.id).unwrap_err();
         old_handle
-                .client()
-                .translate_and_execute("CREATE TABLE denied (id UUID PRIMARY KEY)", &SqlTranslator)
-                .await.unwrap_err();
+            .client()
+            .translate_and_execute("CREATE TABLE denied (id UUID PRIMARY KEY)", &SqlTranslator)
+            .await
+            .unwrap_err();
         assert!(
             runtime
                 .open(&other, unrelated.id)
@@ -1113,8 +1116,9 @@ mod tests {
         assert!(kv_path.exists(), "failed KV phase is not falsely removed");
         runtime.open(&scope, resource.id).unwrap_err();
         sql.client()
-                .translate_and_execute("CREATE TABLE denied (id UUID PRIMARY KEY)", &SqlTranslator)
-                .await.unwrap_err();
+            .translate_and_execute("CREATE TABLE denied (id UUID PRIMARY KEY)", &SqlTranslator)
+            .await
+            .unwrap_err();
         runtime
             .reconcile_selected_copies(&[("owner".into(), scope.application, resource.id)])
             .await
@@ -1340,19 +1344,22 @@ mod tests {
                 .execute_sql("SELECT id FROM first_table", None)
                 .await
                 .expect("first table survives restart")[0]
-                .rows, [] as [ofdb_sql::Row; 0]
+                .rows,
+            [] as [ofdb_sql::Row; 0]
         );
         second_db
-                .client()
-                .execute_sql("SELECT id FROM first_table", None)
-                .await.unwrap_err();
+            .client()
+            .execute_sql("SELECT id FROM first_table", None)
+            .await
+            .unwrap_err();
         assert_eq!(
             second_db
                 .client()
                 .execute_sql("SELECT id FROM second_table", None)
                 .await
                 .expect("second table survives restart")[0]
-                .rows, [] as [ofdb_sql::Row; 0]
+                .rows,
+            [] as [ofdb_sql::Row; 0]
         );
         assert!(
             runtime
@@ -1371,7 +1378,8 @@ mod tests {
                 .execute_sql("SELECT id FROM first_table", None)
                 .await
                 .expect("an already-issued handle remains usable")[0]
-                .rows, [] as [ofdb_sql::Row; 0]
+                .rows,
+            [] as [ofdb_sql::Row; 0]
         );
 
         drop(runtime);

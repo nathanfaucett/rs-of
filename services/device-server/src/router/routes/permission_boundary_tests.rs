@@ -13,7 +13,7 @@ use of_model::id::Id;
 use of_model::idp::contract::error_code::ErrorCode;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 async fn up(engine: &ofdb_sql::Database) -> Result<(), ofdb_sql::QueryError> {
-    db::ofdb::up(engine).await?;
+    db::ofdb::up(&engine.client()).await?;
     device_service::ofdb::up(engine).await
 }
 

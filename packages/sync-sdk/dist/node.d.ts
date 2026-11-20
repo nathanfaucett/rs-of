@@ -1,20 +1,16 @@
-import { EventEmitter } from "events";
-import { Observable } from "rxjs";
-import { SyncConfig, SyncSDK, DatabaseHandle, KvStoreHandle, FilesystemHandle, SyncState, SyncSession } from "./core";
+import { EventEmitter } from "node:events";
+import { type Observable } from "rxjs";
+import type { SyncConfig, SyncSDK, DatabaseHandle, KvStoreHandle, FilesystemHandle, SyncState, SyncSession } from "./core";
 /** Node.js sync SDK implementation */
 export declare class NodeSyncSDK extends EventEmitter implements SyncSDK {
-    private config;
     private storageClient;
-    private syncClient;
+    private config;
     private databases;
     private kvStores;
     private filesystems;
     private _globalState$;
     readonly state$: Observable<SyncState>;
-    private closed;
     constructor(config: SyncConfig);
-    /** Initialize the sync client */
-    private initSyncClient;
     /** SQL database sync */
     sql: {
         open: (databaseId: string) => Promise<DatabaseHandle>;

@@ -1,7 +1,6 @@
-import { unlockVault, unlockAndMigrateVault, type VaultHandle, listVaults, createVault as createVaultHandle, type VaultIdentity } from "$lib/vault/vault";
-import { createSyncVault, unlockSyncVault, listSyncVaults, type SyncVaultHandle } from "$lib/vault/sync-vault";
-import { createInactivityLock, DEFAULT_LOCK_SETTINGS, type LockSettings } from "$lib/vault/lock";
-import { notifications } from "./notifications.svelte";
+import { unlockVault, unlockAndMigrateVault, listVaults, createVault as createVaultHandle, type VaultIdentity } from "$lib/vault/vault";
+import { createSyncVault, unlockSyncVault, listSyncVaults } from "$lib/vault/sync-vault";
+import { createInactivityLock, type LockSettings } from "$lib/vault/lock";
 import { goto } from "$app/navigation";
 import { syncStateModule } from "./sync.svelte";
 import { authState } from "$lib/auth/auth.svelte";
@@ -56,13 +55,6 @@ async function loadVaults() {
     return vaults;
 }
 
-async function enterVault(vault: VaultHandleLike, request: number, password: string, isSynced: boolean) {
-    const settings = await vault.loadLockSettings();
-    if (request !== session) { vault.close(); return; }
-    const inactivity = createInactivityLock(() => { void lockVault(); });
-    inactivity.start(settings);
-    vaultState = { status: "unlocked", vault, lockSettings: settings, inactivity, isSynced };
-}
 
 async function createVault(password: string, name: string) {
     if (isSyncEnabled()) {
@@ -97,7 +89,7 @@ async function unlockExistingVault(password: string, id: string) {
         const syncSDK = syncStateModule.getSyncSDK();
 
         // Try to unlock as sync vault first
-        let vault = await unlockSyncVault(password, id, handle, syncSDK ? { syncToDevice: syncSDK.syncToDevice.bind(syncSDK) } : undefined);
+        let vault: VaultHandleLike | null = await unlockSyncVault(password, id, handle, syncSDK ? { syncToDevice: syncSDK.syncToDevice.bind(syncSDK) } : undefined);
         let isSynced = true;
 
         // If sync vault doesn't exist, try to migrate local vault

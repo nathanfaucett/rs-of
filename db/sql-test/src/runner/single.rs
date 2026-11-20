@@ -1,5 +1,7 @@
 use std::{
+    env, fs,
     path::PathBuf,
+    process,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -21,8 +23,8 @@ static DATABASE_ID: AtomicU64 = AtomicU64::new(0);
 fn database_directory() -> PathBuf {
     loop {
         let id = DATABASE_ID.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("test-single-{}-{id}", std::process::id()));
-        if std::fs::create_dir(&path).is_ok() {
+        let path = env::temp_dir().join(format!("test-single-{}-{id}", process::id()));
+        if fs::create_dir(&path).is_ok() {
             return path;
         }
     }
@@ -32,7 +34,7 @@ struct CleanupDir(PathBuf);
 
 impl Drop for CleanupDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        let _ = fs::remove_dir_all(&self.0);
     }
 }
 

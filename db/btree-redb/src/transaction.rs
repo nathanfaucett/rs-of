@@ -1,9 +1,15 @@
-use std::{marker::PhantomData, ops::RangeBounds, sync::Arc};
+use core::fmt;
+use std::{
+    future::ready,
+    marker::PhantomData,
+    ops::{Bound, RangeBounds},
+    sync::Arc,
+};
 
 use async_lock::MutexGuardArc;
 use async_stream::stream;
 use futures::Stream;
-use redb::{ReadableTable, Table, TableHandle, WriteTransaction};
+use redb::{Database, ReadableTable, Table, TableDefinition, TableHandle, WriteTransaction};
 
 use btree::{
     BTreeError, BTreeRead, BTreeResult, BTreeTransaction, ChangeEvent, ChangeSignal, StorageKey,
@@ -14,6 +20,7 @@ use crate::{
     key::Key,
     read_budget::{Borrowed, ReadBudget},
     redb::{RedbKey, RedbValue, table_definition},
+    shared_transaction::SharedWriteTransaction,
     value::Value,
 };
 
@@ -38,11 +45,11 @@ enum WriteBackend {
         inner: Box<WriteTransaction>,
         _admission: MutexGuardArc<()>,
     },
-    Shared(crate::shared_transaction::SharedWriteTransaction),
+    Shared(SharedWriteTransaction),
 }
 
-impl core::fmt::Debug for WriteBackend {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for WriteBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Native { .. } => f
                 .debug_struct("WriteBackend::Native")
@@ -53,11 +60,9 @@ impl core::fmt::Debug for WriteBackend {
 }
 
 impl NativeWriteTransaction {
-    pub fn new_shared(database: Arc<redb::Database>, changes: ChangeSignal) -> BTreeResult<Self> {
+    pub fn new_shared(database: Arc<Database>, changes: ChangeSignal) -> BTreeResult<Self> {
         Ok(Self {
-            backend: WriteBackend::Shared(crate::shared_transaction::SharedWriteTransaction::new(
-                database,
-            )?),
+            backend: WriteBackend::Shared(SharedWriteTransaction::new(database)?),
             mutations: Mutations::default(),
             read_budget: ReadBudget::default(),
             changes,
@@ -92,11 +97,11 @@ impl NativeWriteTransaction {
     fn write_value<K: RedbKey, V: RedbValue>(
         &self,
         name: &str,
-        key: K,
+        key: &K,
         value: Option<V>,
     ) -> BTreeResult<()> {
         let old = self
-            .read_value::<K, V>(name, &key)?
+            .read_value::<K, V>(name, key)?
             .map(|value| V::as_bytes(&value).as_ref().to_vec());
         self.write_known::<K, V>(name, key, old, value)
     }
@@ -104,7 +109,7 @@ impl NativeWriteTransaction {
     fn write_known<K: RedbKey, V: RedbValue>(
         &self,
         name: &str,
-        key: K,
+        key: &K,
         old: Option<Vec<u8>>,
         value: Option<V>,
     ) -> BTreeResult<()> {
@@ -116,7 +121,7 @@ impl NativeWriteTransaction {
         }
         match &self.backend {
             WriteBackend::Shared(transaction) => {
-                transaction.put::<K, V>(name, &key, value.as_ref())?;
+                transaction.put::<K, V>(name, key, value.as_ref())?;
             }
             WriteBackend::Native { .. } => {
                 let mut table = self.open_table::<K, V>(name)?;
@@ -131,7 +136,7 @@ impl NativeWriteTransaction {
                 }
             }
         }
-        self.record(name, K::as_bytes(&key).as_ref().to_vec(), old, new);
+        self.record(name, K::as_bytes(key).as_ref().to_vec(), old, new);
         Ok(())
     }
 
@@ -184,7 +189,7 @@ impl NativeWriteTransaction {
             return Ok(None);
         }
         self.native_inner()
-            .open_table(redb::TableDefinition::<Borrowed<Key<K>>, Borrowed<Value<V>>>::new(name))
+            .open_table(TableDefinition::<Borrowed<Key<K>>, Borrowed<Value<V>>>::new(name))
             .map(Some)
             .map_err(BTreeError::custom)
     }
@@ -232,13 +237,9 @@ impl NativeWriteTransaction {
             return Ok(Vec::new());
         };
         let bound = |bound| match bound {
-            std::ops::Bound::Included(key) => {
-                std::ops::Bound::Included(K::as_bytes(key).as_ref().to_vec())
-            }
-            std::ops::Bound::Excluded(key) => {
-                std::ops::Bound::Excluded(K::as_bytes(key).as_ref().to_vec())
-            }
-            std::ops::Bound::Unbounded => std::ops::Bound::Unbounded,
+            Bound::Included(key) => Bound::Included(K::as_bytes(key).as_ref().to_vec()),
+            Bound::Excluded(key) => Bound::Excluded(K::as_bytes(key).as_ref().to_vec()),
+            Bound::Unbounded => Bound::Unbounded,
         };
         let bounds = (bound(range.start_bound()), bound(range.end_bound()));
         let results = table
@@ -322,7 +323,7 @@ impl WriteTransactionHandle for &NativeWriteTransaction {
 #[derive(Debug)]
 pub struct RedbBTreeTransactionCore<T, K, V>
 where
-    T: core::fmt::Debug,
+    T: fmt::Debug,
 {
     tx: T,
     name: String,
@@ -335,7 +336,7 @@ pub type RedbBTreeScopedTransaction<'a, K, V> =
 
 impl<T, K, V> RedbBTreeTransactionCore<T, K, V>
 where
-    T: core::fmt::Debug,
+    T: fmt::Debug,
 {
     pub fn new(tx: T, name: impl Into<String>) -> Self {
         Self {
@@ -348,12 +349,12 @@ where
 
 impl<T, K, V> BTreeRead<K, V> for RedbBTreeTransactionCore<T, K, V>
 where
-    T: WriteTransactionHandle + Send + Sync + core::fmt::Debug,
+    T: WriteTransactionHandle + Send + Sync + fmt::Debug,
     K: RedbKey,
     V: RedbValue,
 {
-    async fn get(&self, key: &K) -> BTreeResult<Option<V>> {
-        self.tx.native().read_value::<K, V>(&self.name, key)
+    fn get(&self, key: &K) -> impl Future<Output = BTreeResult<Option<V>>> {
+        ready(self.tx.native().read_value::<K, V>(&self.name, key))
     }
 
     fn range<R>(&self, range: R) -> impl Stream<Item = BTreeResult<(K, V)>> + Send
@@ -369,14 +370,16 @@ where
 
 impl<T, K, V> BTreeTransaction<K, V> for RedbBTreeTransactionCore<T, K, V>
 where
-    T: WriteTransactionHandle + Send + Sync + core::fmt::Debug,
+    T: WriteTransactionHandle + Send + Sync + fmt::Debug,
     K: RedbKey,
     V: RedbValue,
 {
-    async fn insert(&mut self, key: K, value: V) -> BTreeResult<()> {
-        self.tx
-            .native()
-            .write_value::<K, V>(&self.name, key, Some(value))
+    fn insert(&mut self, key: K, value: V) -> impl Future<Output = BTreeResult<()>> {
+        ready(
+            self.tx
+                .native()
+                .write_value::<K, V>(&self.name, &key, Some(value)),
+        )
     }
 
     async fn update<F>(&mut self, key: K, update_fn: F) -> BTreeResult<Option<()>>
@@ -391,18 +394,19 @@ where
         Ok(Some(()))
     }
 
-    async fn remove(&mut self, key: &K) -> BTreeResult<Option<V>> {
-        let tx = self.tx.native();
-        let value = tx.read_value::<K, V>(&self.name, key)?;
-        tx.write_known::<K, V>(
-            &self.name,
-            key.clone(),
-            value
-                .as_ref()
-                .map(|value| V::as_bytes(value).as_ref().to_vec()),
-            None,
-        )?;
-        Ok(value)
+    fn remove(&mut self, key: &K) -> impl Future<Output = BTreeResult<Option<V>>> {
+        ready((|| {
+            let value = self.tx.native().read_value::<K, V>(&self.name, key)?;
+            self.tx.native().write_known::<K, V>(
+                &self.name,
+                key,
+                value
+                    .as_ref()
+                    .map(|value| V::as_bytes(value).as_ref().to_vec()),
+                None,
+            )?;
+            Ok(value)
+        })())
     }
 
     fn remove_range<R>(&mut self, range: R) -> impl Stream<Item = BTreeResult<(K, V)>> + Send
@@ -410,20 +414,21 @@ where
         R: RangeBounds<K> + Send,
     {
         stream! {
-            let tx = self.tx.native();
             let mut keys = Vec::new();
-            for (key, value) in tx.read_range::<K,V,R>(&self.name, range)? {
+            for (key, value) in self.tx.native().read_range::<K,V,R>(&self.name, range)? {
                 keys.push((key.clone(), V::as_bytes(&value).as_ref().to_vec()));
                 yield Ok((key, value));
             }
-            for (key, old) in keys { tx.write_known::<K,V>(&self.name, key, Some(old), None)?; }
+            for (key, old) in keys {
+                self.tx.native().write_known::<K,V>(&self.name, &key, Some(old), None)?;
+            }
         }
     }
 
-    async fn commit(self) -> BTreeResult<()> {
-        self.tx.commit()
+    fn commit(self) -> impl Future<Output = BTreeResult<()>> {
+        ready(self.tx.commit())
     }
-    async fn rollback(self) -> BTreeResult<()> {
-        self.tx.rollback()
+    fn rollback(self) -> impl Future<Output = BTreeResult<()>> {
+        ready(self.tx.rollback())
     }
 }

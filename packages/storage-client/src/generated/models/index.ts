@@ -39,5 +39,7 @@ export * from "./SqlValueOneOf4.js";
 export * from "./SqlValueOneOf5.js";
 export * from "./SqlValueOneOf6.js";
 export * from "./SyncConnectRequest.js";
+export * from "./SyncDirection.js";
 export * from "./SyncSessionResponse.js";
+export * from "./SyncStatus.js";
 export * from "./VersionResponse.js";

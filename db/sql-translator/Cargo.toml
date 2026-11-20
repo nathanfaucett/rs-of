@@ -28,6 +28,7 @@ wasm = [
 ]
 
 [dependencies]
+platform = { version = "0.1", path = "../platform", package = "ofdb-platform", default-features = false }
 query = { version = "0.1", path = "../sql-query", package = "ofdb-sql-query", default-features = false, features = [
 ] }
 schema = { version = "0.1", path = "../sql-schema", package = "ofdb-sql-schema", default-features = false, features = [

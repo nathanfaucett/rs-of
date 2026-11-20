@@ -1,7 +1,8 @@
+use futures::executor::block_on;
 use ofdb_sql::{Database, SqlTranslator};
 
 fn main() {
-    futures::executor::block_on(async {
+    block_on(async {
         let database = Database::in_memory();
         database
             .client()

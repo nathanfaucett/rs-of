@@ -100,7 +100,7 @@ export function parseText(row: Record<string, DbValue>, key: string): string {
 
 export function parseInteger(row: Record<string, DbValue>, key: string): number {
   const cell = row[key];
-  if (!cell || cell.type !== "integer") {
+  if (cell?.type !== "integer") {
     throw new Error(`Expected integer for ${key}, got ${cell?.type}`);
   }
   return parseInt(cell.value, 10);

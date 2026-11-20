@@ -537,10 +537,10 @@ impl ofdb_sql::history::SyncTransport for QueuedPayload {
         ofdb_sql::history::SyncTransport::receive(&mut self.transport).await
     }
     async fn send(&mut self, frame: Vec<u8>) -> std::io::Result<()> {
-        let message =
-            postcard::from_bytes::<ofdb_sql::SyncMessage>(&frame).expect("actual owner SQL frame");
+        let message = postcard::from_bytes::<ofdb_sql::history::SyncMessage>(&frame)
+            .expect("actual owner SQL frame");
         if !self.paused
-            && matches!(message, ofdb_sql::SyncMessage::State(ref rows) if !rows.is_empty())
+            && matches!(message, ofdb_sql::history::SyncMessage::State(ref rows) if !rows.is_empty())
         {
             self.paused = true;
             self.gate.pause().await;
@@ -605,17 +605,17 @@ async fn real_selected_sql_and_kv_queued_payloads_recheck_native_sender_policy_o
                             async { let result = fixture.databases[receiver].exchange_resource_history(&mut target, &config, sql_opposite(source_role), fixture.nodes[receiver].root.join("staging"), || check_apply(fixture.authorize(receiver), CancellationToken::new())).await; drop(target); result },
                         );
                         assert!(matches!(a, Err(ofdb_sql::history::SyncError::Transport(ref error)) if error.kind() == std::io::ErrorKind::PermissionDenied), "native sender denies its already-prepared SQL payload: {a:?}");
-                        assert!(b.is_err());
+                        b.unwrap_err();
                     }
                 });
                 tokio::select! { () = gate.reached() => {}, () = &mut run => panic!("actual owner payload did not reach queued send gate") }
                 assert_eq!(fixture.databases[receiver].history_manifest().await.expect("no SQL import before release"), manifest);
-                assert!(fixture.kv[receiver].client().scan_all().await.expect("no KV import before release").is_empty());
+                assert_eq!(fixture.kv[receiver].client().scan_all().await.expect("no KV import before release"), [] as [(std::string::String, ofdb_kv::Value); 0]);
                 fixture.nodes[sender].restrict(if kv { sender } else { receiver }, false).await;
                 assert!(fixture.authorize(receiver)().await, "independent recipient still permits its own local view");
                 gate.release(); run.await;
                 assert_eq!(fixture.databases[receiver].history_manifest().await.expect("denied SQL payload absent"), manifest);
-                assert!(fixture.kv[receiver].client().scan_all().await.expect("denied KV payload absent").is_empty());
+                assert_eq!(fixture.kv[receiver].client().scan_all().await.expect("denied KV payload absent"), [] as [(std::string::String, ofdb_kv::Value); 0]);
                 fixture.nodes[sender].restrict(if kv { sender } else { receiver }, true).await;
                 if kv {
                     assert_eq!(fixture.kv[sender].client().scan_all().await.expect("source retained"), vec![("source".into(), ofdb_kv::Value::Integer(7))]);

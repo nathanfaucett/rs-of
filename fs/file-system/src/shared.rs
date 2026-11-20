@@ -1,4 +1,6 @@
-use std::sync::Arc;
+use std::{fmt::Display, io, sync::Arc, thread};
+
+use futures::executor::block_on;
 
 use bytes::Bytes;
 use ofdb_kv::{Client, Database, SharedDatabase, Value};
@@ -9,14 +11,14 @@ use crate::{
     Error,
     content::{ContentStore, Staged, StagedObject},
     managed_copy::{ManagedCopy, Storage},
-    root::Root,
+    root::{Root, RootObject},
 };
 
-fn error(error: impl std::fmt::Display) -> Error {
+fn error(error: impl Display) -> Error {
     Error::Metadata(error.to_string())
 }
-fn revision_key(file: Uuid, revision: Uuid) -> String {
-    format!("revision:{file}:{revision}")
+fn revision_key(file_id: Uuid, revision: Uuid) -> String {
+    format!("revision:{file_id}:{revision}")
 }
 
 struct SharedRoot {
@@ -45,7 +47,7 @@ impl Root for SharedRoot {
             for kind in ["metadata", "content"] {
                 let name = format!("{}:{kind}", self.name);
                 match self.host.namespace(&format!("kv:{name}")) {
-                    Err(source) if source.kind() == std::io::ErrorKind::PermissionDenied => {
+                    Err(source) if source.kind() == io::ErrorKind::PermissionDenied => {
                         continue;
                     }
                     Err(source) => return Err(error(source)),
@@ -66,21 +68,21 @@ impl Root for SharedRoot {
 struct SharedContent(Client);
 
 impl ContentStore for SharedContent {
-    fn has(&self, file: Uuid, revision: Uuid) -> BoxFuture<'_, Result<bool, Error>> {
+    fn has(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<bool, Error>> {
         Box::pin(async move {
             Ok(self
                 .0
-                .get(&revision_key(file, revision))
+                .get(&revision_key(file_id, revision))
                 .await
                 .map_err(error)?
                 .is_some())
         })
     }
-    fn read(&self, file: Uuid, revision: Uuid) -> BoxFuture<'_, Result<Vec<u8>, Error>> {
+    fn read(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<Vec<u8>, Error>> {
         Box::pin(async move {
             match self
                 .0
-                .get(&revision_key(file, revision))
+                .get(&revision_key(file_id, revision))
                 .await
                 .map_err(error)?
             {
@@ -92,13 +94,13 @@ impl ContentStore for SharedContent {
     }
     fn read_range(
         &self,
-        file: Uuid,
+        file_id: Uuid,
         revision: Uuid,
         offset: u64,
         length: u32,
     ) -> BoxFuture<'_, Result<Bytes, Error>> {
         Box::pin(async move {
-            let bytes = self.read(file, revision).await?;
+            let bytes = self.read(file_id, revision).await?;
             let start = usize::try_from(offset)
                 .unwrap_or(usize::MAX)
                 .min(bytes.len());
@@ -108,25 +110,25 @@ impl ContentStore for SharedContent {
     }
     fn stage(
         &self,
-        file: Uuid,
+        file_id: Uuid,
         revision: Uuid,
     ) -> BoxFuture<'_, Result<Box<dyn StagedObject>, Error>> {
         Box::pin(async move {
             Ok(Box::new(SharedStage {
                 content: self.clone(),
                 stage: format!("stage:{}", Uuid::now_v7()),
-                destination: revision_key(file, revision),
+                destination: revision_key(file_id, revision),
                 bytes: Vec::new(),
                 published: false,
                 committed: false,
             }) as Box<dyn StagedObject>)
         })
     }
-    fn remove(&self, file: Uuid) -> BoxFuture<'_, Result<(), Error>> {
+    fn remove(&self, file_id: Uuid) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
             let mut transaction = self.0.transaction().await.map_err(error)?;
             for (key, _) in transaction
-                .scan_prefix(&format!("revision:{file}:"))
+                .scan_prefix(&format!("revision:{file_id}:"))
                 .await
                 .map_err(error)?
             {
@@ -150,9 +152,9 @@ impl Staged for SharedStage {
     fn write<'a>(&'a mut self, bytes: &'a [u8]) -> BoxFuture<'a, Result<(), Error>> {
         self.write_end(bytes)
     }
-    fn copy_from(&mut self, file: Uuid, revision: Uuid) -> BoxFuture<'_, Result<(), Error>> {
+    fn copy_from(&mut self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
-            self.bytes = self.content.read(file, revision).await?;
+            self.bytes = self.content.read(file_id, revision).await?;
             Ok(())
         })
     }
@@ -192,6 +194,10 @@ impl Staged for SharedStage {
                 .map_err(error)
         })
     }
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction"
+    )]
     fn publish(&mut self) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
             let mut transaction = self.content.0.transaction().await.map_err(error)?;
@@ -220,10 +226,10 @@ impl Staged for SharedStage {
 impl Drop for SharedStage {
     fn drop(&mut self) {
         // Drop cannot await. The worker also works when the caller is inside a runtime.
-        let _ = std::thread::scope(|scope| {
+        let _ = thread::scope(|scope| {
             scope
                 .spawn(|| {
-                    futures::executor::block_on(async {
+                    block_on(async {
                         let mut transaction = self.content.0.transaction().await.map_err(error)?;
                         transaction.delete(&self.stage).await.map_err(error)?;
                         if self.published && !self.committed {
@@ -247,7 +253,7 @@ async fn locate(host: &SharedDatabase, name: &str) -> Result<Arc<ManagedCopy>, E
         state,
     };
     ManagedCopy::shared(format!("shared:{}:{name}", host.instance_id()), move |_| {
-        Box::pin(async move { Ok(Box::new(root) as Box<dyn crate::root::RootObject>) })
+        Box::pin(async move { Ok(Box::new(root) as Box<dyn RootObject>) })
     })
     .await
 }
@@ -268,15 +274,16 @@ pub async fn open(host: &SharedDatabase, name: &str) -> Result<Arc<ManagedCopy>,
         for (key, _) in content.scan_prefix("stage:").await.map_err(error)? {
             content.delete(&key).await.map_err(error)?;
         }
+        let client = metadata.client();
         *storage = Some(Storage {
+            metadata,
+            client,
+            content: Arc::new(SharedContent(content)),
             local_state: Some(
                 Database::open_shared(host, &format!("{name}:root"))
                     .map_err(error)?
                     .client(),
             ),
-            client: metadata.client(),
-            metadata,
-            content: Arc::new(SharedContent(content)),
         });
     }
     drop(storage);

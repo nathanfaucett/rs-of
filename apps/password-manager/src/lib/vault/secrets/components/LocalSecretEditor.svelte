@@ -1,19 +1,15 @@
 <script lang="ts">
 import { onDestroy, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
-import CardFields from "./CardFields.svelte";
-import IdentityFields from "./IdentityFields.svelte";
-import SshKeyFields from "./SshKeyFields.svelte";
 import FolderControls from "./FolderControls.svelte";
-import GeneratorDialog from "../generator/GeneratorDialog.svelte";
+import SecretDetail from "./SecretDetail.svelte";
 import { Alert, Card, Field } from "$lib/ui";
 import Dialog from "$lib/shared/components/Dialog.svelte";
 import type { VaultHandleLike } from "$lib/vault/types";
 import { createLocalSecretWorkflow } from "../workflow.svelte";
 import type { Secret } from "../secret";
-import { customFieldIssue, type SshKeyDraft } from "../secret-draft";
 import { searchItems, type ItemTypeFilter, type ItemSort } from "../search";
-import { Pencil, Trash2, MoreHorizontal } from "@lucide/svelte";
+import { Pencil, Trash2 } from "@lucide/svelte";
 
 interface Props {
     vault: VaultHandleLike;
@@ -27,6 +23,7 @@ interface Props {
     onItemTypeChange?: (value: ItemTypeFilter) => void;
     onFavoritesOnlyChange?: (value: boolean) => void;
     onSortChange?: (value: ItemSort) => void;
+    onFolderFilterChange?: (value: string) => void;
     onClearFilters?: () => void;
 }
 
@@ -72,7 +69,7 @@ let results = $derived(retired ? [] : searchItems(workflow.records, {
 let pendingDelete = $state<Secret | null>(null);
 let deleteTrigger: HTMLButtonElement | null = null;
 const uid = $props.id();
-const confirmationId = `${uid}-confirmation`;
+
 const navigationId = `${uid}-navigation`;
 async function cancelDelete() {
     const trigger = deleteTrigger;

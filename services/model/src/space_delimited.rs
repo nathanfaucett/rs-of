@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 
 pub fn serialize<T, S>(value: &[T], serializer: S) -> Result<S::Ok, S::Error>

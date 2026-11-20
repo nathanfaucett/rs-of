@@ -1,7 +1,4 @@
-use alloc::{
-    format,
-    string::ToString,
-};
+use alloc::{format, string::ToString};
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use bip32::DerivationPath;

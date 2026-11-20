@@ -215,7 +215,9 @@ impl DatabaseCatalog {
         self.with_catalog(scope, false, |catalog| {
             Ok(catalog
                 .records
-                .values().filter(|&record| !record.deleted && !record.initializing).cloned()
+                .values()
+                .filter(|&record| !record.deleted && !record.initializing)
+                .cloned()
                 .map(|record| record.resource)
                 .collect())
         })
@@ -480,14 +482,14 @@ mod tests {
                 .expect("cross-kind lookup works")
         );
         assert_eq!(
-            catalog
-                .list(&other_subject)
-                .expect("other subject lists"), [] as [of_model::storage::database_resource::DatabaseResource; 0]
+            catalog.list(&other_subject).expect("other subject lists"),
+            [] as [of_model::storage::database_resource::DatabaseResource; 0]
         );
         assert_eq!(
             catalog
                 .list(&other_application)
-                .expect("other application lists"), [] as [of_model::storage::database_resource::DatabaseResource; 0]
+                .expect("other application lists"),
+            [] as [of_model::storage::database_resource::DatabaseResource; 0]
         );
         drop(catalog);
 

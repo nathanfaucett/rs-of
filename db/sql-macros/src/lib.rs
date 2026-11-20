@@ -3,6 +3,11 @@ use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Fields, parse_macro_input};
 
+/// Derives `FromRow` for a struct with named fields.
+///
+/// # Panics
+///
+/// Panics if the Rust parser produces a named field without an identifier.
 #[proc_macro_derive(FromRow, attributes(db))]
 pub fn derive_from_row(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

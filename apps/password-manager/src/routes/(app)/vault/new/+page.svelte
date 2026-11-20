@@ -7,7 +7,7 @@ import PageHeader from "$lib/ui/PageHeader.svelte";
 import { ArrowLeft } from "@lucide/svelte";
 import type { EditableKind } from "$lib/vault/secrets/secret-draft";
 
-let { params } = $props();
+
 let vaultData = $derived(vaultStateModule.vaultData);
 
 // Get kind from URL search params (e.g., /vault/new?kind=login)

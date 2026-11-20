@@ -27,7 +27,7 @@ btree = { version = "0.1", path = "../btree", package = "ofdb-btree", default-fe
 # External dependencies
 async-lock = { version = "3.4", default-features = false, features = ["std"] }
 async-stream = { version = "0.3", default-features = false, features = [] }
-dashmap = { version = "6.2", default-features = false, features = [] }
+
 futures = { version = "0.3", default-features = false, features = [
     "std",
     "executor",

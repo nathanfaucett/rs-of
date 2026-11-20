@@ -1,19 +1,36 @@
-import { Database as SqlDatabase, Client, type Row, Transaction } from "@ofsdk/sql";
-import * as v from "valibot";
-import { VaultRegistry, createVaultRegistry } from "./VaultRegistry";
+import { Database as SqlDatabase, type Client, type Row } from "@ofsdk/sql";
+import type { DatabaseHandle } from "@ofsdk/sync-sdk";
+import { unlockSyncVault, type SyncVaultHandle } from "../sync-vault";
 import {
   parseSecretRow,
   parseFolderRow,
   parseVaultRow,
-  type SecretRow,
-  type FolderRow,
+  parseText,
+  parseOptionalText,
   MIGRATIONS,
   dbParams,
   dbParam,
 } from "./schema";
-import { type VaultIdentity } from "../vault";
 
 const SHARED_DB_NAME = "password-manager-v1";
+const REGISTRY_DB_NAME = "password-manager-vault-registry-v2";
+const LEGACY_DB_PREFIX = "password-manager-local-";
+
+interface LegacyVaultIdentity {
+  id: string;
+  name: string;
+  status: "pending" | "ready";
+  migrated: boolean;
+}
+
+interface LegacyVaultMeta {
+  vaultId: string;
+  salt: string;
+  iv: string;
+  createdAt: string;
+  authentication: string | null;
+  lockSettings: string | null;
+}
 
 /**
  * Get a client for the shared database (non-sync mode).
@@ -34,168 +51,158 @@ export async function getSharedClient(): Promise<Client> {
   });
 }
 
-/**
- * Migrate from legacy per-vault DBs + registry to shared tables.
- * This is the OLD migration (per-vault DBs → shared tables).
- * Now uses direct SqlDatabase instead of SharedDb singleton.
- */
+/** One-time migration from per-vault tables and the registry to shared tables. */
 export async function migrateToSharedTables(): Promise<void> {
   const client = await getSharedClient();
+  try {
+    const existing = await client.execute(`SELECT id FROM vaults LIMIT 1`, () => 1);
+    if (existing.length > 0) return;
 
-  // Check if migration already done
-  const existing = await client.execute(
-    `SELECT id FROM vaults LIMIT 1`,
-    () => 1,
-  );
-  if (existing.length > 0) {
+    const entries = await readRegistryIndexedDB();
+    for (const entry of entries) {
+      await migrateLegacyVault(client, entry);
+    }
+    await deleteIndexedDatabase(REGISTRY_DB_NAME);
+  } finally {
     client.close();
-    return; // Already migrated
   }
-
-  // 3. Find all legacy vault databases
-  const legacyDbs = await findLegacyVaultDatabases();
-  if (legacyDbs.length === 0) {
-    client.close();
-    return; // No legacy vaults to migrate
-  }
-
-  // 4. Migrate each legacy vault
-  for (const legacyDb of legacyDbs) {
-    await migrateLegacyVault(client, legacyDb);
-  }
-
-  client.close();
 }
 
-/**
- * Check if migration from legacy per-vault DBs is needed.
- * Returns true if there are legacy vaults that haven't been migrated.
- */
+/** Check whether registered legacy vaults still need migration. */
 export async function needsMigration(): Promise<boolean> {
   const client = await getSharedClient();
-
-  // Check if shared tables have data
-  const existing = await client.execute(
-    `SELECT id FROM vaults LIMIT 1`,
-    () => 1,
-  );
-  if (existing.length > 0) {
+  try {
+    const existing = await client.execute(`SELECT id FROM vaults LIMIT 1`, () => 1);
+    if (existing.length > 0) return false;
+    const entries = await readRegistryIndexedDB();
+    return entries.length > 0;
+  } catch {
+    return false;
+  } finally {
     client.close();
-    return false; // Already migrated
   }
-
-  // Check for legacy databases
-  const legacyDbs = await findLegacyVaultDatabases();
-  client.close();
-  return legacyDbs.length > 0;
 }
 
-/**
- * Find all legacy vault databases in IndexedDB.
- * Legacy databases are named like "password-manager-{vaultId}".
- */
-async function findLegacyVaultDatabases(): Promise<string[]> {
-  // We need to check IndexedDB for databases matching the pattern
-  // Since we can't easily list all IndexedDB databases from here,
-  // we'll check the VaultRegistry which tracks known vaults
-  const client = await getSharedClient();
-  const registry = createVaultRegistry(client);
-  const identities = await registry.listVaultIdentities();
-  client.close();
-
-  // Legacy vaults would have been tracked in the old registry
-  // For now, we check if there are any vaults in the registry
-  // but not in the shared tables
-  return identities.map((v) => v.id);
-}
-
-/**
- * Migrate a single legacy vault to the shared tables.
- */
-async function migrateLegacyVault(sharedClient: Client, vaultId: string): Promise<void> {
-  // Open the legacy database
-  const legacyDbName = `password-manager-${vaultId}`;
-  let legacyDb: SqlDatabase | null = null;
-  let legacyClient: Client | null = null;
+async function migrateLegacyVault(
+  sharedClient: Client,
+  identity: LegacyVaultIdentity,
+): Promise<void> {
+  const vaultId = identity.id;
+  const legacyDbName = `${LEGACY_DB_PREFIX}${vaultId}`;
+  const legacyDb = await SqlDatabase.open(legacyDbName);
+  const legacyClient = legacyDb.client();
 
   try {
-    legacyDb = await SqlDatabase.open(legacyDbName);
-    legacyClient = legacyDb.client();
+    const metaResults = await legacyClient.execute(
+      `SELECT vault_id, salt, iv, created_at, authentication, lock_settings FROM vault_meta WHERE id = 1`,
+      (row: Row): LegacyVaultMeta => ({
+        vaultId: parseText(row, "vault_id"),
+        salt: parseText(row, "salt"),
+        iv: parseText(row, "iv"),
+        createdAt: parseText(row, "created_at"),
+        authentication: parseOptionalText(row, "authentication"),
+        lockSettings: parseOptionalText(row, "lock_settings"),
+      }),
+    );
+    const meta = metaResults[0];
+    if (!meta) throw new Error(`Legacy vault metadata not found: ${vaultId}`);
 
-    // Read vault metadata from legacy DB
-    const vaultResults = await legacyClient.execute(
-      `SELECT id, name, salt, iv, created_at, authentication FROM vaults WHERE id = ?`,
-      (row: Row) => parseVaultRow(row),
-      [dbParam(vaultId)],
+    const secrets = await legacyClient.execute(
+      `SELECT id, ciphertext, nonce, created_at, updated_at FROM secrets`,
+      (row: Row) => ({
+        id: parseText(row, "id"),
+        ciphertext: parseText(row, "ciphertext"),
+        nonce: parseText(row, "nonce"),
+        createdAt: parseText(row, "created_at"),
+        updatedAt: parseText(row, "updated_at"),
+      }),
+    );
+    const folders = await legacyClient.execute(
+      `SELECT id, ciphertext, nonce, created_at, updated_at FROM folders`,
+      (row: Row) => ({
+        id: parseText(row, "id"),
+        ciphertext: parseText(row, "ciphertext"),
+        nonce: parseText(row, "nonce"),
+        createdAt: parseText(row, "created_at"),
+        updatedAt: parseText(row, "updated_at"),
+      }),
     );
 
-    if (!vaultResults[0]) return;
-
-    const vault = vaultResults[0];
-
-    // Read secrets from legacy DB
-    const secretResults = await legacyClient.execute(
-      `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM secrets WHERE vault_id = ?`,
-      (row: Row) => parseSecretRow(row),
-      [dbParam(vaultId)],
-    );
-
-    // Read folders from legacy DB
-    const folderResults = await legacyClient.execute(
-      `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ?`,
-      (row: Row) => parseFolderRow(row),
-      [dbParam(vaultId)],
-    );
-
-    // Read lock_settings from legacy DB
-    const lockResults = await legacyClient.execute(
-      `SELECT vault_id, ciphertext, nonce, updated_at FROM lock_settings WHERE vault_id = ?`,
-      (row: Row): { vault_id: string; ciphertext: string; nonce: string; updated_at: string } => parseLockSettingsRow(row),
-      [dbParam(vaultId)],
-    );
-
-    // Insert into shared tables
     const tx = await sharedClient.transaction();
     try {
-      // Insert vault metadata
+      const authentication = meta.authentication
+        ? { type: "text" as const, value: meta.authentication }
+        : { type: "null" as const };
       await tx.executeRaw(
         `INSERT INTO vaults (id, name, salt, iv, created_at, authentication, status, migrated) VALUES (?, ?, ?, ?, ?, ?, 'ready', 1)`,
-        dbParams(vault.id, vault.name, vault.salt, vault.iv, vault.createdAt, vault.authentication),
+        [...dbParams(meta.vaultId, identity.name, meta.salt, meta.iv, meta.createdAt), authentication],
       );
-
-      // Insert secrets
-      for (const secret of secretResults) {
+      for (const secret of secrets) {
         await tx.executeRaw(
           `INSERT INTO secrets (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
           dbParams(secret.id, vaultId, secret.ciphertext, secret.nonce, secret.createdAt, secret.updatedAt),
         );
       }
-
-      // Insert folders
-      for (const folder of folderResults) {
+      for (const folder of folders) {
         await tx.executeRaw(
           `INSERT INTO folders (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
           dbParams(folder.id, vaultId, folder.ciphertext, folder.nonce, folder.createdAt, folder.updatedAt),
         );
       }
-
-      // Insert lock_settings if exists
-      if (lockResults[0]) {
+      if (meta.lockSettings) {
+        const settings = JSON.parse(meta.lockSettings);
         await tx.executeRaw(
           `INSERT INTO lock_settings (vault_id, ciphertext, nonce, updated_at) VALUES (?, ?, ?, ?)`,
-          dbParams(lockResults[0].vault_id, lockResults[0].ciphertext, lockResults[0].nonce, lockResults[0].updated_at),
+          dbParams(vaultId, settings.ciphertext, settings.nonce, new Date().toISOString()),
         );
       }
-
       await tx.commit();
-    } catch (e) {
+    } catch (error) {
       await tx.rollback();
-      throw e;
+      throw error;
     }
   } finally {
-    if (legacyClient) legacyClient.close();
-    if (legacyDb) legacyDb.close();
+    legacyClient.close();
+    legacyDb.close();
   }
+
+  await deleteIndexedDatabase(legacyDbName);
+}
+
+async function readRegistryIndexedDB(): Promise<LegacyVaultIdentity[]> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(REGISTRY_DB_NAME, 1);
+    request.onupgradeneeded = () => {};
+    request.onsuccess = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("vaults")) {
+        db.close();
+        resolve([]);
+        return;
+      }
+      const getAllRequest = db.transaction("vaults", "readonly").objectStore("vaults").getAll();
+      getAllRequest.onsuccess = () => {
+        const entries = getAllRequest.result as LegacyVaultIdentity[];
+        db.close();
+        resolve(entries);
+      };
+      getAllRequest.onerror = () => {
+        db.close();
+        reject(getAllRequest.error);
+      };
+    };
+    request.onerror = () => resolve([]);
+    request.onblocked = () => reject(new Error("Legacy registry read blocked"));
+  });
+}
+
+async function deleteIndexedDatabase(name: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error(`Database deletion blocked: ${name}`));
+  });
 }
 
 /**
@@ -211,8 +218,8 @@ async function migrateLegacyVault(sharedClient: Client, vaultId: string): Promis
 export async function migrateLocalVaultToSync(
   vaultId: string,
   password: string,
-  syncClient: { createDatabase: (name: string) => Promise<any>; openDatabase: (id: string) => Promise<any> }
-): Promise<any> {
+  syncClient: { createDatabase: (name: string) => Promise<DatabaseHandle>; openDatabase: (id: string) => Promise<DatabaseHandle> }
+): Promise<{ syncHandle: DatabaseHandle; syncDb: SyncVaultHandle }> {
   // First, get the local vault data
   const localClient = await getSharedClient();
 
@@ -331,7 +338,9 @@ export async function migrateLocalVaultToSync(
   // TODO: Delete old per-vault DBs after successful sync
   // await SqlDatabase.delete(`password-manager-${vaultId}`);
 
-  return { syncHandle, syncDb };
+  const syncedVault = await unlockSyncVault(password, vaultId, syncHandle);
+  if (!syncedVault) throw new Error("Migrated vault not found");
+  return { syncHandle, syncDb: syncedVault };
 }
 
 function parseLockSettingsRow(row: Row) {

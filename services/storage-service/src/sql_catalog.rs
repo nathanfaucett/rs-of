@@ -73,10 +73,10 @@ async fn persist(
     }
     for record in catalog.records.values() {
         let id = record.resource.id;
-        let name = record
-            .resource
-            .name
-            .as_ref().map_or_else(|| "NULL".into(), |name| format!("'{}'", name.replace('\'', "''")));
+        let name = record.resource.name.as_ref().map_or_else(
+            || "NULL".into(),
+            |name| format!("'{}'", name.replace('\'', "''")),
+        );
         let existing = transaction
             .execute_sql(
                 &format!(

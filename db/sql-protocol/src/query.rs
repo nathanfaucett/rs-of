@@ -49,6 +49,11 @@ pub fn query_expr_value_to_proto(value: QueryExprValue) -> ProtoQueryExprValue {
     ProtoQueryExprValue { kind: Some(kind) }
 }
 
+/// Converts a protobuf expression value into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error when the value is missing or malformed.
 pub fn query_expr_value_from_proto(
     value: ProtoQueryExprValue,
 ) -> Result<QueryExprValue, QueryServiceError> {
@@ -120,6 +125,11 @@ fn binary(
     })
 }
 
+/// Converts a protobuf expression into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error when any expression node is missing or malformed.
 pub fn query_expr_from_proto(expr: ProtoQueryExpr) -> Result<QueryExpr, QueryServiceError> {
     use query_expr::Kind as K;
     let kind = expr.kind.ok_or_else(|| invalid("QueryExpr kind"))?;
@@ -145,6 +155,7 @@ pub fn query_expr_from_proto(expr: ProtoQueryExpr) -> Result<QueryExpr, QuerySer
     }
 }
 
+#[derive(Clone, Copy)]
 enum UnaryOperator {
     Not,
     Exists,
@@ -165,6 +176,7 @@ fn unary_from_proto(
     })
 }
 
+#[derive(Clone, Copy)]
 enum BinaryOperator {
     Equals,
     NotEquals,
@@ -273,6 +285,15 @@ pub fn query_select_to_proto(select: QuerySelect) -> ProtoSelect {
     }
 }
 
+/// Converts a protobuf SELECT query into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error for missing fields, malformed expressions, or numeric overflow.
+#[allow(
+    clippy::map_err_ignore,
+    reason = "wire validation uses stable client-facing messages"
+)]
 pub fn query_select_from_proto(select: ProtoSelect) -> Result<QuerySelect, QueryServiceError> {
     Ok(QuerySelect {
         from: query_from_from_proto(select.from.ok_or_else(|| invalid("QuerySelect.from"))?)?,
@@ -346,6 +367,10 @@ fn join_to_proto(join: QueryJoin) -> ProtoQueryJoin {
         on: Some(query_expr_to_proto(join.on)),
     }
 }
+#[allow(
+    clippy::map_err_ignore,
+    reason = "wire validation uses stable client-facing messages"
+)]
 fn join_from_proto(join: ProtoQueryJoin) -> Result<QueryJoin, QueryServiceError> {
     let kind =
         match ProtoJoinKind::try_from(join.kind).map_err(|_| invalid("unknown QueryJoinKind"))? {
@@ -372,6 +397,10 @@ fn order_to_proto(order: QueryOrderBy) -> ProtoOrderBy {
         },
     }
 }
+#[allow(
+    clippy::map_err_ignore,
+    reason = "wire validation uses stable client-facing messages"
+)]
 fn order_from_proto(order: ProtoOrderBy) -> Result<QueryOrderBy, QueryServiceError> {
     let direction = match ProtoSortDirection::try_from(order.direction)
         .map_err(|_| invalid("unknown QuerySortDirection"))?
@@ -450,6 +479,10 @@ const fn having_to_proto(value: QueryHavingCount) -> ProtoHaving {
         value: value.value,
     }
 }
+#[allow(
+    clippy::map_err_ignore,
+    reason = "wire validation uses stable client-facing messages"
+)]
 fn having_from_proto(value: ProtoHaving) -> Result<QueryHavingCount, QueryServiceError> {
     let operator = match ProtoHavingOperator::try_from(value.operator)
         .map_err(|_| invalid("unknown QueryHavingCountOperator"))?
@@ -493,6 +526,11 @@ pub fn query_update_assignment_to_proto(
     }
 }
 
+/// Converts a protobuf update assignment into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error when the column or value is missing or malformed.
 pub fn query_update_assignment_from_proto(
     value: proto::QueryUpdateAssignment,
 ) -> Result<QueryUpdateAssignment, QueryServiceError> {
@@ -524,6 +562,11 @@ pub fn query_to_proto(query: Query) -> proto::Query {
     }
 }
 
+/// Converts a protobuf query into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error when the query kind or any nested field is malformed.
 pub fn query_from_proto(query: proto::Query) -> Result<Query, QueryServiceError> {
     use proto::query::Kind as K;
     Ok(match query.kind.ok_or_else(|| invalid("Query.kind"))? {
@@ -700,6 +743,11 @@ pub fn statement_to_proto(value: Statement) -> proto::Statement {
         }),
     }
 }
+/// Converts a protobuf statement into its domain representation.
+///
+/// # Errors
+///
+/// Returns an error when the statement kind or any nested field is malformed.
 pub fn statement_from_proto(value: proto::Statement) -> Result<Statement, QueryServiceError> {
     use proto::statement::Kind as K;
     Ok(match value.kind.ok_or_else(|| invalid("Statement.kind"))? {
