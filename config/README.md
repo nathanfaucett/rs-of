@@ -2,7 +2,7 @@
 
 Run commands from the repository root. Relative paths in these samples resolve against the process working directory, not the YAML file. Keep each advertised public base, listener, UI origin, and TLS identity consistent.
 
-The samples describe current server entry points. They do not mean the accepted target architecture is fully implemented. See [target architecture](../docs/architecture.md) and [backend deployments](../docs/backend-deployments.md).
+The samples describe current server entry points. They do not mean the accepted target architecture is fully implemented. See [target architecture](../docs/architecture.md).
 
 ## Independent server samples
 

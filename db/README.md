@@ -10,7 +10,7 @@ The public boundary is deliberately small:
 - **Database** opens and controls storage, hosting, and synchronization.
 - **Client** performs every query and creates explicit transactions.
 
-Application services must use these facades, not engine- or Redb-specific crates. See [the facade decision](../docs/adr/0003-ofdb-facade-boundary.md).
+Application services must use these facades, not engine- or Redb-specific crates.
 
 ## Source layout
 
@@ -34,7 +34,7 @@ Native builds support in-memory and Redb persistence. Browser builds use Indexed
 
 Synchronization uses caller-supplied transport and authorization hooks. `ofdb` owns history validation, staging, atomic apply, batching, and cleanup. Callers own identity, Device/Resource authorization, peer discovery, transport, and remote delivery. Local commit notifications are not durable remote replay.
 
-Detailed invariants and protocol limits live in [database design](design.md). Browser support and build commands live in [browser documentation](../docs/browser.md).
+Detailed invariants and protocol limits live in [database design](design.md).
 
 ## Development
 

@@ -30,4 +30,4 @@ The crate also contains `id`, error, JSON, and parsing helpers. With the `ofdb` 
 
 OpenAPI files under `openapi/` are the HTTP contract source. Generated `http` modules are consumers of that contract, not a second hand-written API specification.
 
-The target ofdb boundary is `ofdb-sql`/`ofdb-kv`: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Services must not consume internal engine or redb crates. Migration to that boundary is incomplete; see [ADR 0003](../../docs/adr/0003-ofdb-facade-boundary.md).
+The target ofdb boundary is `ofdb-sql`/`ofdb-kv`: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Services must not consume internal engine or redb crates. Migration to that boundary is incomplete.

@@ -78,8 +78,7 @@ diff also visits the snapshot. Selective sync does not imply selective physical
 reads. Incremental loading and finer conflict detection are deferred.
 
 Wasm linear memory capacity is not live or peak heap. Single-sample timings are
-not latency guarantees, minimum-stack claims, or release-build benchmarks. The public
-[browser guide](../../docs/browser.md) includes package builds and support limits.
+not latency guarantees, minimum-stack claims, or release-build benchmarks.
 Use commit-specific browser evidence for measured results.
 
 Persistence follows the browser's IndexedDB completion/durability and eviction

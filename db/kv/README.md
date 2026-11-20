@@ -12,9 +12,7 @@ The breaking value-format change uses a new persisted-document version and a new
 
 ## Browser IndexedDB synchronization
 
-See the [browser support limits](../../docs/browser.md) for async construction,
-queries, explicit transactions, and caller-owned synchronization. Browser tests and
-commit-specific results do not establish a standing release matrix.
+Browser tests and commit-specific results do not establish a standing release matrix.
 
 With `indexeddb,sync` on `wasm32-unknown-unknown`, asynchronously construct
 `Database::open_indexeddb(name).await?` and use the same broad

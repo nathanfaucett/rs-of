@@ -82,8 +82,7 @@ Use change-appropriate focused checks during development. See [Contributing](CON
 
 - [Goal, north-star workflow, and milestones](docs/goal.md)
 - [Target architecture and ownership](docs/architecture.md)
-- [Deployment modes and limits](docs/backend-deployments.md)
-- [Browser storage and packages](docs/browser.md)
+
 - [Glossary map](GLOSSARY-MAP.md)
 - [Contributing](CONTRIBUTING.md)
 - [Real-backend tests](e2e/README.md)

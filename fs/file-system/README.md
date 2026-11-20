@@ -4,7 +4,7 @@ Core offline-first filesystem crate for paths, file metadata, content, persisten
 
 The crate owns stable file identities, content revisions, deletion tombstones, and Device-local Full/Passthrough residency. `of` owns Device approval, Resource Selection, authorization, and protocol-specific transport adapters.
 
-Use the crate's Rustdoc and public integration tests as the API reference. `packages/file-system` contains the browser wrapper; [browser documentation](../../docs/browser.md) gives its local build command and support limits.
+Use the crate's Rustdoc and public integration tests as the API reference. `packages/file-system` contains the browser wrapper.
 
 ```bash
 cargo test -p file-system --all-targets

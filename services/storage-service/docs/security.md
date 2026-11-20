@@ -26,7 +26,7 @@ Device revocation prevents later authorized work when learned. It does not trans
 
 ## ofdb and transport boundaries
 
-Consume only public `ofdb-sql` and `ofdb-kv` facades in the target: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Do not build service authorization on internal engine transactions or redb APIs. The current dependency migration is incomplete; see [ADR 0003](../../../docs/adr/0003-ofdb-facade-boundary.md).
+Consume only public `ofdb-sql` and `ofdb-kv` facades in the target: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Do not build service authorization on internal engine transactions or redb APIs. The current dependency migration is incomplete.
 
 Filesystem metadata completion is not proof of Full-content backup. Passthrough reads require a currently authorized Full peer. WebSocket attachment is not proof of a completed owner exchange, durable replica identity, or backup.
 

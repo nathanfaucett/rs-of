@@ -32,7 +32,7 @@ A Sync Server is a Node that exposes HTTPS identity, policy, Device, and Storage
 - OIDC authenticates API access. It does not replace Device approval or Selection.
 - Local vault encryption is separate from OIDC. A bearer token is not a vault decryption key.
 
-See [architecture](architecture.md) and [ADR 0002](adr/0002-shared-installation-devices.md).
+See [architecture](architecture.md).
 
 ## Milestones
 

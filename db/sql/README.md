@@ -193,8 +193,6 @@ database
 
 ## Browser SQL persistence
 
-See the [browser support limits](../../docs/browser.md) for explicit
-transactions, typed statements, stack configuration, and caller-owned sync.
 Browser tests and commit-specific results do not establish a standing release matrix.
 
 Enable `indexeddb` for typed statements, and add `sql` only for SQL-text translation:

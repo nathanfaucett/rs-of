@@ -9,7 +9,7 @@ Read in this order before planning:
 3. `docs/architecture.md` for accepted target boundaries.
 4. `GLOSSARY-MAP.md` and the relevant context documents.
 
-Do not present target architecture as current behavior. Generated OpenAPI and current source establish implemented contracts; ADRs establish accepted decisions. Stable documentation must not link to `.scratch` or `.tmp`.
+Do not present target architecture as current behavior. Generated OpenAPI and current source establish implemented contracts. Stable documentation must not link to `.scratch` or `.tmp`.
 
 ## Agent skills
 
@@ -67,7 +67,3 @@ Use focused tests while working. Select final validation by change and risk; see
 - Browser or synchronization behavior: real-backend browser tests; unit tests alone are insufficient.
 
 Never claim an unrun check passed. Record failures and qualification limits.
-
-## ADRs
-
-Use `docs/adr/` only for hard-to-reverse decisions with real alternatives and non-obvious rationale. Keep ADRs short. Do not use them for current behavior or task history.

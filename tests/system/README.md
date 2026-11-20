@@ -45,7 +45,7 @@ The source drives generated clients against independent IdP, Device, Storage, an
 
 Filesystem cases exercise exact file bytes, deletion/listing behavior, local Residency transitions, Resource deletion, and retained restart. Authorization cases include actor/Application substitution, wrong audience, ungranted Device actions, read-only writes, wrong Resource kinds, and denial on an existing connection.
 
-These tests exercise current legacy lifecycle and single-User owner behavior where present. They do not qualify removal of that model, Installation-level Devices shared by multiple Users, Resource ownership after revocation, or completed `rs-of` migration. See [target architecture](../../docs/architecture.md) and [ADR 0002](../../docs/adr/0002-shared-installation-devices.md).
+These tests exercise current legacy lifecycle and single-User owner behavior where present. They do not qualify removal of that model, Installation-level Devices shared by multiple Users, Resource ownership after revocation, or completed `rs-of` migration. See [target architecture](../../docs/architecture.md).
 
 ## Safety and qualification boundaries
 
@@ -53,6 +53,6 @@ Fixtures use private temporary roots, mock credential providers, and mock OS-tru
 
 The scenarios use bounded startup/request/protocol waits and reduced test password cost. They do not qualify production password settings, WAN behavior, default stack sizes, real OS trust, remote filesystem content fetching, or every crash/recovery point.
 
-One-process local composition is not evidence of multi-Node replication. Device revocation tests are not evidence of Resource ownership transfer or remote erasure; neither is a target guarantee. Database-file layout in one test is not a requirement for every deployment; see [backend deployments](../../docs/backend-deployments.md).
+One-process local composition is not evidence of multi-Node replication. Device revocation tests are not evidence of Resource ownership transfer or remote erasure; neither is a target guarantee. Database-file layout in one test is not a requirement for every deployment.
 
 [e2e/README.md](../../e2e/README.md) documents browser/backend commands. GitHub Actions records current and historical results.

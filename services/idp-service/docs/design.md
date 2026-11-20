@@ -2,7 +2,7 @@
 
 The IdP provides conventional OAuth 2.0 and OpenID Connect. Definitions are in the [IdP glossary](../GLOSSARY.md); security invariants are in [local security](local-security.md). Exact HTTP routes and schemas belong to [the IdP OpenAPI contract](../../../openapi/idp.json).
 
-The accepted target is the `rs-of` canonical monorepo, but migration is incomplete. See the [current-versus-target vision](../../../docs/goal.md), [target architecture](../../../docs/architecture.md), and [canonical monorepo ADR](../../../docs/adr/0001-canonical-monorepo.md).
+The accepted target is the `rs-of` canonical monorepo, but migration is incomplete. See the [current-versus-target vision](../../../docs/goal.md) and [target architecture](../../../docs/architecture.md).
 
 For implementation navigation, see [runtime IdP route registration](../../idp-server/src/router/openapi_router.rs), [unified owner composition](../../unified-server/src/runtime.rs), and the [owner E2E flow](../../../e2e/owners.e2e.ts).
 

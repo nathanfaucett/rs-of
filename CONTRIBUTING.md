@@ -92,7 +92,3 @@ pnpm test
 pnpm test:backend
 pnpm test:e2e
 ```
-
-## Design records
-
-Use an ADR only for a hard-to-reverse decision with real alternatives and non-obvious rationale. Keep it short. Current behavior belongs in topic documents, not ADR history.

@@ -32,4 +32,4 @@ Authorization and namespace are rechecked around transaction admission and respo
 
 The target Device context owns Device records and configuration. Management only authorizes administration. Selection maps a Resource to an Installation-level Device and can serve multiple permitted User/Application namespaces on that Device.
 
-Current contracts and implementation still include single-User Device owner/transfer behavior and legacy cleanup. These are not the target model and do not prove migration is complete. Device revocation never transfers Resource ownership or remotely erases copies. See [Storage design](design.md) and [ADR 0002](../../../docs/adr/0002-shared-installation-devices.md).
+Current contracts and implementation still include single-User Device owner/transfer behavior and legacy cleanup. These are not the target model and do not prove migration is complete. Device revocation never transfers Resource ownership or remotely erases copies. See [Storage design](design.md).

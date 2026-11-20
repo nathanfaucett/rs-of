@@ -11,7 +11,7 @@ Use canonical glossary terms in issues, designs, tests, and output. Surface conf
 - **Glossaries:** short domain definitions without implementation details.
 - **Current contracts:** behavior that callers can rely on now.
 - **Target design:** accepted outcomes that are not yet fully implemented.
-- **ADRs:** rare, hard-to-reverse decisions with real alternatives and non-obvious rationale.
+
 - **Evidence:** commands and results tied to a commit or CI run.
 
 System topics live in `docs/`. Context topics live in `services/<context>-service/docs/` or the relevant component directory. Update current documents in place and link them from `GLOSSARY-MAP.md`.

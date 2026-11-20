@@ -26,4 +26,4 @@ Install trusted policy-change notifications before starting background replicati
 
 The host must also maintain the approved endpoint inventory. Inventory changes trigger admission rebuilds, initial catch-up for new peers, and cancellation for removed peers. Local catalog creation/deletion and selected-copy events trigger the required local work, including cleanup with no available peers.
 
-The standalone HTTP-only Storage runtime does not provide native DATA background replication. Its request-time authorization is a separate path. One composed process does not require one physical database file; see [backend deployments](../../docs/backend-deployments.md) and the [ofdb facade ADR](../../docs/adr/0003-ofdb-facade-boundary.md).
+The standalone HTTP-only Storage runtime does not provide native DATA background replication. Its request-time authorization is a separate path. One composed process does not require one physical database file.

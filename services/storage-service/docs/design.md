@@ -13,7 +13,7 @@ The accepted `rs-of` target assigns ownership as follows:
 
 A Device is an Installation-level approved endpoint. With permission, it may hold replicas for multiple Users and Applications. Selection maps a Resource to a Device as desired replication state. It does not change Resource ownership or grant access by itself.
 
-Current code and contracts still contain the legacy single-User Device owner/transfer model. That model is target for removal. Current legacy cleanup or transfer flows must not be documented as shared-Device support or completed migration. See [target architecture](../../../docs/architecture.md) and [ADR 0002](../../../docs/adr/0002-shared-installation-devices.md).
+Current code and contracts still contain the legacy single-User Device owner/transfer model. That model is target for removal. Current legacy cleanup or transfer flows must not be documented as shared-Device support or completed migration. See [target architecture](../../../docs/architecture.md).
 
 ## Resource isolation
 
@@ -43,6 +43,6 @@ Full/Passthrough Residency is local filesystem policy, not Selection or synchron
 
 Storage owns domain catalogs and access decisions. ofdb owns SQL/KV persistence and synchronization; offs owns filesystem persistence and synchronization. Transport and domain adapters must not become alternate persistence engines.
 
-The target public ofdb boundary is only `ofdb-sql` and `ofdb-kv`: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Services must not import internal engine or redb crates. Current dependencies are not fully migrated. See [ADR 0003](../../../docs/adr/0003-ofdb-facade-boundary.md).
+The target public ofdb boundary is only `ofdb-sql` and `ofdb-kv`: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Services must not import internal engine or redb crates. Current dependencies are not fully migrated.
 
-One server process does not require one physical database file or one shared database host. Current deployment layouts and their limits are in [backend deployments](../../../docs/backend-deployments.md).
+One server process does not require one physical database file or one shared database host.

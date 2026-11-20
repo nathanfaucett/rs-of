@@ -24,11 +24,11 @@ The Rust [Storage client](../../storage-client/README.md) contains native and br
 
 In the accepted target, an Installation Device may hold authorized replicas for multiple Users and Applications. Resource Selection is desired Device replication state; Storage still enforces each Resource's `(User subject, Application)` namespace. Device revocation does not transfer Resource ownership or remotely erase copies.
 
-The current legacy single-User Device owner/transfer model remains in parts of the code and contracts. Migration to shared Installation Devices is incomplete. See [target architecture](../../../docs/architecture.md) and [ADR 0002](../../../docs/adr/0002-shared-installation-devices.md).
+The current legacy single-User Device owner/transfer model remains in parts of the code and contracts. Migration to shared Installation Devices is incomplete. See [target architecture](../../../docs/architecture.md).
 
-Services consume only `ofdb-sql`/`ofdb-kv` in the target: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Transport adapters must not import internal engine or redb crates. Current dependencies are not fully migrated; see [ADR 0003](../../../docs/adr/0003-ofdb-facade-boundary.md).
+Services consume only `ofdb-sql`/`ofdb-kv` in the target: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Transport adapters must not import internal engine or redb crates. Current dependencies are not fully migrated.
 
-Transport choice does not require one shared physical database or one database file per server process. See [backend deployments](../../../docs/backend-deployments.md).
+Transport choice does not require one shared physical database or one database file per server process.
 
 ## Qualification
 

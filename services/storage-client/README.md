@@ -11,7 +11,7 @@ Current Rust client for Storage resource APIs and local SQL/KV handles. Resource
 
 Callers must authenticate injected streams, bind them to the correct Resource, and reject revoked authorization or cancellation in the check callback. Transport identity is not Resource authority. Use persistent store/replica identities and a real schema fingerprint; an attached session is not proof of correct identity, completed synchronization, or backup.
 
-The target public ofdb boundary is only `ofdb-sql` and `ofdb-kv`: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Current client dependencies are not fully migrated to that boundary. See [ADR 0003](../../docs/adr/0003-ofdb-facade-boundary.md).
+The target public ofdb boundary is only `ofdb-sql` and `ofdb-kv`: `Database` for lifecycle/synchronization and `Client` for queries/transactions. Current client dependencies are not fully migrated to that boundary.
 
 ## Focused checks
 
