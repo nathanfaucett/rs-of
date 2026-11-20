@@ -60,15 +60,15 @@ test("lossless tagged values preserve text, UUID, ciphertext and integer limits"
     const db = await (window as any).sql.Database.open("values");
     const client = db.client();
     await client.executeRaw(
-      "CREATE TABLE values_test (id UUID PRIMARY KEY, text TEXT, empty_text TEXT, cipher BLOB, empty_blob BLOB, lo INTEGER, hi INTEGER, f FLOAT, b BOOLEAN, n TEXT, j JSON)",
+      "CREATE TABLE values_test (id UUID PRIMARY KEY, ref UUID, text TEXT, empty_text TEXT, cipher BLOB, empty_blob BLOB, lo INTEGER, hi INTEGER, f FLOAT, b BOOLEAN, n TEXT, j JSON)",
     );
     await client.executeRaw(
-      "INSERT INTO values_test VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+      "INSERT INTO values_test (ref,text,empty_text,cipher,empty_blob,lo,hi,f,b,n,j) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
       values,
     );
     try {
       return await client.executeRaw(
-        "SELECT id,text,empty_text,cipher,empty_blob,lo,hi,f,b,n,j FROM values_test",
+        "SELECT ref,text,empty_text,cipher,empty_blob,lo,hi,f,b,n,j FROM values_test",
       );
     } finally {
       client.close();
