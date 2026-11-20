@@ -1,3 +1,4 @@
+use super::insert::{generated_id, generated_insert};
 use crate::repo::{OAuth2UserConsentRepo, RepoError, RepoResult};
 use chrono::{DateTime, Utc};
 use db::ofdb::validators::SecurityRow;
@@ -13,7 +14,6 @@ use ofdb_sql::QueryDelete;
 use ofdb_sql::QueryExpr;
 use ofdb_sql::QueryExprValue;
 use ofdb_sql::QueryFrom;
-use ofdb_sql::QueryInsert;
 use ofdb_sql::QuerySelect;
 use ofdb_sql::QueryUpdate;
 use ofdb_sql::QueryUpdateAssignment;
@@ -101,7 +101,7 @@ impl OAuth2UserConsentRepo for DbOAuth2UserConsentRepo {
             Some(consent) => (consent, true),
             None => (
                 OAuth2UserConsent {
-                    id: Id::now_v7(),
+                    id: Id::nil(),
                     user_id,
                     client_id: client_id.into(),
                     redirect_uri: redirect_uri.into(),
@@ -128,18 +128,21 @@ impl OAuth2UserConsentRepo for DbOAuth2UserConsentRepo {
                 returning: None,
             })
         } else {
-            Query::Insert(QueryInsert {
-                table: TABLE.into(),
-                row: ConsentRow::from(&consent).into(),
-                returning: None,
-            })
+            generated_insert(TABLE, ConsentRow::from(&consent).into(), true)
         };
-        self.engine
+        let results = self
+            .engine
             .execute(vec![Statement::Query(statement)])
             .await
             .map_err(db_error)?;
-        self.ensure_clear(consent.id).await?;
+        let id = if existing {
+            consent.id
+        } else {
+            generated_id(&results)?
+        };
+        self.ensure_clear(id).await?;
         Ok(OAuth2UserConsent {
+            id,
             updated_at,
             ..consent
         })

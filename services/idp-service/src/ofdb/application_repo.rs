@@ -1,3 +1,4 @@
+use super::insert::{generated_id, generated_insert};
 use crate::repo::{ApplicationRepo, RepoError, RepoResult};
 use chrono::{DateTime, Utc};
 use db::ofdb::validators::SecurityRow;
@@ -13,7 +14,6 @@ use ofdb_sql::QueryDelete;
 use ofdb_sql::QueryExpr;
 use ofdb_sql::QueryExprValue;
 use ofdb_sql::QueryFrom;
-use ofdb_sql::QueryInsert;
 use ofdb_sql::QuerySelect;
 use ofdb_sql::QueryUpdate;
 use ofdb_sql::QueryUpdateAssignment;
@@ -120,21 +120,26 @@ impl ApplicationRepo for DbApplicationRepo {
         let now = Utc::now();
         let now = DateTime::from_timestamp(now.timestamp(), 0).expect("valid timestamp");
         let application = Application {
-            id: Id::now_v7(),
+            id: Id::nil(),
             name,
             uri,
             description,
             created_at: now,
             updated_at: now,
         };
-        self.engine
-            .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                table: TABLE.into(),
-                row: ApplicationRow::from(&application).into(),
-                returning: None,
-            }))])
+        let results = self
+            .engine
+            .execute(vec![Statement::Query(generated_insert(
+                TABLE,
+                ApplicationRow::from(&application).into(),
+                true,
+            ))])
             .await
             .map_err(db_error)?;
+        let application = Application {
+            id: generated_id(&results)?,
+            ..application
+        };
         Ok(application)
     }
 

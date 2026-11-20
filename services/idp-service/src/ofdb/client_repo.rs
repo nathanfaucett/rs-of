@@ -1,3 +1,4 @@
+use super::insert::{generated_id, generated_insert};
 use std::sync::Arc;
 
 use crate::{
@@ -123,7 +124,7 @@ where
             .with_nanosecond(0)
             .expect("zero nanoseconds is valid");
         let client = Client {
-            id: Id::now_v7(),
+            id: Id::nil(),
             application_id,
             client_id,
             client_secret_hash,
@@ -161,15 +162,22 @@ where
         let mut metadata = ClientRow::from(&client);
         metadata.credential_id = Some(revision);
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let results = transaction
+            .execute(vec![Statement::Query(generated_insert(
+                TABLE,
+                metadata.into(),
+                true,
+            ))])
+            .await
+            .map_err(db_error)?;
+        let client = Client {
+            id: generated_id(&results)?,
+            ..client
+        };
         transaction
-            .execute(vec![
-                Statement::Query(Query::Insert(QueryInsert {
-                    table: TABLE.into(),
-                    row: metadata.into(),
-                    returning: None,
-                })),
-                Statement::Query(local_credential_insert(&client, revision)),
-            ])
+            .execute(vec![Statement::Query(local_credential_insert(
+                &client, revision,
+            ))])
             .await
             .map_err(db_error)?;
         transaction.commit().await.map_err(db_error)?;
@@ -227,24 +235,8 @@ where
     ) -> RepoResult<Vec<Client>> {
         let mut clients = Self::registrations(transaction, predicate).await?;
         for (client, revision) in &mut clients {
-            let key = Row::new(vec![Value::Uuid(client.id)]);
-            if !transaction
-                .row_conflicts("local_client_credentials", &key)
-                .await
-                .map_err(db_error)?
-                .is_empty()
-            {
-                return Err(RepoError::InvalidInput(
-                    "conflicted local client credential".into(),
-                ));
-            }
-            let result = transaction
-                .execute(vec![Statement::Query(local_credential_select(client.id))])
-                .await
-                .map_err(db_error)?;
-            if let Some(row) = result[0]
-                .rows
-                .first()
+            if let Some(row) = local_credential(transaction, client.id)
+                .await?
                 .filter(|row| row.values[1] == revision.map_or(Value::Null, Value::Uuid))
             {
                 client.client_secret_hash =
@@ -341,12 +333,11 @@ where
         let now = Utc::now()
             .with_nanosecond(0)
             .expect("zero nanoseconds is valid");
-        let id = Id::now_v7();
-        self.engine
+        let results = self
+            .engine
             .execute(vec![Statement::Query(Query::Insert(QueryInsert {
                 table: "applications".into(),
                 row: Row::new(vec![
-                    Value::Uuid(id),
                     Value::Text(
                         registration
                             .application
@@ -363,11 +354,11 @@ where
                     Value::Integer(now.timestamp()),
                     Value::Integer(now.timestamp()),
                 ]),
-                returning: None,
+                returning: Some(vec!["id".into()]),
             }))])
             .await
             .map_err(db_error)?;
-        Ok(id)
+        generated_id(&results)
     }
 }
 
@@ -444,22 +435,17 @@ where
             .with_nanosecond(0)
             .expect("zero nanoseconds is valid");
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
-        for table in [TABLE, "local_client_credentials"] {
-            if !transaction
-                .row_conflicts(table, &Row::new(vec![Value::Uuid(client.id)]))
-                .await
-                .map_err(db_error)?
-                .is_empty()
-            {
-                return Err(RepoError::InvalidInput(
-                    "conflicted client credential update".into(),
-                ));
-            }
-        }
-        let existing = transaction
-            .execute(vec![Statement::Query(local_credential_select(client.id))])
+        if !transaction
+            .row_conflicts(TABLE, &Row::new(vec![Value::Uuid(client.id)]))
             .await
-            .map_err(db_error)?;
+            .map_err(db_error)?
+            .is_empty()
+        {
+            return Err(RepoError::InvalidInput(
+                "conflicted client credential update".into(),
+            ));
+        }
+        let existing = local_credential(&mut transaction, client.id).await?;
         let current = transaction
             .execute(vec![Statement::Query(select(Some(equals(
                 "id",
@@ -473,7 +459,7 @@ where
             .map_err(row_error)?
             .first()
             .and_then(|row| row.credential_id);
-        let revision = if let Some(local) = existing[0].rows.first().filter(|row| {
+        let revision = if let Some(local) = existing.as_ref().filter(|row| {
             row.values[0] == Value::Text(client.client_secret_hash.clone())
                 && row.values[1] == current_revision.map_or(Value::Null, Value::Uuid)
         }) {
@@ -482,7 +468,7 @@ where
             Id::now_v7()
         };
         metadata.credential_id = Some(revision);
-        let credential = if existing[0].rows.is_empty() {
+        let credential = if existing.is_none() {
             local_credential_insert(&client, revision)
         } else {
             Query::Update(QueryUpdate {
@@ -862,13 +848,45 @@ fn local_credential_insert(client: &Client, revision: Uuid) -> Query {
     })
 }
 
+async fn local_credential(transaction: &mut Transaction, client_id: Id) -> RepoResult<Option<Row>> {
+    let mut result = transaction
+        .execute(vec![Statement::Query(local_credential_select(client_id))])
+        .await
+        .map_err(db_error)?;
+    let rows = &mut result[0].rows;
+    match rows.len() {
+        0 => Ok(None),
+        1 => {
+            let row = rows.remove(0);
+            if transaction
+                .row_conflicts(
+                    "local_client_credentials",
+                    &Row::new(vec![row.values[2].clone()]),
+                )
+                .await
+                .map_err(db_error)?
+                .is_empty()
+            {
+                Ok(Some(row))
+            } else {
+                Err(RepoError::InvalidInput(
+                    "conflicted local client credential".into(),
+                ))
+            }
+        }
+        _ => Err(RepoError::InvalidInput(
+            "ambiguous local client credential".into(),
+        )),
+    }
+}
+
 fn local_credential_select(id: Id) -> Query {
     Query::Select(QuerySelect {
         from: QueryFrom {
             table: "local_client_credentials".into(),
             joins: vec![],
         },
-        projection: ["secret_hash", "credential_id"]
+        projection: ["secret_hash", "credential_id", "id"]
             .into_iter()
             .map(|name| QueryColumn::new("local_client_credentials".into(), name.into()))
             .collect(),

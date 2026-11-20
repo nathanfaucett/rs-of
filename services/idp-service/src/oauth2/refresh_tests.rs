@@ -872,42 +872,14 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
         .key_id;
     {
         let engine = Arc::new(ofdb_sql::Database::open(&path).expect("persist Node identity"));
-        up(&engine.client())
+        let state = source
+            .export_history()
             .await
-            .expect("initialize local trust schema");
-        for table in [
-            "applications",
-            "clients",
-            "users",
-            "credentials",
-            "local_client_credentials",
-            "local_credential_secrets",
-            "keys",
-            "idp_replica_members",
-            "idp_replica_signers",
-            "oauth2_refresh_tokens",
-        ] {
-            let rows = source
-                .client()
-                .translate_and_execute(&format!("SELECT * FROM {table}"), &ofdb_sql::SqlTranslator)
-                .await
-                .expect("read local fixture state")
-                .remove(0)
-                .rows;
-            for row in rows {
-                engine
-                    .client()
-                    .execute(vec![Statement::Query(Query::Insert(
-                        ofdb_sql::QueryInsert {
-                            table: table.into(),
-                            row,
-                            returning: None,
-                        },
-                    ))])
-                    .await
-                    .expect("persist local state, not a transport import");
-            }
-        }
+            .expect("export local fixture state");
+        engine
+            .import_history(state)
+            .await
+            .expect("restore local fixture state");
     }
     drop(service);
     drop(source);

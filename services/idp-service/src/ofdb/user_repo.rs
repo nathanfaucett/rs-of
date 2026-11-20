@@ -1,3 +1,4 @@
+use super::insert::generated_insert;
 use chrono::{DateTime, Timelike, Utc};
 use db::ofdb::validators::allows_authentication;
 use of_model::id::Id;
@@ -287,7 +288,7 @@ impl UserRepo for DbUserRepo {
             return Ok(None);
         };
         self.ensure_credential_clear(credential.id).await?;
-        let key = Row::new(vec![Value::Uuid(credential.id)]);
+        let key = Row::new(vec![Value::Text(credential.id.to_string())]);
         if !self
             .engine
             .row_conflicts("local_credential_secrets", &key)
@@ -299,10 +300,17 @@ impl UserRepo for DbUserRepo {
                 "conflicted local password verifier".into(),
             ));
         }
-        let results = self.engine.translate_and_execute(
-            &format!("SELECT secret_hash FROM local_credential_secrets WHERE credential_id = CAST('{}' AS UUID)", credential.id),
-            &ofdb_sql::SqlTranslator,
-        ).await.map_err(db_error)?;
+        let results = self
+            .engine
+            .translate_and_execute(
+                &format!(
+                    "SELECT secret_hash FROM local_credential_secrets WHERE credential_id = '{}'",
+                    credential.id
+                ),
+                &ofdb_sql::SqlTranslator,
+            )
+            .await
+            .map_err(db_error)?;
         let Some(row) = results[0].rows.first() else {
             return Ok(None);
         };
@@ -428,7 +436,7 @@ impl UserRepo for DbUserRepo {
                 .map_err(db_error)?;
         } else {
             let row = EmailRow {
-                id: Id::now_v7(),
+                id: Id::nil(),
                 user_id,
                 email: email.into(),
                 verified: i64::from(verified),
@@ -437,11 +445,11 @@ impl UserRepo for DbUserRepo {
                 updated_at: now,
             };
             self.engine
-                .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                    table: EMAILS.into(),
-                    row: row.into(),
-                    returning: None,
-                }))])
+                .execute(vec![Statement::Query(generated_insert(
+                    EMAILS,
+                    row.into(),
+                    false,
+                ))])
                 .await
                 .map_err(db_error)?;
         }
@@ -492,7 +500,7 @@ impl UserRepo for DbUserRepo {
                 .map_err(db_error)?;
         } else {
             let row = PhoneRow {
-                id: Id::now_v7(),
+                id: Id::nil(),
                 user_id,
                 phone_number: phone_number.into(),
                 verified,
@@ -501,11 +509,11 @@ impl UserRepo for DbUserRepo {
                 updated_at: now,
             };
             self.engine
-                .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                    table: PHONES.into(),
-                    row: row.into(),
-                    returning: None,
-                }))])
+                .execute(vec![Statement::Query(generated_insert(
+                    PHONES,
+                    row.into(),
+                    false,
+                ))])
                 .await
                 .map_err(db_error)?;
         }
@@ -552,7 +560,13 @@ impl UserRepo for DbUserRepo {
             .filter(|credential| credential.active)
         {
             if !transaction
-                .row_conflicts(CREDENTIALS, &Row::new(vec![Value::Uuid(credential.id)]))
+                .row_conflicts(
+                    CREDENTIALS,
+                    &Row::new(vec![
+                        Value::Uuid(credential.id),
+                        Value::Uuid(credential.user_id),
+                    ]),
+                )
                 .await
                 .map_err(db_error)?
                 .is_empty()
@@ -1002,7 +1016,7 @@ impl From<CredentialRow> for Row {
 fn local_password_insert(id: Id, hash: String) -> Query {
     Query::Insert(QueryInsert {
         table: "local_credential_secrets".into(),
-        row: Row::new(vec![Value::Uuid(id), Value::Text(hash)]),
+        row: Row::new(vec![Value::Text(id.to_string()), Value::Text(hash)]),
         returning: None,
     })
 }

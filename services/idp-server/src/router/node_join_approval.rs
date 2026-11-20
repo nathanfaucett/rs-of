@@ -317,7 +317,7 @@ async fn persist_join_intent(
     owner: Id,
 ) -> io::Result<()> {
     transaction.translate_and_execute(
-        "CREATE TABLE IF NOT EXISTS local_node_join_intents (id UUID PRIMARY KEY, binding TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS local_node_join_intents (id TEXT PRIMARY KEY, binding TEXT NOT NULL)",
         &SqlTranslator,
     ).await.map_err(io::Error::other)?;
     let binding =
@@ -325,7 +325,7 @@ async fn persist_join_intent(
     let rows = transaction
         .translate_and_execute(
             &format!(
-                "SELECT binding FROM local_node_join_intents WHERE id = CAST('{}' AS UUID)",
+                "SELECT binding FROM local_node_join_intents WHERE id = '{}'",
                 request.member_id,
             ),
             &SqlTranslator,
@@ -334,9 +334,17 @@ async fn persist_join_intent(
         .map_err(io::Error::other)?;
     match rows[0].rows.as_slice() {
         [] => {
-            transaction.translate_and_execute(&format!(
-                "INSERT INTO local_node_join_intents (id, binding) VALUES (CAST('{}' AS UUID), {})", request.member_id, text(&binding),
-            ), &SqlTranslator).await.map_err(io::Error::other)?;
+            transaction
+                .translate_and_execute(
+                    &format!(
+                        "INSERT INTO local_node_join_intents (id, binding) VALUES ('{}', {})",
+                        request.member_id,
+                        text(&binding),
+                    ),
+                    &SqlTranslator,
+                )
+                .await
+                .map_err(io::Error::other)?;
         }
         [row] if row.values == [Value::Text(binding)] => (),
         _ => {
@@ -348,7 +356,7 @@ async fn persist_join_intent(
     require_clear(
         transaction,
         "local_node_join_intents",
-        &Row::new(vec![Value::Uuid(request.member_id)]),
+        &Row::new(vec![Value::Text(request.member_id.to_string())]),
     )
     .await
 }
