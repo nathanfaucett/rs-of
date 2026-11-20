@@ -247,10 +247,11 @@ async fn remote_device_child() {
         let mut ids = Vec::new();
         for name in ["replica", "peer"] {
             let endpoint = iroh::SecretKey::generate().public().to_string();
-            let id = Id::now_v7();
-            repo.enroll_approved_exact(id, owner, name, &endpoint, 1)
+            let id = repo
+                .enroll_approved_exact(Id::now_v7(), owner, name, &endpoint, 1)
                 .await
-                .expect("trusted fixture");
+                .expect("trusted fixture")
+                .id;
             DbSelectionPolicyRepo::new(Arc::new(database.clone()).client())
                 .set_prevalidated(SelectionPolicy {
                     device_id: id,

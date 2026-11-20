@@ -133,7 +133,7 @@ pub async fn reset_independent(
             if let Some(approval) = &references.approval {
                 approval.verify()?;
                 if approval.request.operation != *intent
-                    || approval.request.device_id != references.device
+                    || approval.request.request_id != references.device
                     || Some(approval.request.endpoint_id.as_str()) != references.endpoint.as_deref()
                     || Some(approval.owner_subject) != references.user
                     || references

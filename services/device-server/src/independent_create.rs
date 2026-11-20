@@ -50,6 +50,12 @@ struct Record {
     complete: bool,
 }
 impl Record {
+    fn approved_device_id(&self) -> Id {
+        self.approval
+            .as_ref()
+            .map_or(self.device, |approval| approval.device_id)
+    }
+
     fn validate_operation(&self, intent: &IndependentCreateIntent) -> io::Result<()> {
         self.validate()?;
         if intent.purpose == "create" {
@@ -82,7 +88,7 @@ impl Record {
         if let Some(approval) = &self.approval {
             approval.verify()?;
             if approval.request.operation != *intent
-                || approval.request.device_id != self.device
+                || approval.request.request_id != self.device
                 || Some(approval.request.endpoint_id.as_str()) != self.endpoint.as_deref()
                 || Some(approval.owner_subject) != self.user
                 || self.source.as_ref().map(serde_json::to_value).transpose()?
@@ -313,7 +319,8 @@ async fn verify_identity(engine: &DeviceStore, record: &Record) -> io::Result<St
         .await
         .map_err(io::Error::other)?
         .ok_or_else(|| io::Error::other("current approved Management endpoint missing"))?;
-    if device.id != record.device || (!record.complete && device.owner_subject != user.to_string())
+    if device.id != record.approved_device_id()
+        || (!record.complete && device.owner_subject != user.to_string())
     {
         return Err(io::Error::other("Management endpoint binding changed"));
     }
@@ -332,11 +339,11 @@ async fn verify(engine: &DeviceStore, record: &Record) -> io::Result<()> {
     let owner_subject = verify_identity(engine, record).await?;
     let policies = DbSelectionPolicyRepo::new(engine.client.clone());
     if policies
-        .local_cleanup_pending(record.device)
+        .local_cleanup_pending(record.approved_device_id())
         .await
         .map_err(io::Error::other)?
         || !policies
-            .get(record.device, &owner_subject, Id::nil())
+            .get(record.approved_device_id(), &owner_subject, Id::nil())
             .await
             .map_err(io::Error::other)?
             .is_some_and(|policy| policy.admin_allowed)

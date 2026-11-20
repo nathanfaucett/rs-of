@@ -123,10 +123,10 @@ pub(super) async fn provision(
     }
     if record.request.is_none() {
         let source = serde_json::from_value(device.facts["source"].clone())?;
-        let device_id = serde_json::from_value(device.facts["device"].clone())?;
+        let request_id = serde_json::from_value(device.facts["device"].clone())?;
         let request = IndependentJoinRequest {
             operation: intent.clone(),
-            device_id,
+            request_id,
             member_id: record.member,
             endpoint_id: endpoint,
             public_signer: opened.prepare_node_signer(&binding(record)?)?,

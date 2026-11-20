@@ -164,7 +164,7 @@ impl SecurityHistory {
                 let bindings = approval
                     .map(|a| {
                         vec![PeerBinding {
-                            member: a.member_id,
+                            member: a.device_id,
                             endpoint: a.endpoint.to_owned(),
                             owner: a.owner,
                         }]

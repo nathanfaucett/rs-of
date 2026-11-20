@@ -512,7 +512,7 @@ fn validate_candidate(
 ) -> Result<(), String> {
     let candidate = crate::security_candidates::JoinCandidate {
         member_id: approval.request.member_id,
-        device_id: approval.request.device_id,
+        device_id: approval.device_id,
         endpoint: &approval.request.endpoint_id,
         owner: approval.owner_subject,
         public_signer: &approval.request.public_signer,
@@ -527,7 +527,7 @@ fn validate_candidate(
         JoinHistoryContext::Device => crate::security_candidates::validate_device_history(
             view,
             &[crate::security_candidates::PeerBinding {
-                member: approval.request.device_id,
+                member: approval.device_id,
                 endpoint: approval.request.endpoint_id.clone(),
                 owner: approval.owner_subject,
             }],

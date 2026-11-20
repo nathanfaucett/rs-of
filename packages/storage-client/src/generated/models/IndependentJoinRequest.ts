@@ -44,7 +44,7 @@ export interface IndependentJoinRequest {
   /**
    *
    */
-  deviceId: string;
+  requestId: string;
   /**
    *
    */
@@ -72,10 +72,10 @@ export interface IndependentJoinRequest {
  */
 export function instanceOfIndependentJoinRequest(value: object): value is IndependentJoinRequest {
   if (
-    (!("deviceId" in (value as Record<string, any>)) &&
-      !("device_id" in (value as Record<string, any>))) ||
-    ((value as Record<string, any>)["deviceId"] === undefined &&
-      (value as Record<string, any>)["device_id"] === undefined)
+    (!("requestId" in (value as Record<string, any>)) &&
+      !("request_id" in (value as Record<string, any>))) ||
+    ((value as Record<string, any>)["requestId"] === undefined &&
+      (value as Record<string, any>)["request_id"] === undefined)
   )
     return false;
   if (
@@ -117,7 +117,7 @@ export function IndependentJoinRequestFromJSONTyped(
     typeof json === "object" &&
     Object.keys(json).some(
       (key) =>
-        !["device_id", "endpoint_id", "member_id", "operation", "public_signer", "source"].includes(
+        !["request_id", "endpoint_id", "member_id", "operation", "public_signer", "source"].includes(
           key
         )
     )
@@ -127,7 +127,7 @@ export function IndependentJoinRequestFromJSONTyped(
     return json;
   }
   return {
-    deviceId: json["device_id"],
+    requestId: json["request_id"],
     endpointId: json["endpoint_id"],
     memberId: json["member_id"],
     operation: IndependentCreateIntentFromJSON(json["operation"]),
@@ -149,7 +149,7 @@ export function IndependentJoinRequestToJSONTyped(
   }
 
   return {
-    device_id: value["deviceId"],
+    request_id: value["requestId"],
     endpoint_id: value["endpointId"],
     member_id: value["memberId"],
     operation: IndependentCreateIntentToJSON(value["operation"]),

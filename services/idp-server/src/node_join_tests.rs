@@ -105,12 +105,14 @@ async fn node_join_anchor_verification_is_existing_only_and_does_not_write() {
     let request = owner
         .prepare_node_join(&binding, "Read-only verification", peer.public())
         .expect("explicit preparation");
+    let device_id = Id::now_v7();
     let signature = peer.sign(
-        &of_model::node_join::NodeJoinApproval::payload(&request, subject)
+        &of_model::node_join::NodeJoinApproval::payload(&request, device_id, subject)
             .expect("exact approval payload"),
     );
     let approval = of_model::node_join::NodeJoinApproval {
         request,
+        device_id,
         owner_subject: subject,
         signature: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
     };
@@ -869,6 +871,11 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         management_device
     );
     assert_eq!(approved, received);
+    assert_eq!(received.device_id, management_device.id);
+    assert_ne!(received.device_id, request.member_id);
+    let mut substituted = received.clone();
+    substituted.device_id = Id::now_v7();
+    assert!(substituted.verify(&request).is_err(), "Device ID is signed");
     assert_eq!(received.owner_subject, fixture.owner);
     assert_eq!(
         fixture
@@ -888,8 +895,12 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     forged.signature = URL_SAFE_NO_PAD.encode(
         SecretKey::generate()
             .sign(
-                &of_model::node_join::NodeJoinApproval::payload(&request, received.owner_subject)
-                    .expect("approval purpose payload"),
+                &of_model::node_join::NodeJoinApproval::payload(
+                    &request,
+                    received.device_id,
+                    received.owner_subject,
+                )
+                .expect("approval purpose payload"),
             )
             .to_bytes(),
     );
@@ -952,14 +963,14 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         .translate_and_execute(
             &format!(
                 "UPDATE devices SET revoked_at = 1 WHERE id = CAST('{}' AS UUID)",
-                binding.member_id
+                approved.device_id
             ),
             &ofdb_sql::SqlTranslator,
         )
         .await
         .expect("learn timestamp-only joining Device revocation");
     let rows = fixture.management.client().translate_and_execute(&format!(
-        "SELECT state, revoked_at, owner_subject FROM devices WHERE id = CAST('{}' AS UUID)", binding.member_id),
+        "SELECT state, revoked_at, owner_subject FROM devices WHERE id = CAST('{}' AS UUID)", approved.device_id),
         &ofdb_sql::SqlTranslator).await.expect("timestamp-only joining Device state");
     assert_eq!(
         rows[0].rows,
@@ -999,7 +1010,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         .expect("injected Management Device owner")
         .revoke(
             &fixture.owner.to_string(),
-            binding.member_id,
+            approved.device_id,
             &fixture.server.endpoint().id().to_string(),
         )
         .await

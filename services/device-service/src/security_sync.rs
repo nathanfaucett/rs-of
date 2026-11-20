@@ -108,6 +108,7 @@ mod tests {
             "local_client_credentials",
             "local_credential_secrets",
             "local_device_enrollments",
+            "local_device_join_bindings",
             "unknown",
         ] {
             assert!(!permits_device_table(table));

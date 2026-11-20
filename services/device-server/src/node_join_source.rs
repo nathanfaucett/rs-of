@@ -291,7 +291,7 @@ impl NodeJoinSource {
             .await
             .map_err(io::Error::other)?
             .ok_or_else(|| denied("enrolled endpoint has no approved Management Device"))?;
-        if identity.id != approval.request.member_id
+        if identity.id != approval.device_id
             || identity.owner_subject != approval.owner_subject.to_string()
         {
             return Err(denied(

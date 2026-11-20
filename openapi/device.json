@@ -359,6 +359,10 @@
       "IndependentJoinApproval": {
         "additionalProperties": false,
         "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
           "owner_subject": {
             "format": "uuid",
             "type": "string"
@@ -372,6 +376,7 @@
         },
         "required": [
           "request",
+          "device_id",
           "owner_subject",
           "signature"
         ],
@@ -380,10 +385,6 @@
       "IndependentJoinRequest": {
         "additionalProperties": false,
         "properties": {
-          "device_id": {
-            "format": "uuid",
-            "type": "string"
-          },
           "endpoint_id": {
             "type": "string"
           },
@@ -397,13 +398,17 @@
           "public_signer": {
             "$ref": "#/components/schemas/JwkPublic"
           },
+          "request_id": {
+            "format": "uuid",
+            "type": "string"
+          },
           "source": {
             "$ref": "#/components/schemas/IndependentPeer"
           }
         },
         "required": [
           "operation",
-          "device_id",
+          "request_id",
           "member_id",
           "endpoint_id",
           "public_signer",
@@ -604,6 +609,10 @@
       "NodeJoinApproval": {
         "additionalProperties": false,
         "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
           "owner_subject": {
             "format": "uuid",
             "type": "string"
@@ -617,6 +626,7 @@
         },
         "required": [
           "request",
+          "device_id",
           "owner_subject",
           "signature"
         ],

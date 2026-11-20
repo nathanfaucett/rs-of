@@ -109,6 +109,7 @@ async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation
             .transport_identity()
             .expect("fixture transport"),
         request.clone(),
+        Id::now_v7(),
         fixture.owner,
     )
     .expect("prospective signed approval");
