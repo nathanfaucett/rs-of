@@ -77,6 +77,11 @@ try {
 }
 ```
 
+For a table whose primary key is a single UUID column, omit that column or use
+`DEFAULT` on insert. Use `RETURNING` to get the generated UUIDv7. Explicit UUID
+primary keys are rejected. UUID values in other columns and in composite keys
+are still accepted. Use a fresh database if it has legacy UUIDv5 row history.
+
 ## Typed reads
 
 `Client.select(sql, parser, params?)` and `Transaction.select(sql, parser, params?)`
