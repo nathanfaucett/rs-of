@@ -270,6 +270,16 @@ where
         self.access().await?.stream(path, chunk_size).await
     }
 
+    /// Atomically creates an empty regular file if the path does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for existing entries, invalid paths, residency restrictions, or
+    /// content/storage failures.
+    pub async fn create_file(&self, path: &str) -> Result<Entry<PeerId>, Error> {
+        self.access().await?.create_file(path).await
+    }
+
     /// Replaces a file with new content.
     ///
     /// # Errors
@@ -522,6 +532,27 @@ where
         )
     }
 
+    pub async fn create_file(&self, path: &str) -> Result<Entry<PeerId>, Error> {
+        let _execution = self.owner.execution.lock().await;
+        file(path)?;
+        self.require_full(path)?;
+        self.ensure_parent_directories(path).await?;
+        if self.get(path).await?.is_some() {
+            return Err(Error::AlreadyExists);
+        }
+        let meta = FileMeta::file(Uuid::now_v7(), self.node_id.clone());
+        let mut stage = self.stage(meta.file_id, meta.revision).await?;
+        self.stage_write(&mut *stage, &[]).await?;
+        self.stage_sync(&mut *stage).await?;
+        self.stage_publish(&mut *stage).await?;
+        self.put(path, meta.clone()).await?;
+        stage.commit();
+        Ok(Entry {
+            path: path.to_owned(),
+            meta,
+        })
+    }
+
     pub async fn write(&self, path: &str, content: &[u8]) -> Result<Entry<PeerId>, Error> {
         let _execution = self.owner.execution.lock().await;
         file(path)?;
@@ -573,12 +604,16 @@ where
         if self.revision(path).await? != expected_revision {
             return Err(Error::StaleRevision);
         }
-        let length = u32::try_from(data.len()).map_err(|_error| {
-            Error::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "write is too large",
-            ))
-        })?;
+        let invalid_input =
+            |message| Error::Io(io::Error::new(io::ErrorKind::InvalidInput, message));
+        let data_len =
+            u64::try_from(data.len()).map_err(|_error| invalid_input("write is too large"))?;
+        let length =
+            u32::try_from(data.len()).map_err(|_error| invalid_input("write is too large"))?;
+        let end = offset
+            .checked_add(data_len)
+            .ok_or_else(|| invalid_input("write offset is too large"))?;
+        usize::try_from(end).map_err(|_error| invalid_input("write offset is too large"))?;
         let mut meta = entry.meta.clone();
         meta.revision = Uuid::now_v7();
         let mut stage = self.stage(meta.file_id, meta.revision).await?;

@@ -361,13 +361,23 @@ impl Staged for BrowserStaged {
         bytes: &'a [u8],
     ) -> BoxFuture<'a, Result<(), Error>> {
         Box::pin(async move {
-            let offset = offset as usize;
+            let offset = usize::try_from(offset).map_err(|_error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "write offset is too large",
+                )
+            })?;
+            let end = offset.checked_add(bytes.len()).ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "write offset is too large",
+                )
+            })?;
             if offset > self.buffer.len() {
                 self.buffer.resize(offset, 0);
             }
-            let end = (offset + bytes.len()).max(self.buffer.len());
-            self.buffer.resize(end, 0);
-            self.buffer[offset..offset + bytes.len()].copy_from_slice(bytes);
+            self.buffer.resize(end.max(self.buffer.len()), 0);
+            self.buffer[offset..end].copy_from_slice(bytes);
             Ok(())
         })
     }

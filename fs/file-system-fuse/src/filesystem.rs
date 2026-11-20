@@ -3,6 +3,7 @@ use std::{
     ffi::{OsStr, OsString},
     fmt,
     future::ready,
+    io::ErrorKind,
     mem,
     num::NonZeroU32,
     sync::{
@@ -21,8 +22,8 @@ use fuse3::{
     path::{
         PathFilesystem, Request,
         reply::{
-            DirectoryEntry, DirectoryEntryPlus, FileAttr, ReplyAttr, ReplyData, ReplyDirectory,
-            ReplyDirectoryPlus, ReplyEntry, ReplyInit, ReplyOpen,
+            DirectoryEntry, DirectoryEntryPlus, FileAttr, ReplyAttr, ReplyCreated, ReplyData,
+            ReplyDirectory, ReplyDirectoryPlus, ReplyEntry, ReplyInit, ReplyOpen, ReplyWrite,
         },
     },
 };
@@ -242,7 +243,7 @@ where
     }
 
     async fn open(&self, _request: Request, path: &OsStr, flags: u32) -> Result<ReplyOpen> {
-        reject_mutation_flags(flags)?;
+        reject_truncate(flags)?;
         let path = relative_path(path)?;
         let entry = self
             .state
@@ -268,6 +269,56 @@ where
         })
     }
 
+    async fn create(
+        &self,
+        _request: Request,
+        parent: &OsStr,
+        name: &OsStr,
+        _mode: u32,
+        flags: u32,
+    ) -> Result<ReplyCreated> {
+        reject_truncate(flags)?;
+        let parent_path = relative_path(parent)?;
+        let path = child_path(parent, name)?;
+        self.state.require_directory(&parent_path).await?;
+        let entry = match self.state.file_system.create_file(&path).await {
+            Ok(entry) => entry,
+            Err(Error::AlreadyExists) if flags & libc::O_EXCL.unsigned_abs() != 0 => {
+                return Err(Errno::from(libc::EEXIST));
+            }
+            Err(Error::AlreadyExists) => {
+                let entry = self
+                    .state
+                    .entry(&path)
+                    .await?
+                    .ok_or_else(Errno::new_not_exist)?;
+                if entry.meta.kind == FileKind::Directory {
+                    return Err(Errno::from(libc::EISDIR));
+                }
+                entry
+            }
+            Err(error) => return Err(errno(error)),
+        };
+        let attr = self.state.attributes(&path).await?;
+        let handle = self
+            .state
+            .file_system
+            .open_handle(OpenRequest {
+                path,
+                revision: Some(entry.meta.revision),
+            })
+            .await
+            .map_err(errno)?;
+        let fh = self.state.insert_file(handle).await?;
+        Ok(ReplyCreated {
+            ttl: NO_CACHE,
+            attr,
+            generation: 0,
+            fh,
+            flags: FOPEN_DIRECT_IO,
+        })
+    }
+
     async fn read(
         &self,
         _request: Request,
@@ -287,6 +338,38 @@ where
         Ok(ReplyData { data })
     }
 
+    async fn write(
+        &self,
+        _request: Request,
+        path: Option<&OsStr>,
+        fh: u64,
+        offset: u64,
+        data: &[u8],
+        _write_flags: u32,
+        flags: u32,
+    ) -> Result<ReplyWrite> {
+        let path = path.ok_or_else(Errno::new_not_exist)?;
+        let path = relative_path(path)?;
+        let shared = self.state.file(fh).await?;
+        let mut guard = shared.lock().await;
+        let handle = guard.as_mut().ok_or_else(|| Errno::from(libc::EBADF))?;
+        let offset = if flags & libc::O_APPEND.unsigned_abs() != 0 {
+            self.state
+                .file_system
+                .local_content_len(&path)
+                .await
+                .map_err(errno)?
+        } else {
+            offset
+        };
+        let written = handle
+            .write(offset, data.to_vec().into())
+            .await
+            .map_err(errno)?;
+        drop(guard);
+        Ok(ReplyWrite { written })
+    }
+
     async fn flush(
         &self,
         _request: Request,
@@ -294,7 +377,24 @@ where
         fh: u64,
         _lock_owner: u64,
     ) -> Result<()> {
-        drop(self.state.file(fh).await?);
+        let shared = self.state.file(fh).await?;
+        let guard = shared.lock().await;
+        guard.as_ref().ok_or_else(|| Errno::from(libc::EBADF))?;
+        drop(guard);
+        Ok(())
+    }
+
+    async fn fsync(
+        &self,
+        _request: Request,
+        _path: Option<&OsStr>,
+        fh: u64,
+        _datasync: bool,
+    ) -> Result<()> {
+        let shared = self.state.file(fh).await?;
+        let guard = shared.lock().await;
+        guard.as_ref().ok_or_else(|| Errno::from(libc::EBADF))?;
+        drop(guard);
         Ok(())
     }
 
@@ -425,6 +525,13 @@ where
     }
 }
 
+fn reject_truncate(flags: u32) -> Result<()> {
+    if flags & libc::O_TRUNC.unsigned_abs() != 0 {
+        return Err(Errno::from(libc::ENOSYS));
+    }
+    Ok(())
+}
+
 fn reject_mutation_flags(flags: u32) -> Result<()> {
     let mutation_flags =
         (libc::O_APPEND | libc::O_CREAT | libc::O_EXCL | libc::O_TRUNC).unsigned_abs();
@@ -459,6 +566,11 @@ fn errno(error: Error) -> Errno {
         Error::PassthroughWrite => libc::EROFS,
         Error::PermissionDenied => libc::EACCES,
         Error::Cancelled => libc::ECANCELED,
+        Error::Io(error)
+            if error.raw_os_error().is_none() && error.kind() == ErrorKind::InvalidInput =>
+        {
+            libc::EINVAL
+        }
         Error::Io(error) => return Errno::from(error),
         Error::ContentUnavailable
         | Error::Offline

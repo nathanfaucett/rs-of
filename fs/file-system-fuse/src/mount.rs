@@ -113,10 +113,10 @@ where
 /// Validates and mounts an opened generic File System on Linux.
 ///
 /// The mountpoint must be an existing empty directory distinct from the backing root. The caller
-/// retains Catalog, Resource, authorization, synchronization, and Residency ownership. Unsupported
-/// mutation callbacks return `ENOSYS`; write/mutation open flags return `EROFS`. `allow_other` is
-/// disabled, attribute and entry TTLs are zero, file reads use direct I/O, and writeback caching is
-/// disabled.
+/// retains Catalog, Resource, authorization, synchronization, and Residency ownership. File
+/// creation and revision-checked offset/append writes use the existing durable Content Revision
+/// boundary. Truncate and directory mutation are unsupported. `allow_other` is disabled,
+/// attribute and entry TTLs are zero, file I/O uses direct I/O, and writeback caching is disabled.
 ///
 /// # Errors
 ///

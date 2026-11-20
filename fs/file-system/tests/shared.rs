@@ -1,6 +1,6 @@
 use std::{env, fs};
 
-use file_system::{FileSystemCatalog, Residency};
+use file_system::{Error, FileSystemCatalog, Residency};
 use ofdb_kv::SharedDatabase;
 use uuid::Uuid;
 
@@ -22,6 +22,13 @@ async fn shared_filesystem_retains_content_catalog_and_retirement_in_one_file() 
     fs.set_residency("", Residency::Full)
         .await
         .expect("full copy");
+    let created = fs.create_file("created.txt").await.expect("create");
+    assert_eq!(created.meta.mode, 0o644);
+    assert!(matches!(
+        fs.create_file("created.txt").await,
+        Err(Error::AlreadyExists)
+    ));
+    assert_eq!(fs.read("created.txt").await.expect("empty create"), b"");
     fs.write("old.txt", b"saved").await.expect("write");
     fs.rename("old.txt", "saved.txt").await.expect("rename");
     fs.append("saved.txt", b" content").await.expect("append");
@@ -51,6 +58,17 @@ async fn shared_filesystem_retains_content_catalog_and_retirement_in_one_file() 
     assert_eq!(
         fs.read("saved.txt").await.expect("retained contents"),
         b"saved content"
+    );
+    assert_eq!(
+        fs.read("created.txt").await.expect("retained empty create"),
+        b""
+    );
+    assert_eq!(
+        fs.entry("created.txt")
+            .await
+            .expect("created identity")
+            .meta,
+        created.meta
     );
     catalog
         .remove_managed_copy(resource.id)

@@ -36,6 +36,7 @@ interface WasmFileSystemHandle {
   set_residency(path: string, residency: Residency): Promise<void>;
   entry(path: string): Promise<Entry>;
   read(path: string): Promise<Uint8Array>;
+  create_file(path: string): Promise<Entry>;
   write(path: string, data: Uint8Array): Promise<Entry>;
   write_at(
     path: string,
@@ -96,6 +97,10 @@ export class FileSystem {
 
   async read(path: string): Promise<Uint8Array> {
     return this.handle.read(path);
+  }
+
+  async createFile(path: string): Promise<Entry> {
+    return this.handle.create_file(path);
   }
 
   async write(path: string, data: Uint8Array): Promise<Entry> {

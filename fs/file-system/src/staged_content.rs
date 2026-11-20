@@ -7,7 +7,7 @@ use std::{
 use ofdb_platform::BoxFuture;
 use uuid::Uuid;
 
-use crate::{Error, content::Staged};
+use crate::{Error, content::Staged, native::read_error};
 
 pub struct StagedContent {
     file: File,
@@ -57,7 +57,8 @@ impl Staged for StagedContent {
                 .content_root
                 .join(file_id.to_string())
                 .join(revision.to_string());
-            io::copy(&mut File::open(source)?, &mut self.file)?;
+            let mut source = File::open(source).map_err(read_error)?;
+            io::copy(&mut source, &mut self.file).map_err(read_error)?;
             Ok(())
         })
     }
