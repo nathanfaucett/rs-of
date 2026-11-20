@@ -16,7 +16,7 @@ Device approval and Resource Selection belong to the `of` Device and Storage con
 | Crate | Purpose |
 | --- | --- |
 | `file-system` | Core filesystem and synchronization contracts |
-| `file-system-fuse` | Linux read-only FUSE mounts for Full-residency File Systems |
+| `file-system-fuse` | Linux FUSE mounts for Full-residency File Systems           |
 | `file-system-wasm` | Browser WebAssembly bindings |
 
 The TypeScript wrapper is `packages/file-system`. It is a private workspace package, not a published public SDK.
@@ -34,4 +34,4 @@ Filesystem synchronization is not qualified by SQL tests or mesh connectivity al
 
 ## Linux FUSE mounts
 
-`file-system-fuse` mounts an already opened File System only when the root and every entry are Full-resident and all current content is locally retained. It supports lookup, attributes, offset reads, and directory iteration with explicit unmount. Mutations, Passthrough retrieval, non-Linux platforms, and complete POSIX behavior are unsupported. See the [adapter overview](file-system-fuse/README.md) for mount prerequisites and exact limits.
+`file-system-fuse` mounts an already opened File System only when the root and every entry are Full-resident and all current content is locally retained. It supports lookup, attributes, offset reads, ordinary and exclusive file creation, revision-checked offset and append writes, flush/fsync/close, and directory iteration with explicit unmount. Each admitted write completes the existing durable Content Revision boundary before reporting success. Truncate, directory mutation, rename, Passthrough retrieval, non-Linux platforms, and complete concurrent-writer POSIX behavior are unsupported. See the [adapter overview](file-system-fuse/README.md) for mount prerequisites and exact limits.

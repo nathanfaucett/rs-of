@@ -9,7 +9,7 @@ repository.workspace = true
 keywords = ["filesystem", "fuse", "linux", "offline-first"]
 categories = ["filesystem"]
 rust-version.workspace = true
-description = "Read-only Linux FUSE adapter for Full-residency file systems"
+description = "Linux FUSE adapter for Full-residency file systems"
 
 [lib]
 name = "file_system_fuse"

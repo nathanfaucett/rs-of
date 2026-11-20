@@ -2,7 +2,7 @@ use std::{
     env,
     ffi::{CStr, CString, OsString},
     fs::{self, File},
-    io::{self, Read, Seek, SeekFrom},
+    io::{self, Read, Seek, SeekFrom, Write},
     os::unix::{
         ffi::{OsStrExt, OsStringExt},
         fs::{MetadataExt, PermissionsExt},
@@ -163,14 +163,11 @@ async fn linux_mount_supports_read_attributes_readdir_and_clean_unmount() {
             .raw_os_error(),
         Some(libc::ENOSYS)
     );
-    assert_eq!(
-        fs::OpenOptions::new()
-            .write(true)
-            .open(mountpoint.join("root.txt"))
-            .unwrap_err()
-            .raw_os_error(),
-        Some(libc::EROFS)
-    );
+    let writable = fs::OpenOptions::new()
+        .write(true)
+        .open(mountpoint.join("root.txt"))
+        .expect("writable open");
+    drop(writable);
     assert_eq!(
         fs::remove_file(mountpoint.join("root.txt"))
             .unwrap_err()
@@ -194,8 +191,34 @@ async fn linux_mount_supports_read_attributes_readdir_and_clean_unmount() {
         b"revised"
     );
 
+    let mut passthrough = fs::OpenOptions::new()
+        .write(true)
+        .open(mountpoint.join("root.txt"))
+        .expect("open before passthrough change");
+    retained
+        .set_residency("root.txt", Residency::Passthrough)
+        .await
+        .expect("passthrough residency");
+    let passthrough_revision = retained.revision("root.txt").await.expect("revision");
+    assert_eq!(
+        passthrough.write_all(b"denied").unwrap_err().raw_os_error(),
+        Some(libc::EROFS)
+    );
+    assert_eq!(
+        retained
+            .revision("root.txt")
+            .await
+            .expect("unchanged revision"),
+        passthrough_revision
+    );
+    drop(passthrough);
+
     let unavailable = retained.entry("unavailable.txt").await.expect("metadata");
-    let mut file = File::open(mountpoint.join("unavailable.txt")).expect("open unavailable");
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(mountpoint.join("unavailable.txt"))
+        .expect("open unavailable");
     fs::remove_file(
         backing
             .join(".data")
@@ -209,6 +232,19 @@ async fn linux_mount_supports_read_attributes_readdir_and_clean_unmount() {
         Some(libc::EIO)
     );
     assert_eq!(buffer, Vec::<u8>::new());
+    file.seek(SeekFrom::Start(0))
+        .expect("unavailable write offset");
+    assert_eq!(
+        file.write_all(b"x").unwrap_err().raw_os_error(),
+        Some(libc::EIO)
+    );
+    assert_eq!(
+        retained
+            .revision("unavailable.txt")
+            .await
+            .expect("unavailable revision"),
+        unavailable.meta.revision
+    );
     drop(file);
 
     guard.unmount().await.expect("unmount");
@@ -268,6 +304,216 @@ async fn linux_mount_restart_persists_and_unmounts_cleanly() {
         fs::read_dir(&mountpoint).expect("empty mountpoint").count(),
         0
     );
+    fs::remove_dir_all(backing).expect("backing cleanup");
+    fs::remove_dir_all(mountpoint).expect("mount cleanup");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
+#[allow(clippy::too_many_lines, reason = "one real-mount acceptance scenario")]
+async fn linux_mount_creates_writes_appends_syncs_and_restarts() {
+    let unique = Uuid::now_v7();
+    let backing = env::temp_dir().join(format!("offs-fuse-write-backing-{unique}"));
+    let mountpoint = env::temp_dir().join(format!("offs-fuse-write-mount-{unique}"));
+    fs::create_dir(&mountpoint).expect("mountpoint");
+    let file_system = FileSystem::open(&backing, 1_u8).await.expect("open");
+    file_system
+        .set_residency("", Residency::Full)
+        .await
+        .expect("full root");
+    file_system.create_dir("dir").await.expect("directory");
+    let retained = file_system.clone();
+    let guard = mount(file_system, &mountpoint).await.expect("mount");
+    let path = mountpoint.join("created.txt");
+
+    let mut stale = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .expect("exclusive create");
+    let created = retained.entry("created.txt").await.expect("created entry");
+    assert_eq!(created.meta.mode, 0o644);
+    assert_eq!(created.meta.kind, file_system::FileKind::File);
+    assert_eq!(
+        retained.read("created.txt").await.expect("empty create"),
+        b""
+    );
+    assert_eq!(
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EEXIST)
+    );
+    assert_eq!(
+        retained
+            .entry("created.txt")
+            .await
+            .expect("duplicate entry")
+            .meta,
+        created.meta
+    );
+
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .expect("ordinary create opens existing file");
+    file.write_all(b"abcdef").expect("initial write");
+    file.sync_all().expect("fsync initial write");
+    let written = retained.entry("created.txt").await.expect("written entry");
+    assert_eq!(written.meta.file_id, created.meta.file_id);
+    assert_ne!(written.meta.revision, created.meta.revision);
+    assert_eq!(
+        stale.write_all(b"stale").unwrap_err().raw_os_error(),
+        Some(libc::ESTALE)
+    );
+    drop(stale);
+
+    file.seek(SeekFrom::Start(2)).expect("overwrite seek");
+    file.write_all(b"XY").expect("offset overwrite");
+    file.seek(SeekFrom::Start(8)).expect("sparse seek");
+    file.write_all(b"z").expect("sparse offset write");
+    file.seek(SeekFrom::Start(0)).expect("start seek");
+    file.write_all(b"Q").expect("start overwrite");
+    file.flush().expect("flush writes");
+    file.sync_data().expect("fdatasync writes");
+    drop(file);
+    let expected = b"QbXYef\0\0z";
+    assert_eq!(fs::read(&path).expect("offset writes"), expected);
+
+    let mut append = fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .expect("append open");
+    append
+        .seek(SeekFrom::Start(0))
+        .expect("ignored append seek");
+    let mut conflicting_append = fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .expect("conflicting append open");
+    append.write_all(b"!").expect("append write");
+    append.sync_all().expect("append fsync");
+    assert_eq!(
+        conflicting_append
+            .write_all(b"stale")
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ESTALE)
+    );
+    drop(conflicting_append);
+    drop(append);
+    let expected = b"QbXYef\0\0z!";
+    assert_eq!(fs::read(&path).expect("appended content"), expected);
+    let appended = retained.entry("created.txt").await.expect("appended entry");
+    assert_eq!(appended.meta.file_id, created.meta.file_id);
+
+    assert_eq!(
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EEXIST)
+    );
+    assert_eq!(
+        retained
+            .entry("created.txt")
+            .await
+            .expect("final duplicate")
+            .meta,
+        appended.meta
+    );
+    assert_eq!(
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(mountpoint.join("missing/child"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    assert_eq!(
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(mountpoint.join("dir"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EEXIST)
+    );
+    assert_eq!(
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(mountpoint.join("dir"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EISDIR)
+    );
+    assert_eq!(
+        fs::OpenOptions::new()
+            .write(true)
+            .open(mountpoint.join("absent"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    assert_eq!(
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(mountpoint.join(OsString::from_vec(vec![0x80])))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EILSEQ)
+    );
+    assert_eq!(
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(mountpoint.join(".data"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EINVAL)
+    );
+
+    guard.unmount().await.expect("first unmount");
+    drop(retained);
+    let reopened = FileSystem::open(&backing, 1_u8).await.expect("reopen");
+    reopened
+        .set_residency("", Residency::Full)
+        .await
+        .expect("restore full root");
+    assert_eq!(
+        reopened.read("created.txt").await.expect("durable bytes"),
+        expected
+    );
+    assert_eq!(
+        reopened
+            .entry("created.txt")
+            .await
+            .expect("durable entry")
+            .meta,
+        appended.meta
+    );
+    let guard = mount(reopened.clone(), &mountpoint)
+        .await
+        .expect("second mount");
+    assert_eq!(fs::read(&path).expect("restart mount read"), expected);
+    guard.unmount().await.expect("second unmount");
+    drop(reopened);
     fs::remove_dir_all(backing).expect("backing cleanup");
     fs::remove_dir_all(mountpoint).expect("mount cleanup");
 }

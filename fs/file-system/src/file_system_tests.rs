@@ -122,6 +122,45 @@ async fn write_offset_and_append_faults_preserve_content_revision_and_cleanup() 
 }
 
 #[tokio::test]
+async fn create_file_faults_leave_no_visible_entry_or_staging() {
+    for step in [
+        ContentStep::Write,
+        ContentStep::Sync,
+        ContentStep::Publish,
+        ContentStep::Metadata,
+    ] {
+        let root = root();
+        let filesystem = FileSystem::open(&root, 1_u8)
+            .await
+            .expect("filesystem opens");
+        filesystem
+            .set_residency("", Residency::Full)
+            .await
+            .expect("full residency");
+        *filesystem.content_fault.lock().expect("fault lock") = Some(step);
+
+        assert!(matches!(
+            filesystem.create_file("file").await,
+            Err(Error::Io(_))
+        ));
+        assert!(matches!(
+            filesystem.entry("file").await,
+            Err(Error::NotFound)
+        ));
+        assert_eq!(files(&root.join(".data")), [] as [PathBuf; 0]);
+
+        let created = filesystem.create_file("file").await.expect("create retry");
+        assert_eq!(filesystem.read("file").await.expect("empty content"), b"");
+        assert_eq!(
+            filesystem.entry("file").await.expect("created entry").meta,
+            created.meta
+        );
+        assert_eq!(files(&root.join(".data")).len(), 1);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+}
+
+#[tokio::test]
 async fn admitted_session_write_finishes_when_cancelled_at_native_publication() {
     let root = root();
     let filesystem = FileSystem::open(&root, 1_u8)

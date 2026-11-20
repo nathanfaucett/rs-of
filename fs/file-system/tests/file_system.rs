@@ -1,4 +1,4 @@
-use std::{env, fmt::Debug, fs, path::PathBuf, sync::Arc};
+use std::{env, fmt::Debug, fs, io::ErrorKind, path::PathBuf, sync::Arc};
 
 use serde::de::DeserializeOwned;
 use tokio::task::yield_now;
@@ -235,7 +235,15 @@ async fn syncs_content_and_rejects_stale_responses() {
 
     full(&left).await;
     full(&right).await;
-    left.write("file.txt", b"old").await.unwrap();
+    let created = left.create_file("file.txt").await.unwrap();
+    left.write_at(
+        "file.txt",
+        created.meta.revision,
+        0,
+        Bytes::from_static(b"old"),
+    )
+    .await
+    .unwrap();
     let stale_revision = left.revision("file.txt").await.unwrap();
     let mut left_sync = left.metadata_sync(left_transport);
     let mut right_sync = right.metadata_sync(right_transport);
@@ -431,6 +439,65 @@ async fn write_at_requires_current_revision_and_preserves_offset_semantics() {
         .await;
     assert!(matches!(stale, Err(Error::StaleRevision)));
     assert_eq!(file_system.read("file.txt").await.unwrap(), b"hillo");
+
+    let current = file_system.revision("file.txt").await.unwrap();
+    let error = file_system
+        .write_at(
+            "file.txt",
+            current,
+            u64::MAX,
+            Bytes::from_static(b"overflow"),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        Error::Io(ref error) if error.kind() == ErrorKind::InvalidInput
+    ));
+    assert_eq!(file_system.revision("file.txt").await.unwrap(), current);
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"hillo");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn create_file_is_atomic_and_preserves_existing_entries() {
+    let root = root();
+    let file_system = FileSystem::open(&root, 7_u8).await.unwrap();
+    assert!(matches!(
+        file_system.create_file("file.txt").await,
+        Err(Error::PassthroughWrite)
+    ));
+    full(&file_system).await;
+
+    let (first, second) = tokio::join!(
+        file_system.create_file("file.txt"),
+        file_system.create_file("file.txt")
+    );
+    let ((Ok(created), Err(Error::AlreadyExists)) | (Err(Error::AlreadyExists), Ok(created))) =
+        (first, second)
+    else {
+        panic!("exactly one create must succeed");
+    };
+    assert_eq!(created.meta.kind, FileKind::File);
+    assert_eq!(created.meta.mode, 0o644);
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"");
+
+    let existing = file_system.write("file.txt", b"keep").await.unwrap();
+    assert!(matches!(
+        file_system.create_file("file.txt").await,
+        Err(Error::AlreadyExists)
+    ));
+    assert_eq!(
+        file_system.entry("file.txt").await.unwrap().meta,
+        existing.meta
+    );
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"keep");
+
+    file_system.create_dir("dir").await.unwrap();
+    assert!(matches!(
+        file_system.create_file("dir").await,
+        Err(Error::AlreadyExists)
+    ));
     fs::remove_dir_all(root).unwrap();
 }
 

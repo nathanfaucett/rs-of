@@ -12,4 +12,4 @@ cargo test -p file-system --all-targets
 
 Do not infer remote content availability or multi-Device synchronization from local filesystem operations. Passthrough reads require an authorized available Full provider, and revocation takes effect only when learned.
 
-`LocalFileHandle` owns a cheap `FileSystem` clone and remains revision-bound. `FileSystem::local_content_len` queries only locally retained revision length through the native, shared, or browser content store; it does not fetch remote content or add persisted size metadata.
+`LocalFileHandle` owns a cheap `FileSystem` clone and remains revision-bound. `FileSystem::local_content_len` queries only locally retained revision length through the native, shared, or browser content store; it does not fetch remote content or add persisted size metadata. `FileSystem::create_file` atomically creates an empty regular file with the existing default mode in the serialized mutation path. Native, shared, and browser stores use the same staged Content Revision durability boundary; no schema or sync-protocol change is required.
