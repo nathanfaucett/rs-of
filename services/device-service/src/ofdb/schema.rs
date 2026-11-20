@@ -44,6 +44,7 @@ pub async fn validate_device(client: &ofdb_sql::Client) -> Result<(), ofdb_sql::
             "device_resource_selections",
             "id, device_id, owner_subject, application_id, selected_kind, selected_id, selected",
         ),
+        ("device_selection_denials", "id, selection_id"),
     ] {
         client
             .translate_and_execute(

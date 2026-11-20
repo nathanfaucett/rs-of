@@ -287,6 +287,8 @@ CREATE TABLE IF NOT EXISTS device_selection_policies (device_id UUID NOT NULL, o
 CREATE UNIQUE INDEX IF NOT EXISTS device_selection_policies_device ON device_selection_policies (device_id);
 CREATE TABLE IF NOT EXISTS device_resource_selections (id UUID NOT NULL, device_id UUID NOT NULL, owner_subject TEXT NOT NULL, application_id UUID NOT NULL, selected_kind TEXT NOT NULL, selected_id UUID NOT NULL, selected BOOLEAN NOT NULL, PRIMARY KEY (device_id, owner_subject, application_id, selected_kind, selected_id));
 CREATE UNIQUE INDEX IF NOT EXISTS device_resource_selections_id ON device_resource_selections (id);
+CREATE TABLE IF NOT EXISTS device_selection_denials (id UUID PRIMARY KEY, selection_id UUID NOT NULL);
+CREATE INDEX IF NOT EXISTS device_selection_denials_selection ON device_selection_denials (selection_id);
 
 CREATE TABLE IF NOT EXISTS namespaces (
     id UUID NOT NULL,

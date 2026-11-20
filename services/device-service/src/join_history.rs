@@ -78,8 +78,7 @@ impl JoinHistoryContext {
             Self::Device => {
                 crate::security_sync::public_device_columns(table)
                     .is_some_and(|columns| columns.contains(&column))
-                    && (table != "devices"
-                        || crate::security_candidates::permits_device_value(column, value))
+                    && crate::security_candidates::permits_device_value(table, column, value)
             }
         }
     }

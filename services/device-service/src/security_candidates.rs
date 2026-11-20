@@ -213,7 +213,34 @@ pub fn validate_node_join(
     Ok(())
 }
 
-pub fn permits_device_value(column: &str, value: &Value) -> bool {
+pub fn permits_device_value(table: &str, column: &str, value: &Value) -> bool {
+    if table == "device_selection_denials" {
+        return match (column, value) {
+            (_, Value::Null) => true, // Schema defaults are not complete rows.
+            ("id", Value::Uuid(id)) => rfc_uuid(id, 7),
+            ("selection_id", Value::Uuid(id)) => rfc_uuid(id, 5),
+            _ => false,
+        };
+    }
+    if matches!(
+        table,
+        "device_selection_policies" | "device_resource_selections"
+    ) {
+        match (column, value) {
+            ("id", Value::Uuid(id)) => return rfc_uuid(id, 5),
+            ("device_id" | "application_id" | "selected_id", Value::Uuid(id)) => {
+                return !id.is_nil();
+            }
+            ("selected_kind", Value::Text(kind)) => {
+                return matches!(kind.as_str(), "database" | "filesystem");
+            }
+            ("admin_allowed" | "selected", Value::Bool(_)) => return true,
+            ("device_key", Value::Text(key)) => {
+                return Id::parse_str(key).is_ok_and(|id| !id.is_nil());
+            }
+            _ => {}
+        }
+    }
     match (column, value) {
         (_, Value::Null) => true,
         ("id", Value::Uuid(id)) => !id.is_nil() && id.get_version_num() == 7,
@@ -227,6 +254,10 @@ pub fn permits_device_value(column: &str, value: &Value) -> bool {
         ("owner_subject" | "name" | "public_key" | "address", Value::Text(_)) => true,
         _ => false,
     }
+}
+
+fn rfc_uuid(id: &Id, version: usize) -> bool {
+    id.get_version_num() == version && id.as_bytes()[8] & 0xc0 == 0x80
 }
 
 pub fn validate_device_history(
@@ -245,6 +276,18 @@ pub fn validate_device_history(
         {
             return Err(invalid());
         }
+        if table.name == "device_selection_denials" {
+            for row in table.rows.iter().filter(|row| !row.deleted) {
+                if !row.conflicts.is_empty()
+                    || !rfc_uuid(&row.id, 7)
+                    || uuid(table, row, "id") != Some(row.id)
+                    || !uuid(table, row, "selection_id").is_some_and(|id| rfc_uuid(&id, 5))
+                    || row.row.values.len() != table.columns.len()
+                {
+                    return Err(invalid());
+                }
+            }
+        }
         if table.name != "devices" {
             continue;
         }
@@ -258,13 +301,14 @@ pub fn validate_device_history(
                     .iter()
                     .zip(&row.row.values)
                     .any(|(column, value)| {
-                        !columns.contains(&column.as_str()) || !permits_device_value(column, value)
+                        !columns.contains(&column.as_str())
+                            || !permits_device_value(&table.name, column, value)
                     })
                 || row.conflicts.iter().any(|(column, values)| {
                     !columns.contains(&column.as_str())
                         || values
                             .iter()
-                            .any(|value| !permits_device_value(column, value))
+                            .any(|value| !permits_device_value(&table.name, column, value))
                 })
             {
                 return Err(invalid());
