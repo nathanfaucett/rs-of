@@ -70,6 +70,26 @@ fn directory_entries(path: &Path, offset: i64) -> io::Result<Vec<(String, i64)>>
     Directory::open(path)?.entries(offset)
 }
 
+fn rename_with_flags(from: &Path, to: &Path, flags: u32) -> io::Result<()> {
+    let from = CString::new(from.as_os_str().as_bytes())?;
+    let to = CString::new(to.as_os_str().as_bytes())?;
+    // SAFETY: both paths are terminated C strings that remain live for this call.
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            flags,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
 #[allow(clippy::too_many_lines, reason = "one real-mount acceptance scenario")]
@@ -1082,15 +1102,6 @@ async fn linux_mount_removes_only_empty_directories_and_restarts() {
         Some(libc::ENOTDIR)
     );
     assert_eq!(
-        fs::rename(
-            mountpoint.join("regular.txt"),
-            mountpoint.join("renamed.txt")
-        )
-        .unwrap_err()
-        .raw_os_error(),
-        Some(libc::ENOSYS)
-    );
-    assert_eq!(
         fs::remove_dir(mountpoint.join(".data"))
             .unwrap_err()
             .raw_os_error(),
@@ -1296,6 +1307,707 @@ async fn linux_mount_directory_handles_survive_namespace_mutations() {
         retained.read("b/keep.txt").await.expect("retained file"),
         b"keep"
     );
+    drop(retained);
+    fs::remove_dir_all(backing).expect("backing cleanup");
+    fs::remove_dir_all(mountpoint).expect("mount cleanup");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
+#[allow(clippy::too_many_lines, reason = "one real-mount acceptance scenario")]
+async fn linux_mount_rename_protects_open_handle_identities() {
+    fn assert_read_write_error(file: &mut File, error: i32) {
+        file.seek(SeekFrom::Start(0)).expect("rewind read");
+        let mut bytes = Vec::new();
+        assert_eq!(
+            file.read_to_end(&mut bytes).unwrap_err().raw_os_error(),
+            Some(error)
+        );
+        file.seek(SeekFrom::Start(0)).expect("rewind write");
+        assert_eq!(
+            file.write_all(b"forbidden").unwrap_err().raw_os_error(),
+            Some(error)
+        );
+    }
+
+    let unique = Uuid::now_v7();
+    let backing = env::temp_dir().join(format!("offs-fuse-rename-handles-backing-{unique}"));
+    let mountpoint = env::temp_dir().join(format!("offs-fuse-rename-handles-mount-{unique}"));
+    fs::create_dir(&mountpoint).expect("mountpoint");
+    let file_system = FileSystem::open(&backing, 1_u8).await.expect("open");
+    file_system
+        .set_residency("", Residency::Full)
+        .await
+        .expect("full root");
+    for (path, content) in [
+        ("mount-rename.txt", b"mount rename" as &[u8]),
+        ("external-rename.txt", b"external rename"),
+        ("delete.txt", b"delete"),
+        ("recreate.txt", b"before recreate"),
+        ("replace.txt", b"before replacement"),
+        ("candidate.txt", b"replacement"),
+    ] {
+        file_system.write(path, content).await.expect("handle file");
+    }
+    let mount_before = file_system
+        .entry("mount-rename.txt")
+        .await
+        .expect("mount rename entry");
+    let external_before = file_system
+        .entry("external-rename.txt")
+        .await
+        .expect("external rename entry");
+    let replace_before = file_system
+        .entry("replace.txt")
+        .await
+        .expect("replace entry");
+    let candidate = file_system
+        .entry("candidate.txt")
+        .await
+        .expect("candidate entry");
+    let retained = file_system.clone();
+    let guard = mount(file_system, &mountpoint).await.expect("mount");
+    let open = |name: &str| {
+        fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(mountpoint.join(name))
+            .expect("open handle")
+    };
+    let mut mount_renamed = open("mount-rename.txt");
+    let mut external_renamed = open("external-rename.txt");
+    let mut deleted = open("delete.txt");
+    let mut recreated = open("recreate.txt");
+    let mut replaced = open("replace.txt");
+
+    fs::rename(
+        mountpoint.join("mount-rename.txt"),
+        mountpoint.join("mount-moved.txt"),
+    )
+    .expect("rename with mount-open handle");
+    assert_read_write_error(&mut mount_renamed, libc::ENOENT);
+    assert_eq!(
+        fs::read(mountpoint.join("mount-moved.txt")).expect("mount moved bytes"),
+        b"mount rename"
+    );
+    assert_eq!(
+        retained
+            .entry("mount-moved.txt")
+            .await
+            .expect("mount moved identity")
+            .meta
+            .file_id,
+        mount_before.meta.file_id
+    );
+
+    retained
+        .rename("external-rename.txt", "external-moved.txt")
+        .await
+        .expect("external rename");
+    assert_read_write_error(&mut external_renamed, libc::ENOENT);
+    assert_eq!(
+        retained
+            .read("external-moved.txt")
+            .await
+            .expect("external moved bytes"),
+        b"external rename"
+    );
+    retained
+        .write("external-rename.txt", b"new entry")
+        .await
+        .expect("recreate renamed source");
+    assert_read_write_error(&mut external_renamed, libc::ESTALE);
+    assert_eq!(
+        retained
+            .read("external-rename.txt")
+            .await
+            .expect("recreated source bytes"),
+        b"new entry"
+    );
+    assert_ne!(
+        retained
+            .entry("external-rename.txt")
+            .await
+            .expect("recreated source identity")
+            .meta
+            .file_id,
+        external_before.meta.file_id
+    );
+    assert_eq!(
+        retained
+            .read("external-moved.txt")
+            .await
+            .expect("original moved bytes"),
+        b"external rename"
+    );
+
+    retained
+        .delete("delete.txt")
+        .await
+        .expect("external delete");
+    assert_read_write_error(&mut deleted, libc::ENOENT);
+    retained
+        .delete("recreate.txt")
+        .await
+        .expect("delete before recreate");
+    assert_read_write_error(&mut recreated, libc::ENOENT);
+    retained
+        .write("recreate.txt", b"after recreate")
+        .await
+        .expect("external recreate");
+    assert_read_write_error(&mut recreated, libc::ESTALE);
+    assert_eq!(
+        retained
+            .read("recreate.txt")
+            .await
+            .expect("recreated bytes"),
+        b"after recreate"
+    );
+
+    retained
+        .delete("replace.txt")
+        .await
+        .expect("delete before replacement");
+    retained
+        .rename("candidate.txt", "replace.txt")
+        .await
+        .expect("external replacement");
+    assert_read_write_error(&mut replaced, libc::ESTALE);
+    let replacement = retained
+        .entry("replace.txt")
+        .await
+        .expect("replacement entry");
+    assert_eq!(replacement.meta.file_id, candidate.meta.file_id);
+    assert_ne!(replacement.meta.file_id, replace_before.meta.file_id);
+    assert_eq!(
+        retained
+            .read("replace.txt")
+            .await
+            .expect("replacement bytes"),
+        b"replacement"
+    );
+
+    drop(mount_renamed);
+    drop(external_renamed);
+    drop(deleted);
+    drop(recreated);
+    drop(replaced);
+    guard.unmount().await.expect("unmount");
+    drop(retained);
+    fs::remove_dir_all(backing).expect("backing cleanup");
+    fs::remove_dir_all(mountpoint).expect("mount cleanup");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
+async fn linux_mount_renames_regular_files_without_replacement() {
+    let unique = Uuid::now_v7();
+    let backing = env::temp_dir().join(format!("offs-fuse-rename-file-backing-{unique}"));
+    let mountpoint = env::temp_dir().join(format!("offs-fuse-rename-file-mount-{unique}"));
+    fs::create_dir(&mountpoint).expect("mountpoint");
+    let file_system = FileSystem::open(&backing, 1_u8).await.expect("open");
+    file_system
+        .set_residency("", Residency::Full)
+        .await
+        .expect("full root");
+    file_system
+        .create_dir("source")
+        .await
+        .expect("source parent");
+    file_system
+        .create_dir("destination")
+        .await
+        .expect("destination parent");
+    let before = file_system
+        .write("source/café 🦀.txt", b"stable bytes")
+        .await
+        .expect("source file");
+    let retained = file_system.clone();
+    let guard = mount(file_system, &mountpoint).await.expect("mount");
+
+    fs::rename(
+        mountpoint.join("source/café 🦀.txt"),
+        mountpoint.join("destination/renamed 🦀.txt"),
+    )
+    .expect("no-replace file rename");
+
+    assert_eq!(
+        fs::read(mountpoint.join("destination/renamed 🦀.txt")).expect("renamed bytes"),
+        b"stable bytes"
+    );
+    assert_eq!(
+        fs::metadata(mountpoint.join("source/café 🦀.txt"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    let after = retained
+        .entry("destination/renamed 🦀.txt")
+        .await
+        .expect("renamed entry");
+    assert_eq!(after.meta.file_id, before.meta.file_id);
+    assert_eq!(
+        retained.read(&after.path).await.expect("core bytes"),
+        b"stable bytes"
+    );
+    assert!(matches!(
+        retained.entry("source/café 🦀.txt").await,
+        Err(file_system::Error::NotFound)
+    ));
+    assert_eq!(
+        directory_entries(&mountpoint.join("destination"), 0)
+            .expect("destination iteration")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        [".", "..", "renamed 🦀.txt"]
+    );
+
+    guard.unmount().await.expect("unmount");
+    drop(retained);
+    fs::remove_dir_all(backing).expect("backing cleanup");
+    fs::remove_dir_all(mountpoint).expect("mount cleanup");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
+#[allow(clippy::too_many_lines, reason = "one real-mount acceptance scenario")]
+async fn linux_mount_renames_directory_trees_and_restarts() {
+    let unique = Uuid::now_v7();
+    let backing = env::temp_dir().join(format!("offs-fuse-rename-tree-backing-{unique}"));
+    let mountpoint = env::temp_dir().join(format!("offs-fuse-rename-tree-mount-{unique}"));
+    fs::create_dir(&mountpoint).expect("mountpoint");
+    let file_system = FileSystem::open(&backing, 1_u8).await.expect("open");
+    file_system
+        .set_residency("", Residency::Full)
+        .await
+        .expect("full root");
+    file_system.create_dir("target").await.expect("target");
+    file_system
+        .create_dir("tree/empty")
+        .await
+        .expect("empty child");
+    file_system
+        .create_dir("tree/nested/deep")
+        .await
+        .expect("nested directories");
+    file_system
+        .write("tree/file.txt", b"root child")
+        .await
+        .expect("root child");
+    file_system
+        .write("tree/nested/leaf.txt", b"nested child")
+        .await
+        .expect("nested child");
+    file_system
+        .create_dir("flagged-empty")
+        .await
+        .expect("flagged empty directory");
+    let tracked = [
+        ("tree", "target/moved"),
+        ("tree/empty", "target/moved/empty"),
+        ("tree/nested", "target/moved/nested"),
+        ("tree/nested/deep", "target/moved/nested/deep"),
+        ("tree/file.txt", "target/moved/file.txt"),
+        ("tree/nested/leaf.txt", "target/moved/nested/leaf.txt"),
+    ];
+    let mut before = Vec::new();
+    for (source, destination) in tracked {
+        before.push((
+            source,
+            destination,
+            file_system.entry(source).await.expect("tracked entry"),
+        ));
+    }
+    let flagged = file_system
+        .entry("flagged-empty")
+        .await
+        .expect("flagged entry");
+    let retained = file_system.clone();
+    let guard = mount(file_system, &mountpoint).await.expect("mount");
+
+    rename_with_flags(
+        &mountpoint.join("flagged-empty"),
+        &mountpoint.join("target/flagged-empty"),
+        libc::RENAME_NOREPLACE,
+    )
+    .expect("explicit no-replace rename");
+    fs::rename(mountpoint.join("tree"), mountpoint.join("target/moved"))
+        .expect("directory tree rename");
+
+    for (source, destination, original) in &before {
+        let moved = retained.entry(destination).await.expect("moved entry");
+        assert_eq!(moved.meta.file_id, original.meta.file_id, "{source}");
+        assert!(!moved.meta.revision.is_nil(), "{destination}");
+        assert!(matches!(
+            retained.entry(source).await,
+            Err(file_system::Error::NotFound)
+        ));
+    }
+    assert_eq!(
+        retained
+            .entry("target/flagged-empty")
+            .await
+            .expect("flagged moved entry")
+            .meta
+            .file_id,
+        flagged.meta.file_id
+    );
+    assert!(
+        fs::metadata(mountpoint.join("target/moved/empty"))
+            .expect("empty child")
+            .is_dir()
+    );
+    assert!(
+        fs::metadata(mountpoint.join("target/moved/nested/deep"))
+            .expect("deep child")
+            .is_dir()
+    );
+    assert_eq!(
+        fs::read(mountpoint.join("target/moved/file.txt")).expect("root child bytes"),
+        b"root child"
+    );
+    assert_eq!(
+        fs::read(mountpoint.join("target/moved/nested/leaf.txt")).expect("nested child bytes"),
+        b"nested child"
+    );
+    assert_eq!(
+        directory_entries(&mountpoint.join("target"), 0)
+            .expect("target iteration")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        [".", "..", "flagged-empty", "moved"]
+    );
+
+    guard.unmount().await.expect("first unmount");
+    drop(retained);
+    let reopened = FileSystem::open(&backing, 1_u8).await.expect("reopen");
+    reopened
+        .set_residency("", Residency::Full)
+        .await
+        .expect("restore full root");
+    assert_eq!(
+        reopened
+            .read("target/moved/nested/leaf.txt")
+            .await
+            .expect("restart bytes"),
+        b"nested child"
+    );
+    let guard = mount(reopened.clone(), &mountpoint)
+        .await
+        .expect("second mount");
+    assert_eq!(
+        fs::read(mountpoint.join("target/moved/file.txt")).expect("remount bytes"),
+        b"root child"
+    );
+    assert_eq!(
+        directory_entries(&mountpoint.join("target/moved"), 0)
+            .expect("remount iteration")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        [".", "..", "empty", "file.txt", "nested"]
+    );
+    guard.unmount().await.expect("second unmount");
+    drop(reopened);
+    fs::remove_dir_all(backing).expect("backing cleanup");
+    fs::remove_dir_all(mountpoint).expect("mount cleanup");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
+#[allow(clippy::too_many_lines, reason = "one real-mount acceptance scenario")]
+async fn linux_mount_rename_failures_preserve_namespace() {
+    let unique = Uuid::now_v7();
+    let backing = env::temp_dir().join(format!("offs-fuse-rename-errors-backing-{unique}"));
+    let mountpoint = env::temp_dir().join(format!("offs-fuse-rename-errors-mount-{unique}"));
+    fs::create_dir(&mountpoint).expect("mountpoint");
+    let file_system = FileSystem::open(&backing, 1_u8).await.expect("open");
+    file_system
+        .set_residency("", Residency::Full)
+        .await
+        .expect("full root");
+    file_system
+        .write("source.txt", b"source")
+        .await
+        .expect("source file");
+    file_system
+        .write("occupied.txt", b"occupied")
+        .await
+        .expect("occupied file");
+    file_system
+        .create_dir("tree/nested")
+        .await
+        .expect("source tree");
+    file_system
+        .write("tree/nested/child.txt", b"tree child")
+        .await
+        .expect("tree child");
+    file_system
+        .create_dir("occupied-dir")
+        .await
+        .expect("occupied directory");
+    file_system
+        .write("occupied-dir/keep.txt", b"keep")
+        .await
+        .expect("occupied child");
+    file_system
+        .create_dir("denied-source")
+        .await
+        .expect("denied source");
+    file_system
+        .create_dir("denied-destination")
+        .await
+        .expect("denied destination");
+    file_system
+        .write("flagged.txt", b"flagged")
+        .await
+        .expect("flagged source");
+    let unavailable = file_system
+        .write("unavailable.txt", b"unavailable")
+        .await
+        .expect("unavailable source");
+    let source = file_system.entry("source.txt").await.expect("source entry");
+    let tree = file_system.entry("tree").await.expect("tree entry");
+    let tree_child = file_system
+        .entry("tree/nested/child.txt")
+        .await
+        .expect("tree child entry");
+    let retained = file_system.clone();
+    let guard = mount(file_system, &mountpoint).await.expect("mount");
+
+    for (source_name, destination_name, error) in [
+        ("source.txt", "occupied.txt", libc::EEXIST),
+        ("tree", "occupied-dir", libc::EEXIST),
+        ("tree", "occupied.txt", libc::ENOTDIR),
+        ("source.txt", "occupied-dir", libc::EISDIR),
+    ] {
+        assert_eq!(
+            fs::rename(
+                mountpoint.join(source_name),
+                mountpoint.join(destination_name)
+            )
+            .unwrap_err()
+            .raw_os_error(),
+            Some(error),
+            "{source_name} to {destination_name}"
+        );
+    }
+    assert_eq!(
+        rename_with_flags(
+            &mountpoint.join("source.txt"),
+            &mountpoint.join("occupied.txt"),
+            libc::RENAME_NOREPLACE,
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::EEXIST)
+    );
+    assert_eq!(
+        fs::read(mountpoint.join("source.txt")).expect("source"),
+        b"source"
+    );
+    assert_eq!(
+        fs::read(mountpoint.join("occupied.txt")).expect("occupied"),
+        b"occupied"
+    );
+    assert_eq!(
+        fs::read(mountpoint.join("occupied-dir/keep.txt")).expect("occupied child"),
+        b"keep"
+    );
+
+    rename_with_flags(
+        &mountpoint.join("flagged.txt"),
+        &mountpoint.join("flagged-moved.txt"),
+        libc::RENAME_NOREPLACE,
+    )
+    .expect("flagged file rename");
+    assert_eq!(
+        fs::read(mountpoint.join("flagged-moved.txt")).expect("flagged bytes"),
+        b"flagged"
+    );
+
+    // Linux FUSE maps a rename2 ENOSYS reply to EINVAL and disables later rename2 calls.
+    for flags in [
+        libc::RENAME_EXCHANGE,
+        libc::RENAME_WHITEOUT,
+        libc::RENAME_EXCHANGE | libc::RENAME_NOREPLACE,
+    ] {
+        assert_eq!(
+            rename_with_flags(
+                &mountpoint.join("source.txt"),
+                &mountpoint.join("occupied.txt"),
+                flags,
+            )
+            .unwrap_err()
+            .raw_os_error(),
+            Some(libc::EINVAL),
+            "flags {flags}"
+        );
+    }
+    assert_eq!(
+        fs::rename(
+            mountpoint.join("tree"),
+            mountpoint.join("tree/nested/moved")
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::EINVAL)
+    );
+    assert_eq!(
+        retained
+            .entry("tree/nested/child.txt")
+            .await
+            .expect("subtree child preserved")
+            .meta,
+        tree_child.meta
+    );
+
+    assert_eq!(
+        fs::rename(mountpoint.join("missing.txt"), mountpoint.join("new.txt"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    assert_eq!(
+        fs::rename(
+            mountpoint.join("source.txt/child"),
+            mountpoint.join("new.txt")
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::ENOTDIR)
+    );
+    assert_eq!(
+        fs::rename(
+            mountpoint.join("source.txt"),
+            mountpoint.join("source.txt/child")
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::ENOTDIR)
+    );
+    assert_eq!(
+        fs::rename(
+            mountpoint.join("source.txt"),
+            mountpoint.join("missing-parent/child")
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    assert!(matches!(
+        retained.entry("missing-parent").await,
+        Err(file_system::Error::NotFound)
+    ));
+    assert_eq!(
+        fs::rename(mountpoint.join("source.txt"), mountpoint.join(".data"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EINVAL)
+    );
+    assert_eq!(
+        fs::rename(
+            mountpoint.join(OsString::from_vec(vec![0x80])),
+            mountpoint.join("new.txt")
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::EILSEQ)
+    );
+    assert_eq!(
+        fs::rename(
+            mountpoint.join("source.txt"),
+            mountpoint.join(OsString::from_vec(vec![0x80]))
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::EILSEQ)
+    );
+
+    retained
+        .set_residency("denied-source", Residency::Passthrough)
+        .await
+        .expect("denied source residency");
+    retained
+        .set_residency("denied-destination", Residency::Passthrough)
+        .await
+        .expect("denied destination residency");
+    assert_eq!(
+        fs::rename(
+            mountpoint.join("denied-source"),
+            mountpoint.join("denied-moved")
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::EROFS)
+    );
+    assert_eq!(
+        fs::rename(
+            mountpoint.join("source.txt"),
+            mountpoint.join("denied-destination/moved")
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::EROFS)
+    );
+    assert!(matches!(
+        retained.entry("denied-moved").await,
+        Err(file_system::Error::NotFound)
+    ));
+    assert!(matches!(
+        retained.entry("denied-destination/moved").await,
+        Err(file_system::Error::NotFound)
+    ));
+
+    fs::remove_file(
+        backing
+            .join(".data")
+            .join(unavailable.meta.file_id.to_string())
+            .join(unavailable.meta.revision.to_string()),
+    )
+    .expect("remove retained revision");
+    assert_eq!(
+        fs::rename(
+            mountpoint.join("unavailable.txt"),
+            mountpoint.join("unavailable-moved.txt")
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::EIO)
+    );
+    assert_eq!(
+        retained
+            .entry("unavailable.txt")
+            .await
+            .expect("unavailable source preserved")
+            .meta,
+        unavailable.meta
+    );
+    assert!(matches!(
+        retained.entry("unavailable-moved.txt").await,
+        Err(file_system::Error::NotFound)
+    ));
+
+    assert_eq!(
+        retained
+            .entry("source.txt")
+            .await
+            .expect("source preserved")
+            .meta,
+        source.meta
+    );
+    assert_eq!(
+        retained.entry("tree").await.expect("tree preserved").meta,
+        tree.meta
+    );
+    assert!(matches!(
+        retained.entry("new.txt").await,
+        Err(file_system::Error::NotFound)
+    ));
+
+    guard.unmount().await.expect("unmount");
     drop(retained);
     fs::remove_dir_all(backing).expect("backing cleanup");
     fs::remove_dir_all(mountpoint).expect("mount cleanup");

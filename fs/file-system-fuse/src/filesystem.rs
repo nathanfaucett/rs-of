@@ -453,6 +453,44 @@ where
         self.state.file_system.delete(&path).await.map_err(errno)
     }
 
+    async fn rename(
+        &self,
+        _request: Request,
+        origin_parent: &OsStr,
+        origin_name: &OsStr,
+        parent: &OsStr,
+        name: &OsStr,
+    ) -> Result<()> {
+        let origin_parent_path = relative_path(origin_parent)?;
+        let from = child_path(origin_parent, origin_name)?;
+        let parent_path = relative_path(parent)?;
+        let to = child_path(parent, name)?;
+        let _mutation = self.state.mutations.lock().await;
+        self.state.require_directory(&origin_parent_path).await?;
+        self.state.require_directory(&parent_path).await?;
+        self.state
+            .file_system
+            .rename(&from, &to)
+            .await
+            .map_err(errno)
+    }
+
+    async fn rename2(
+        &self,
+        req: Request,
+        origin_parent: &OsStr,
+        origin_name: &OsStr,
+        parent: &OsStr,
+        name: &OsStr,
+        flags: u32,
+    ) -> Result<()> {
+        if flags & !libc::RENAME_NOREPLACE != 0 {
+            return Err(Errno::from(libc::ENOSYS));
+        }
+        self.rename(req, origin_parent, origin_name, parent, name)
+            .await
+    }
+
     async fn read(
         &self,
         _request: Request,
@@ -719,6 +757,78 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+
+    #[tokio::test]
+    async fn rename2_rejects_unsupported_flags_without_changing_entries() {
+        let root = env::temp_dir().join(format!("offs-fuse-rename2-{}", Uuid::now_v7()));
+        let file_system = FileSystem::open(&root, 1_u8).await.expect("open");
+        file_system
+            .set_residency("", file_system::Residency::Full)
+            .await
+            .expect("full residency");
+        let source = file_system
+            .write("source", b"source")
+            .await
+            .expect("source");
+        let occupied = file_system
+            .write("occupied", b"occupied")
+            .await
+            .expect("occupied");
+        let adapter = FuseFileSystem::new(Arc::new(AdapterState::new(
+            file_system.clone(),
+            0,
+            0,
+            UNIX_EPOCH,
+        )));
+
+        for flags in [
+            libc::RENAME_EXCHANGE,
+            libc::RENAME_WHITEOUT,
+            libc::RENAME_EXCHANGE | libc::RENAME_NOREPLACE,
+            1 << 31,
+        ] {
+            let result = adapter
+                .rename2(
+                    Request::default(),
+                    OsStr::new("/"),
+                    OsStr::new("source"),
+                    OsStr::new("/"),
+                    OsStr::new("occupied"),
+                    flags,
+                )
+                .await;
+            assert!(matches!(result, Err(error) if error == Errno::from(libc::ENOSYS)));
+            assert_eq!(
+                file_system
+                    .entry("source")
+                    .await
+                    .expect("source preserved")
+                    .meta,
+                source.meta
+            );
+            assert_eq!(
+                file_system
+                    .entry("occupied")
+                    .await
+                    .expect("destination preserved")
+                    .meta,
+                occupied.meta
+            );
+        }
+        assert_eq!(
+            file_system.read("source").await.expect("source bytes"),
+            b"source"
+        );
+        assert_eq!(
+            file_system
+                .read("occupied")
+                .await
+                .expect("destination bytes"),
+            b"occupied"
+        );
+        drop(adapter);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
 
     #[tokio::test]
     async fn setattr_rejects_every_unsupported_component_before_size_mutation() {

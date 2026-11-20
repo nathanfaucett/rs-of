@@ -16,7 +16,7 @@ The repository is migrating to the [accepted target architecture](docs/architect
 | Shared multi-User Installation Devices | Accepted target; migration is incomplete                                                                        |
 | Two-Device offline convergence         | Not qualified                                                                                                   |
 | Browser synchronization                | Incomplete; do not infer support from transport packages alone                                                  |
-| Linux FUSE mounts                       | Full-residency File Systems only; reads, file creation, offset/append writes, open/size truncation, directory mutations, and directory iteration           |
+| Linux FUSE mounts                       | Full-residency File Systems only; reads, file creation, offset/append writes, open/size truncation, directory mutations, no-replace file and directory-tree rename, and directory iteration           |
 | Independent and desktop deployments    | Retain implementation paths, but current end-to-end qualification is not established                            |
 
 GitHub Actions records current and historical check results.

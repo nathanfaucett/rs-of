@@ -116,9 +116,12 @@ where
 /// retains Catalog, Resource, authorization, synchronization, and Residency ownership. File
 /// creation, revision-checked offset/append writes, and open-time or size-attribute truncation use
 /// the existing durable Content Revision boundary. Extension zero-fills new bytes. Other attribute
-/// mutations return `ENOSYS` before any requested size change. Directory mutations use the existing
-/// File System metadata and deletion contracts and are serialized only within this adapter. Rename,
-/// recursive deletion, and other open-file transitions are unsupported. `allow_other` is disabled,
+/// mutations return `ENOSYS` before any requested size change. Directory mutations and no-replace
+/// rename use the existing File System metadata, deletion, and rename contracts and are serialized
+/// only within this adapter. Rename preserves File Entry identities and content without deleting an
+/// occupied destination. Handles remain bound to their opened path and Content Revision: removed
+/// paths return `ENOENT`, and recreated or replaced paths return `ESTALE`. Atomic replacement,
+/// recursive deletion, and open-file path traversal are unsupported. `allow_other` is disabled,
 /// attribute and entry TTLs are zero, file I/O uses direct I/O, and writeback caching is disabled.
 ///
 /// # Errors
