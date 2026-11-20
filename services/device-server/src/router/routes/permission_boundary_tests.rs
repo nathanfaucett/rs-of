@@ -50,8 +50,9 @@ async fn restriction_api_updates_exact_device_with_separate_read_and_update_gran
     let mut state = state(Arc::clone(&engine));
     let owner = Id::now_v7();
     let administrator = Id::now_v7();
-    let device = Id::now_v7();
-    engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a', '', 1, 1, NULL, 1, 1)"), &ofdb_sql::SqlTranslator).await.expect("Management-owned Device");
+    let inserted = engine.client().translate_and_execute(&format!("INSERT INTO devices (owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES ('{owner}', 'test', 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a', '', 1, 1, NULL, 1, 1) RETURNING id"), &ofdb_sql::SqlTranslator).await.expect("Management-owned Device");
+    let device: Id =
+        ofdb_sql::decode(&inserted[0].rows[0].values[0], "id").expect("generated Device ID");
     let owner_api = axum::Router::new().route("/oauth2/token", axum::routing::post(|| async { Json(serde_json::json!({
         "access_token":"lookup-token", "token_type":"Bearer", "expires_in":300,
         "scope":"idp.token.validate idp.user.lookup", "iss":"https://installation.example"

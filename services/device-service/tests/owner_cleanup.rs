@@ -13,7 +13,7 @@ async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restri
     let root = std::env::temp_dir().join(format!("independent-transfer-{}", Id::now_v7()));
     let path = root.join("devices.redb");
     fs::create_dir_all(&root).expect("isolated Management root");
-    let device = Id::now_v7();
+    let device: Id;
     let old = Id::now_v7().to_string();
     let next = Id::now_v7().to_string();
     let third = Id::now_v7().to_string();
@@ -22,7 +22,9 @@ async fn stale_cleanup_cannot_clear_current_binding_and_exact_retry_stays_restri
     {
         let engine = Arc::new(Database::open(&path).expect("Management owner"));
         up(&engine).await.expect("Management schema");
-        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{next}', 'transfer', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &ofdb_sql::SqlTranslator).await.expect("current Management binding");
+        let inserted = engine.client().translate_and_execute(&format!("INSERT INTO devices (owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES ('{next}', 'transfer', '{endpoint}', '', 1, 1, NULL, 1, 1) RETURNING id"), &ofdb_sql::SqlTranslator).await.expect("current Management binding");
+        device =
+            ofdb_sql::decode(&inserted[0].rows[0].values[0], "id").expect("generated Device ID");
         let policies = DbSelectionPolicyRepo::new(engine.clone().client());
         policies
             .set_prevalidated(SelectionPolicy {
@@ -168,7 +170,7 @@ async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
     let root = std::env::temp_dir().join(format!("original-owner-return-{}", Id::now_v7()));
     fs::create_dir_all(&root).expect("isolated owner store");
     let path = root.join("devices.redb");
-    let device = Id::now_v7();
+    let device: Id;
     let old = Id::now_v7().to_string();
     let next = Id::now_v7().to_string();
     let endpoint = iroh::SecretKey::generate().public().to_string();
@@ -176,7 +178,9 @@ async fn original_owner_return_keeps_retirement_pending_after_stopped_reopen() {
     {
         let engine = Arc::new(Database::open(&path).expect("Management owner"));
         up(&engine).await.expect("schema");
-        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{next}', 'cycle', '{endpoint}', '', 1, 1, 1, 1)"), &ofdb_sql::SqlTranslator).await.expect("current endpoint");
+        let inserted = engine.client().translate_and_execute(&format!("INSERT INTO devices (owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES ('{next}', 'cycle', '{endpoint}', '', 1, 1, 1, 1) RETURNING id"), &ofdb_sql::SqlTranslator).await.expect("current endpoint");
+        device =
+            ofdb_sql::decode(&inserted[0].rows[0].values[0], "id").expect("generated Device ID");
         let policies = DbSelectionPolicyRepo::new(engine.clone().client());
         policies
             .set_prevalidated(SelectionPolicy {

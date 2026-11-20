@@ -355,7 +355,9 @@ impl DomainNode {
 }
 
 pub async fn insert_owner(database: &Database) -> Id {
-    insert_identity(database, "INSERT INTO users (handle, name, created_at, updated_at) VALUES ('owner', 'Owner', 1, 1) RETURNING id").await
+    let owner = Id::now_v7();
+    sql(database, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
+    owner
 }
 
 pub async fn insert_device(database: &Database, owner: Id, endpoint: EndpointId) -> Id {

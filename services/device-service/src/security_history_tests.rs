@@ -36,7 +36,7 @@ use crate::{
     security_policy::{SecurityContext, SecurityHistory},
     security_protocol::{
         SecurityProtocol,
-        test_fixtures::{StreamPanics, enroll, native_handler, sql},
+        test_fixtures::{StreamPanics, enroll, insert_device, native_handler, sql},
     },
 };
 
@@ -191,11 +191,9 @@ impl Pair {
         let a = Server::new(a, peers_a);
         let b = Server::new(b, peers_b);
         let actor = Id::now_v7();
-        let member_a = Id::now_v7();
-        let member_b = Id::now_v7();
         let key_a = Id::now_v7();
         let key_b = Id::now_v7();
-        let row = {
+        let (member_a, member_b, row) = {
             let idp = Arc::new(
                 Database::open(root.join("baseline-idp.redb")).expect("open public baseline"),
             );
@@ -216,13 +214,10 @@ impl Pair {
             crate::ofdb::schema::up(&management)
                 .await
                 .expect("declare Management schema");
-            for (member, key, endpoint) in [
-                (member_a, key_a, a.endpoint().id()),
-                (member_b, key_b, b.endpoint().id()),
-            ] {
-                sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
-                enroll(idp.clone(), member, endpoint, key).await;
-            }
+            let member_a = insert_device(&management, &actor.to_string(), a.endpoint().id(), "node").await;
+            enroll(idp.clone(), member_a, a.endpoint().id(), key_a).await;
+            let member_b = insert_device(&management, &actor.to_string(), b.endpoint().id(), "node").await;
+            enroll(idp.clone(), member_b, b.endpoint().id(), key_b).await;
             let inserted = sql(&idp, &format!("INSERT INTO keys (derivation_index, public_jwk) VALUES (0, '{}') RETURNING id", public_jwk("baseline"))).await;
             let row: Id = ofdb_sql::decode(&inserted[0].rows[0].values[0], "id").expect("generated key ID");
             ManagementService::new(
@@ -241,7 +236,7 @@ impl Pair {
             )
             .await
             .expect("explicit current local sync grant");
-            row
+            (member_a, member_b, row)
         };
         for node in ["a", "b", "fork"] {
             std::fs::copy(

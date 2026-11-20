@@ -272,7 +272,6 @@ mod tests {
         use of_model::device::selection_policy::SelectionPolicy;
         use tower::ServiceExt;
 
-        let device = Id::now_v7();
         let owner = Id::now_v7().to_string();
         let application = Id::now_v7();
         let resource = Id::now_v7();
@@ -282,7 +281,9 @@ mod tests {
             std::env::temp_dir().join(format!("device-current-policy-{}.redb", Id::now_v7()));
         let engine = Arc::new(ofdb_sql::Database::open(&root).expect("open policy"));
         up(&engine).await.expect("initialize policy");
-        engine.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'test', '{endpoint}', '', 1, 1, NULL, 1, 1)"), &ofdb_sql::SqlTranslator).await.expect("Management Device");
+        let inserted = engine.client().translate_and_execute(&format!("INSERT INTO devices (owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES ('{owner}', 'test', '{endpoint}', '', 1, 1, NULL, 1, 1) RETURNING id"), &ofdb_sql::SqlTranslator).await.expect("Management Device");
+        let device: Id =
+            ofdb_sql::decode(&inserted[0].rows[0].values[0], "id").expect("generated Device ID");
         let policies = Arc::new(DbSelectionPolicyRepo::new(engine.clone().client()));
 
         let owner_active = Arc::new(AtomicBool::new(true));

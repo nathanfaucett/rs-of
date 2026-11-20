@@ -28,7 +28,7 @@ use crate::{
     security_policy::SecurityContext,
     security_protocol::{
         SecurityProtocol,
-        test_fixtures::{enroll, native_handler, sql},
+        test_fixtures::{enroll, insert_device, native_handler, sql},
     },
 };
 
@@ -68,11 +68,9 @@ async fn exchange_history() {
     let server_a = Server::new(a, peers_a);
     let server_b = Server::new(b, peers_b);
     let actor = Id::now_v7();
-    let member_a = Id::now_v7();
-    let member_b = Id::now_v7();
     let key_a = Id::now_v7();
     let key_b = Id::now_v7();
-    {
+    let (member_a, member_b) = {
         let idp = Arc::new(Database::open(root.join("a-idp.redb")).expect("seed IdP"));
         db::ofdb::up(&idp.client())
             .await
@@ -83,13 +81,10 @@ async fn exchange_history() {
         crate::ofdb::schema::up(&management)
             .await
             .expect("Management schemas");
-        for (member, key, endpoint) in [
-            (member_a, key_a, server_a.endpoint().id()),
-            (member_b, key_b, server_b.endpoint().id()),
-        ] {
-            sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
-            enroll(idp.clone(), member, endpoint, key).await;
-        }
+        let member_a = insert_device(&management, &actor.to_string(), server_a.endpoint().id(), "node").await;
+        enroll(idp.clone(), member_a, server_a.endpoint().id(), key_a).await;
+        let member_b = insert_device(&management, &actor.to_string(), server_b.endpoint().id(), "node").await;
+        enroll(idp.clone(), member_b, server_b.endpoint().id(), key_b).await;
         ManagementService::new(
             DbPermissionRepo::new(idp.client()),
             DbRoleRepo::new(idp.client()),
@@ -106,7 +101,8 @@ async fn exchange_history() {
         )
         .await
         .expect("explicit local context sync grants");
-    }
+        (member_a, member_b)
+    };
     // Both approved Nodes start with the same provisioned public baseline, containing no verifiers.
     std::fs::copy(root.join("a-idp.redb"), root.join("b-idp.redb"))
         .expect("provision public baseline");
@@ -121,9 +117,8 @@ async fn exchange_history() {
         Arc::new(Database::open(root.join("a-management.redb")).expect("open A Management"));
     let management_b =
         Arc::new(Database::open(root.join("b-management.redb")).expect("open B Management"));
-    let learned_member = Id::now_v7();
     let learned_endpoint = iroh::SecretKey::generate().public();
-    sql(&management_a, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{learned_member}' AS UUID), '{actor}', 'new-approved-peer', '{learned_endpoint}', 'local', 1, 1, 1, 1)")).await;
+    let learned_member = insert_device(&management_a, &actor.to_string(), learned_endpoint, "new-approved-peer").await;
     enroll(
         idp_a.clone(),
         learned_member,
