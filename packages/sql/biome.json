@@ -1,5 +1,5 @@
 {
-  "extends": "//",
+  "extends": ["../../biome.json"],
   "files": {
     "ignoreUnknown": true,
     "includes": [
@@ -11,7 +11,8 @@
       "vite.config.ts",
       "!src/generated",
       "!artifacts",
-      "!browser-tests"
+      "!browser-tests",
+      "!example"
     ]
   }
 }

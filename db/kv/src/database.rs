@@ -1,4 +1,9 @@
-#[cfg(any(feature = "redb", feature = "server"))]
+#[cfg(any(
+    feature = "redb",
+    feature = "server",
+    feature = "sync",
+    feature = "wasm"
+))]
 use std::io;
 #[cfg(all(feature = "server", unix))]
 use std::path::PathBuf;

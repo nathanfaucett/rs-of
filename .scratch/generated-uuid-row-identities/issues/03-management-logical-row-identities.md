@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-Work: open
+Work: resolved
 
 - [ ] Role, permission, role-permission, and user-role inserts obtain generated UUIDv7 primary keys through the SQL Client.
 - [ ] Idempotent create-with-ID and provisioning operations preserve public domain semantics without supplying a single-UUID Logical Row identity.

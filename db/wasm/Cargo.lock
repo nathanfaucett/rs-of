@@ -833,6 +833,7 @@ dependencies = [
 name = "ofdb-sql-query"
 version = "0.1.0"
 dependencies = [
+ "ofdb-platform",
  "ofdb-sql-schema",
  "ofdb-value",
  "serde",
@@ -852,6 +853,7 @@ dependencies = [
 name = "ofdb-sql-translator"
 version = "0.1.0"
 dependencies = [
+ "ofdb-platform",
  "ofdb-sql-query",
  "ofdb-sql-schema",
  "ofdb-value",

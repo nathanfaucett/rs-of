@@ -1,5 +1,7 @@
 use core::fmt;
-use std::{io, time::Duration};
+#[cfg(feature = "redb")]
+use std::io;
+use std::time::Duration;
 
 #[cfg(feature = "remote")]
 use kv_proto::kvdb::{

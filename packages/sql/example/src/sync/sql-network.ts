@@ -1,9 +1,9 @@
 import {
   JsPushSyncTransport,
-  type Client as SqlClient,
-  Database as SqlDatabase,
   PushConfig,
   PushSynchronizeConfig,
+  type Client as SqlClient,
+  Database as SqlDatabase,
 } from "@ofsdk/sql";
 import { LoopbackTransport } from "./transport.js";
 
@@ -60,9 +60,7 @@ export class SqlPeerNetwork {
     const name = `Peer ${String.fromCharCode(64 + this.counter)}`;
     const db = await SqlDatabase.open(`${this.prefix}-${id}`);
     const client = db.client();
-    await client.executeRaw(
-      "CREATE TABLE IF NOT EXISTS records (id UUID PRIMARY KEY, text TEXT)",
-    );
+    await client.executeRaw("CREATE TABLE IF NOT EXISTS records (id UUID PRIMARY KEY, text TEXT)");
     const peer: SqlPeer = {
       id,
       name,
@@ -130,11 +128,9 @@ export class SqlPeerNetwork {
     const peer = this.peers.get(id);
     if (!peer) return;
     // Use typed execute with a void parser since we don't need the result
-    await peer.client.execute(
-      "INSERT INTO records (text) VALUES (?)",
-      () => undefined,
-      [textValue(text)],
-    );
+    await peer.client.execute("INSERT INTO records (text) VALUES (?)", () => undefined, [
+      textValue(text),
+    ]);
     await this.refreshCount(peer);
     // Sync is handled automatically by the polling loop
   }
@@ -155,9 +151,7 @@ export class SqlPeerNetwork {
             peer.recordCount = currentCount;
             this.onChange();
 
-            const others = [...this.peers.values()].filter(
-              (p) => p.id !== peer.id && p.online,
-            );
+            const others = [...this.peers.values()].filter((p) => p.id !== peer.id && p.online);
             for (const target of others) {
               if (aborted || !peer.online || !target.online) break;
               await this.syncPair(peer, target);
@@ -192,9 +186,7 @@ export class SqlPeerNetwork {
 
   private async getRecordCount(peer: SqlPeer): Promise<number> {
     try {
-      const results = await peer.client.executeRaw(
-        "SELECT COUNT(*) as cnt FROM records",
-      );
+      const results = await peer.client.executeRaw("SELECT COUNT(*) as cnt FROM records");
       const first = results[0]?.rows?.[0]?.[0];
       if (first && typeof first === "object" && "value" in first) {
         return Number((first as { value: unknown }).value);
@@ -214,9 +206,7 @@ export class SqlPeerNetwork {
   }
 
   async listRecords(peer: SqlPeer): Promise<string[]> {
-    const results = await peer.client.executeRaw(
-      "SELECT text FROM records ORDER BY id",
-    );
+    const results = await peer.client.executeRaw("SELECT text FROM records ORDER BY id");
     return (results[0]?.rows ?? []).map((row: unknown[]) => {
       const first = row[0];
       if (first && typeof first === "object" && "value" in first) {
@@ -227,9 +217,7 @@ export class SqlPeerNetwork {
   }
 
   private async syncWithAll(source: SqlPeer): Promise<void> {
-    const others = [...this.peers.values()].filter(
-      (p) => p.id !== source.id && p.online,
-    );
+    const others = [...this.peers.values()].filter((p) => p.id !== source.id && p.online);
     for (const target of others) {
       await this.syncPair(source, target);
     }

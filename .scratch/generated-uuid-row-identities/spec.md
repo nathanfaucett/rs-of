@@ -1,7 +1,7 @@
 # Generate UUIDv7 Logical Row identities internally
 
 Status: ready-for-agent
-Work: open
+Work: resolved
 Milestone: M2 — Single-Node encrypted synchronization
 Dependencies: None identified.
 

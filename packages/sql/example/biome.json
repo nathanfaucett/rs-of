@@ -1,5 +1,5 @@
 {
-  "extends": "//",
+  "extends": ["../../../biome.json"],
   "linter": {
     "rules": {
       "style": {
@@ -19,6 +19,11 @@
     "formatter": {
       "quoteStyle": "double",
       "semicolons": "always"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   },
   "overrides": [

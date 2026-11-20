@@ -1,5 +1,5 @@
 // WASM module types (loaded dynamically)
-import {
+import type {
   JsPushSyncTransport,
   PushSynchronizeConfig,
   PushSynchronizeResult,
@@ -17,12 +17,12 @@ export interface WasmKvDatabase {
   client(): WasmKvClient;
   synchronize(
     transport: JsPushSyncTransport,
-    config: PushSynchronizeConfig,
+    config: PushSynchronizeConfig
   ): Promise<PushSynchronizeResult>;
   synchronize_checked(
     transport: JsPushSyncTransport,
     config: PushSynchronizeConfig,
-    check: () => Promise<void>,
+    check: () => Promise<void>
   ): Promise<PushSynchronizeResult>;
   sync_changes(): Promise<KvChangeSubscription>;
 }

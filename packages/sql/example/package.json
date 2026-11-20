@@ -10,15 +10,15 @@
     "build": "vite build && node scripts/verify-wasm.js",
     "preview": "portless sql-example vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "lint": "biome check src/",
-    "lint:fix": "biome check --write src/",
+    "lint": "biome check --config-path=. src/",
+    "lint:fix": "biome check --write --config-path=. src/",
     "test": "playwright test smoke.test.ts"
   },
   "dependencies": {
     "@ofsdk/sql": "file:.."
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.3",
+    "@biomejs/biome": "2.5.6",
     "@playwright/test": "1.49.0",
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "@tailwindcss/vite": "^4.3.3",

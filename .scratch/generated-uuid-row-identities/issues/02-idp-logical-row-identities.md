@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-Work: open
+Work: resolved
 
 - [ ] IdP insertion paths omit single-UUID primary keys or use DEFAULT and consume generated UUIDv7 values through RETURNING where required.
 - [ ] Creation methods that accept stable public IDs preserve their idempotent domain behavior without using those IDs as single-UUID Logical Row identities.

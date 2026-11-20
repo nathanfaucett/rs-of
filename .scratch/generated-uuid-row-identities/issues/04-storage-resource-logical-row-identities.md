@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-Work: open
+Work: resolved
 
 - [ ] Namespace creation preserves stable namespace identity without inserting a deterministic UUIDv5 single-UUID primary key.
 - [ ] Resource creation consumes generated UUIDv7 Logical Row identities and keeps Resource identifiers consistent across catalog and database metadata records.

@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-Work: open
+Work: resolved
 
 - [ ] Device creation and enrollment-related inserts obtain generated UUIDv7 primary keys through RETURNING and use those values consistently in related records.
 - [ ] Device Selection uses a natural or composite primary key, with a separate unique domain identifier when needed, instead of a deterministic UUIDv5 single-UUID primary key.
