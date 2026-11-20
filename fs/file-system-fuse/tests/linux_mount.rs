@@ -17,6 +17,47 @@ use uuid::Uuid;
 
 struct Directory(*mut libc::DIR);
 
+impl Directory {
+    fn open(path: &Path) -> io::Result<Self> {
+        let path = CString::new(path.as_os_str().as_bytes())?;
+        // SAFETY: `path` is a terminated C string; the returned pointer is checked.
+        let raw = unsafe { libc::opendir(path.as_ptr()) };
+        if raw.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self(raw))
+    }
+
+    fn entries(&self, offset: i64) -> io::Result<Vec<(String, i64)>> {
+        // SAFETY: `self` owns a live directory and `offset` is zero or a prior entry offset.
+        unsafe { libc::seekdir(self.0, offset) };
+        let mut entries = Vec::new();
+        loop {
+            // SAFETY: Linux exposes thread-local errno for this thread.
+            unsafe { *libc::__errno_location() = 0 };
+            // SAFETY: `self` remains live until this loop finishes.
+            let entry = unsafe { libc::readdir(self.0) };
+            if entry.is_null() {
+                // SAFETY: Linux exposes thread-local errno for this thread.
+                let error = unsafe { *libc::__errno_location() };
+                if error == 0 {
+                    break;
+                }
+                return Err(io::Error::from_raw_os_error(error));
+            }
+            // SAFETY: `readdir` returned a valid entry until its next call.
+            let entry = unsafe { &*entry };
+            // SAFETY: `d_name` is NUL-terminated within the returned entry.
+            let name = unsafe { CStr::from_ptr(entry.d_name.as_ptr()) }
+                .to_str()
+                .expect("UTF-8 fixture name")
+                .to_owned();
+            entries.push((name, entry.d_off));
+        }
+        Ok(entries)
+    }
+}
+
 impl Drop for Directory {
     fn drop(&mut self) {
         // SAFETY: `opendir` returned this live pointer, and this owner closes it once.
@@ -25,41 +66,7 @@ impl Drop for Directory {
 }
 
 fn directory_entries(path: &Path, offset: i64) -> io::Result<Vec<(String, i64)>> {
-    let path = CString::new(path.as_os_str().as_bytes())?;
-    // SAFETY: `path` is a terminated C string; the returned pointer is checked.
-    let raw = unsafe { libc::opendir(path.as_ptr()) };
-    if raw.is_null() {
-        return Err(io::Error::last_os_error());
-    }
-    let directory = Directory(raw);
-    if offset != 0 {
-        // SAFETY: `directory` is live and `offset` came from a prior directory entry.
-        unsafe { libc::seekdir(directory.0, offset) };
-    }
-    let mut entries = Vec::new();
-    loop {
-        // SAFETY: Linux exposes thread-local errno for this thread.
-        unsafe { *libc::__errno_location() = 0 };
-        // SAFETY: `directory` remains live until this loop finishes.
-        let entry = unsafe { libc::readdir(directory.0) };
-        if entry.is_null() {
-            // SAFETY: Linux exposes thread-local errno for this thread.
-            let error = unsafe { *libc::__errno_location() };
-            if error == 0 {
-                break;
-            }
-            return Err(io::Error::from_raw_os_error(error));
-        }
-        // SAFETY: `readdir` returned a valid entry until its next call.
-        let entry = unsafe { &*entry };
-        // SAFETY: `d_name` is NUL-terminated within the returned entry.
-        let name = unsafe { CStr::from_ptr(entry.d_name.as_ptr()) }
-            .to_str()
-            .expect("UTF-8 fixture name")
-            .to_owned();
-        entries.push((name, entry.d_off));
-    }
-    Ok(entries)
+    Directory::open(path)?.entries(offset)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -168,12 +175,6 @@ async fn linux_mount_supports_read_attributes_readdir_and_clean_unmount() {
         .open(mountpoint.join("root.txt"))
         .expect("writable open");
     drop(writable);
-    assert_eq!(
-        fs::remove_file(mountpoint.join("root.txt"))
-            .unwrap_err()
-            .raw_os_error(),
-        Some(libc::ENOSYS)
-    );
 
     let mut stale = File::open(mountpoint.join("root.txt")).expect("open revision");
     retained
@@ -514,6 +515,631 @@ async fn linux_mount_creates_writes_appends_syncs_and_restarts() {
     assert_eq!(fs::read(&path).expect("restart mount read"), expected);
     guard.unmount().await.expect("second unmount");
     drop(reopened);
+    fs::remove_dir_all(backing).expect("backing cleanup");
+    fs::remove_dir_all(mountpoint).expect("mount cleanup");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
+#[allow(clippy::too_many_lines, reason = "one real-mount acceptance scenario")]
+async fn linux_mount_creates_directories_under_existing_parents() {
+    let unique = Uuid::now_v7();
+    let backing = env::temp_dir().join(format!("offs-fuse-mkdir-backing-{unique}"));
+    let mountpoint = env::temp_dir().join(format!("offs-fuse-mkdir-mount-{unique}"));
+    fs::create_dir(&mountpoint).expect("mountpoint");
+    let file_system = FileSystem::open(&backing, 1_u8).await.expect("open");
+    file_system
+        .set_residency("", Residency::Full)
+        .await
+        .expect("full root");
+    file_system.create_dir("parent").await.expect("parent");
+    file_system.create_dir("denied").await.expect("denied");
+    file_system.create_dir("stale").await.expect("stale");
+    file_system
+        .write("parent/file.txt", b"keep")
+        .await
+        .expect("existing file");
+    let retained = file_system.clone();
+    let guard = mount(file_system, &mountpoint).await.expect("mount");
+
+    fs::create_dir(mountpoint.join("parent/nested")).expect("mkdir");
+    let metadata = fs::metadata(mountpoint.join("parent/nested")).expect("mkdir attributes");
+    assert!(metadata.is_dir());
+    assert_eq!(metadata.permissions().mode() & 0o777, 0o755);
+    let nested = retained.entry("parent/nested").await.expect("nested entry");
+    assert_eq!(nested.meta.kind, file_system::FileKind::Directory);
+    assert_eq!(nested.meta.mode, 0o755);
+    assert_eq!(
+        fs::create_dir(mountpoint.join("parent/nested"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EEXIST)
+    );
+    assert_eq!(
+        fs::create_dir(mountpoint.join("parent/file.txt"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EEXIST)
+    );
+    assert_eq!(
+        fs::create_dir(mountpoint.join("missing/child"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    assert_eq!(
+        fs::create_dir(mountpoint.join("parent/file.txt/child"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOTDIR)
+    );
+    retained
+        .delete("stale")
+        .await
+        .expect("external parent deletion");
+    assert_eq!(
+        fs::create_dir(mountpoint.join("stale/child"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    assert!(matches!(
+        retained.entry("stale").await,
+        Err(file_system::Error::NotFound)
+    ));
+    retained
+        .set_residency("denied", Residency::Passthrough)
+        .await
+        .expect("passthrough residency");
+    assert_eq!(
+        fs::create_dir(mountpoint.join("denied/child"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EROFS)
+    );
+    assert_eq!(
+        retained.list("denied").await.expect("denied entries"),
+        [] as [file_system::Entry<u8>; 0]
+    );
+    retained
+        .set_residency("denied", Residency::Full)
+        .await
+        .expect("restore full directory");
+    assert_eq!(
+        fs::create_dir(mountpoint.join(".data"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EINVAL)
+    );
+    assert_eq!(
+        fs::create_dir(mountpoint.join(OsString::from_vec(vec![0x80])))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EILSEQ)
+    );
+    assert_eq!(
+        retained
+            .read("parent/file.txt")
+            .await
+            .expect("retained bytes"),
+        b"keep"
+    );
+    assert_eq!(
+        retained
+            .list("parent")
+            .await
+            .expect("parent entries")
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect::<Vec<_>>(),
+        ["parent/file.txt", "parent/nested"]
+    );
+
+    guard.unmount().await.expect("unmount");
+    drop(retained);
+    fs::remove_dir_all(backing).expect("backing cleanup");
+    fs::remove_dir_all(mountpoint).expect("mount cleanup");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
+#[allow(clippy::too_many_lines, reason = "one real-mount acceptance scenario")]
+async fn linux_mount_unlinks_only_regular_files() {
+    let unique = Uuid::now_v7();
+    let backing = env::temp_dir().join(format!("offs-fuse-unlink-backing-{unique}"));
+    let mountpoint = env::temp_dir().join(format!("offs-fuse-unlink-mount-{unique}"));
+    fs::create_dir(&mountpoint).expect("mountpoint");
+    let file_system = FileSystem::open(&backing, 1_u8).await.expect("open");
+    file_system
+        .set_residency("", Residency::Full)
+        .await
+        .expect("full root");
+    file_system.create_dir("dir").await.expect("directory");
+    file_system
+        .write("dir/file.txt", b"delete")
+        .await
+        .expect("file to unlink");
+    file_system.create_dir("occupied").await.expect("occupied");
+    file_system
+        .write("occupied/child.txt", b"keep")
+        .await
+        .expect("child to retain");
+    file_system
+        .write("denied.txt", b"denied")
+        .await
+        .expect("denied file");
+    file_system
+        .write("unavailable.txt", b"unavailable")
+        .await
+        .expect("unavailable file");
+    let deleted = file_system
+        .entry("dir/file.txt")
+        .await
+        .expect("delete entry");
+    let unavailable = file_system
+        .entry("unavailable.txt")
+        .await
+        .expect("unavailable entry");
+    let denied = file_system.entry("denied.txt").await.expect("denied entry");
+    let retained = file_system.clone();
+    let guard = mount(file_system, &mountpoint).await.expect("mount");
+
+    fs::remove_file(mountpoint.join("dir/file.txt")).expect("unlink");
+    assert!(matches!(
+        retained.entry("dir/file.txt").await,
+        Err(file_system::Error::NotFound)
+    ));
+    assert!(
+        backing
+            .join(".data")
+            .join(deleted.meta.file_id.to_string())
+            .join(deleted.meta.revision.to_string())
+            .is_file(),
+        "unlink retains the prior revision through the existing deletion contract"
+    );
+    assert_eq!(
+        directory_entries(&mountpoint.join("dir"), 0)
+            .expect("iteration after unlink")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        [".", ".."]
+    );
+    assert_eq!(
+        fs::remove_file(mountpoint.join("occupied"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EISDIR)
+    );
+    assert_eq!(
+        fs::remove_file(&mountpoint).unwrap_err().raw_os_error(),
+        Some(libc::EISDIR)
+    );
+    assert_eq!(
+        fs::remove_file(mountpoint.join("missing"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    assert_eq!(
+        fs::remove_file(mountpoint.join("missing/child"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    assert_eq!(
+        fs::remove_file(mountpoint.join("occupied/child.txt/child"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOTDIR)
+    );
+    assert_eq!(
+        fs::remove_file(mountpoint.join(".data"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EINVAL)
+    );
+    assert_eq!(
+        fs::remove_file(mountpoint.join(OsString::from_vec(vec![0x80])))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EILSEQ)
+    );
+
+    retained
+        .set_residency("denied.txt", Residency::Passthrough)
+        .await
+        .expect("passthrough residency");
+    let denied_content = backing
+        .join(".data")
+        .join(denied.meta.file_id.to_string())
+        .join(denied.meta.revision.to_string());
+    fs::create_dir_all(denied_content.parent().expect("revision directory"))
+        .expect("retained revision directory");
+    fs::write(&denied_content, b"denied").expect("retained passthrough revision");
+    assert_eq!(
+        fs::remove_file(mountpoint.join("denied.txt"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EROFS)
+    );
+    assert_eq!(
+        retained
+            .entry("denied.txt")
+            .await
+            .expect("denied preserved")
+            .meta,
+        denied.meta
+    );
+    assert!(denied_content.is_file());
+    assert_eq!(
+        retained
+            .read("occupied/child.txt")
+            .await
+            .expect("child preserved"),
+        b"keep"
+    );
+
+    fs::remove_file(
+        backing
+            .join(".data")
+            .join(unavailable.meta.file_id.to_string())
+            .join(unavailable.meta.revision.to_string()),
+    )
+    .expect("remove retained revision");
+    assert_eq!(
+        fs::remove_file(mountpoint.join("unavailable.txt"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EIO)
+    );
+    assert_eq!(
+        retained
+            .entry("unavailable.txt")
+            .await
+            .expect("unavailable preserved")
+            .meta,
+        unavailable.meta
+    );
+
+    guard.unmount().await.expect("unmount");
+    drop(retained);
+    let reopened = FileSystem::open(&backing, 1_u8).await.expect("reopen");
+    assert!(matches!(
+        reopened.entry("dir/file.txt").await,
+        Err(file_system::Error::NotFound)
+    ));
+    assert_eq!(
+        reopened
+            .entry("denied.txt")
+            .await
+            .expect("denied restart")
+            .meta,
+        denied.meta
+    );
+    assert_eq!(
+        reopened
+            .read("occupied/child.txt")
+            .await
+            .expect("restart bytes"),
+        b"keep"
+    );
+    drop(reopened);
+    fs::remove_dir_all(backing).expect("backing cleanup");
+    fs::remove_dir_all(mountpoint).expect("mount cleanup");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
+#[allow(clippy::too_many_lines, reason = "one real-mount acceptance scenario")]
+async fn linux_mount_removes_only_empty_directories_and_restarts() {
+    let unique = Uuid::now_v7();
+    let backing = env::temp_dir().join(format!("offs-fuse-rmdir-backing-{unique}"));
+    let mountpoint = env::temp_dir().join(format!("offs-fuse-rmdir-mount-{unique}"));
+    fs::create_dir(&mountpoint).expect("mountpoint");
+    let file_system = FileSystem::open(&backing, 1_u8).await.expect("open");
+    file_system
+        .set_residency("", Residency::Full)
+        .await
+        .expect("full root");
+    file_system.create_dir("empty").await.expect("empty");
+    file_system
+        .create_dir("tree/nested")
+        .await
+        .expect("nested directory");
+    file_system
+        .write("tree/file.txt", b"keep")
+        .await
+        .expect("child to retain");
+    file_system
+        .write("regular.txt", b"regular")
+        .await
+        .expect("regular file");
+    file_system
+        .create_dir("denied")
+        .await
+        .expect("denied directory");
+    let child = file_system
+        .entry("tree/file.txt")
+        .await
+        .expect("child entry");
+    let nested = file_system
+        .entry("tree/nested")
+        .await
+        .expect("nested entry");
+    let retained = file_system.clone();
+    let guard = mount(file_system, &mountpoint).await.expect("mount");
+
+    assert_eq!(
+        fs::remove_dir(mountpoint.join("tree"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOTEMPTY)
+    );
+    assert_eq!(
+        retained.read("tree/file.txt").await.expect("child bytes"),
+        b"keep"
+    );
+    assert_eq!(
+        retained
+            .entry("tree/file.txt")
+            .await
+            .expect("child preserved")
+            .meta,
+        child.meta
+    );
+    assert_eq!(
+        retained
+            .entry("tree/nested")
+            .await
+            .expect("nested preserved")
+            .meta,
+        nested.meta
+    );
+    assert_eq!(
+        fs::remove_dir(mountpoint.join("regular.txt"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOTDIR)
+    );
+    assert_eq!(
+        fs::remove_dir(&mountpoint).unwrap_err().raw_os_error(),
+        Some(libc::EBUSY)
+    );
+    assert_eq!(
+        fs::remove_dir(mountpoint.join("missing"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    assert_eq!(
+        fs::remove_dir(mountpoint.join("missing/child"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOENT)
+    );
+    assert_eq!(
+        fs::remove_dir(mountpoint.join("regular.txt/child"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOTDIR)
+    );
+    assert_eq!(
+        fs::rename(
+            mountpoint.join("regular.txt"),
+            mountpoint.join("renamed.txt")
+        )
+        .unwrap_err()
+        .raw_os_error(),
+        Some(libc::ENOSYS)
+    );
+    assert_eq!(
+        fs::remove_dir(mountpoint.join(".data"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EINVAL)
+    );
+    assert_eq!(
+        fs::remove_dir(mountpoint.join(OsString::from_vec(vec![0x80])))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EILSEQ)
+    );
+
+    retained
+        .set_residency("denied", Residency::Passthrough)
+        .await
+        .expect("passthrough residency");
+    assert_eq!(
+        fs::remove_dir(mountpoint.join("denied"))
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::EROFS)
+    );
+    assert_eq!(
+        retained
+            .entry("denied")
+            .await
+            .expect("denied preserved")
+            .meta
+            .kind,
+        file_system::FileKind::Directory
+    );
+    retained
+        .set_residency("denied", Residency::Full)
+        .await
+        .expect("restore full directory");
+
+    fs::remove_dir(mountpoint.join("empty")).expect("empty rmdir");
+    assert!(matches!(
+        retained.entry("empty").await,
+        Err(file_system::Error::NotFound)
+    ));
+    fs::remove_file(mountpoint.join("tree/file.txt")).expect("unlink child");
+    fs::remove_dir(mountpoint.join("tree/nested")).expect("nested rmdir");
+    fs::remove_dir(mountpoint.join("tree")).expect("parent rmdir");
+    assert_eq!(
+        directory_entries(&mountpoint, 0)
+            .expect("iteration after rmdir")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        [".", "..", "denied", "regular.txt"]
+    );
+    assert_eq!(
+        fs::read(mountpoint.join("regular.txt")).expect("remaining file"),
+        b"regular"
+    );
+
+    guard.unmount().await.expect("first unmount");
+    drop(retained);
+    let reopened = FileSystem::open(&backing, 1_u8).await.expect("reopen");
+    reopened
+        .set_residency("", Residency::Full)
+        .await
+        .expect("restore full root");
+    for path in ["empty", "tree", "tree/nested", "tree/file.txt"] {
+        assert!(matches!(
+            reopened.entry(path).await,
+            Err(file_system::Error::NotFound)
+        ));
+    }
+    assert_eq!(
+        reopened.read("regular.txt").await.expect("restart bytes"),
+        b"regular"
+    );
+    let guard = mount(reopened.clone(), &mountpoint)
+        .await
+        .expect("second mount");
+    assert_eq!(
+        directory_entries(&mountpoint, 0)
+            .expect("restart iteration")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        [".", "..", "denied", "regular.txt"]
+    );
+    guard.unmount().await.expect("second unmount");
+    drop(reopened);
+    fs::remove_dir_all(backing).expect("backing cleanup");
+    fs::remove_dir_all(mountpoint).expect("mount cleanup");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
+#[allow(clippy::too_many_lines, reason = "one real-mount acceptance scenario")]
+async fn linux_mount_directory_handles_survive_namespace_mutations() {
+    let unique = Uuid::now_v7();
+    let backing = env::temp_dir().join(format!("offs-fuse-handles-backing-{unique}"));
+    let mountpoint = env::temp_dir().join(format!("offs-fuse-handles-mount-{unique}"));
+    fs::create_dir(&mountpoint).expect("mountpoint");
+    let file_system = FileSystem::open(&backing, 1_u8).await.expect("open");
+    file_system
+        .set_residency("", Residency::Full)
+        .await
+        .expect("full root");
+    file_system.create_dir("a").await.expect("directory a");
+    file_system
+        .write("a/old.txt", b"old")
+        .await
+        .expect("old file");
+    file_system.create_dir("b").await.expect("directory b");
+    file_system
+        .write("b/keep.txt", b"keep")
+        .await
+        .expect("keep");
+    let retained = file_system.clone();
+    let guard = mount(file_system, &mountpoint).await.expect("mount");
+
+    let held_root = Directory::open(&mountpoint).expect("held root handle");
+    let held_a = Directory::open(&mountpoint.join("a")).expect("held directory handle");
+    let root_before = held_root.entries(0).expect("root snapshot");
+    let a_before = held_a.entries(0).expect("directory snapshot");
+    assert_eq!(
+        root_before
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        [".", "..", "a", "b"]
+    );
+    assert_eq!(
+        a_before
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        [".", "..", "old.txt"]
+    );
+    let open_file = File::open(mountpoint.join("b/keep.txt")).expect("file handle");
+
+    fs::create_dir(mountpoint.join("a/newdir")).expect("mkdir with open handles");
+    fs::create_dir(mountpoint.join("c")).expect("root mkdir with open handles");
+    fs::remove_file(mountpoint.join("a/old.txt")).expect("unlink with open handles");
+    assert_eq!(
+        held_root.entries(0).expect("stable root snapshot"),
+        root_before
+    );
+    assert_eq!(
+        held_a.entries(0).expect("stable directory snapshot"),
+        a_before
+    );
+
+    let current_root = Directory::open(&mountpoint).expect("current root handle");
+    let current_a = Directory::open(&mountpoint.join("a")).expect("current directory handle");
+    let current_entries = current_root.entries(0).expect("current root entries");
+    assert_eq!(
+        current_entries
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        [".", "..", "a", "b", "c"]
+    );
+    assert_eq!(
+        current_root
+            .entries(current_entries[1].1)
+            .expect("independent resumed offset")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        ["a", "b", "c"]
+    );
+    assert_eq!(
+        current_a
+            .entries(0)
+            .expect("current directory entries")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        [".", "..", "newdir"]
+    );
+    assert_eq!(
+        held_a.entries(0).expect("held handle remains independent"),
+        a_before
+    );
+
+    drop(open_file);
+    drop(current_a);
+    drop(current_root);
+    drop(held_a);
+    drop(held_root);
+    guard.unmount().await.expect("unmount after releases");
+    assert!(matches!(
+        retained.entry("a/old.txt").await,
+        Err(file_system::Error::NotFound)
+    ));
+    assert_eq!(
+        retained
+            .entry("a/newdir")
+            .await
+            .expect("new directory")
+            .meta
+            .kind,
+        file_system::FileKind::Directory
+    );
+    assert_eq!(
+        retained.read("b/keep.txt").await.expect("retained file"),
+        b"keep"
+    );
+    drop(retained);
     fs::remove_dir_all(backing).expect("backing cleanup");
     fs::remove_dir_all(mountpoint).expect("mount cleanup");
 }

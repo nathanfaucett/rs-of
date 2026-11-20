@@ -94,8 +94,8 @@ where
 
     /// Stops request processing, closes adapter-owned handles, and unmounts the session.
     ///
-    /// Close operating-system file and directory handles first. Open-file and pending-write
-    /// shutdown hardening are not supported in this increment.
+    /// Close operating-system file and directory handles first. Open-file, active-directory,
+    /// and pending-write shutdown hardening are not supported in this increment.
     ///
     /// # Errors
     ///
@@ -115,8 +115,10 @@ where
 /// The mountpoint must be an existing empty directory distinct from the backing root. The caller
 /// retains Catalog, Resource, authorization, synchronization, and Residency ownership. File
 /// creation and revision-checked offset/append writes use the existing durable Content Revision
-/// boundary. Truncate and directory mutation are unsupported. `allow_other` is disabled,
-/// attribute and entry TTLs are zero, file I/O uses direct I/O, and writeback caching is disabled.
+/// boundary. Directory mutations use the existing File System metadata and deletion contracts
+/// and are serialized only within this adapter. Truncate, rename, and recursive deletion are
+/// unsupported. `allow_other` is disabled, attribute and entry TTLs are zero, file I/O uses direct I/O, and
+/// writeback caching is disabled.
 ///
 /// # Errors
 ///
