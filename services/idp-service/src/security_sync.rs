@@ -44,6 +44,7 @@ impl PublicSecurityTable {
     pub const fn columns(self) -> &'static [&'static str] {
         match self {
             Self::Roles | Self::Permissions => &[
+                "row_id",
                 "id",
                 "application_id",
                 "name",
@@ -219,7 +220,7 @@ impl PublicSecurityTable {
     }
 
     fn nullable(self, column: &str) -> bool {
-        if column == "id" {
+        if matches!(column, "id" | "row_id") {
             return false;
         }
         match self {
@@ -247,7 +248,8 @@ impl PublicSecurityTable {
         }
         let uuid = matches!(
             column,
-            "id" | "blocked_by"
+            "id" | "row_id"
+                | "blocked_by"
                 | "credential_id"
                 | "parent_id"
                 | "entity_id"
@@ -270,8 +272,10 @@ impl PublicSecurityTable {
                             self,
                             Self::Roles | Self::Permissions | Self::ApplicationUserRoles
                         );
+                    let generated_key = column == "row_id"
+                        || (column == "id" && !matches!(self, Self::Roles | Self::Permissions));
                     (installation_scope || !id.is_nil())
-                        && (column != "id" || id.get_version_num() == 7)
+                        && (!generated_key || id.get_version_num() == 7)
                 });
         }
         let integer = matches!(
@@ -539,7 +543,7 @@ mod tests {
                     "mfa_totp_secret" | "mfa_webauthn_credentials"
                 ) {
                     serde_json::Value::Null
-                } else if matches!(column.name.as_str(), "id" | "blocked_by")
+                } else if matches!(column.name.as_str(), "id" | "row_id" | "blocked_by")
                     || column.name.ends_with("_id")
                         && !["installation_id", "endpoint_id", "software_id"]
                             .contains(&column.name.as_str())

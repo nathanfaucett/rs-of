@@ -214,7 +214,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idp_replica_signers_active_member
     ON idp_replica_signers (active_member_id);
 
 CREATE TABLE IF NOT EXISTS roles (
-    id UUID PRIMARY KEY,
+    row_id UUID PRIMARY KEY,
+    id UUID,
     application_id UUID,
     name TEXT,
     description TEXT,
@@ -222,10 +223,12 @@ CREATE TABLE IF NOT EXISTS roles (
     created_at INTEGER,
     updated_at INTEGER
 );
+CREATE UNIQUE INDEX IF NOT EXISTS roles_domain_id ON roles (id);
 CREATE UNIQUE INDEX IF NOT EXISTS roles_application_name ON roles (application_id, name);
 
 CREATE TABLE IF NOT EXISTS permissions (
-    id UUID PRIMARY KEY,
+    row_id UUID PRIMARY KEY,
+    id UUID,
     application_id UUID,
     name TEXT,
     description TEXT,
@@ -233,6 +236,7 @@ CREATE TABLE IF NOT EXISTS permissions (
     created_at INTEGER,
     updated_at INTEGER
 );
+CREATE UNIQUE INDEX IF NOT EXISTS permissions_domain_id ON permissions (id);
 CREATE UNIQUE INDEX IF NOT EXISTS permissions_application_name ON permissions (application_id, name);
 
 CREATE TABLE IF NOT EXISTS role_permissions (
@@ -257,15 +261,14 @@ CREATE TABLE IF NOT EXISTS application_user_roles (
 CREATE UNIQUE INDEX IF NOT EXISTS application_user_roles_user_application_role ON application_user_roles (user_id, application_id, role_id);
 
 CREATE TABLE IF NOT EXISTS sync_selections (
-    id UUID PRIMARY KEY,
     device_id UUID NOT NULL,
     resource_id UUID NOT NULL,
     application_id UUID NOT NULL,
     owner_subject TEXT NOT NULL,
     selected_at INTEGER NOT NULL,
-    revoked_at INTEGER
+    revoked_at INTEGER,
+    PRIMARY KEY (device_id, resource_id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS sync_selections_device_resource ON sync_selections (device_id, resource_id);
 CREATE INDEX IF NOT EXISTS sync_selections_resource ON sync_selections (resource_id);
 CREATE INDEX IF NOT EXISTS sync_selections_device ON sync_selections (device_id);
 

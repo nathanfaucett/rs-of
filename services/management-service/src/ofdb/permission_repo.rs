@@ -12,7 +12,7 @@ use ofdb_sql::QueryDelete;
 use ofdb_sql::QueryExpr;
 use ofdb_sql::QueryExprValue;
 use ofdb_sql::QueryFrom;
-use ofdb_sql::QueryInsert;
+use ofdb_sql::QueryParams;
 use ofdb_sql::QuerySelect;
 use ofdb_sql::Row;
 use ofdb_sql::Statement;
@@ -23,6 +23,7 @@ use of_model::management_error::ManagementError;
 
 use of_model::management_error::ManagementResult;
 
+use super::insert::{insert_policy_record, returned_id};
 use crate::PermissionRepo;
 
 use of_model::management::SyncSelection;
@@ -31,7 +32,8 @@ const PERMISSIONS: &str = "permissions";
 const ROLES: &str = "roles";
 const ROLE_PERMISSIONS: &str = "role_permissions";
 const SYNC_SELECTIONS: &str = "sync_selections";
-const PERMISSION_COLUMNS: [&str; 7] = [
+const PERMISSION_COLUMNS: [&str; 8] = [
+    "row_id",
     "id",
     "application_id",
     "name",
@@ -40,16 +42,14 @@ const PERMISSION_COLUMNS: [&str; 7] = [
     "created_at",
     "updated_at",
 ];
-const ROLE_COLUMNS: [&str; 3] = ["id", "application_id", "revoked_at"];
+const ROLE_COLUMNS: [&str; 4] = ["row_id", "id", "application_id", "revoked_at"];
 const ROLE_PERMISSION_COLUMNS: [&str; 4] = ["id", "role_id", "permission_id", "revoked_at"];
-const SYNC_SELECTION_COLUMNS: [&str; 7] = [
-    "id",
+const SYNC_SELECTION_COLUMNS: [&str; 5] = [
     "device_id",
     "resource_id",
     "application_id",
     "owner_subject",
     "selected_at",
-    "revoked_at",
 ];
 
 pub struct DbPermissionRepo {
@@ -75,6 +75,36 @@ impl DbPermissionRepo {
             .map_err(row_error)
     }
 
+    async fn insert_permission(
+        &self,
+        domain_id: Option<Id>,
+        application_id: Id,
+        name: &str,
+        description: Option<&str>,
+    ) -> ManagementResult<Permission> {
+        let now = now();
+        let (id, row_id) = insert_policy_record(
+            &self.engine,
+            PERMISSIONS,
+            domain_id,
+            application_id,
+            name,
+            description,
+            now.timestamp(),
+        )
+        .await?;
+        self.ensure_clear(&[SecurityRow::new(SecurityTable::Permission, row_id)])
+            .await?;
+        Ok(Permission {
+            id,
+            application_id,
+            name: name.into(),
+            description: description.map(str::to_owned),
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
     async fn ensure_clear(&self, rows: &[SecurityRow]) -> ManagementResult<()> {
         if allows_authorization(&self.engine, rows)
             .await
@@ -92,7 +122,7 @@ impl DbPermissionRepo {
         &self,
         application_id: Id,
         permission_id: Id,
-    ) -> ManagementResult<Option<Permission>> {
+    ) -> ManagementResult<Option<PermissionRow>> {
         let permission = self
             .rows::<PermissionRow>(select(PERMISSIONS, &PERMISSION_COLUMNS))
             .await?
@@ -101,12 +131,13 @@ impl DbPermissionRepo {
                 row.id == permission_id
                     && row.application_id == application_id
                     && row.revoked_at.is_none()
-            })
-            .map(Permission::try_from)
-            .transpose()?;
+            });
         if let Some(permission) = &permission {
-            self.ensure_clear(&[SecurityRow::new(SecurityTable::Permission, permission.id)])
-                .await?;
+            self.ensure_clear(&[SecurityRow::new(
+                SecurityTable::Permission,
+                permission.row_id,
+            )])
+            .await?;
         }
         Ok(permission)
     }
@@ -122,7 +153,7 @@ impl DbPermissionRepo {
                     && row.revoked_at.is_none()
             });
         if let Some(role) = &role {
-            self.ensure_clear(&[SecurityRow::new(SecurityTable::Role, role.id)])
+            self.ensure_clear(&[SecurityRow::new(SecurityTable::Role, role.row_id)])
                 .await?;
         }
         Ok(role)
@@ -164,17 +195,20 @@ impl PermissionRepo for DbPermissionRepo {
             .await?
             .into_iter()
             .filter(|row| row.application_id == application_id && row.revoked_at.is_none())
-            .map(Permission::try_from)
-            .collect::<ManagementResult<Vec<_>>>()?;
+            .collect::<Vec<_>>();
         for permission in &permissions {
-            self.ensure_clear(&[SecurityRow::new(SecurityTable::Permission, permission.id)])
-                .await?;
+            self.ensure_clear(&[SecurityRow::new(
+                SecurityTable::Permission,
+                permission.row_id,
+            )])
+            .await?;
         }
-        Ok(permissions
+        permissions
             .into_iter()
             .skip(offset as usize)
             .take(limit as usize)
-            .collect())
+            .map(Permission::try_from)
+            .collect()
     }
 
     async fn create_permission(
@@ -183,7 +217,7 @@ impl PermissionRepo for DbPermissionRepo {
         name: &str,
         description: Option<&str>,
     ) -> ManagementResult<Permission> {
-        self.create_permission_with_id(Id::now_v7(), application_id, name, description)
+        self.insert_permission(None, application_id, name, description)
             .await
     }
 
@@ -199,26 +233,8 @@ impl PermissionRepo for DbPermissionRepo {
                 "permission ID must not be nil".into(),
             ));
         }
-        let now = now();
-        let permission = Permission {
-            id,
-            application_id,
-            name: name.into(),
-            description: description.map(str::to_owned),
-            created_at: now,
-            updated_at: now,
-        };
-        self.engine
-            .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                table: PERMISSIONS.into(),
-                row: PermissionRow::from(&permission).into(),
-                returning: None,
-            }))])
+        self.insert_permission(Some(id), application_id, name, description)
             .await
-            .map_err(db_error)?;
-        self.ensure_clear(&[SecurityRow::new(SecurityTable::Permission, permission.id)])
-            .await?;
-        Ok(permission)
     }
 
     async fn find_permission_by_id(
@@ -226,7 +242,10 @@ impl PermissionRepo for DbPermissionRepo {
         application_id: Id,
         permission_id: Id,
     ) -> ManagementResult<Option<Permission>> {
-        self.permission(application_id, permission_id).await
+        self.permission(application_id, permission_id)
+            .await?
+            .map(Permission::try_from)
+            .transpose()
     }
 
     async fn delete_permission_by_id(
@@ -234,11 +253,16 @@ impl PermissionRepo for DbPermissionRepo {
         application_id: Id,
         permission_id: Id,
     ) -> ManagementResult<()> {
-        self.permission(application_id, permission_id)
+        let permission = self
+            .permission(application_id, permission_id)
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("permission not found".into()))?;
         self.engine
-            .execute(vec![Statement::Query(delete(PERMISSIONS, permission_id))])
+            .execute(vec![Statement::Query(delete(
+                PERMISSIONS,
+                "row_id",
+                permission.row_id,
+            ))])
             .await
             .map_err(db_error)?;
         Ok(())
@@ -250,39 +274,35 @@ impl PermissionRepo for DbPermissionRepo {
         role_id: Id,
         permission_id: Id,
     ) -> ManagementResult<()> {
-        self.role(application_id, role_id)
+        let role = self
+            .role(application_id, role_id)
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("role not found".into()))?;
-        self.permission(application_id, permission_id)
+        let permission = self
+            .permission(application_id, permission_id)
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("permission not found".into()))?;
         if self
-            .role_permission(role_id, permission_id)
+            .role_permission(role.row_id, permission.row_id)
             .await?
             .is_some()
         {
             return Ok(());
         }
-        let now = now().timestamp();
-        let relation = RolePermissionRow {
-            id: Id::now_v7(),
-            role_id,
-            permission_id,
-            revoked_at: None,
-            created_at: now,
-            updated_at: now,
-        };
-        let relation_id = relation.id;
-        self.engine
-            .execute(vec![Statement::Query(Query::Insert(QueryInsert {
-                table: ROLE_PERMISSIONS.into(),
-                row: relation.into(),
-                returning: None,
-            }))])
-            .await
-            .map_err(db_error)?;
-        self.ensure_clear(&[SecurityRow::new(SecurityTable::RolePermission, relation_id)])
-            .await
+        let params = QueryParams::Positional(vec![
+            Value::Uuid(role.row_id),
+            Value::Uuid(permission.row_id),
+            Value::Integer(now().timestamp()),
+        ]);
+        let results = self.engine.execute_sql(
+            "INSERT INTO role_permissions (role_id, permission_id, created_at, updated_at) VALUES ($1, $2, $3, $3) RETURNING id",
+            Some(&params),
+        ).await.map_err(db_error)?;
+        self.ensure_clear(&[SecurityRow::new(
+            SecurityTable::RolePermission,
+            returned_id(&results)?,
+        )])
+        .await
     }
 
     async fn remove_permission_from_role(
@@ -291,19 +311,22 @@ impl PermissionRepo for DbPermissionRepo {
         role_id: Id,
         permission_id: Id,
     ) -> ManagementResult<()> {
-        self.role(application_id, role_id)
+        let role = self
+            .role(application_id, role_id)
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("role not found".into()))?;
-        self.permission(application_id, permission_id)
+        let permission = self
+            .permission(application_id, permission_id)
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("permission not found".into()))?;
         let relation = self
-            .role_permission(role_id, permission_id)
+            .role_permission(role.row_id, permission.row_id)
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("role permission not found".into()))?;
         self.engine
             .execute(vec![Statement::Query(delete(
                 ROLE_PERMISSIONS,
+                "id",
                 relation.id,
             ))])
             .await
@@ -316,7 +339,8 @@ impl PermissionRepo for DbPermissionRepo {
         application_id: Id,
         role_id: Id,
     ) -> ManagementResult<Vec<Permission>> {
-        self.role(application_id, role_id)
+        let role = self
+            .role(application_id, role_id)
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("role not found".into()))?;
         let relations = self
@@ -326,16 +350,23 @@ impl PermissionRepo for DbPermissionRepo {
             .rows::<PermissionRow>(select(PERMISSIONS, &PERMISSION_COLUMNS))
             .await?;
         let mut result = Vec::new();
-        for relation in relations.into_iter().filter(|row| row.role_id == role_id) {
+        for relation in relations
+            .into_iter()
+            .filter(|row| row.role_id == role.row_id && row.revoked_at.is_none())
+        {
             self.ensure_clear(&[SecurityRow::new(SecurityTable::RolePermission, relation.id)])
                 .await?;
             if let Some(permission) = permissions.iter().find(|row| {
-                row.id == relation.permission_id && row.application_id == application_id
+                row.row_id == relation.permission_id
+                    && row.application_id == application_id
+                    && row.revoked_at.is_none()
             }) {
-                let permission = Permission::try_from(permission.clone())?;
-                self.ensure_clear(&[SecurityRow::new(SecurityTable::Permission, permission.id)])
-                    .await?;
-                result.push(permission);
+                self.ensure_clear(&[SecurityRow::new(
+                    SecurityTable::Permission,
+                    permission.row_id,
+                )])
+                .await?;
+                result.push(Permission::try_from(permission.clone())?);
             }
         }
         result.sort_by(|left, right| left.name.cmp(&right.name));
@@ -349,14 +380,19 @@ impl PermissionRepo for DbPermissionRepo {
         application_id: Id,
         owner_subject: &str,
     ) -> impl Future<Output = ManagementResult<()>> {
-        let now = now().timestamp();
-        let id = Id::now_v7();
         let query = format!(
-            "INSERT INTO {SYNC_SELECTIONS} (id, device_id, resource_id, application_id, owner_subject, selected_at, revoked_at) VALUES ('{id}', '{device_id}', '{resource_id}', '{application_id}', '{owner_subject}', {now}, NULL) ON CONFLICT (device_id, resource_id) DO UPDATE SET revoked_at = NULL, selected_at = {now}, application_id = '{application_id}', owner_subject = '{owner_subject}'"
+            "INSERT INTO {SYNC_SELECTIONS} (device_id, resource_id, application_id, owner_subject, selected_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (device_id, resource_id) DO UPDATE SET revoked_at = NULL, selected_at = $5, application_id = $3, owner_subject = $4"
         );
+        let params = QueryParams::Positional(vec![
+            Value::Uuid(device_id),
+            Value::Uuid(resource_id),
+            Value::Uuid(application_id),
+            Value::Text(owner_subject.into()),
+            Value::Integer(now().timestamp()),
+        ]);
         async move {
             self.engine
-                .execute_sql(&query, None)
+                .execute_sql(&query, Some(&params))
                 .await
                 .map_err(db_error)?;
             Ok(())
@@ -370,11 +406,13 @@ impl PermissionRepo for DbPermissionRepo {
     ) -> impl Future<Output = ManagementResult<()>> {
         let now = now().timestamp();
         let query = format!(
-            "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = '{device_id}' AND resource_id = '{resource_id}' AND revoked_at IS NULL"
+            "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = $1 AND resource_id = $2 AND revoked_at IS NULL"
         );
+        let params =
+            QueryParams::Positional(vec![Value::Uuid(device_id), Value::Uuid(resource_id)]);
         async move {
             self.engine
-                .execute_sql(&query, None)
+                .execute_sql(&query, Some(&params))
                 .await
                 .map_err(db_error)?;
             Ok(())
@@ -386,13 +424,14 @@ impl PermissionRepo for DbPermissionRepo {
         device_id: Id,
     ) -> impl Future<Output = ManagementResult<Vec<SyncSelection>>> {
         let query = format!(
-            "SELECT {} FROM {SYNC_SELECTIONS} WHERE device_id = '{device_id}' AND revoked_at IS NULL",
+            "SELECT {} FROM {SYNC_SELECTIONS} WHERE device_id = $1 AND revoked_at IS NULL",
             SYNC_SELECTION_COLUMNS.join(", ")
         );
+        let params = QueryParams::Positional(vec![Value::Uuid(device_id)]);
         async move {
             let results = self
                 .engine
-                .execute_sql(&query, None)
+                .execute_sql(&query, Some(&params))
                 .await
                 .map_err(db_error)?;
             let result = results
@@ -409,13 +448,14 @@ impl PermissionRepo for DbPermissionRepo {
         resource_id: Id,
     ) -> impl Future<Output = ManagementResult<Vec<SyncSelection>>> {
         let query = format!(
-            "SELECT {} FROM {SYNC_SELECTIONS} WHERE resource_id = '{resource_id}' AND revoked_at IS NULL",
+            "SELECT {} FROM {SYNC_SELECTIONS} WHERE resource_id = $1 AND revoked_at IS NULL",
             SYNC_SELECTION_COLUMNS.join(", ")
         );
+        let params = QueryParams::Positional(vec![Value::Uuid(resource_id)]);
         async move {
             let results = self
                 .engine
-                .execute_sql(&query, None)
+                .execute_sql(&query, Some(&params))
                 .await
                 .map_err(db_error)?;
             let result = results
@@ -433,12 +473,14 @@ impl PermissionRepo for DbPermissionRepo {
         resource_id: Id,
     ) -> impl Future<Output = ManagementResult<bool>> {
         let query = format!(
-            "SELECT 1 FROM {SYNC_SELECTIONS} WHERE device_id = '{device_id}' AND resource_id = '{resource_id}' AND revoked_at IS NULL LIMIT 1"
+            "SELECT device_id FROM {SYNC_SELECTIONS} WHERE device_id = $1 AND resource_id = $2 AND revoked_at IS NULL LIMIT 1"
         );
+        let params =
+            QueryParams::Positional(vec![Value::Uuid(device_id), Value::Uuid(resource_id)]);
         async move {
             let results = self
                 .engine
-                .execute_sql(&query, None)
+                .execute_sql(&query, Some(&params))
                 .await
                 .map_err(db_error)?;
             let result = results
@@ -452,11 +494,12 @@ impl PermissionRepo for DbPermissionRepo {
     fn clear_device_selections(&self, device_id: Id) -> impl Future<Output = ManagementResult<()>> {
         let now = now().timestamp();
         let query = format!(
-            "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = '{device_id}' AND revoked_at IS NULL"
+            "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = $1 AND revoked_at IS NULL"
         );
+        let params = QueryParams::Positional(vec![Value::Uuid(device_id)]);
         async move {
             self.engine
-                .execute_sql(&query, None)
+                .execute_sql(&query, Some(&params))
                 .await
                 .map_err(db_error)?;
             Ok(())
@@ -466,6 +509,7 @@ impl PermissionRepo for DbPermissionRepo {
 
 #[derive(Clone, Debug)]
 struct PermissionRow {
+    row_id: Uuid,
     id: Uuid,
     application_id: Uuid,
     name: String,
@@ -477,6 +521,7 @@ struct PermissionRow {
 impl FromRow for PermissionRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
+            row_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "row_id")?, "row_id")?,
             id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
             application_id: ofdb_sql::decode(
                 ofdb_sql::value(row, columns, "application_id")?,
@@ -515,35 +560,9 @@ impl TryFrom<PermissionRow> for Permission {
         })
     }
 }
-impl From<&Permission> for PermissionRow {
-    fn from(permission: &Permission) -> Self {
-        Self {
-            id: permission.id,
-            application_id: permission.application_id,
-            name: permission.name.clone(),
-            description: permission.description.clone(),
-            revoked_at: None,
-            created_at: permission.created_at.timestamp(),
-            updated_at: permission.updated_at.timestamp(),
-        }
-    }
-}
-impl From<PermissionRow> for Row {
-    fn from(row: PermissionRow) -> Self {
-        Self::new(vec![
-            Value::Uuid(row.id),
-            Value::Uuid(row.application_id),
-            Value::Text(row.name),
-            row.description.map_or(Value::Null, Value::Text),
-            Value::Null,
-            Value::Integer(row.created_at),
-            Value::Integer(row.updated_at),
-        ])
-    }
-}
-
 #[derive(Debug)]
 struct RoleRow {
+    row_id: Uuid,
     id: Uuid,
     application_id: Uuid,
     revoked_at: Option<i64>,
@@ -551,6 +570,7 @@ struct RoleRow {
 impl FromRow for RoleRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
+            row_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "row_id")?, "row_id")?,
             id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
             application_id: ofdb_sql::decode(
                 ofdb_sql::value(row, columns, "application_id")?,
@@ -570,8 +590,6 @@ struct RolePermissionRow {
     role_id: Uuid,
     permission_id: Uuid,
     revoked_at: Option<i64>,
-    created_at: i64,
-    updated_at: i64,
 }
 impl FromRow for RolePermissionRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
@@ -586,40 +604,21 @@ impl FromRow for RolePermissionRow {
                 ofdb_sql::value(row, columns, "revoked_at")?,
                 "revoked_at",
             )?,
-            created_at: 0,
-            updated_at: 0,
         })
     }
 }
-impl From<RolePermissionRow> for Row {
-    fn from(row: RolePermissionRow) -> Self {
-        Self::new(vec![
-            Value::Uuid(row.id),
-            Value::Uuid(row.role_id),
-            Value::Uuid(row.permission_id),
-            Value::Null,
-            Value::Integer(row.created_at),
-            Value::Integer(row.updated_at),
-        ])
-    }
-}
-
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 struct SyncSelectionRow {
-    id: Id,
     device_id: Id,
     resource_id: Id,
     application_id: Id,
     owner_subject: String,
     selected_at: i64,
-    revoked_at: Option<i64>,
 }
 
 impl FromRow for SyncSelectionRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
             device_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "device_id")?, "device_id")?,
             resource_id: ofdb_sql::decode(
                 ofdb_sql::value(row, columns, "resource_id")?,
@@ -636,10 +635,6 @@ impl FromRow for SyncSelectionRow {
             selected_at: ofdb_sql::decode(
                 ofdb_sql::value(row, columns, "selected_at")?,
                 "selected_at",
-            )?,
-            revoked_at: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "revoked_at")?,
-                "revoked_at",
             )?,
         })
     }
@@ -693,16 +688,14 @@ fn select(table: &str, columns: &[&str]) -> Query {
         having: None,
     })
 }
-fn delete(table: &str, id: Id) -> Query {
+fn delete(table: &str, key: &str, id: Id) -> Query {
     Query::Delete(QueryDelete {
         from: QueryFrom {
             table: table.into(),
             joins: vec![],
         },
         predicate: Some(QueryExpr::Equals(
-            Box::new(QueryExpr::Value(QueryExprValue::Column(column(
-                table, "id",
-            )))),
+            Box::new(QueryExpr::Value(QueryExprValue::Column(column(table, key)))),
             Box::new(QueryExpr::Value(QueryExprValue::Value(Value::Uuid(id)))),
         )),
         returning: None,
