@@ -278,7 +278,11 @@ impl PublicSecurityTable {
                             Self::Roles | Self::Permissions | Self::ApplicationUserRoles
                         );
                     let generated_key = column == "row_id"
-                        || (column == "id" && !matches!(self, Self::Roles | Self::Permissions));
+                        || (column == "id"
+                            && !matches!(
+                                self,
+                                Self::Users | Self::Credentials | Self::Roles | Self::Permissions
+                            ));
                     (installation_scope || !id.is_nil())
                         && (!generated_key || id.get_version_num() == 7)
                 });
@@ -471,6 +475,30 @@ mod tests {
                 );
             }
             assert!(!table.permits_historical_value(column, &ofdb_sql::Value::Integer(1)));
+        }
+    }
+
+    #[test]
+    fn public_domain_ids_need_not_be_uuid_v7() {
+        let domain_id = serde_json::json!("01900000-0000-5000-8000-000000000001");
+        for table in [PublicSecurityTable::Users, PublicSecurityTable::Credentials] {
+            let mut record: serde_json::Map<_, _> = table
+                .columns()
+                .iter()
+                .map(|column| ((*column).into(), serde_json::Value::Null))
+                .collect();
+            record.insert("id".into(), domain_id.clone());
+            if table == PublicSecurityTable::Users {
+                record.insert("created_at".into(), serde_json::json!(1));
+            } else {
+                record.insert("user_id".into(), domain_id.clone());
+            }
+            assert!(table.permits_record(&record), "{table:?} domain ID");
+            record.insert(
+                "id".into(),
+                serde_json::json!("00000000-0000-0000-0000-000000000000"),
+            );
+            assert!(!table.permits_record(&record), "{table:?} nil ID");
         }
     }
 

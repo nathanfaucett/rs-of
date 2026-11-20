@@ -2255,6 +2255,7 @@ where
                         match message {
                             SyncMessage::State(units) => {
                                 for unit in units {
+                                    validate_row_addresses(from_ref(&unit), &[])?;
                                     validate_state_batch(from_ref(&unit))?;
                                     let SyncKey::Row { table, .. } = &unit.key;
                                     if catalog_order(table)
@@ -2270,6 +2271,7 @@ where
                                 }
                             }
                             SyncMessage::Changes(changes) => {
+                                validate_row_addresses(&[], &changes)?;
                                 for change in changes {
                                     if catalog_order(&change.table)
                                         != u8::try_from(stage_index % 4)

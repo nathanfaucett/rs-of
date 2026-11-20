@@ -262,6 +262,7 @@ fn uuid_insert_rejection_precedes_conflicts_and_preserves_atomicity() {
             "INSERT INTO generated VALUES ($1, 'ignored') ON CONFLICT (id) DO NOTHING",
             "INSERT INTO generated VALUES ($1, 'updated') ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label",
             "INSERT INTO generated VALUES (DEFAULT, 'partial'), ($1, 'duplicate')",
+            "INSERT INTO generated VALUES (DEFAULT, 42), ($1, 'explicit') ON CONFLICT (id) DO NOTHING",
         ] {
             assert_generated_only(
                 &client
@@ -342,4 +343,112 @@ fn fresh_replica_retains_generated_uuid_keys_from_history() {
             .expect("read Replica");
         assert_eq!(rows[0].rows, results[1].rows);
     });
+}
+
+#[cfg(all(feature = "in-memory", feature = "validated-history"))]
+#[tokio::test]
+async fn peer_session_preserves_generated_keys_and_applies_later_edits() {
+    use ofdb_sql::history::{SessionConfig, SyncRole, SyncTransport};
+    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+
+    struct Channel(UnboundedSender<Vec<u8>>, UnboundedReceiver<Vec<u8>>);
+    impl SyncTransport for Channel {
+        type Error = &'static str;
+
+        async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
+            self.0.send(frame).map_err(|_| "peer closed")
+        }
+
+        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
+            self.1.recv().await.ok_or("peer closed")
+        }
+    }
+
+    let a = Database::in_memory();
+    let b = Database::in_memory();
+    let staging = tempfile::tempdir().expect("session staging directory");
+    b.client()
+        .execute_sql("CREATE TABLE items (id UUID PRIMARY KEY, label TEXT)", None)
+        .await
+        .expect("initialize receiver schema for scoped exchange");
+    let inserted = a
+        .client()
+        .execute_sql(
+            "CREATE TABLE items (id UUID PRIMARY KEY, label TEXT); \
+         INSERT INTO items (label) VALUES ('original') RETURNING id",
+            None,
+        )
+        .await
+        .expect("insert locally");
+    let key = &inserted[1].rows[0];
+    assert_eq!(
+        key.values[0]
+            .as_uuid()
+            .expect("generated UUID")
+            .get_version_num(),
+        7
+    );
+    let params = QueryParams::Positional(key.values.clone());
+    let config = SessionConfig::default();
+    for label in ["original", "updated"] {
+        if label == "updated" {
+            b.client()
+                .execute_sql(
+                    "UPDATE items SET label = 'updated' WHERE id = $1",
+                    Some(&params),
+                )
+                .await
+                .expect("edit on the receiving peer");
+        }
+        let (a_send, a_recv) = unbounded_channel();
+        let (b_send, b_recv) = unbounded_channel();
+        let left = Channel(a_send, b_recv);
+        let right = Channel(b_send, a_recv);
+        let (a_sync, b_sync) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(
+                async {
+                    let mut transport = left;
+                    a.exchange_history(
+                        &mut transport,
+                        &config,
+                        SyncRole::Initiator,
+                        staging.path(),
+                        &["items"],
+                        |_, _, _| Ok(()),
+                        |_| Ok(()),
+                        || async { Ok(()) },
+                    )
+                    .await
+                },
+                async {
+                    let mut transport = right;
+                    b.exchange_history(
+                        &mut transport,
+                        &config,
+                        SyncRole::Responder,
+                        staging.path(),
+                        &["items"],
+                        |_, _, _| Ok(()),
+                        |_| Ok(()),
+                        || async { Ok(()) },
+                    )
+                    .await
+                },
+            )
+        })
+        .await
+        .expect("peer session completes");
+        assert!(a_sync.is_ok() && b_sync.is_ok(), "{a_sync:?}; {b_sync:?}");
+        for peer in [&a, &b] {
+            let rows = peer
+                .client()
+                .execute_sql("SELECT id, label FROM items", None)
+                .await
+                .expect("query synchronized row");
+            assert_eq!(
+                rows[0].rows,
+                [Row::new(vec![key.values[0].clone(), Value::from(label)])]
+            );
+        }
+    }
 }

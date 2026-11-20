@@ -138,6 +138,18 @@ async fn remote_client_executes_typed_queries_over_tcp() {
         .expect_err("reject a bound UUID primary key remotely");
     assert_eq!(error.kind, QueryErrorKind::Rejected);
     assert!(error.message.contains("UUID primary keys are generated"));
+    let mut transaction = client.transaction().await.expect("begin remote write");
+    let error = transaction
+        .execute_sql("INSERT INTO items VALUES ($1)", Some(&params))
+        .await
+        .expect_err("reject a bound UUID primary key in the remote transaction");
+    assert_eq!(error.kind, QueryErrorKind::Rejected);
+    assert!(error.message.contains("UUID primary keys are generated"));
+    transaction
+        .rollback()
+        .await
+        .expect("discard rejected write");
+
     let inserted = client
         .execute_sql("INSERT INTO items VALUES (DEFAULT) RETURNING id", None)
         .await

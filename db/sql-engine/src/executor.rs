@@ -1149,6 +1149,29 @@ where
 {
     let schema = table_schema(transaction, reconciler, &insert.table).await?;
     let primary_key = uuid_primary_key(&schema);
+    let columns = if insert.columns.is_empty() {
+        schema
+            .columns
+            .iter()
+            .map(|column| column.name.clone())
+            .collect()
+    } else {
+        insert.columns
+    };
+    // Admit every supplied key before processing any row in the batch.
+    if let Some(index) = primary_key {
+        for (position, _) in columns
+            .iter()
+            .enumerate()
+            .filter(|(_, column)| **column == schema.columns[index].name)
+        {
+            for row in &insert.rows {
+                if let Some(QueryInsertValue::Value(value)) = row.get(position) {
+                    reject_supplied_uuid_key(value)?;
+                }
+            }
+        }
+    }
     if let Some(target) = insert.on_conflict_do_nothing.as_ref().or_else(|| {
         insert
             .on_conflict_do_update
@@ -1170,15 +1193,6 @@ where
             "ON CONFLICT target must be the primary key",
         ));
     }
-    let columns = if insert.columns.is_empty() {
-        schema
-            .columns
-            .iter()
-            .map(|column| column.name.clone())
-            .collect()
-    } else {
-        insert.columns
-    };
     let mut result = QueryResult::default();
     for row_values in insert.rows {
         let mut values = vec![None; schema.columns.len()];
@@ -1203,12 +1217,7 @@ where
                 .into_iter()
                 .enumerate()
                 .map(|(index, value)| match value {
-                    Some(QueryInsertValue::Value(value)) => {
-                        if Some(index) == primary_key {
-                            reject_supplied_uuid_key(&value)?;
-                        }
-                        Ok(value)
-                    }
+                    Some(QueryInsertValue::Value(value)) => Ok(value),
                     Some(QueryInsertValue::Default) | None if Some(index) == primary_key => {
                         next_uuid(timestamp_provider).map(Value::Uuid)
                     }
