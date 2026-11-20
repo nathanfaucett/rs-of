@@ -59,16 +59,10 @@ fn embedded_client_exposes_generic_translator_helpers() {
             )
             .await
             .expect("create table through generic helper");
-        let params = QueryParams::Positional(vec![
-            Value::Uuid(
-                ofdb_sql::Uuid::parse_str("018f0f8e-7b6d-7c4a-8f12-123456789abc")
-                    .expect("valid test UUID"),
-            ),
-            Value::from("Ada"),
-        ]);
+        let params = QueryParams::Positional(vec![Value::from("Ada")]);
         client
             .translate_and_execute_with_params(
-                "INSERT INTO names VALUES ($1, $2)",
+                "INSERT INTO names (name) VALUES ($1)",
                 Some(&params),
                 &SqlTranslator,
             )
@@ -96,10 +90,7 @@ fn redb_client_survives_database_drop_and_persists_data() {
                 .await
                 .expect("create table through embedded client");
             client
-                .execute_sql(
-                    "INSERT INTO names VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID), 'Ada')",
-                    None,
-                )
+                .execute_sql("INSERT INTO names (name) VALUES ('Ada')", None)
                 .await
                 .expect("insert through embedded client");
             client
@@ -156,4 +147,199 @@ async fn deadline_covers_translation_and_is_independent_per_clone() {
 fn embedded_client_debug_does_not_show_database_data() {
     let client = Database::in_memory().client();
     assert!(format!("{client:?}").contains("Embedded"));
+}
+
+#[cfg(feature = "in-memory")]
+#[test]
+fn explicit_uuid_primary_keys_are_rejected_in_all_insert_forms() {
+    use ofdb_sql::{Query, QueryInsert, Uuid};
+    use query::{QueryInsertValue, QueryInsertValues};
+
+    block_on(async {
+        let client = Database::in_memory().client();
+        client
+            .execute_sql("CREATE TABLE generated (id UUID PRIMARY KEY)", None)
+            .await
+            .expect("create table");
+        for id in [
+            "018f0f8e-7b6d-5c4a-8f12-123456789abc",
+            "018f0f8e-7b6d-7c4a-8f12-123456789abc",
+        ] {
+            let literal = format!("INSERT INTO generated VALUES (CAST('{id}' AS UUID))");
+            assert_generated_only(
+                &client
+                    .execute_sql(&literal, None)
+                    .await
+                    .expect_err("literal key"),
+            );
+            let value = Value::Uuid(Uuid::parse_str(id).expect("valid UUID"));
+            let params = QueryParams::Positional(vec![value.clone()]);
+            assert_generated_only(
+                &client
+                    .execute_sql("INSERT INTO generated VALUES ($1)", Some(&params))
+                    .await
+                    .expect_err("bound key"),
+            );
+            for query in [
+                Query::Insert(QueryInsert {
+                    table: "generated".into(),
+                    row: Row::new(vec![value.clone()]),
+                    returning: None,
+                }),
+                Query::InsertValues(QueryInsertValues {
+                    table: "generated".into(),
+                    columns: vec!["id".into()],
+                    rows: vec![vec![QueryInsertValue::Value(value)]],
+                    returning: None,
+                    on_conflict_do_nothing: None,
+                    on_conflict_do_update: None,
+                }),
+            ] {
+                assert_generated_only(
+                    &client
+                        .execute(vec![Statement::Query(query)])
+                        .await
+                        .expect_err("typed key"),
+                );
+            }
+        }
+    });
+}
+
+#[cfg(feature = "in-memory")]
+fn assert_generated_only(error: &ofdb_sql::QueryError) {
+    assert_eq!(error.kind, ofdb_sql::QueryErrorKind::Rejected);
+    assert!(
+        error.message.contains("UUID primary keys are generated"),
+        "{error}"
+    );
+}
+
+#[cfg(feature = "in-memory")]
+#[test]
+fn generated_keys_are_returned_and_ordinary_uuids_still_work() {
+    block_on(async {
+        let client = Database::in_memory().client();
+        let results = client.execute_sql(
+            "CREATE TABLE generated (reference UUID, id UUID PRIMARY KEY); \
+             INSERT INTO generated (reference) VALUES (CAST('018f0f8e-7b6d-5c4a-8f12-123456789abc' AS UUID)) RETURNING id; \
+             INSERT INTO generated (reference, id) VALUES (CAST('018f0f8e-7b6d-5c4a-8f12-123456789abc' AS UUID), DEFAULT) RETURNING id",
+            None,
+        ).await.expect("omission and DEFAULT generate keys");
+        let keys = [&results[1], &results[2]].map(|result| {
+            let key = result.rows[0].values[0].as_uuid().expect("generated key");
+            assert_eq!(key.get_version_num(), 7);
+            assert_eq!(key.as_bytes()[8] & 0xc0, 0x80);
+            result.rows[0].clone()
+        });
+        assert_ne!(keys[0], keys[1]);
+        let rows = client.execute_sql("SELECT id FROM generated WHERE reference = CAST('018f0f8e-7b6d-5c4a-8f12-123456789abc' AS UUID)", None).await.expect("UUID predicate");
+        assert_eq!(rows[0].rows.len(), 2);
+        assert!(keys.iter().all(|key| rows[0].rows.contains(key)));
+    });
+}
+
+#[cfg(feature = "in-memory")]
+#[test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "rollback consumes the transaction"
+)]
+fn uuid_insert_rejection_precedes_conflicts_and_preserves_atomicity() {
+    block_on(async {
+        let client = Database::in_memory().client();
+        let results = client
+            .execute_sql(
+                "CREATE TABLE generated (id UUID PRIMARY KEY, label TEXT); \
+             INSERT INTO generated (label) VALUES ('original') RETURNING id",
+                None,
+            )
+            .await
+            .expect("existing UUIDv7 key");
+        let params = QueryParams::Positional(results[1].rows[0].values.clone());
+        for sql in [
+            "INSERT INTO generated VALUES ($1, 'duplicate')",
+            "INSERT INTO generated VALUES ($1, 'ignored') ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO generated VALUES ($1, 'updated') ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label",
+            "INSERT INTO generated VALUES (DEFAULT, 'partial'), ($1, 'duplicate')",
+        ] {
+            assert_generated_only(
+                &client
+                    .execute_sql(sql, Some(&params))
+                    .await
+                    .expect_err("supplied UUIDv7"),
+            );
+        }
+        let rows = client
+            .execute_sql("SELECT label FROM generated", None)
+            .await
+            .expect("read unchanged rows");
+        assert_eq!(rows[0].rows, vec![Row::from(["original"])]);
+        client
+            .execute_sql("DELETE FROM generated WHERE id = $1", Some(&params))
+            .await
+            .expect("tombstone the existing row");
+        let mut tx = client.transaction().await.expect("begin transaction");
+        assert_generated_only(
+            &tx.execute_sql(
+                "INSERT INTO generated VALUES ($1, 'revived')",
+                Some(&params),
+            )
+            .await
+            .expect_err("supplied key precedes tombstone lookup"),
+        );
+        tx.rollback().await.expect("discard rejected transaction");
+        let error = client
+            .execute_sql("INSERT INTO generated VALUES (NULL, 'invalid')", None)
+            .await
+            .expect_err("explicit NULL is not DEFAULT");
+        assert_eq!(error.kind, ofdb_sql::QueryErrorKind::Rejected);
+        assert!(
+            error.message.contains("Primary key must not be NULL"),
+            "{error}"
+        );
+    });
+}
+
+#[cfg(all(feature = "in-memory", feature = "validated-history"))]
+#[test]
+fn fresh_replica_retains_generated_uuid_keys_from_history() {
+    use ofdb_sql::history::SyncKey;
+
+    block_on(async {
+        let writer = Database::in_memory();
+        let reader = Database::in_memory();
+        let results = writer
+            .client()
+            .execute_sql(
+                "CREATE TABLE generated (id UUID PRIMARY KEY, label TEXT); \
+             INSERT INTO generated (label) VALUES ('peer') RETURNING id, label",
+                None,
+            )
+            .await
+            .expect("insert on writer");
+        let history = writer.export_history().await.expect("export fresh history");
+        let id = *results[1].rows[0].values[0]
+            .as_uuid()
+            .expect("generated key");
+        let user_key = SyncKey::Row {
+            table: "generated".into(),
+            row: id,
+        };
+        assert!(history.iter().any(|unit| unit.key == user_key));
+        assert!(history.iter().all(|unit| {
+            let SyncKey::Row { row, .. } = unit.key;
+            row.get_version_num() == 7 && row.as_bytes()[8] & 0xc0 == 0x80
+        }));
+        reader
+            .import_history(history)
+            .await
+            .expect("restore on fresh Replica");
+        let rows = reader
+            .client()
+            .execute_sql("SELECT id, label FROM generated", None)
+            .await
+            .expect("read Replica");
+        assert_eq!(rows[0].rows, results[1].rows);
+    });
 }

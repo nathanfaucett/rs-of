@@ -62,8 +62,13 @@ use engine_redb::RedbKernel;
 
 /// An application-facing database using the Automerge row codec.
 ///
-/// Explicit user-row keys accept RFC `UUIDv5` or `UUIDv7`; generated and catalog
-/// identities remain `UUIDv7`. Keys are immutable and tombstoned keys cannot revive.
+/// For a single UUID primary key, omit the key or use `DEFAULT` on insert to
+/// generate an RFC `UUIDv7`. Use `RETURNING` to read it. Explicit keys are rejected
+/// for both embedded and remote Clients. Natural and composite keys are unchanged.
+/// Keys are immutable and tombstoned keys cannot revive.
+///
+/// Replication retains peer `UUIDv7` identities. Use fresh stores with this contract;
+/// legacy `UUIDv5` Logical Rows and their histories are unsupported.
 #[derive(Clone, Debug)]
 pub struct Database {
     backend: DatabaseBackend,

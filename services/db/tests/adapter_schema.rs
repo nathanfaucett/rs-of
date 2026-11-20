@@ -55,12 +55,9 @@ async fn unified_schema_persists_and_reopens() {
         up(&client).await.expect("initialize");
         up(&client).await.expect("idempotent");
         let mut txn = client.transaction().await.expect("txn");
-        txn.execute_sql(
-            "INSERT INTO users (id, handle) VALUES (CAST('00000000-0000-7000-8000-000000000001' AS UUID), 'shared')",
-            None,
-        )
-        .await
-        .expect("write user");
+        txn.execute_sql("INSERT INTO users (handle) VALUES ('shared')", None)
+            .await
+            .expect("write user");
         txn.commit().await.expect("commit")
     };
 
@@ -95,12 +92,9 @@ async fn cross_owner_transaction_commit_and_rollback() {
     let client = adapter.client();
 
     let mut txn = client.transaction().await.expect("txn");
-    txn.execute_sql(
-        "INSERT INTO users (id, handle) VALUES (CAST('00000000-0000-7000-8000-000000000001' AS UUID), 'u1')",
-        None,
-    )
-    .await
-    .expect("insert user");
+    txn.execute_sql("INSERT INTO users (handle) VALUES ('u1')", None)
+        .await
+        .expect("insert user");
     txn.execute_sql("INSERT INTO devices (owner_subject) VALUES ('owner')", None)
         .await
         .expect("insert device");

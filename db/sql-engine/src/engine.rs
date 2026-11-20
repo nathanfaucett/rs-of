@@ -561,6 +561,7 @@ where
         K: Kernel,
         R: RowReconciler<K::Transaction> + MaybeSend + MaybeSync,
     {
+        crate::validate_row_id(table, &row)?;
         let mut transaction = self.kernel.transaction().await?;
         let result = self
             .reconciler

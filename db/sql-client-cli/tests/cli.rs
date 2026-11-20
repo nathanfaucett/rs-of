@@ -13,7 +13,7 @@ use tokio::{
     time::{sleep, timeout},
 };
 
-const SQL: &str = "CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID)); SELECT id FROM items";
+const SQL: &str = "CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items VALUES (DEFAULT); SELECT id FROM items";
 
 fn free_address() -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind temporary listener");

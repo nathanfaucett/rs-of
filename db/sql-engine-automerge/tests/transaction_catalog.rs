@@ -142,6 +142,7 @@ async fn fixture() -> (
     Engine<InMemoryKernel, CountingCodec>,
     InMemoryKernel,
     Arc<Reads>,
+    [Uuid; 2],
 ) {
     let kernel = InMemoryKernel::new();
     let reads = Arc::new(Reads::default());
@@ -152,20 +153,25 @@ async fn fixture() -> (
             reads: Arc::clone(&reads),
         },
     );
-    engine
+    let inserted = engine
         .translate_and_execute(
             "CREATE TABLE items (id UUID PRIMARY KEY, label TEXT); \
          CREATE TABLE other (id UUID PRIMARY KEY, label TEXT); \
-         INSERT INTO items VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-000000000001' AS UUID), 'base'); \
-         INSERT INTO other VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-000000000002' AS UUID), 'base')",
+         INSERT INTO items (label) VALUES ('base') RETURNING id; \
+         INSERT INTO other (label) VALUES ('base') RETURNING id",
             &SqlTranslator,
         )
         .await
         .expect("two real rows");
+    let ids = [2, 3].map(|index| {
+        *inserted[index].rows[0].values[0]
+            .as_uuid()
+            .expect("generated key")
+    });
     let left = AutomergeRowCodec::new();
     let right = AutomergeRowCodec::new();
     let mut transaction = kernel.transaction().await.expect("conflict fixture");
-    for (table, key) in [("items", id(1)), ("other", id(2))] {
+    for (table, key) in [("items", ids[0]), ("other", ids[1])] {
         let a = left
             .encode_row(
                 &transaction,
@@ -194,7 +200,7 @@ async fn fixture() -> (
     }
     transaction.commit().await.expect("commit conflicts");
     reads.take();
-    (engine, kernel, reads)
+    (engine, kernel, reads, ids)
 }
 
 #[test]
@@ -204,9 +210,9 @@ async fn fixture() -> (
 )]
 fn select_conflict_select_conflict_reuses_one_transaction_catalog_but_inspects_both_rows() {
     block_on(async {
-        let (engine, _, reads) = fixture().await;
+        let (engine, _, reads, ids) = fixture().await;
         let mut transaction = engine.transaction().await.expect("one immutable snapshot");
-        for (table, key) in [("items", id(1)), ("other", id(2))] {
+        for (table, key) in [("items", ids[0]), ("other", ids[1])] {
             let results = transaction
                 .translate_and_execute(&format!("SELECT id FROM {table}"), &SqlTranslator)
                 .await
@@ -232,8 +238,8 @@ fn select_conflict_select_conflict_reuses_one_transaction_catalog_but_inspects_b
     });
 }
 
-fn key(value: u64) -> Row {
-    Row::new(vec![Value::Uuid(id(value))])
+fn key(id: Uuid) -> Row {
+    Row::new(vec![Value::Uuid(id)])
 }
 
 #[test]
@@ -243,13 +249,13 @@ fn key(value: u64) -> Row {
 )]
 fn conflict_first_initializes_catalog_and_every_call_inspects_current_snapshot() {
     block_on(async {
-        let (engine, _, reads) = fixture().await;
+        let (engine, _, reads, ids) = fixture().await;
         for _ in 0..2 {
             let mut transaction = engine.transaction().await.expect("fresh transaction");
             for _ in 0..2 {
                 assert_eq!(
                     transaction
-                        .row_conflicts("items", &key(1))
+                        .row_conflicts("items", &key(ids[0]))
                         .await
                         .expect("real conflict"),
                     vec!["label"]
@@ -258,7 +264,7 @@ fn conflict_first_initializes_catalog_and_every_call_inspects_current_snapshot()
                     .translate_and_execute("SELECT id FROM other", &SqlTranslator)
                     .await
                     .expect("other schema from complete catalog");
-                assert_eq!(results[0].rows, vec![key(2)]);
+                assert_eq!(results[0].rows, vec![key(ids[1])]);
             }
             assert_eq!(
                 reads.take(),
@@ -277,7 +283,7 @@ fn conflict_first_initializes_catalog_and_every_call_inspects_current_snapshot()
 )]
 fn cached_catalog_stays_with_its_kernel_snapshot_and_next_transaction_is_fresh() {
     block_on(async {
-        let (engine, _, reads) = fixture().await;
+        let (engine, _, reads, ids) = fixture().await;
         let mut old = engine.transaction().await.expect("earlier snapshot");
         old.translate_and_execute("SELECT * FROM items", &SqlTranslator)
             .await
@@ -285,7 +291,7 @@ fn cached_catalog_stays_with_its_kernel_snapshot_and_next_transaction_is_fresh()
         engine
             .resolve_row(
                 "items",
-                &key(1),
+                &key(ids[0]),
                 vec![("label".into(), Value::from("current"))],
             )
             .await
@@ -304,7 +310,7 @@ fn cached_catalog_stays_with_its_kernel_snapshot_and_next_transaction_is_fresh()
             .expect("old coherent snapshot");
         assert_eq!(previous[0].columns.len(), 2);
         assert_eq!(
-            old.row_conflicts("items", &key(1))
+            old.row_conflicts("items", &key(ids[0]))
                 .await
                 .expect("old row still conflicted"),
             vec!["label"]
@@ -314,7 +320,7 @@ fn cached_catalog_stays_with_its_kernel_snapshot_and_next_transaction_is_fresh()
         let mut fresh = engine.transaction().await.expect("new snapshot");
         assert_eq!(
             fresh
-                .row_conflicts("items", &key(1))
+                .row_conflicts("items", &key(ids[0]))
                 .await
                 .expect("fresh resolution"),
             [] as [String; 0]
@@ -336,18 +342,18 @@ fn cached_catalog_stays_with_its_kernel_snapshot_and_next_transaction_is_fresh()
 )]
 fn dml_ddl_and_mixed_batches_invalidate_before_reusing_catalogs() {
     block_on(async {
-        let (engine, _, reads) = fixture().await;
+        let (engine, _, reads, ids) = fixture().await;
         engine
             .resolve_row(
                 "items",
-                &key(1),
+                &key(ids[0]),
                 vec![("label".into(), Value::from("settled"))],
             )
             .await
             .expect("resolve before ordinary DML");
         let mut transaction = engine.transaction().await.expect("mutable snapshot");
         transaction
-            .row_conflicts("items", &key(1))
+            .row_conflicts("items", &key(ids[0]))
             .await
             .expect("warm conflicts");
         transaction
@@ -362,7 +368,7 @@ fn dml_ddl_and_mixed_batches_invalidate_before_reusing_catalogs() {
         assert_eq!(results[0].rows, vec![Row::from(["written"])]);
         assert_eq!(
             transaction
-                .row_conflicts("items", &key(1))
+                .row_conflicts("items", &key(ids[0]))
                 .await
                 .expect("DML conflict inspection"),
             [] as [String; 0]
@@ -382,7 +388,7 @@ fn dml_ddl_and_mixed_batches_invalidate_before_reusing_catalogs() {
         reads.take();
         assert_eq!(
             transaction
-                .row_conflicts("items", &key(1))
+                .row_conflicts("items", &key(ids[0]))
                 .await
                 .expect("conflict-first after DDL"),
             [] as [String; 0]
@@ -400,7 +406,7 @@ fn dml_ddl_and_mixed_batches_invalidate_before_reusing_catalogs() {
         reads.take();
         assert_eq!(
             transaction
-                .row_conflicts("items", &key(1))
+                .row_conflicts("items", &key(ids[0]))
                 .await
                 .expect("after mixed final write"),
             [] as [String; 0]
@@ -420,7 +426,7 @@ fn dml_ddl_and_mixed_batches_invalidate_before_reusing_catalogs() {
 )]
 fn failed_write_cannot_use_cached_catalog_or_commit_partial_changes() {
     block_on(async {
-        let (engine, _, reads) = fixture().await;
+        let (engine, _, reads, ids) = fixture().await;
         let mut transaction = engine.transaction().await.expect("transaction");
         transaction
             .translate_and_execute("SELECT * FROM items", &SqlTranslator)
@@ -435,7 +441,7 @@ fn failed_write_cannot_use_cached_catalog_or_commit_partial_changes() {
             .expect_err("failed batch");
         reads.take();
         transaction
-            .row_conflicts("items", &key(1))
+            .row_conflicts("items", &key(ids[0]))
             .await
             .expect_err("aborted conflict inspection");
         transaction
@@ -454,7 +460,7 @@ fn failed_write_cannot_use_cached_catalog_or_commit_partial_changes() {
         assert_eq!(results[0].columns.len(), 2);
         assert_eq!(
             engine
-                .row_conflicts("items", &key(1))
+                .row_conflicts("items", &key(ids[0]))
                 .await
                 .expect("original conflict"),
             vec!["label"]
@@ -469,11 +475,11 @@ fn failed_write_cannot_use_cached_catalog_or_commit_partial_changes() {
 )]
 fn cancelled_writes_discard_catalog_before_schema_ensure_and_after_actual_mutation() {
     block_on(async {
-        let (engine, _, reads) = fixture().await;
+        let (engine, _, reads, ids) = fixture().await;
         engine
             .resolve_row(
                 "items",
-                &key(1),
+                &key(ids[0]),
                 vec![("label".into(), Value::from("settled"))],
             )
             .await
@@ -493,7 +499,7 @@ fn cancelled_writes_discard_catalog_before_schema_ensure_and_after_actual_mutati
         reads.take();
         assert_eq!(
             transaction
-                .row_conflicts("items", &key(1))
+                .row_conflicts("items", &key(ids[0]))
                 .await
                 .expect("inspect after cancelled ensure"),
             [] as [String; 0]
@@ -518,7 +524,7 @@ fn cancelled_writes_discard_catalog_before_schema_ensure_and_after_actual_mutati
         assert_eq!(results[0].rows, vec![Row::from(["cancelled"])]);
         assert_eq!(
             transaction
-                .row_conflicts("items", &key(1))
+                .row_conflicts("items", &key(ids[0]))
                 .await
                 .expect("inspect actual changed row"),
             [] as [String; 0]
@@ -547,7 +553,7 @@ fn malformed_unrelated_live_catalogs_are_rejected_by_select_and_conflict_initial
             (ENGINE_TABLES_STORAGE, "Invalid table name"),
             (ENGINE_TABLE_FIELDS_STORAGE, "Invalid column table identity"),
         ] {
-            let (engine, kernel, _) = fixture().await;
+            let (engine, kernel, _, _) = fixture().await;
             let codec = AutomergeRowCodec::new();
             let mut raw = kernel
                 .transaction()
@@ -593,7 +599,7 @@ fn malformed_unrelated_live_catalogs_are_rejected_by_select_and_conflict_initial
 )]
 fn cached_reads_preserve_defaults_row_tombstones_and_deleted_catalog_filtering() {
     block_on(async {
-        let (engine, kernel, reads) = fixture().await;
+        let (engine, kernel, reads, ids) = fixture().await;
         engine
             .translate_and_execute(
                 "ALTER TABLE items ADD COLUMN extra TEXT DEFAULT 'default'; DELETE FROM other",
@@ -626,7 +632,7 @@ fn cached_reads_preserve_defaults_row_tombstones_and_deleted_catalog_filtering()
         let mut transaction = engine.transaction().await.expect("snapshot");
         assert_eq!(
             transaction
-                .row_conflicts("items", &key(1))
+                .row_conflicts("items", &key(ids[0]))
                 .await
                 .expect("live conflict"),
             vec!["label"]
@@ -642,7 +648,7 @@ fn cached_reads_preserve_defaults_row_tombstones_and_deleted_catalog_filtering()
         assert_eq!(results[1].rows, [] as [value::Row; 0]);
         assert_eq!(
             transaction
-                .row_conflicts("other", &key(2))
+                .row_conflicts("other", &key(ids[1]))
                 .await
                 .expect("tombstone retains conflict history"),
             vec!["label"]
@@ -659,7 +665,7 @@ fn cached_reads_preserve_defaults_row_tombstones_and_deleted_catalog_filtering()
 )]
 fn cached_schema_does_not_skip_malformed_nonmatching_row_decoding() {
     block_on(async {
-        let (engine, kernel, reads) = fixture().await;
+        let (engine, kernel, reads, ids) = fixture().await;
         let mut raw = kernel.transaction().await.expect("malformed row fixture");
         let mut malformed = AutoCommit::new();
         malformed.put(ROOT, "label", 42_i64).expect("non-byte cell");
@@ -681,12 +687,15 @@ fn cached_schema_does_not_skip_malformed_nonmatching_row_decoding() {
             .expect("metadata-only read warms catalog");
         assert_eq!(
             transaction
-                .row_conflicts("items", &key(1))
+                .row_conflicts("items", &key(ids[0]))
                 .await
                 .expect("good row still inspected"),
             vec!["label"]
         );
-        transaction.translate_and_execute("SELECT * FROM items WHERE id = CAST('018f0f8e-7b6d-7c4a-8f12-000000000001' AS UUID)", &SqlTranslator).await.expect_err("nonmatching malformed row is still decoded");
+        transaction
+            .translate_and_execute("SELECT * FROM items WHERE label = 'left'", &SqlTranslator)
+            .await
+            .expect_err("nonmatching malformed row is still decoded");
         assert_eq!(reads.take(), (1, 1, 1));
         transaction.rollback().await.expect("finish rejected read");
     });

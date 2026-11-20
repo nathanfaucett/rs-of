@@ -88,7 +88,7 @@ mod tests {
             .execute_sql("CREATE TABLE users (id UUID PRIMARY KEY, name TEXT)", None)
             .await
             .expect("schema");
-        sql_source.client().execute_sql("INSERT INTO users VALUES (CAST('018f0f8e-7b6d-7c4a-8f12-123456789abc' AS UUID), 'Ada')", None).await.expect("row");
+        sql_source.client().execute_sql("INSERT INTO users (name) VALUES ('Ada')", None).await.expect("row");
         let (mut a, mut b) = channels();
         let config = ofdb_sql::SessionConfig::default();
         let stages = dir.path().join("stages");

@@ -1019,10 +1019,35 @@ where
     R: RowCodec<T>,
 {
     let schema = table_schema(transaction, reconciler, &insert.table).await?;
-    let row_value = materialize_insert(&schema, insert.row, timestamp_provider)?;
-    validate_row(&schema, &row_value)?;
+    let row = materialize_insert(&schema, insert.row, timestamp_provider)?;
+    insert_materialized_row(
+        transaction,
+        reconciler,
+        timestamp_provider,
+        changes,
+        &schema,
+        row,
+        insert.returning,
+    )
+    .await
+}
+
+async fn insert_materialized_row<T, R>(
+    transaction: &mut T,
+    reconciler: &R,
+    timestamp_provider: TimestampProvider,
+    changes: &mut Vec<Change>,
+    schema: &TableSchema,
+    row_value: Row,
+    returning: Option<Vec<String>>,
+) -> EngineResult<QueryResult>
+where
+    T: KernelTransaction,
+    R: RowCodec<T>,
+{
+    validate_row(schema, &row_value)?;
     transaction.check_read_row(&row_value)?;
-    let row = match uuid_primary_key(&schema) {
+    let row = match uuid_primary_key(schema) {
         Some(index) => {
             let id = row_value.values[index]
                 .as_uuid()
@@ -1033,7 +1058,7 @@ where
         }
         None => next_uuid(timestamp_provider)?,
     };
-    let table = lookup_table_name(transaction, reconciler, &insert.table).await?;
+    let table = lookup_table_name(transaction, reconciler, &schema.name).await?;
     if row_is_deleted(reconciler, transaction, &table, row).await? {
         return Err(EngineError::InvalidQuery("Primary key was deleted"));
     }
@@ -1061,7 +1086,7 @@ where
     )
     .await?;
 
-    let Some(returning) = insert.returning else {
+    let Some(returning) = returning else {
         return Ok(QueryResult::default());
     };
     let mut result = Vec::with_capacity(returning.len());
@@ -1071,7 +1096,7 @@ where
             result.extend(row_value.values.iter().cloned());
             columns.extend(schema.columns.iter().map(|column| QueryResultColumn {
                 name: column.name.clone(),
-                source_table: Some(insert.table.clone()),
+                source_table: Some(schema.name.clone()),
                 source_column: Some(column.name.clone()),
             }));
             continue;
@@ -1084,7 +1109,7 @@ where
         result.push(row_value.values[index].clone());
         columns.push(QueryResultColumn {
             name: name.clone(),
-            source_table: Some(insert.table.clone()),
+            source_table: Some(schema.name.clone()),
             source_column: Some(name),
         });
     }
@@ -1178,7 +1203,12 @@ where
                 .into_iter()
                 .enumerate()
                 .map(|(index, value)| match value {
-                    Some(QueryInsertValue::Value(value)) => Ok(value),
+                    Some(QueryInsertValue::Value(value)) => {
+                        if Some(index) == primary_key {
+                            reject_supplied_uuid_key(&value)?;
+                        }
+                        Ok(value)
+                    }
                     Some(QueryInsertValue::Default) | None if Some(index) == primary_key => {
                         next_uuid(timestamp_provider).map(Value::Uuid)
                     }
@@ -1276,16 +1306,14 @@ where
                 continue;
             }
         }
-        let row_result = insert_row(
+        let row_result = insert_materialized_row(
             transaction,
             reconciler,
             timestamp_provider,
             changes,
-            QueryInsert {
-                table: insert.table.clone(),
-                row,
-                returning: insert.returning.clone(),
-            },
+            &schema,
+            row,
+            insert.returning.clone(),
         )
         .await?;
         if result.columns.is_empty() {
@@ -2417,6 +2445,15 @@ pub fn materialize_defaults(schema: &TableSchema, mut row: Row) -> Row {
     row
 }
 
+const fn reject_supplied_uuid_key(value: &Value) -> EngineResult<()> {
+    if matches!(value, Value::Null) {
+        return Err(EngineError::InvalidQuery("Primary key must not be NULL"));
+    }
+    Err(EngineError::InvalidQuery(
+        "UUID primary keys are generated; omit the key or use DEFAULT",
+    ))
+}
+
 fn materialize_insert(
     schema: &TableSchema,
     row: Row,
@@ -2428,9 +2465,20 @@ fn materialize_insert(
         ));
     }
     let mut values = row.values;
-    if values.len() < schema.columns.len() && uuid_primary_key(schema) == Some(0) {
-        let timestamp = timestamp_provider();
-        values.insert(0, Value::Uuid(Uuid::new_v7(timestamp)));
+    if let Some(index) = uuid_primary_key(schema) {
+        // The short whole-row form omits a leading UUID key.
+        if index == 0 && values.len() < schema.columns.len() {
+            values.insert(0, Value::Uuid(next_uuid(timestamp_provider)?));
+        } else if let Some(value) = values.get(index) {
+            reject_supplied_uuid_key(value)?;
+        } else {
+            values.extend(
+                schema.columns[values.len()..index]
+                    .iter()
+                    .map(|column| column.default.clone()),
+            );
+            values.push(Value::Uuid(next_uuid(timestamp_provider)?));
+        }
     }
     let mut row = Row::new(values);
     if row.values.len() < schema.columns.len() {

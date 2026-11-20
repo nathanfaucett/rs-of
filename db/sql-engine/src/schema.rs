@@ -27,23 +27,23 @@ pub const ENGINE_TABLE_FIELDS_STORAGE: &str = "table_fields";
 pub const ENGINE_INDICES_STORAGE: &str = "indices";
 pub const ENGINE_INDEX_FIELDS_STORAGE: &str = "index_fields";
 
-/// Validates RFC UUIDv5/v7 user identities; catalog generations remain `UUIDv7`.
+/// Validates RFC `UUIDv7` Logical Row identities.
 ///
 /// # Errors
 ///
 /// Returns an error for a UUID with an unsupported version or variant.
 pub fn validate_row_id(table: &str, id: &Uuid) -> EngineResult<()> {
     let bytes = id.as_bytes();
-    let version = bytes[6] >> 4;
-    let catalog = catalog_table_for_storage(table).is_some();
-    if bytes[8] & 0xc0 == 0x80 && (version == 7 || (version == 5 && !catalog)) {
+    if bytes[8] & 0xc0 == 0x80 && bytes[6] >> 4 == 7 {
         Ok(())
     } else {
-        Err(EngineError::InvalidQuery(if catalog {
-            "Catalog primary key must be a UUIDv7"
-        } else {
-            "Primary key must be an RFC UUIDv5 or UUIDv7"
-        }))
+        Err(EngineError::InvalidQuery(
+            if catalog_table_for_storage(table).is_some() {
+                "Catalog primary key must be a UUIDv7"
+            } else {
+                "Logical Row identity must be an RFC UUIDv7"
+            },
+        ))
     }
 }
 
@@ -63,7 +63,7 @@ mod identity_tests {
                 let id = Uuid::from_bytes(bytes);
                 assert_eq!(
                     validate_row_id("user_rows", &id).is_ok(),
-                    variant == 0x80 && (version == 5 || version == 7)
+                    variant == 0x80 && version == 7
                 );
                 assert_eq!(
                     validate_row_id(ENGINE_TABLES_STORAGE, &id).is_ok(),
