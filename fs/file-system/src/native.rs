@@ -125,6 +125,14 @@ impl ContentStore for NativeContent {
         Box::pin(async move { Ok(self.path(file_id, revision).is_file()) })
     }
 
+    fn content_len(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<u64, Error>> {
+        Box::pin(async move {
+            fs::metadata(self.path(file_id, revision))
+                .map(|metadata| metadata.len())
+                .map_err(Self::read_error)
+        })
+    }
+
     fn read(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<Vec<u8>, Error>> {
         Box::pin(async move { fs::read(self.path(file_id, revision)).map_err(Self::read_error) })
     }

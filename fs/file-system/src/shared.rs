@@ -78,6 +78,21 @@ impl ContentStore for SharedContent {
                 .is_some())
         })
     }
+    fn content_len(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<u64, Error>> {
+        Box::pin(async move {
+            match self
+                .0
+                .get(&revision_key(file_id, revision))
+                .await
+                .map_err(error)?
+            {
+                Some(Value::Blob(bytes)) => u64::try_from(bytes.len()).map_err(error),
+                None => Err(Error::ContentUnavailable),
+                _ => Err(error("invalid content revision")),
+            }
+        })
+    }
+
     fn read(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<Vec<u8>, Error>> {
         Box::pin(async move {
             match self

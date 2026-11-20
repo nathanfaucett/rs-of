@@ -19,6 +19,9 @@ pub trait ContentStore: MaybeSend + MaybeSync {
     /// Whether the revision's bytes are stored.
     fn has(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<bool, Error>>;
 
+    /// Returns the retained revision length without fetching remote content.
+    fn content_len(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<u64, Error>>;
+
     /// Reads a complete revision.
     fn read(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<Vec<u8>, Error>>;
 

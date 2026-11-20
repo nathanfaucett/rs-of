@@ -43,6 +43,12 @@ async fn shared_filesystem_retains_content_catalog_and_retirement_in_one_file() 
         Residency::Full
     );
     assert_eq!(
+        fs.local_content_len("saved.txt")
+            .await
+            .expect("retained content length"),
+        13
+    );
+    assert_eq!(
         fs.read("saved.txt").await.expect("retained contents"),
         b"saved content"
     );

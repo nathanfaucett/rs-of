@@ -245,6 +245,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-notify"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63273b0e33b8941a02eabc1684f0230d3011ea45117351beb94c69253065a194"
+dependencies = [
+ "event-listener",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2031,6 +2042,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "file-system-fuse"
+version = "0.1.0"
+dependencies = [
+ "file-system",
+ "fuse3",
+ "futures-util",
+ "libc",
+ "nix",
+ "serde",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "file-system-wasm"
 version = "0.1.0"
 dependencies = [
@@ -2114,6 +2139,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "fuse3"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f09349e068fa9cd4a824467af7c7d482dc4da154fed4689ab867672b87118816"
+dependencies = [
+ "async-notify",
+ "bytes",
+ "futures-util",
+ "libc",
+ "nix",
+ "slab",
+ "tokio",
+ "tracing",
+ "trait-make",
+ "which",
+ "zerocopy",
 ]
 
 [[package]]
@@ -4353,6 +4397,19 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
+
+[[package]]
+name = "nix"
+version = "0.31.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bc81ce8148d3b4f3274da811f11cdd824ae661ee4ef732cdb229825cf5be7f7"
+dependencies = [
+ "bitflags 2.13.2",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+ "memoffset",
+]
 
 [[package]]
 name = "nom"
@@ -8415,6 +8472,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "trait-make"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96cbd06a7b648f1603e60d75d9ed295d096b340d30e9f9324f4b512b5d40cd92"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "tray-icon"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9015,6 +9083,15 @@ dependencies = [
  "thiserror 2.0.21",
  "windows",
  "windows-core 0.62.2",
+]
+
+[[package]]
+name = "which"
+version = "8.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bae2f2b2b816647a1cab1acc91f5bd20812d53cb344382635ec2181940c8034f"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

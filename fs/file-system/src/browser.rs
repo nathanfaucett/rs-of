@@ -198,6 +198,21 @@ impl ContentStore for BrowserContent {
         Box::pin(async move { Ok(revision_file(&root, file_id, revision, false).await.is_ok()) })
     }
 
+    fn content_len(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<u64, Error>> {
+        let root = self.root.clone();
+        Box::pin(async move {
+            let file = js_promise(
+                revision_file(&root, file_id, revision, false)
+                    .await?
+                    .get_file(),
+            )
+            .await
+            .map_err(|_| Error::ContentUnavailable)?
+            .unchecked_into::<web_sys::Blob>();
+            Ok(file.size() as u64)
+        })
+    }
+
     fn read(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<Vec<u8>, Error>> {
         let root = self.root.clone();
         Box::pin(async move {
