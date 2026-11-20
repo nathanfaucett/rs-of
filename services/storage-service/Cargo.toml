@@ -50,6 +50,10 @@ uuid = { version = "1.29", default-features = false, features = [
 ] }
 
 [dev-dependencies]
+ofdb-sql = { path = "../../db/sql", default-features = false, features = [
+    "validated-history",
+] }
+
 # Shared host fixture
 db = { package = "of-db", path = "../db", default-features = false, features = [
     "native",

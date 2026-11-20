@@ -150,7 +150,7 @@ impl Gate {
 
 const INSTALLATION: &str = "https://of03-installation.example";
 
-pub fn approved_signers(devices: [Id; 2]) -> [IdpSignerRecord; 2] {
+fn approved_signers(devices: [Id; 2]) -> [IdpSignerRecord; 2] {
     devices.map(|member_id| {
         let entropy = key::master_key::MasterKey::entropy().expect("independent signer entropy");
         let master = key::master_key::MasterKey::from_entropy(entropy.as_ref())
@@ -190,24 +190,21 @@ pub struct DomainNode {
     pub devices: [Id; 2],
 }
 impl DomainNode {
-    pub async fn new(
-        root: PathBuf,
-        owner: Id,
-        devices: [Id; 2],
-        endpoints: [EndpointId; 2],
-        signers: &[IdpSignerRecord; 2],
-    ) -> Self {
-        std::fs::create_dir_all(&root).expect("Node root");
-        let idp = Arc::new(Database::open(root.join("idp.redb")).expect("IdP store"));
-        let management =
-            Arc::new(Database::open(root.join("management.redb")).expect("Management store"));
+    pub async fn pair(root: &std::path::Path, endpoints: [EndpointId; 2]) -> [Self; 2] {
+        let left = root.join("left");
+        let right = root.join("right");
+        let (idp, management) = Self::open_stores(&left);
         db::ofdb::up(&idp.client()).await.expect("IdP schema");
         device_service::ofdb::schema::up(&management)
             .await
-            .expect("Management schema");
-        sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
+            .expect("Device schema");
+        let owner = insert_owner(&idp).await;
+        let devices = [
+            insert_device(&management, owner, endpoints[0]).await,
+            insert_device(&management, owner, endpoints[1]).await,
+        ];
+        let signers = approved_signers(devices);
         for ((device, endpoint), signer) in devices.into_iter().zip(endpoints).zip(signers) {
-            sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)")).await;
             DbReplicaSignerRepo::new(idp.client())
                 .enroll(
                     &ReplicaMembership {
@@ -218,19 +215,43 @@ impl DomainNode {
                         approved_at: 1,
                         revoked_at: None,
                     },
-                    signer,
+                    &signer,
                 )
                 .await
                 .expect("owner-approved Installation/Device/signer binding");
         }
-        Self {
-            idp,
-            management,
-            root,
-            owner,
-            devices,
+        let (peer_idp, peer_management) = Self::open_stores(&right);
+        for (source, peer) in [(&idp, &peer_idp), (&management, &peer_management)] {
+            peer.import_history(source.export_history().await.expect("bootstrap history"))
+                .await
+                .expect("same Installation state on the peer");
         }
+        [
+            Self {
+                idp,
+                management,
+                root: left,
+                owner,
+                devices,
+            },
+            Self {
+                idp: peer_idp,
+                management: peer_management,
+                root: right,
+                owner,
+                devices,
+            },
+        ]
     }
+
+    fn open_stores(root: &std::path::Path) -> (Arc<Database>, Arc<Database>) {
+        std::fs::create_dir_all(root).expect("Node root");
+        (
+            Arc::new(Database::open(root.join("idp.redb")).expect("IdP store")),
+            Arc::new(Database::open(root.join("management.redb")).expect("Management store")),
+        )
+    }
+
     pub async fn select(&self, resource: &SelectedResource) {
         for device_id in self.devices {
             DbSelectionPolicyRepo::new(self.management.clone().client())
@@ -331,6 +352,23 @@ impl DomainNode {
             }
         })
     }
+}
+
+pub async fn insert_owner(database: &Database) -> Id {
+    insert_identity(database, "INSERT INTO users (handle, name, created_at, updated_at) VALUES ('owner', 'Owner', 1, 1) RETURNING id").await
+}
+
+pub async fn insert_device(database: &Database, owner: Id, endpoint: EndpointId) -> Id {
+    insert_identity(database, &format!("INSERT INTO devices (owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES ('{owner}', 'node', '{endpoint}', 'local', 1, 1, 1, 1) RETURNING id")).await
+}
+
+async fn insert_identity(database: &Database, sql: &str) -> Id {
+    let results = database
+        .client()
+        .execute_sql(sql, None)
+        .await
+        .expect("generated fixture identity");
+    ofdb_sql::decode(&results[0].rows[0].values[0], "id").expect("UUID identity")
 }
 
 pub async fn sql(database: &Database, sql: &str) {

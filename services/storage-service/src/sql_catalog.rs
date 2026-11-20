@@ -101,7 +101,7 @@ async fn persist(
             transaction.execute_sql(&format!("UPDATE databases SET initializing = {} WHERE resource_id = CAST('{id}' AS UUID)", record.initializing), None).await.map_err(|error| io::Error::other(error.to_string()))?;
         } else {
             transaction.execute_sql(&format!("INSERT INTO resources (id, namespace_id, kind, name, deleted) VALUES (CAST('{id}' AS UUID), CAST('{namespace}' AS UUID), 'database', {name}, {})", record.deleted), None).await.map_err(|error| io::Error::other(error.to_string()))?;
-            transaction.execute_sql(&format!("INSERT INTO databases (id, resource_id, initializing) VALUES (CAST('{id}' AS UUID), CAST('{id}' AS UUID), {})", record.initializing), None).await.map_err(|error| io::Error::other(error.to_string()))?;
+            transaction.execute_sql(&format!("INSERT INTO databases (resource_id, initializing) VALUES (CAST('{id}' AS UUID), {})", record.initializing), None).await.map_err(|error| io::Error::other(error.to_string()))?;
         }
     }
     Ok(())
