@@ -11,7 +11,6 @@ use idp_service::{
 use of_model::contract::replication::SelectedResource;
 use of_model::device::selection_policy::SelectionPolicy;
 use of_model::id::Id;
-use ofdb_sql::SqlTranslator;
 
 use super::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
 
@@ -35,13 +34,16 @@ async fn native_selection_fixture(select: bool) {
     device_service::ofdb::schema::up(&management)
         .await
         .expect("Management schema");
-    let owner = Id::now_v7();
+    use crate::execution_test_support::{insert_device, insert_owner};
+
+    let owner = insert_owner(&idp).await;
     let local = iroh::SecretKey::generate().public();
     let remote = iroh::SecretKey::generate().public();
-    let devices = [Id::now_v7(), Id::now_v7()];
-    idp.client().translate_and_execute(&format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{owner}' AS UUID), 'owner', 'Owner', 1, 1)"), &SqlTranslator).await.expect("persist owner");
-    for (device, endpoint) in devices.into_iter().zip([local, remote]) {
-        management.client().translate_and_execute(&format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{device}' AS UUID), '{owner}', 'node', '{endpoint}', 'local', 1, 1, 1, 1)"), &SqlTranslator).await.expect("persist approved Device");
+    let devices = [
+        insert_device(&management, owner, local).await,
+        insert_device(&management, owner, remote).await,
+    ];
+    for device in devices {
         DbSelectionPolicyRepo::new(management.clone().client())
             .set_prevalidated(SelectionPolicy {
                 device_id: device,

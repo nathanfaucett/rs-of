@@ -9,9 +9,7 @@ use storage_service::database_runtime::DatabaseRuntime;
 use tokio_util::sync::CancellationToken;
 
 use super::{AuthorizedTransport, FrameAuthorizer, KvAuthorizedTransport, Namespace, check_apply};
-use crate::execution_test_support::{
-    DomainNode, Gate, IrohPair, TestDirectory, approved_signers, sql,
-};
+use crate::execution_test_support::{DomainNode, Gate, IrohPair, TestDirectory, sql};
 
 struct Fixture {
     peers: IrohPair,
@@ -26,27 +24,8 @@ impl Fixture {
     async fn new() -> Self {
         let directory = TestDirectory::new();
         let peers = IrohPair::new().await;
-        let owner = Id::now_v7();
-        let devices = [Id::now_v7(), Id::now_v7()];
-        let signers = approved_signers(devices);
-        let nodes = [
-            DomainNode::new(
-                directory.0.join("left"),
-                owner,
-                devices,
-                peers.ids(),
-                &signers,
-            )
-            .await,
-            DomainNode::new(
-                directory.0.join("right"),
-                owner,
-                devices,
-                peers.ids(),
-                &signers,
-            )
-            .await,
-        ];
+        let nodes = DomainNode::pair(&directory.0, peers.ids()).await;
+        let owner = nodes[0].owner;
         let scope = Namespace {
             owner_subject: owner.to_string(),
             application_id: Id::now_v7(),
@@ -272,7 +251,7 @@ async fn real_selected_production_data_handler_uses_injected_local_policy_on_exi
         let handler = crate::data_protocol::DataProtocolHandler::new(database, filesystem, cancellation.clone());
         let connection = fixture.peers.connections[1].clone();
         let task = tokio::spawn(async move { handler.accept(connection).await });
-        sql(&fixture.databases[0], &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'kept')", Id::now_v7())).await;
+        sql(&fixture.databases[0], "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('kept')").await;
         eprintln!("DATA: first selected session");
         production_session(&fixture).await.expect("actual handler allows locally selected resource without remote authority");
         eprintln!("DATA: initial SQL/KV session completed");
@@ -291,7 +270,7 @@ async fn real_selected_production_data_handler_uses_injected_local_policy_on_exi
         drop(stalled_send);
         drop(stalled_recv);
         fixture.nodes[1].restrict(0, false).await;
-        sql(&fixture.databases[0], &format!("INSERT INTO documents VALUES (CAST('{}' AS UUID), 'denied')", Id::now_v7())).await;
+        sql(&fixture.databases[0], "INSERT INTO documents (value) VALUES ('denied')").await;
         assert!(production_session(&fixture).await.is_err(), "actual handler rejects the next stream on its already-open connection");
         assert_eq!(values(&fixture.databases[1]).await, [ofdb_sql::Value::Text("kept".into())]);
         fixture.nodes[1].restrict(0, true).await;
@@ -477,7 +456,7 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
         for receiver in 0..2 {
             let fixture = Fixture::new().await;
             let source = 1 - receiver;
-            sql(&fixture.databases[source], &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'retained')", Id::now_v7())).await;
+            sql(&fixture.databases[source], "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('retained')").await;
             fixture.kv[source].client().set("retained", ofdb_kv::Value::Integer(1), None).await.expect("native KV source");
             eprintln!("admission receiver {receiver}: initialized {:?}", started.elapsed());
             let peers = EndpointIdStore::default(); peers.add(fixture.peers.ids()[source]);
@@ -581,7 +560,7 @@ async fn real_selected_sql_and_kv_queued_payloads_recheck_native_sender_policy_o
                 if kv {
                     fixture.kv[sender].client().set("source", ofdb_kv::Value::Integer(7), None).await.expect("native source payload");
                 } else {
-                    sql(&fixture.databases[sender], &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'source')", Id::now_v7())).await;
+                    sql(&fixture.databases[sender], "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('source')").await;
                 }
                 let manifest = fixture.databases[receiver].history_manifest().await.expect("recipient baseline");
                 let [left, right] = fixture.transports().await;
@@ -703,11 +682,10 @@ async fn real_selected_sql_denies_received_apply_and_retries_on_existing_connect
         for (device, role) in [ofdb_sql::history::SyncRole::Initiator, ofdb_sql::history::SyncRole::Responder].into_iter().enumerate() {
             let mut fixture = Fixture::new().await;
             eprintln!("SQL {role:?}: initialized {:?}", started.elapsed());
-            let kept = Id::now_v7(); let denied = Id::now_v7();
-            sql(&fixture.databases[0], &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{kept}' AS UUID), 'kept')")).await;
+            sql(&fixture.databases[0], "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('kept')").await;
             fixture.sync_sql(role).await;
             eprintln!("SQL {role:?}: baseline synchronized {:?}", started.elapsed());
-            sql(&fixture.databases[0], &format!("INSERT INTO documents VALUES (CAST('{denied}' AS UUID), 'denied')")).await;
+            sql(&fixture.databases[0], "INSERT INTO documents (value) VALUES ('denied')").await;
             let [mut source, mut target] = fixture.transports().await;
             let gate = Gate::default(); let hook_gate = gate.clone();
             let authorize = fixture.authorize(1);

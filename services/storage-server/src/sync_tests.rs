@@ -324,7 +324,7 @@ async fn shared_resource_sync_and_retirement(local: bool) {
     let source_host = ofdb_sql::SharedDatabase::create(fixture.directory.0.join("source.redb"))
         .expect("source host");
     let source = ofdb_sql::Database::open_shared(&source_host, "source").expect("source namespace");
-    sql(&source, &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'kept')", Id::now_v7())).await;
+    sql(&source, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('kept')").await;
     let target = fixture
         .databases
         .open_selected(&fixture.namespace, fixture.identity.store_id)
@@ -373,7 +373,7 @@ async fn ws_real_typed_sql_exchange_is_scoped_and_retries_after_revocation() {
     let fixture = Fixture::new().await;
     let source =
         ofdb_sql::Database::open(fixture.directory.0.join("source.redb")).expect("source SQL");
-    sql(&source, &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'kept')", Id::now_v7())).await;
+    sql(&source, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('kept')").await;
     let target = fixture
         .databases
         .open_selected(&fixture.namespace, fixture.identity.store_id.into())
@@ -390,7 +390,7 @@ async fn ws_real_typed_sql_exchange_is_scoped_and_retries_after_revocation() {
         )
         .expect("other namespace")
         .expect("other selected");
-    sql(&other, &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'private')", Id::now_v7())).await;
+    sql(&other, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('private')").await;
     let mut transport = ClientTransport(fixture.attach().await);
     source
         .exchange_resource_history(
@@ -430,14 +430,7 @@ async fn ws_real_typed_sql_exchange_is_scoped_and_retries_after_revocation() {
         [ofdb_sql::Value::Text("kept".into())]
     );
     fixture.policy.lock().expect("policy lock")["adminAllowed"] = json!(true);
-    sql(
-        &source,
-        &format!(
-            "INSERT INTO documents VALUES (CAST('{}' AS UUID), 'retry')",
-            Id::now_v7()
-        ),
-    )
-    .await;
+    sql(&source, "INSERT INTO documents (value) VALUES ('retry')").await;
     let mut transport = ClientTransport(fixture.attach().await);
     source
         .exchange_resource_history(
@@ -483,7 +476,7 @@ async fn ws_authorization_revoked_during_preapply_preserves_committed_history() 
 
     let fixture = Fixture::new().await;
     let source = ofdb_sql::Database::open(fixture.directory.0.join("source.redb")).expect("source");
-    sql(&source, &format!("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (CAST('{}' AS UUID), 'denied')", Id::now_v7())).await;
+    sql(&source, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('denied')").await;
     let target = fixture
         .databases
         .open_selected(&fixture.namespace, fixture.identity.store_id.into())

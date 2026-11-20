@@ -288,18 +288,21 @@ CREATE TABLE IF NOT EXISTS device_resource_selections (id UUID NOT NULL, device_
 CREATE UNIQUE INDEX IF NOT EXISTS device_resource_selections_id ON device_resource_selections (id);
 
 CREATE TABLE IF NOT EXISTS namespaces (
-    id UUID PRIMARY KEY,
+    id UUID NOT NULL,
     owner_subject TEXT NOT NULL,
-    application_id UUID NOT NULL
+    application_id UUID NOT NULL,
+    PRIMARY KEY (owner_subject, application_id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS namespaces_owner_application ON namespaces (owner_subject, application_id);
+CREATE UNIQUE INDEX IF NOT EXISTS namespaces_id ON namespaces (id);
 CREATE TABLE IF NOT EXISTS resources (
-    id UUID PRIMARY KEY,
+    id UUID NOT NULL,
     namespace_id UUID NOT NULL,
     kind TEXT NOT NULL,
     name TEXT,
-    deleted BOOLEAN NOT NULL DEFAULT FALSE
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (namespace_id, id)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS resources_id ON resources (id);
 CREATE TABLE IF NOT EXISTS databases (
     id UUID PRIMARY KEY,
     resource_id UUID NOT NULL,

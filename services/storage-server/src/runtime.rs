@@ -4,7 +4,6 @@ use axum::Router;
 use iroh::{EndpointId, SecretKey};
 use iroh_chain::Server;
 use management_service::service::MANAGEMENT_APPLICATION_URI;
-use of_model::id::Id;
 use storage_service::{
     database_runtime::DatabaseRuntime, scoped_file_system::ScopedFileSystemRuntime,
 };
@@ -161,8 +160,7 @@ fn local_peer(client: ofdb_sql::Client) -> io::Result<EndpointId> {
             match rows[0].rows.as_slice() {
                 [] => {
                     let peer = SecretKey::generate().public();
-                    let id = Id::now_v7();
-                    client.execute_sql(&format!("INSERT INTO local_storage_peer (id, public_key) VALUES (CAST('{id}' AS UUID), '{peer}')"), None).await.map_err(io::Error::other)?;
+                    client.execute_sql(&format!("INSERT INTO local_storage_peer (public_key) VALUES ('{peer}')"), None).await.map_err(io::Error::other)?;
                     Ok(peer)
                 }
                 [row] => {

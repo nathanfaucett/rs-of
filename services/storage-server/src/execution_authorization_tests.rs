@@ -26,18 +26,11 @@ use of_model::idp::contract::permission_evaluation::IdentityResource;
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
 use of_model::idp::contract::permission_evaluation::PermissionSubject;
 use of_model::idp::contract::permission_evaluation::PermissionTarget;
-use ofdb_sql::SqlTranslator;
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 
 use super::{FrameAuthorizer, Inner, send_response, write_loop};
 
-async fn sql(database: &Database, sql: &str) {
-    database
-        .client()
-        .translate_and_execute(sql, &SqlTranslator)
-        .await
-        .expect("native public SQL fixture");
-}
+use crate::execution_test_support::{insert_device, insert_owner};
 
 #[tokio::test]
 async fn queued_response_observes_local_grant_revocation_before_authenticated_socket_write() {
@@ -69,11 +62,9 @@ async fn queued_write_fixture(in_flight: bool) {
         db::ofdb::up(&idp.client()).await.expect("IdP schema");
         device_service::ofdb::schema::up(&management).await.expect("Device schema");
         db::ofdb::up(&management.client()).await.expect("Management policy schema");
-        let actor = Id::now_v7();
-        let member = Id::now_v7();
+        let actor = insert_owner(&idp).await;
+        insert_device(&management, actor, incoming.remote_id()).await;
         let role = Id::now_v7();
-        sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'owner', 'Owner', 1, 1)")).await;
-        sql(&management, &format!("INSERT INTO devices (id, owner_subject, name, public_key, address, state, approved_at, created_at, updated_at) VALUES (CAST('{member}' AS UUID), '{actor}', 'peer', '{}', 'local', 1, 1, 1, 1)", incoming.remote_id())).await;
         let service = ManagementService::new(DbPermissionRepo::new(management.client()), DbRoleRepo::new(management.client()));
         service.provision_initial_administrator(actor, role, &[(Id::now_v7(), IdentityAction::DevicePairingRead), (Id::now_v7(), IdentityAction::DevicePairingUpdate), (Id::now_v7(), IdentityAction::IdpSecuritySync)]).await.expect("explicit actor grant");
         let request = PermissionEvaluationRequest { request_id: Id::now_v7(), subject: PermissionSubject::User { id: actor }, action: IdentityAction::IdpSecuritySync, target: PermissionTarget::Installation { resource: IdentityResource::IdpSecurity } };
