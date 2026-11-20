@@ -16,6 +16,7 @@ pub enum PublicSecurityTable {
     Permissions,
     RolePermissions,
     ApplicationUserRoles,
+    RbacRevocations,
 }
 
 impl PublicSecurityTable {
@@ -36,6 +37,7 @@ impl PublicSecurityTable {
             Self::Permissions => "permissions",
             Self::RolePermissions => "role_permissions",
             Self::ApplicationUserRoles => "application_user_roles",
+            Self::RbacRevocations => "rbac_revocations",
         }
     }
 
@@ -46,6 +48,7 @@ impl PublicSecurityTable {
             Self::Roles | Self::Permissions => &[
                 "row_id",
                 "id",
+                "incarnation",
                 "application_id",
                 "name",
                 "description",
@@ -53,6 +56,7 @@ impl PublicSecurityTable {
                 "created_at",
                 "updated_at",
             ],
+            Self::RbacRevocations => &["policy_kind", "application_id", "policy_id", "incarnation"],
             Self::RolePermissions => &[
                 "id",
                 "role_id",
@@ -220,7 +224,8 @@ impl PublicSecurityTable {
     }
 
     fn nullable(self, column: &str) -> bool {
-        if matches!(column, "id" | "row_id")
+        if self == Self::RbacRevocations
+            || matches!(column, "id" | "row_id" | "incarnation")
             || matches!(
                 (self, column),
                 (Self::Users, "created_at") | (Self::Credentials, "user_id")
@@ -242,6 +247,12 @@ impl PublicSecurityTable {
         }
         if matches!(column, "mfa_totp_secret" | "mfa_webauthn_credentials") {
             return false;
+        }
+        if column == "policy_kind" {
+            return matches!(value.as_str(), Some("roles" | "permissions"));
+        }
+        if column == "incarnation" {
+            return value.as_i64().is_some_and(|number| number >= 0);
         }
         if column == "public_jwk" {
             return value.as_str().is_some_and(permits_public_jwk);
@@ -265,6 +276,7 @@ impl PublicSecurityTable {
                 | "key_id"
                 | "role_id"
                 | "permission_id"
+                | "policy_id"
         ) || (column == "client_id"
             && matches!(self, Self::AuthorizationCodes | Self::RefreshTokens));
         if uuid {
@@ -275,7 +287,10 @@ impl PublicSecurityTable {
                     let installation_scope = column == "application_id"
                         && matches!(
                             self,
-                            Self::Roles | Self::Permissions | Self::ApplicationUserRoles
+                            Self::Roles
+                                | Self::Permissions
+                                | Self::ApplicationUserRoles
+                                | Self::RbacRevocations
                         );
                     let generated_key = column == "row_id"
                         || (column == "id"
@@ -283,7 +298,10 @@ impl PublicSecurityTable {
                                 self,
                                 Self::Users | Self::Credentials | Self::Roles | Self::Permissions
                             ));
+                    let grant_ref = matches!(column, "role_id" | "permission_id");
                     (installation_scope || !id.is_nil())
+                        && (!grant_ref
+                            || (id.get_version_num() == 5 && id.as_bytes()[8] & 0xc0 == 0x80))
                         && (!generated_key || id.get_version_num() == 7)
                 });
         }
@@ -360,6 +378,7 @@ pub const PUBLIC_IDENTITY_POLICY_TABLES: &[PublicSecurityTable] = &[
     PublicSecurityTable::Permissions,
     PublicSecurityTable::RolePermissions,
     PublicSecurityTable::ApplicationUserRoles,
+    PublicSecurityTable::RbacRevocations,
 ];
 
 #[must_use]
@@ -569,7 +588,14 @@ mod tests {
                     "{table:?} missing actual column {}",
                     column.name
                 );
-                let value = if matches!(
+                let value = if column.name == "policy_kind" {
+                    serde_json::json!("roles")
+                } else if matches!(column.name.as_str(), "role_id" | "permission_id") {
+                    serde_json::json!(of_model::id::Id::new_v5(
+                        &of_model::id::Id::NAMESPACE_URL,
+                        b"grant"
+                    ))
+                } else if matches!(
                     column.name.as_str(),
                     "mfa_totp_secret" | "mfa_webauthn_credentials"
                 ) {
@@ -583,6 +609,7 @@ mod tests {
                     serde_json::json!(of_model::id::Id::now_v7())
                 } else if column.name.ends_with("_at")
                     || [
+                        "incarnation",
                         "active",
                         "blocked",
                         "sex",

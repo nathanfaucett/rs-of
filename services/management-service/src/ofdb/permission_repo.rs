@@ -23,7 +23,7 @@ use of_model::management_error::ManagementError;
 
 use of_model::management_error::ManagementResult;
 
-use super::insert::{insert_policy_record, returned_id};
+use super::insert::{active_rows, grant_ref, insert_policy_record, returned_id, revoke_policy};
 use crate::PermissionRepo;
 
 use of_model::management::SyncSelection;
@@ -32,8 +32,9 @@ const PERMISSIONS: &str = "permissions";
 const ROLES: &str = "roles";
 const ROLE_PERMISSIONS: &str = "role_permissions";
 const SYNC_SELECTIONS: &str = "sync_selections";
-const PERMISSION_COLUMNS: [&str; 8] = [
+const PERMISSION_COLUMNS: [&str; 9] = [
     "row_id",
+    "incarnation",
     "id",
     "application_id",
     "name",
@@ -42,7 +43,13 @@ const PERMISSION_COLUMNS: [&str; 8] = [
     "created_at",
     "updated_at",
 ];
-const ROLE_COLUMNS: [&str; 4] = ["row_id", "id", "application_id", "revoked_at"];
+const ROLE_COLUMNS: [&str; 5] = [
+    "row_id",
+    "id",
+    "application_id",
+    "revoked_at",
+    "incarnation",
+];
 const ROLE_PERMISSION_COLUMNS: [&str; 4] = ["id", "role_id", "permission_id", "revoked_at"];
 const SYNC_SELECTION_COLUMNS: [&str; 5] = [
     "device_id",
@@ -123,15 +130,15 @@ impl DbPermissionRepo {
         application_id: Id,
         permission_id: Id,
     ) -> ManagementResult<Option<PermissionRow>> {
-        let permission = self
-            .rows::<PermissionRow>(select(PERMISSIONS, &PERMISSION_COLUMNS))
-            .await?
-            .into_iter()
-            .find(|row| {
-                row.id == permission_id
-                    && row.application_id == application_id
-                    && row.revoked_at.is_none()
-            });
+        let permission =
+            active_rows::<PermissionRow>(&self.engine, PERMISSIONS, &PERMISSION_COLUMNS)
+                .await?
+                .into_iter()
+                .find(|row| {
+                    row.id == permission_id
+                        && row.application_id == application_id
+                        && row.revoked_at.is_none()
+                });
         if let Some(permission) = &permission {
             self.ensure_clear(&[SecurityRow::new(
                 SecurityTable::Permission,
@@ -143,8 +150,7 @@ impl DbPermissionRepo {
     }
 
     async fn role(&self, application_id: Id, role_id: Id) -> ManagementResult<Option<RoleRow>> {
-        let role = self
-            .rows::<RoleRow>(select(ROLES, &ROLE_COLUMNS))
+        let role = active_rows::<RoleRow>(&self.engine, ROLES, &ROLE_COLUMNS)
             .await?
             .into_iter()
             .find(|row| {
@@ -190,12 +196,12 @@ impl PermissionRepo for DbPermissionRepo {
         offset: u32,
         limit: u32,
     ) -> ManagementResult<Vec<Permission>> {
-        let permissions = self
-            .rows::<PermissionRow>(select(PERMISSIONS, &PERMISSION_COLUMNS))
-            .await?
-            .into_iter()
-            .filter(|row| row.application_id == application_id && row.revoked_at.is_none())
-            .collect::<Vec<_>>();
+        let permissions =
+            active_rows::<PermissionRow>(&self.engine, PERMISSIONS, &PERMISSION_COLUMNS)
+                .await?
+                .into_iter()
+                .filter(|row| row.application_id == application_id && row.revoked_at.is_none())
+                .collect::<Vec<_>>();
         for permission in &permissions {
             self.ensure_clear(&[SecurityRow::new(
                 SecurityTable::Permission,
@@ -257,15 +263,15 @@ impl PermissionRepo for DbPermissionRepo {
             .permission(application_id, permission_id)
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("permission not found".into()))?;
-        self.engine
-            .execute(vec![Statement::Query(delete(
-                PERMISSIONS,
-                "row_id",
-                permission.row_id,
-            ))])
-            .await
-            .map_err(db_error)?;
-        Ok(())
+        revoke_policy(
+            &self.engine,
+            PERMISSIONS,
+            application_id,
+            permission.id,
+            permission.incarnation,
+            permission.row_id,
+        )
+        .await
     }
 
     async fn add_permission_to_role(
@@ -283,15 +289,15 @@ impl PermissionRepo for DbPermissionRepo {
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("permission not found".into()))?;
         if self
-            .role_permission(role.row_id, permission.row_id)
+            .role_permission(role.grant_ref(), permission.grant_ref())
             .await?
             .is_some()
         {
             return Ok(());
         }
         let params = QueryParams::Positional(vec![
-            Value::Uuid(role.row_id),
-            Value::Uuid(permission.row_id),
+            Value::Uuid(role.grant_ref()),
+            Value::Uuid(permission.grant_ref()),
             Value::Integer(now().timestamp()),
         ]);
         let results = self.engine.execute_sql(
@@ -320,7 +326,7 @@ impl PermissionRepo for DbPermissionRepo {
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("permission not found".into()))?;
         let relation = self
-            .role_permission(role.row_id, permission.row_id)
+            .role_permission(role.grant_ref(), permission.grant_ref())
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("role permission not found".into()))?;
         self.engine
@@ -346,18 +352,17 @@ impl PermissionRepo for DbPermissionRepo {
         let relations = self
             .rows::<RolePermissionRow>(select(ROLE_PERMISSIONS, &ROLE_PERMISSION_COLUMNS))
             .await?;
-        let permissions = self
-            .rows::<PermissionRow>(select(PERMISSIONS, &PERMISSION_COLUMNS))
-            .await?;
+        let permissions =
+            active_rows::<PermissionRow>(&self.engine, PERMISSIONS, &PERMISSION_COLUMNS).await?;
         let mut result = Vec::new();
         for relation in relations
             .into_iter()
-            .filter(|row| row.role_id == role.row_id && row.revoked_at.is_none())
+            .filter(|row| row.role_id == role.grant_ref() && row.revoked_at.is_none())
         {
             self.ensure_clear(&[SecurityRow::new(SecurityTable::RolePermission, relation.id)])
                 .await?;
             if let Some(permission) = permissions.iter().find(|row| {
-                row.row_id == relation.permission_id
+                row.grant_ref() == relation.permission_id
                     && row.application_id == application_id
                     && row.revoked_at.is_none()
             }) {
@@ -510,6 +515,7 @@ impl PermissionRepo for DbPermissionRepo {
 #[derive(Clone, Debug)]
 struct PermissionRow {
     row_id: Uuid,
+    incarnation: i64,
     id: Uuid,
     application_id: Uuid,
     name: String,
@@ -518,9 +524,19 @@ struct PermissionRow {
     created_at: i64,
     updated_at: i64,
 }
+impl PermissionRow {
+    fn grant_ref(&self) -> Id {
+        grant_ref(self.application_id, self.id, self.incarnation)
+    }
+}
+
 impl FromRow for PermissionRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
+            incarnation: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "incarnation")?,
+                "incarnation",
+            )?,
             row_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "row_id")?, "row_id")?,
             id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
             application_id: ofdb_sql::decode(
@@ -563,13 +579,24 @@ impl TryFrom<PermissionRow> for Permission {
 #[derive(Debug)]
 struct RoleRow {
     row_id: Uuid,
+    incarnation: i64,
     id: Uuid,
     application_id: Uuid,
     revoked_at: Option<i64>,
 }
+impl RoleRow {
+    fn grant_ref(&self) -> Id {
+        grant_ref(self.application_id, self.id, self.incarnation)
+    }
+}
+
 impl FromRow for RoleRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
+            incarnation: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "incarnation")?,
+                "incarnation",
+            )?,
             row_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "row_id")?, "row_id")?,
             id: ofdb_sql::decode(ofdb_sql::value(row, columns, "id")?, "id")?,
             application_id: ofdb_sql::decode(

@@ -222,6 +222,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idp_replica_signers_active_member
 CREATE TABLE IF NOT EXISTS roles (
     row_id UUID PRIMARY KEY,
     id UUID,
+    incarnation INTEGER NOT NULL DEFAULT 0,
     application_id UUID,
     name TEXT,
     description TEXT,
@@ -229,12 +230,13 @@ CREATE TABLE IF NOT EXISTS roles (
     created_at INTEGER,
     updated_at INTEGER
 );
-CREATE UNIQUE INDEX IF NOT EXISTS roles_domain_id ON roles (id);
-CREATE UNIQUE INDEX IF NOT EXISTS roles_application_name ON roles (application_id, name);
+CREATE UNIQUE INDEX IF NOT EXISTS roles_domain_id ON roles (id, incarnation);
+CREATE UNIQUE INDEX IF NOT EXISTS roles_application_name ON roles (application_id, name, incarnation);
 
 CREATE TABLE IF NOT EXISTS permissions (
     row_id UUID PRIMARY KEY,
     id UUID,
+    incarnation INTEGER NOT NULL DEFAULT 0,
     application_id UUID,
     name TEXT,
     description TEXT,
@@ -242,8 +244,16 @@ CREATE TABLE IF NOT EXISTS permissions (
     created_at INTEGER,
     updated_at INTEGER
 );
-CREATE UNIQUE INDEX IF NOT EXISTS permissions_domain_id ON permissions (id);
-CREATE UNIQUE INDEX IF NOT EXISTS permissions_application_name ON permissions (application_id, name);
+CREATE UNIQUE INDEX IF NOT EXISTS permissions_domain_id ON permissions (id, incarnation);
+CREATE UNIQUE INDEX IF NOT EXISTS permissions_application_name ON permissions (application_id, name, incarnation);
+
+CREATE TABLE IF NOT EXISTS rbac_revocations (
+    policy_kind TEXT NOT NULL,
+    application_id UUID NOT NULL,
+    policy_id UUID NOT NULL,
+    incarnation INTEGER NOT NULL,
+    PRIMARY KEY (policy_kind, application_id, policy_id, incarnation)
+);
 
 CREATE TABLE IF NOT EXISTS role_permissions (
     id UUID PRIMARY KEY,

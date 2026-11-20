@@ -48,6 +48,7 @@ utoipa-gen = { version = "5.5", default-features = false, features = [
 ], optional = true }
 
 [dev-dependencies]
+ofdb-sql = { path = "../../db/sql", default-features = false, features = ["validated-history"] }
 # Internal
 of-model = { path = "../model", default-features = false, features = ["std"] }
 

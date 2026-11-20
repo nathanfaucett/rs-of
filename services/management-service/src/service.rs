@@ -626,6 +626,149 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn independent_policy_provisioning_preserves_grants() {
+        let left = ofdb_sql::Database::in_memory();
+        let right = ofdb_sql::Database::in_memory();
+        let a = ManagementService::new(
+            DbPermissionRepo::new(left.client()),
+            DbRoleRepo::new(left.client()),
+        );
+        let b = ManagementService::new(
+            DbPermissionRepo::new(right.client()),
+            DbRoleRepo::new(right.client()),
+        );
+        let (app, role, permission, user) =
+            (Id::now_v7(), Id::now_v7(), Id::now_v7(), Id::now_v7());
+        up(&left.client()).await.expect("left schema");
+        a.ensure_role(role, app, "operator", None)
+            .await
+            .expect("left role");
+        a.ensure_permission(permission, app, "operate", None)
+            .await
+            .expect("left permission");
+        a.add_role_to_user(app, user, role)
+            .await
+            .expect("assign role");
+        a.add_permission_to_role(app, role, permission)
+            .await
+            .expect("assign permission");
+        up(&right.client())
+            .await
+            .expect("right schema after left provisioning");
+        b.ensure_role(role, app, "operator", None)
+            .await
+            .expect("independent role");
+        b.ensure_permission(permission, app, "operate", None)
+            .await
+            .expect("independent permission");
+        reconcile(&left, &right).await;
+        for owner in [&a, &b] {
+            assert!(
+                owner
+                    .has_user_application_permission(user, app, "operate")
+                    .await
+                    .expect("evaluate replicated grant")
+            );
+        }
+        let stale = ofdb_sql::Database::in_memory();
+        let stale_owner = ManagementService::new(
+            DbPermissionRepo::new(stale.client()),
+            DbRoleRepo::new(stale.client()),
+        );
+        let stale_user = Id::now_v7();
+        a.delete_permission_by_id(app, permission)
+            .await
+            .expect("delete shared permission incarnation");
+        a.delete_role_by_id(app, role)
+            .await
+            .expect("delete shared role incarnation");
+        // This peer has not seen the deletion and creates fresh physical rows for the old incarnation.
+        up(&stale.client()).await.expect("stale schema");
+        stale_owner
+            .ensure_role(role, app, "operator", None)
+            .await
+            .expect("offline role");
+        stale_owner
+            .ensure_permission(permission, app, "operate", None)
+            .await
+            .expect("offline permission");
+        stale_owner
+            .add_role_to_user(app, stale_user, role)
+            .await
+            .expect("offline grant against stale incarnation");
+        stale_owner
+            .add_permission_to_role(app, role, permission)
+            .await
+            .expect("offline permission grant");
+        reconcile(&left, &stale).await;
+        assert!(
+            a.find_role_by_id(app, role)
+                .await
+                .expect("read deleted role")
+                .is_none()
+        );
+        assert!(
+            a.find_permission_by_id(app, permission)
+                .await
+                .expect("read deleted permission")
+                .is_none()
+        );
+        reconcile(&left, &right).await;
+        for owner in [&a, &b] {
+            owner
+                .ensure_role(role, app, "operator", None)
+                .await
+                .expect("independent role recreation");
+            owner
+                .ensure_permission(permission, app, "operate", None)
+                .await
+                .expect("independent permission recreation");
+            assert!(
+                !owner
+                    .has_user_application_permission(user, app, "operate")
+                    .await
+                    .expect("old grant remains revoked")
+            );
+        }
+        a.add_role_to_user(app, user, role)
+            .await
+            .expect("new assignment");
+        a.add_permission_to_role(app, role, permission)
+            .await
+            .expect("new permission grant");
+        reconcile(&left, &right).await;
+        reconcile(&left, &stale).await;
+        for owner in [&a, &b, &stale_owner] {
+            assert!(
+                owner
+                    .has_user_application_permission(user, app, "operate")
+                    .await
+                    .expect("new grant survives convergence")
+            );
+            assert!(
+                !owner
+                    .has_user_application_permission(stale_user, app, "operate")
+                    .await
+                    .expect("stale grant remains denied")
+            );
+        }
+    }
+
+    async fn reconcile(a: &ofdb_sql::Database, b: &ofdb_sql::Database) {
+        for (source, target) in [(a, b), (b, a)] {
+            target
+                .import_history(
+                    source
+                        .export_history()
+                        .await
+                        .expect("export policy history"),
+                )
+                .await
+                .expect("reconcile policy history");
+        }
+    }
+
+    #[tokio::test]
     async fn recreating_a_role_does_not_restore_old_grants() {
         let engine = ofdb_sql::Database::in_memory();
         up(&engine.client())
