@@ -1,9 +1,11 @@
 server:
   host: 127.0.0.1
+  # Direct-run fallback; PORT overrides this under portless.
   port: 3000
   setup_ui_origin: https://of.localhost:1355
 data_dir: ./data/idp
 ui_public_uri: https://of.localhost:1355
+# Direct-run fallback; PORTLESS_URL or PUBLIC_BASE_URL overrides this under portless.
 api_public_uri: https://127.0.0.1:3000
 oauth2:
   issuer: ""

@@ -64,9 +64,6 @@ just test
 just clippy
 just crap
 
-# Documentation
-just docs-check
-
 # TypeScript dependencies
 pnpm install --frozen-lockfile --ignore-scripts
 

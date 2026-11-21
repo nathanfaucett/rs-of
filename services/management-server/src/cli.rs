@@ -61,7 +61,7 @@ pub async fn run() -> io::Result<()> {
         .ok()
         .and_then(|p| p.parse::<u16>().ok());
     if let Some(base_url) = public_base_url() {
-        config.api_public_uri = format!("{}/management", base_url.trim_end_matches('/'));
+        config.api_public_uri = base_url.trim_end_matches('/').to_string();
         config.server.host = IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
         if let Some(port) = portless_port {
             config.server.port = port;

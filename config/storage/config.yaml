@@ -1,6 +1,8 @@
 server:
   host: 127.0.0.1
+  # Direct-run fallback; PORT overrides this under portless.
   port: 3002
   setup_ui_origin: https://of.localhost:1355
 data_dir: ./data/storage
+# Direct-run fallback; PORTLESS_URL or PUBLIC_BASE_URL overrides this under portless.
 api_public_uri: https://127.0.0.1:3002
