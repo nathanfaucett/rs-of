@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { type Observable, Subject, BehaviorSubject } from "rxjs";
 import { StorageClient } from "@ofsdk/storage-client";
 import { SyncClient, type StoreIdentity } from "@ofsdk/storage-sync-client";
-import { Database, JsSqlHistoryTransport } from "@ofsdk/sql";
+import { Database } from "@ofsdk/sql";
 import type {
   SyncConfig,
   SyncSDK,
@@ -19,6 +19,7 @@ import type {
   FileEntry,
 } from "./core";
 import { execute } from "./sql";
+import { SqlSyncLifecycle } from "./sql-sync-lifecycle";
 
 /** Document type that must have an id property for database operations. */
 type WithId = { id: string; [key: string]: unknown };
@@ -224,6 +225,7 @@ class NodeDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
   });
   private sqlDatabase: Database | null = null;
   private syncClient: SyncClient | null = null;
+  private lifecycle: SqlSyncLifecycle | null = null;
   private closed = false;
   private handle: {
     sqlDatabase: Database;
@@ -281,42 +283,38 @@ class NodeDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
 
   async sync(_options?: SyncOptions): Promise<void> {
     if (!this.sqlDatabase || this.closed) return;
-
-    this._state$.next({ ...this._state$.value, status: "connecting" });
-
-    try {
-      const syncClient = await this.getSyncClient();
-
-      const syncSession = await syncClient.attach({
-        identity: this.handle.storeIdentity,
-        direction: "Bidirectional",
-      });
-
-      const transport = new JsSqlHistoryTransport({
-        send: (data: Uint8Array) => {
-          syncSession.send(data);
-          return Promise.resolve();
-        },
-        receive: () => syncSession.receive(),
-      });
-
-      await this.sqlDatabase.synchronizeHistory(transport);
-
-      this._state$.next({ ...this._state$.value, status: "synced" });
-    } catch (error) {
-      this._state$.next({
-        ...this._state$.value,
-        status: "error",
-        error: error as Error,
-      });
-      throw error;
-    }
+    const lifecycle = await this.getSyncLifecycle();
+    await lifecycle.sync();
   }
 
   async close(): Promise<void> {
     this.closed = true;
+    await this.lifecycle?.close();
     this._changes$.complete();
     this._state$.complete();
+  }
+
+  private async getSyncLifecycle(): Promise<SqlSyncLifecycle> {
+    if (this.lifecycle) return this.lifecycle;
+    const client = await this.getSyncClient();
+    this.lifecycle = new SqlSyncLifecycle(
+      this.sqlDatabase as Database,
+      client,
+      this.handle.storeIdentity,
+      {
+        connecting: () =>
+          this._state$.next({ ...this._state$.value, status: "connecting" }),
+        synced: () =>
+          this._state$.next({ ...this._state$.value, status: "synced" }),
+        failed: (error) =>
+          this._state$.next({
+            ...this._state$.value,
+            status: "error",
+            error,
+          }),
+      },
+    );
+    return this.lifecycle;
   }
 
   private async getSyncClient(): Promise<SyncClient> {

@@ -57,12 +57,15 @@ impl SqlDatabase {
     #[cfg(feature = "sync")]
     pub async fn synchronize_history(
         &self,
-        transport: &mut crate::sql_history::JsSqlHistoryTransport,
-        config: crate::sql_history::SqlHistoryConfig,
+        transport: &mut crate::sync::JsSqlSyncTransport,
         role: crate::sql_history::SqlHistoryRole,
     ) -> Result<crate::sql_history::SqlHistoryResult, crate::sql_history::JsSqlHistoryError> {
         self.database
-            .exchange_resource_history_memory(transport, &config.into(), role.into())
+            .exchange_resource_history_memory(
+                transport,
+                &ofdb_sql::history::SessionConfig::default(),
+                role.into(),
+            )
             .await
             .map_err(crate::sql_history::JsSqlHistoryError::from)
             .map(crate::sql_history::SqlHistoryResult::from)

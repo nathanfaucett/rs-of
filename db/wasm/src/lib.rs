@@ -25,7 +25,7 @@ pub use sync::{
 };
 #[cfg(feature = "sync")]
 pub use sql_history::{
-    JsSqlHistoryError, JsSqlHistoryTransport, SqlHistoryConfig, SqlHistoryResult, SqlHistoryRole,
+    JsSqlHistoryError, SqlHistoryResult, SqlHistoryRole,
 };
 pub use kv::{KvClient, KvDatabase, KvTransaction};
 pub use sql::{SqlClient, SqlDatabase, SqlTransaction};

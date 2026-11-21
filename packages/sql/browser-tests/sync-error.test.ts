@@ -12,7 +12,7 @@ test("SQL errors retain a WASM object's message and cause without logging payloa
     const {
       Database,
       Error: SqlError,
-      JsSqlHistoryTransport,
+      JsSqlSyncTransport,
     } = (window as any).sql;
     const database = await Database.open("sync-error");
     const logged: string[] = [];
@@ -26,7 +26,7 @@ test("SQL errors retain a WASM object's message and cause without logging payloa
     console.error = (...values) => logged.push(values.join(" "));
     try {
       await database.synchronizeHistory(
-        new JsSqlHistoryTransport({
+        new JsSqlSyncTransport({
           send: async () => {
             throw { message: "representative-transport-error" };
           },

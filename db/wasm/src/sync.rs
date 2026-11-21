@@ -587,6 +587,88 @@ impl JsSqlSyncTransport {
             inner: JsPushSyncTransport::new(transport),
         }
     }
+
+    pub(crate) fn js_value(&self) -> &JsValue {
+        &self.inner.inner
+    }
+}
+
+fn js_error_message(value: &JsValue) -> String {
+    value.as_string().unwrap_or_else(|| {
+        js_sys::Reflect::get(value, &JsValue::from_str("message"))
+            .ok()
+            .and_then(|message| message.as_string())
+            .unwrap_or_else(|| format!("{value:?}"))
+    })
+}
+
+fn transport_error(operation: &str, error: &JsValue) -> String {
+    if operation.starts_with("transport ") {
+        js_error_message(error)
+    } else {
+        format!("{error:?}")
+    }
+}
+
+pub(crate) async fn send_bytes(
+    transport: &JsValue,
+    bytes: &[u8],
+    operation: &str,
+) -> Result<(), JsPushSyncTransportError> {
+    let send = js_sys::Reflect::get(transport, &"send".into()).map_err(|_| {
+        JsPushSyncTransportError::new("transport has no send method".into())
+    })?;
+    let send: js_sys::Function = send
+        .dyn_into()
+        .map_err(|_| JsPushSyncTransportError::new("send is not a function".into()))?;
+    let array = js_sys::Uint8Array::from(bytes);
+    let promise = send
+        .call1(transport, &array)
+        .map_err(|e| JsPushSyncTransportError::new(format!("{operation} call failed: {}", transport_error(operation, &e))))?;
+    let promise: js_sys::Promise = promise
+        .dyn_into()
+        .map_err(|_| JsPushSyncTransportError::new(format!("{operation} did not return a Promise")))?;
+    JsFuture::from(promise)
+        .await
+        .map_err(|e| JsPushSyncTransportError::new(format!("{operation} failed: {}", transport_error(operation, &e))))?;
+    Ok(())
+}
+
+pub(crate) async fn receive_bytes(
+    transport: &JsValue,
+    max_bytes: Option<usize>,
+) -> Result<Vec<u8>, JsPushSyncTransportError> {
+    let receive = js_sys::Reflect::get(transport, &"receive".into()).map_err(|_| {
+        JsPushSyncTransportError::new("transport has no receive method".into())
+    })?;
+    let receive: js_sys::Function = receive
+        .dyn_into()
+        .map_err(|_| JsPushSyncTransportError::new("receive is not a function".into()))?;
+    let promise = receive.call0(transport).map_err(|e| {
+        JsPushSyncTransportError::new(format!("receive call failed: {:?}", e))
+    })?;
+    let promise: js_sys::Promise = promise
+        .dyn_into()
+        .map_err(|_| JsPushSyncTransportError::new("receive did not return a Promise".into()))?;
+    let result = JsFuture::from(promise)
+        .await
+        .map_err(|e| JsPushSyncTransportError::new(format!("receive failed: {:?}", e)))?;
+    if max_bytes.is_some() && !result.is_instance_of::<js_sys::Uint8Array>() {
+        return Err(JsPushSyncTransportError::new(
+            "received SQL history frame must be a Uint8Array".into(),
+        ));
+    }
+    let array = js_sys::Uint8Array::from(result);
+    if let Some(max_bytes) = max_bytes
+        && array.length() > max_bytes as u32
+    {
+        return Err(JsPushSyncTransportError::new(format!(
+            "received SQL history frame exceeds {max_bytes} bytes"
+        )));
+    }
+    let mut bytes = vec![0u8; array.length() as usize];
+    array.copy_to(&mut bytes);
+    Ok(bytes)
 }
 
 impl OfdbPushSyncTransport for JsPushSyncTransport {
@@ -598,58 +680,17 @@ impl OfdbPushSyncTransport for JsPushSyncTransport {
     ) -> impl Future<Output = Result<(), Self::Error>> {
         let transport = self.inner.clone();
         async move {
-            let send_fn = js_sys::Reflect::get(&transport, &"send".into()).map_err(|_| {
-                JsPushSyncTransportError::new("transport has no send method".into())
-            })?;
-            let send_fn: js_sys::Function = send_fn
-                .dyn_into()
-                .map_err(|_| JsPushSyncTransportError::new("send is not a function".into()))?;
-
-            // Serialize message to bytes
             let bytes = ofdb_sync::encode_message(&msg, &OfdbPushConfig::default())
                 .map_err(|e| JsPushSyncTransportError::new(format!("encode failed: {:?}", e)))?;
-            let array = js_sys::Uint8Array::from(bytes.as_slice());
-            let promise = send_fn
-                .call1(&transport, &array)
-                .map_err(|e| JsPushSyncTransportError::new(format!("send call failed: {:?}", e)))?;
-            let promise: js_sys::Promise = promise.dyn_into().map_err(|_| {
-                JsPushSyncTransportError::new("send did not return a Promise".into())
-            })?;
-
-            JsFuture::from(promise)
-                .await
-                .map_err(|e| JsPushSyncTransportError::new(format!("send failed: {:?}", e)))?;
-
-            Ok(())
+            send_bytes(&transport, &bytes, "send").await
         }
     }
 
     fn receive(&mut self) -> impl Future<Output = Result<ofdb_sync::PushMessage, Self::Error>> {
         let transport = self.inner.clone();
         async move {
-            let recv_fn = js_sys::Reflect::get(&transport, &"receive".into()).map_err(|_| {
-                JsPushSyncTransportError::new("transport has no receive method".into())
-            })?;
-            let recv_fn: js_sys::Function = recv_fn
-                .dyn_into()
-                .map_err(|_| JsPushSyncTransportError::new("receive is not a function".into()))?;
-
-            let promise = recv_fn.call0(&transport).map_err(|e| {
-                JsPushSyncTransportError::new(format!("receive call failed: {:?}", e))
-            })?;
-            let promise: js_sys::Promise = promise.dyn_into().map_err(|_| {
-                JsPushSyncTransportError::new("receive did not return a Promise".into())
-            })?;
-
-            let result = JsFuture::from(promise)
-                .await
-                .map_err(|e| JsPushSyncTransportError::new(format!("receive failed: {:?}", e)))?;
-
-            let array = js_sys::Uint8Array::from(result);
-            let mut vec = vec![0u8; array.length() as usize];
-            array.copy_to(&mut vec);
-
-            ofdb_sync::decode_message(&vec, &OfdbPushConfig::default()).map_err(
+            let bytes = receive_bytes(&transport, None).await?;
+            ofdb_sync::decode_message(&bytes, &OfdbPushConfig::default()).map_err(
                 |e: ofdb_sync::Error<JsPushSyncTransportError>| {
                     JsPushSyncTransportError::new(format!("decode failed: {:?}", e))
                 },

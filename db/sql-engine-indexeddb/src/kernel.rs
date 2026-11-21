@@ -1,6 +1,6 @@
 use std::ops::Bound;
 
-use btree::ChangeSubscription;
+use btree::{ChangeEvent, ChangeSignal, ChangeSubscription};
 use btree_indexeddb::{Database, Snapshot};
 use engine::{EngineError, EngineResult, Kernel, KernelTransaction};
 use futures::{Stream, stream};
@@ -99,6 +99,17 @@ impl KernelTransaction for IndexedDbTransaction {
 
     async fn commit(self) -> EngineResult<()> {
         self.snapshot.commit().await.map_err(EngineError::custom)
+    }
+
+    async fn commit_with_events(
+        self,
+        events: Vec<ChangeEvent>,
+        signal: ChangeSignal,
+    ) -> EngineResult<()> {
+        self.snapshot
+            .commit_with_events(events, signal)
+            .await
+            .map_err(EngineError::custom)
     }
 
     async fn rollback(self) -> EngineResult<()> {

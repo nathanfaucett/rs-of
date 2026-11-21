@@ -29,7 +29,7 @@ OIDC authenticates the User and Application. It does not decrypt vaults, approve
 
 The real-backend Chromium scenario creates an encrypted IndexedDB vault, signs in with OIDC, and explicitly synchronizes through the public sync SDK to one local Sync Server. Create, update, delete, and repeated synchronization complete through SQL history v7. The test reads changed ciphertext through the public Storage API, checks repeat idempotency, and verifies that plaintext records and the master password are absent. It also rejects a wrong password and reopens with the correct password.
 
-This is explicit single-Node behavior, not continuous delivery, two-Device convergence, durable replay, or production password-manager qualification.
+Attached sessions close after success and every failure. Handle or SDK close aborts and awaits active synchronization. Attach has a 10-second deadline and receive inactivity has a 30-second deadline. This is explicit single-Node behavior, not continuous delivery, two-Device convergence, durable replay, or production password-manager qualification.
 
 ## Local development
 

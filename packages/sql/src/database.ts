@@ -5,9 +5,7 @@ import { loadWasm } from "./wasm.js";
 import { wrapError, Error as SqlError } from "./error.js";
 import {
   JsPushSyncTransport,
-  JsSqlHistoryTransport,
   JsSqlSyncTransport,
-  SqlHistoryConfig,
   SqlHistoryResult,
   SqlHistoryRole,
   SqlSyncRole,
@@ -52,20 +50,26 @@ export class Database {
     config: PushSynchronizeConfig
   ): Promise<PushSynchronizeResult> {
     try {
-      return await this.handle.get().synchronize(transport, config);
+      return await this.handle.run((wasm) =>
+        wasm.synchronize(transport, config),
+      );
     } catch (error) {
       throw wrapError(error, SqlError);
     }
   }
 
-  /** Exchange SQL history v7 over caller-supplied byte frames. */
+  /**
+   * Exchange SQL history v7 over caller-supplied byte frames.
+   * Transports must bound reads and queued frames before buffering.
+   */
   async synchronizeHistory(
-    transport: JsSqlHistoryTransport,
-    role: SqlHistoryRole = SqlHistoryRole.Initiator,
-    config: SqlHistoryConfig = new SqlHistoryConfig()
+    transport: JsSqlSyncTransport,
+    role: SqlHistoryRole = SqlHistoryRole.Initiator
   ): Promise<SqlHistoryResult> {
     try {
-      return await this.handle.get().synchronize_history(transport, config, role);
+      return await this.handle.run((wasm) =>
+        wasm.synchronize_history(transport, role),
+      );
     } catch (error) {
       throw wrapError(error, SqlError);
     }
@@ -75,9 +79,7 @@ export class Database {
 // Re-export sync types and values
 export {
   JsPushSyncTransport,
-  JsSqlHistoryTransport,
   JsSqlSyncTransport,
-  SqlHistoryConfig,
   SqlHistoryResult,
   SqlHistoryRole,
   SqlSyncRole,

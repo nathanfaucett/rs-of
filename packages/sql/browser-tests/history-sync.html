@@ -6,4 +6,50 @@
     window.sql = sql;
     window.makeSqlWorker = () =>
         new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+    window.makeSqlTransportPair = () => {
+        const endpoints = [0, 1].map(() => ({
+            queue: [],
+            waiting: undefined,
+            rejectWaiting: undefined,
+            closed: false,
+            sent: 0,
+            peer: undefined,
+        }));
+        endpoints[0].peer = endpoints[1];
+        endpoints[1].peer = endpoints[0];
+        return endpoints.map((endpoint) => ({
+            send(data) {
+                if (endpoint.closed || endpoint.peer.closed) {
+                    return Promise.reject(new Error("transport closed"));
+                }
+                endpoint.sent += 1;
+                if (endpoint.sent > 20) {
+                    return Promise.reject(new Error("transport safety bound"));
+                }
+                const copy = new Uint8Array(data);
+                if (endpoint.peer.waiting) {
+                    endpoint.peer.waiting(copy);
+                    endpoint.peer.waiting = undefined;
+                } else {
+                    endpoint.peer.queue.push(copy);
+                }
+                return Promise.resolve();
+            },
+            receive() {
+                if (endpoint.closed) return Promise.reject(new Error("transport closed"));
+                const data = endpoint.queue.shift();
+                if (data) return Promise.resolve(data);
+                return new Promise((resolve, reject) => {
+                    endpoint.waiting = resolve;
+                    endpoint.rejectWaiting = reject;
+                });
+            },
+            close() {
+                endpoint.closed = true;
+                endpoint.rejectWaiting?.(new Error("transport closed"));
+                endpoint.waiting = undefined;
+                endpoint.rejectWaiting = undefined;
+            },
+        }));
+    };
 </script>

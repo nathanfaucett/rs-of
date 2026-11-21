@@ -308,9 +308,8 @@ where
             ));
         }
 
-        // Emit ChangeEvents for push-based sync
         #[cfg(feature = "std")]
-        {
+        let events = {
             let mut events = Vec::new();
             for change in &self.changes {
                 let crate::ChangeKey::Row { table, row } = &change.key;
@@ -328,12 +327,15 @@ where
                     }
                 }
             }
-            if !events.is_empty() {
-                self.engine.change_signal.committed_with_events(events);
-            }
-        }
+            events
+        };
 
-        transaction.commit().await
+        #[cfg(feature = "std")]
+        return transaction
+            .commit_with_events(events, self.engine.change_signal.clone())
+            .await;
+        #[cfg(not(feature = "std"))]
+        return transaction.commit().await;
     }
 
     /// Rolls back this transaction.

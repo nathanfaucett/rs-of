@@ -12,7 +12,7 @@ test("legacy push synchronization uses IndexedDB committed changes", async ({
     const {
       Database,
       JsPushSyncTransport,
-      JsSqlHistoryTransport,
+      JsSqlSyncTransport,
       PushSynchronizeConfig,
       SqlHistoryRole,
     } = (window as any).sql;
@@ -57,11 +57,11 @@ test("legacy push synchronization uses IndexedDB committed changes", async ({
       await aClient.executeRaw("INSERT INTO entries VALUES (1, 'initial')");
       await Promise.all([
         a.synchronizeHistory(
-          new JsSqlHistoryTransport(transports[0]),
+          new JsSqlSyncTransport(transports[0]),
           SqlHistoryRole.Initiator,
         ),
         b.synchronizeHistory(
-          new JsSqlHistoryTransport(transports[1]),
+          new JsSqlSyncTransport(transports[1]),
           SqlHistoryRole.Responder,
         ),
       ]);
@@ -100,4 +100,71 @@ test("legacy push synchronization uses IndexedDB committed changes", async ({
       { type: "text", value: "committed" },
     ],
   ]);
+});
+
+test("rejected IndexedDB commits never enter immediate or later legacy change streams", async ({
+  page,
+}) => {
+  const result = await page.evaluate(async () => {
+    const wasm = await import("/pkg/ofdb_wasm.js");
+    await wasm.default();
+    const database = await wasm.SqlDatabase.open("commit-signal");
+    const client = database.client();
+    const staleDatabase = await wasm.SqlDatabase.open("commit-signal");
+    const staleClient = staleDatabase.client();
+    const execute = (handle: any, sql: string) => handle.execute(sql, undefined);
+    const subscription = staleDatabase.sync_changes();
+    try {
+      await execute(
+        client,
+        "CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)",
+      );
+      await execute(client, "INSERT INTO entries VALUES (1, 'initial')");
+
+      const staleTransaction = await staleClient.transaction();
+      await staleTransaction.execute(
+        "UPDATE entries SET value = 'rejected' WHERE id = 1",
+        undefined,
+      );
+      await execute(
+        client,
+        "UPDATE entries SET value = 'durable' WHERE id = 1",
+      );
+      let commitRejected = false;
+      try {
+        await staleTransaction.commit();
+      } catch {
+        commitRejected = true;
+      }
+
+      await execute(
+        staleClient,
+        "UPDATE entries SET value = 'accepted' WHERE id = 1",
+      );
+      const acceptedEvent = await subscription.next_event();
+      await execute(
+        staleClient,
+        "UPDATE entries SET value = 'latest' WHERE id = 1",
+      );
+      const laterEvent = await subscription.next_event();
+      return {
+        commitRejected,
+        acceptedBytes: Array.from(acceptedEvent?.blob ?? []),
+        laterBytes: Array.from(laterEvent?.blob ?? []),
+      };
+    } finally {
+      subscription.free();
+      staleClient.free();
+      client.free();
+      staleDatabase.free();
+      database.free();
+    }
+  });
+
+  const decode = (bytes: number[]) => new TextDecoder().decode(Uint8Array.from(bytes));
+  expect(result.commitRejected).toBe(true);
+  expect(decode(result.acceptedBytes)).toContain("accepted");
+  expect(decode(result.acceptedBytes)).not.toContain("rejected");
+  expect(decode(result.laterBytes)).toContain("latest");
+  expect(decode(result.laterBytes)).not.toContain("rejected");
 });

@@ -7,6 +7,9 @@ use platform::{MaybeSend, MaybeSync};
 
 use futures::Stream;
 
+#[cfg(feature = "std")]
+use btree::{ChangeEvent, ChangeSignal};
+
 use crate::EngineResult;
 
 pub trait KernelTransaction: MaybeSend + MaybeSync {
@@ -65,6 +68,28 @@ pub trait KernelTransaction: MaybeSend + MaybeSync {
     ) -> impl Future<Output = EngineResult<Option<Vec<u8>>>> + MaybeSend;
 
     fn commit(self) -> impl Future<Output = EngineResult<()>> + MaybeSend;
+
+    /// Publishes legacy events only after this transaction commits durably.
+    ///
+    /// # Errors
+    ///
+    /// Returns the transaction commit error and publishes no event on failure.
+    #[cfg(feature = "std")]
+    fn commit_with_events(
+        self,
+        events: Vec<ChangeEvent>,
+        signal: ChangeSignal,
+    ) -> impl Future<Output = EngineResult<()>> + MaybeSend
+    where
+        Self: Sized,
+    {
+        async move {
+            self.commit().await?;
+            signal.committed_with_events(events);
+            Ok(())
+        }
+    }
+
     fn rollback(self) -> impl Future<Output = EngineResult<()>> + MaybeSend;
 }
 

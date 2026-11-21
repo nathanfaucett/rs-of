@@ -37,11 +37,12 @@ Dependencies: Existing SQL history v7 sessions, IndexedDB SQL persistence, Stora
 - Production password-manager qualification or unrelated application features.
 
 ## Current evidence and limits
-## Current evidence and limits
 
-Implemented the public browser SQL history v7 operation with bounded in-memory staging, retained and repaired the legacy committed-change path, switched Storage SDK call sites to v7, preserved the public `DatabaseHandle.sync` workflow, and fixed WASM error wrapping. The real password-manager flow synchronizes create, update, delete, and repeated retries as ciphertext without exposing plaintext or the master password. Existing IndexedDB names, schemas, and retained history are unchanged.
+Implemented the public browser SQL history v7 operation with bounded in-memory staging, retained and repaired the legacy committed-change path, switched Storage SDK call sites to v7, preserved the public `DatabaseHandle.sync` workflow, and fixed WASM error wrapping. Review fixes now publish legacy events only after confirmed durable IndexedDB commits, defer WASM frees during sync settlement, reject oversized/non-byte frames before allocation, and bound attach/receive lifecycle. Both SDK implementations close attached sessions in `finally` and abort/await active synchronization on close. The public history operation uses `JsSqlSyncTransport` and internal `SessionConfig::default()`; the unused history config and duplicate adapter are removed.
 
-The required real-backend Vitest and Playwright suites pass. Focused public IndexedDB, legacy sync, error-wrapper, Rust, feature, and application checks pass with the counts below. This qualifies only the explicit single-Node Chromium workflow. It does not qualify two-Device convergence, continuous delivery, durable replay, other browser engines, or production password-manager use.
+The real password-manager flow synchronizes create, update, delete, and repeated retries as ciphertext without exposing plaintext or the master password. Existing IndexedDB names, schemas, and retained history are unchanged. Storage authorization and execution-time checks are unchanged.
+
+The required real-backend Vitest and Playwright suites pass. Focused public IndexedDB, legacy sync, commit rejection, handle lifetime, frame bound, SDK lifecycle, Rust, feature, and application checks pass with the counts below. This qualifies only the explicit single-Node Chromium workflow. It does not qualify two-Device convergence, continuous delivery, durable replay, other browser engines, or production password-manager use.
 
 ## Comments
 
@@ -65,3 +66,22 @@ Qualification limits:
 - The full sync-sdk and password-manager `biome lint .` scripts stop on pre-existing nested root configurations in `packages/kv` and `packages/sql`. Changed files were linted directly. Full workspace Clippy/CRAP and GitHub Actions were not run.
 - An unrestricted SQL feature-powerset attempt stops at the pre-existing PostgreSQL-only `crate::database` import failure. The engine no-default-feature test target also has a pre-existing missing `vec!` import; relevant facade and library-only feature checks passed instead.
 - A strict focused Clippy `-D warnings` attempt stops on established dependency-version and legacy SQL lint debt. Focused non-denying Clippy completed after the new doc warning was fixed. No unrelated lint cleanup is claimed.
+
+### 2026-11-21 — Consolidated review fixes
+
+- `pnpm --filter @ofsdk/sql run build:all` — passed after review fixes; regenerated WASM, declarations, ESM, and browser artifacts.
+- `SQL_TEST_PAGE=/browser-tests/history-sync.html BROWSER_PATH=/snap/bin/chromium pnpm --filter @ofsdk/sql exec playwright test` with 14 selected files — **54 passed**. New regressions cover rejected commit events, deferred-receive close for legacy and history, and early oversized/non-byte frame rejection. The selected files are `bindings`, `history-sync`, `legacy-sync`, `lifecycle`, `migration-validation`, `migrations`, `parameters`, `row-identities`, `select-transport`, `select-values`, `select`, `sync-error`, `sync-lifetime`, and `transaction-select`.
+- `pnpm --filter @ofsdk/sql check` and `pnpm --filter @ofsdk/sql run lint` — passed. Changed SQL test/source files also passed direct Biome lint.
+- `pnpm --filter @ofsdk/sync-sdk run build:browser`, `pnpm --filter @ofsdk/sync-sdk run build:node`, and `pnpm --filter @ofsdk/sync-sdk test` — passed; **7 tests total**, including stalled-receive and close-during-sync coverage for both browser and Node implementations. Changed lifecycle files passed direct Biome lint with only the four pre-existing unrelated constructor infos.
+- `cargo test -p ofdb-sql-engine` — **3 passed**. `cargo test -p ofdb-sql-engine-automerge` — **34 passed**. `cargo test -p ofdb-sql-history` — **16 passed**. `cargo test -p ofdb-sql --features validated-history,sql,in-memory` — **14 passed, 7 pre-existing ignored**. `cargo test -p of-storage-client --test websocket_sync` — **3 passed**. `RUST_MIN_STACK=67108864 cargo test -p storage-server --features sync ws_` — **9 passed**.
+- `cargo check -p ofdb-btree-indexeddb --target wasm32-unknown-unknown` and `cargo check -p ofdb-sql-engine-indexeddb --target wasm32-unknown-unknown` — passed. `cargo hack check --feature-powerset --depth 1 -p ofdb-sql --exclude-features postgres,remote --all-targets` — **13 configurations passed**. `cargo hack check --feature-powerset --depth 1 -p ofdb-sql-engine -p ofdb-sql-engine-automerge --no-dev-deps --lib` — **6 configurations passed**.
+- Focused Clippy completed for the changed SQL engine, history, browser persistence, and WASM crates; only pre-existing warnings remain. `cargo fmt --all -- --check`, `just docs-check`, and `git diff --check` — passed.
+- `pnpm --filter @ofsdk/password-manager test` — **174 passed, 5 skipped**. `pnpm --filter @ofsdk/password-manager check` — **0 errors, 0 warnings**.
+- `E2E_BACKEND_BIN=./target/debug/unified-server pnpm test:backend` — **9 passed**: app **4**, password-manager **5**. `E2E_BACKEND_BIN=./target/debug/unified-server pnpm test:e2e` — **11 passed** against the rebuilt unified server.
+
+Remaining qualification limits:
+
+- `transactions.test.ts` and `migration-outcomes.test.ts` remain excluded because the base page references absent helpers under `tests/browser/src`. The other 14 browser files pass with real WASM. Do not infer a full `pnpm --filter @ofsdk/sql test` pass.
+- The test harness has no reliable caller-future cancellation seam for the legacy event stream. Issued-commit completion is owned by the existing IndexedDB completion task, but no separate cancellation/completion qualification is claimed. Rejected commits are covered directly.
+- Full workspace Clippy/CRAP and GitHub Actions were not run. Full sync-sdk and password-manager `biome lint .` remain blocked by pre-existing nested root configurations; changed files were linted directly.
+- An unrestricted SQL feature-powerset attempt retains the pre-existing PostgreSQL-only `crate::database` import failure and the engine no-default-feature test target's missing `vec!` import. Relevant facade and library-only feature checks passed instead.

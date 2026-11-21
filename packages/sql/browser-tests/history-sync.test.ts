@@ -11,7 +11,7 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
   const result = await page.evaluate(async () => {
     const {
       Database,
-      JsSqlHistoryTransport,
+      JsSqlSyncTransport,
       SqlHistoryRole,
     } = (window as any).sql;
 
@@ -66,11 +66,11 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       const [aTransport, bTransport] = transportPair();
       await Promise.all([
         a.synchronizeHistory(
-          new JsSqlHistoryTransport(aTransport),
+          new JsSqlSyncTransport(aTransport),
           SqlHistoryRole.Initiator,
         ),
         b.synchronizeHistory(
-          new JsSqlHistoryTransport(bTransport),
+          new JsSqlSyncTransport(bTransport),
           SqlHistoryRole.Responder,
         ),
       ]);
