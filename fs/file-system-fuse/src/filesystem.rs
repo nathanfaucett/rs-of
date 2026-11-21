@@ -8,7 +8,7 @@ use std::{
     num::NonZeroU32,
     sync::{
         Arc, Weak,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, SystemTime},
 };
@@ -58,6 +58,7 @@ where
     gid: u32,
     mount_time: SystemTime,
     mutations: Mutex<()>,
+    accepting: AtomicBool,
     next_handle: AtomicU64,
     files: Mutex<BTreeMap<u64, MountedFile<PeerId>>>,
     open_files: Mutex<BTreeMap<String, WeakFileHandle<PeerId>>>,
@@ -80,6 +81,7 @@ where
             gid,
             mount_time,
             mutations: Mutex::new(()),
+            accepting: AtomicBool::new(true),
             next_handle: AtomicU64::new(1),
             files: Mutex::new(BTreeMap::new()),
             open_files: Mutex::new(BTreeMap::new()),
@@ -91,12 +93,21 @@ where
         self.next_handle.fetch_add(1, Ordering::Relaxed)
     }
 
+    fn ensure_open(&self) -> Result<()> {
+        if self.accepting.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(Errno::from(libc::ECANCELED))
+        }
+    }
+
     async fn insert_file(
         &self,
         path: String,
         handle: LocalFileHandle<PeerId>,
     ) -> Result<(u64, SharedFileHandle<PeerId>)> {
         let mut open_files = self.open_files.lock().await;
+        self.ensure_open()?;
         open_files.retain(|_path, handle| handle.strong_count() != 0);
         let shared = if let Some(shared) = open_files.get(&path).and_then(Weak::upgrade) {
             let guard = shared.lock().await;
@@ -133,6 +144,7 @@ where
 
     async fn insert_directory(&self, entries: Vec<DirectoryEntryPlus>) -> Result<u64> {
         let mut directories = self.directories.lock().await;
+        self.ensure_open()?;
         if directories.len() >= MAX_OPEN_HANDLES {
             return Err(Errno::from(libc::EMFILE));
         }
@@ -143,6 +155,7 @@ where
     }
 
     async fn file(&self, id: u64) -> Result<SharedFileHandle<PeerId>> {
+        self.ensure_open()?;
         self.files
             .lock()
             .await
@@ -182,6 +195,7 @@ where
     }
 
     pub async fn close_all(&self) {
+        self.accepting.store(false, Ordering::Release);
         let _mutation = self.mutations.lock().await;
         let files = mem::take(&mut *self.files.lock().await);
         self.open_files.lock().await.clear();
@@ -195,6 +209,7 @@ where
     }
 
     async fn entry(&self, path: &str) -> Result<Option<Entry<PeerId>>> {
+        self.ensure_open()?;
         if path.is_empty() {
             return Ok(None);
         }
@@ -309,6 +324,7 @@ where
         fh: Option<u64>,
         set_attr: SetAttr,
     ) -> Result<ReplyAttr> {
+        self.state.ensure_open()?;
         if set_attr.mode.is_some()
             || set_attr.uid.is_some()
             || set_attr.gid.is_some()
@@ -996,6 +1012,31 @@ mod tests {
             .expect("size with lock context");
         assert_eq!(reply.attr.size, 4);
         assert_eq!(file_system.read("file").await.expect("new bytes"), b"orig");
+        drop(adapter);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn close_all_rejects_later_opens() {
+        let root = env::temp_dir().join(format!("offs-fuse-close-all-{}", Uuid::now_v7()));
+        let file_system = FileSystem::open(&root, 1_u8).await.expect("open");
+        file_system
+            .set_residency("", file_system::Residency::Full)
+            .await
+            .expect("full residency");
+        file_system.write("file", b"content").await.expect("write");
+        let state = Arc::new(AdapterState::new(file_system.clone(), 0, 0, UNIX_EPOCH));
+        let adapter = FuseFileSystem::new(Arc::clone(&state));
+        state.close_all().await;
+
+        let result = adapter
+            .open(
+                Request::default(),
+                OsStr::new("/file"),
+                libc::O_RDONLY.unsigned_abs(),
+            )
+            .await;
+        assert!(matches!(result, Err(error) if error == Errno::from(libc::ECANCELED)));
         drop(adapter);
         fs::remove_dir_all(root).expect("cleanup");
     }
