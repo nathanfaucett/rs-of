@@ -12,7 +12,7 @@ import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
 import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
 import { ownerAccessToken, usesRemoteApis } from "./idpClient.svelte";
-import { fetchSetupStatus } from "./setupApi";
+import { validateServiceApiUrl } from "./serviceApi";
 
 const deviceApiUrl = createStorage<string | null>(
   "device-api-url",
@@ -83,24 +83,7 @@ export function getDeviceApiUrl(): string | null {
 }
 
 export async function validateDeviceApiUrl(basePath: string): Promise<boolean> {
-  if (!basePath) {
-    return false;
-  }
-  const configuration = new Configuration({
-    ...defaultConfigurationParameters,
-    basePath,
-  });
-  const api = new DefaultApi(configuration);
-
-  try {
-    const version = await api.version();
-    if (version.name === "device-server") return true;
-  } catch {}
-  try {
-    return (await fetchSetupStatus(basePath)).owners.includes("device");
-  } catch {
-    return false;
-  }
+  return validateServiceApiUrl(basePath, "device");
 }
 
 export async function checkStorageSyncCapability(

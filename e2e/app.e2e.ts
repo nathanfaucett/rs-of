@@ -2,6 +2,50 @@ import { expect, test } from "@playwright/test";
 import { appURL, backendURL } from "./backend.mjs";
 import { json, signIn, storageClient } from "./session";
 
+test("invalid service selection opens configuration", async ({ page }) => {
+  await page.goto(`${appURL}/config`);
+  await page.evaluate(() => {
+    localStorage.setItem(
+      "idp-api-url",
+      JSON.stringify("https://invalid.localhost:1355/idp"),
+    );
+  });
+  await page.goto(`${appURL}/`);
+  await expect(page).toHaveURL(`${appURL}/config`);
+  await expect(
+    page.getByRole("heading", { name: "Configuration", exact: true }),
+  ).toBeVisible();
+});
+
+test("configuration discovers and saves unified service URLs", async ({
+  page,
+}) => {
+  await page.goto(`${appURL}/config`);
+  await page
+    .getByRole("button", { name: "Detect services", exact: true })
+    .click();
+  await expect(
+    page.getByText(
+      "Unified services detected. Review the four URLs and save.",
+      {
+        exact: true,
+      },
+    ),
+  ).toBeVisible();
+  for (const [label, owner] of [
+    ["IdP URL", "idp"],
+    ["Management URL", "management"],
+    ["Device API URL", "device"],
+    ["Storage API URL", "storage"],
+  ]) {
+    await expect(
+      page.getByRole("textbox", { name: label, exact: true }),
+    ).toHaveValue(`${backendURL}/${owner}`);
+  }
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page).toHaveURL(/\/signin/);
+});
+
 test("browser sign-in bypasses installation setup and retains its protected session on reload", async ({
   page,
 }) => {

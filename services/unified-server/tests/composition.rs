@@ -73,6 +73,22 @@ async fn portless_server_restarts_with_retained_state() {
             }
             sleep(Duration::from_millis(20)).await;
         }
+        for origin in [
+            "https://of.localhost:1355",
+            "https://password-manager.localhost:1355",
+        ] {
+            let response = client
+                .request(
+                    Method::OPTIONS,
+                    format!("http://127.0.0.1:{port}/idp/oauth2/token"),
+                )
+                .header("origin", origin)
+                .header("access-control-request-method", "POST")
+                .send()
+                .await
+                .expect("default frontend CORS preflight");
+            assert_eq!(response.headers()["access-control-allow-origin"], origin);
+        }
     }
 }
 
@@ -103,6 +119,8 @@ async fn smoke() {
                 &port.to_string(),
                 "--origin",
                 "http://localhost:5173",
+                "--password-manager-origin",
+                "http://localhost:5174",
             ]);
         command.arg("--seed").arg(seed.path());
         let mut server = Server(
