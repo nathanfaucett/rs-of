@@ -17,11 +17,20 @@ All mount mutations share adapter-local coordination, including the rmdir check-
 
 Only the size attribute is mutable. Requests containing mode, ownership, timestamp, or platform flag changes return `ENOSYS` before any requested size change. FUSE lock-owner context is not a persisted attribute. Editor-style truncate-and-write replacement is supported; atomic rename replacement, rename exchange, open-file path traversal after rename, recursive deletion, open-after-unlink guarantees, Passthrough retrieval, network callbacks, automatic synchronization, non-Linux platforms, and complete concurrent-writer POSIX behavior are not supported.
 
+## Native synchronization qualification
+
+Two native Storage Full Replicas passed the real Linux mount workflow over the authorized Iroh filesystem transport with explicit per-peer Resource and operation policy. The scenario covers mounted create/write/truncate/delete/no-replace rename, offline edits on both Replicas, Storage database reopen, convergence through filesystem sync protocol version 1, stable File Entry identities, and unmount during active native synchronization. Existing stores reopen without a schema migration; new operations remain ordinary Content Revisions.
+
+Remote metadata does not materialize content. The caller must use the existing authorized fetch path before lookup, attributes, open, read, or directory iteration can use a newly arrived file. Missing content returns `EIO`, never an empty file. Already retained files remain readable without transport. Policy deselection and Device revocation deny later covered remote operations but do not themselves erase retained local bytes. Resource deletion blocks Resource reopen without promising local or remote erasure. Managed-copy cleanup or retirement enforces local-copy removal and denies mounted operations with `EACCES`.
+
+This is one qualified Linux/Full scenario, not blanket M4 or multi-Device completion. Automatic Full materialization, Passthrough mounts, live kernel notifications, distributed locking, immediate global revocation, Windows, macOS, browser, and other platforms remain unqualified. In-memory transport tests supply focused lifecycle/fault evidence only.
+
 The real kernel tests are ignored by default so environments without FUSE do not report a false pass. Run them explicitly when available:
 
 ```bash
 cargo test -p file-system-fuse --test linux_mount -- --ignored --nocapture --test-threads=1
 cargo test -p file-system-fuse --test linux_hardening -- --ignored --nocapture --test-threads=1
+cargo test -p storage-server real_mount -- --ignored --nocapture --test-threads=1
 ```
 
 Use the crate Rustdoc for the public mount API. Use `file-system` public integration tests for owned local handles and local content-length behavior.
