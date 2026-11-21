@@ -347,7 +347,7 @@ async fn linux_mount_creates_writes_appends_syncs_and_restarts() {
     let guard = mount(file_system, &mountpoint).await.expect("mount");
     let path = mountpoint.join("created.txt");
 
-    let mut stale = fs::OpenOptions::new()
+    let mut second_handle = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create_new(true)
@@ -390,11 +390,10 @@ async fn linux_mount_creates_writes_appends_syncs_and_restarts() {
     let written = retained.entry("created.txt").await.expect("written entry");
     assert_eq!(written.meta.file_id, created.meta.file_id);
     assert_ne!(written.meta.revision, created.meta.revision);
-    assert_eq!(
-        stale.write_all(b"stale").unwrap_err().raw_os_error(),
-        Some(libc::ESTALE)
-    );
-    drop(stale);
+    second_handle
+        .write_all(b"stale")
+        .expect("second handle shares the admitted revision");
+    drop(second_handle);
 
     file.seek(SeekFrom::Start(2)).expect("overwrite seek");
     file.write_all(b"XY").expect("offset overwrite");
@@ -405,7 +404,7 @@ async fn linux_mount_creates_writes_appends_syncs_and_restarts() {
     file.flush().expect("flush writes");
     file.sync_data().expect("fdatasync writes");
     drop(file);
-    let expected = b"QbXYef\0\0z";
+    let expected = b"QtXYef\0\0z";
     assert_eq!(fs::read(&path).expect("offset writes"), expected);
 
     let mut append = fs::OpenOptions::new()
@@ -423,16 +422,12 @@ async fn linux_mount_creates_writes_appends_syncs_and_restarts() {
         .expect("conflicting append open");
     append.write_all(b"!").expect("append write");
     append.sync_all().expect("append fsync");
-    assert_eq!(
-        conflicting_append
-            .write_all(b"stale")
-            .unwrap_err()
-            .raw_os_error(),
-        Some(libc::ESTALE)
-    );
+    conflicting_append
+        .write_all(b"stale")
+        .expect("second append uses the admitted end revision");
     drop(conflicting_append);
     drop(append);
-    let expected = b"QbXYef\0\0z!";
+    let expected = b"QtXYef\0\0z!stale";
     assert_eq!(fs::read(&path).expect("appended content"), expected);
     let appended = retained.entry("created.txt").await.expect("appended entry");
     assert_eq!(appended.meta.file_id, created.meta.file_id);

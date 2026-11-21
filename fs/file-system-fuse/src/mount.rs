@@ -2,6 +2,7 @@ use std::{
     error::Error as StdError,
     fmt, fs, io,
     path::{Path, PathBuf},
+    process::Command,
     sync::Arc,
     time::SystemTime,
 };
@@ -94,19 +95,40 @@ where
 
     /// Stops request processing, closes adapter-owned handles, and unmounts the session.
     ///
-    /// Close operating-system file and directory handles first. Open-file, active-directory,
-    /// and pending-write shutdown hardening are not supported in this increment.
+    /// Admitted handle operations finish before adapter handles close. Open operating-system
+    /// descriptors become unusable. If they keep the normal unmount busy, this falls back to a
+    /// lazy unmount. The caller still owns its synchronization lifecycle.
     ///
     /// # Errors
     ///
     /// Returns an error when the operating system cannot unmount the session.
     pub async fn unmount(mut self) -> io::Result<()> {
-        let result = match self.handle.take() {
-            Some(handle) => handle.unmount().await,
-            None => Ok(()),
-        };
         self.state.close_all().await;
-        result
+        match self.handle.take() {
+            Some(handle) => match handle.unmount().await {
+                Ok(()) => Ok(()),
+                Err(error) => lazy_unmount(&self.mountpoint, &error),
+            },
+            None => Ok(()),
+        }
+    }
+}
+
+fn lazy_unmount(mountpoint: &Path, error: &io::Error) -> io::Result<()> {
+    match Command::new("fusermount3")
+        .arg("-uz")
+        .arg(mountpoint)
+        .status()
+    {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(io::Error::new(
+            error.kind(),
+            format!("{error}; lazy unmount failed with {status}"),
+        )),
+        Err(lazy_error) => Err(io::Error::new(
+            error.kind(),
+            format!("{error}; lazy unmount failed: {lazy_error}"),
+        )),
     }
 }
 
@@ -118,10 +140,11 @@ where
 /// the existing durable Content Revision boundary. Extension zero-fills new bytes. Other attribute
 /// mutations return `ENOSYS` before any requested size change. Directory mutations and no-replace
 /// rename use the existing File System metadata, deletion, and rename contracts and are serialized
-/// only within this adapter. Rename preserves File Entry identities and content without deleting an
-/// occupied destination. Handles remain bound to their opened path and Content Revision: removed
-/// paths return `ENOENT`, and recreated or replaced paths return `ESTALE`. Atomic replacement,
-/// recursive deletion, and open-file path traversal are unsupported. `allow_other` is disabled,
+/// only within this adapter. Handles for one mounted path share their admitted Content Revision;
+/// independent File System callers can still cause `ESTALE`. Rename preserves File Entry identities
+/// and content without deleting an occupied destination. Handles remain bound to their opened path:
+/// removed paths return `ENOENT`, and recreated or replaced paths return `ESTALE`. Atomic replacement,
+/// recursive deletion, distributed locking, and open-file path traversal are unsupported. `allow_other` is disabled,
 /// attribute and entry TTLs are zero, file I/O uses direct I/O, and writeback caching is disabled.
 ///
 /// # Errors

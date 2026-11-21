@@ -7,7 +7,7 @@ use std::{
     mem,
     num::NonZeroU32,
     sync::{
-        Arc,
+        Arc, Weak,
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, SystemTime},
@@ -39,6 +39,16 @@ const NO_CACHE: Duration = Duration::ZERO;
 
 type SharedFileHandle<PeerId> = Arc<Mutex<Option<LocalFileHandle<PeerId>>>>;
 
+type WeakFileHandle<PeerId> = Weak<Mutex<Option<LocalFileHandle<PeerId>>>>;
+
+struct MountedFile<PeerId>
+where
+    PeerId: Clone + fmt::Debug + Ord + Serialize + DeserializeOwned + 'static,
+{
+    path: String,
+    handle: SharedFileHandle<PeerId>,
+}
+
 pub struct AdapterState<PeerId>
 where
     PeerId: Clone + fmt::Debug + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
@@ -49,7 +59,8 @@ where
     mount_time: SystemTime,
     mutations: Mutex<()>,
     next_handle: AtomicU64,
-    files: Mutex<BTreeMap<u64, SharedFileHandle<PeerId>>>,
+    files: Mutex<BTreeMap<u64, MountedFile<PeerId>>>,
+    open_files: Mutex<BTreeMap<String, WeakFileHandle<PeerId>>>,
     directories: Mutex<BTreeMap<u64, Vec<DirectoryEntryPlus>>>,
 }
 
@@ -71,6 +82,7 @@ where
             mutations: Mutex::new(()),
             next_handle: AtomicU64::new(1),
             files: Mutex::new(BTreeMap::new()),
+            open_files: Mutex::new(BTreeMap::new()),
             directories: Mutex::new(BTreeMap::new()),
         }
     }
@@ -79,15 +91,44 @@ where
         self.next_handle.fetch_add(1, Ordering::Relaxed)
     }
 
-    async fn insert_file(&self, handle: LocalFileHandle<PeerId>) -> Result<u64> {
+    async fn insert_file(
+        &self,
+        path: String,
+        handle: LocalFileHandle<PeerId>,
+    ) -> Result<(u64, SharedFileHandle<PeerId>)> {
+        let mut open_files = self.open_files.lock().await;
+        open_files.retain(|_path, handle| handle.strong_count() != 0);
+        let shared = if let Some(shared) = open_files.get(&path).and_then(Weak::upgrade) {
+            let guard = shared.lock().await;
+            let current = guard.as_ref().ok_or_else(|| Errno::from(libc::EBADF))?;
+            if current.revision() != handle.revision() {
+                return Err(Errno::from(libc::ESTALE));
+            }
+            drop(guard);
+            shared
+        } else {
+            let shared = Arc::new(Mutex::new(Some(handle)));
+            open_files.insert(path.clone(), Arc::downgrade(&shared));
+            shared
+        };
         let mut files = self.files.lock().await;
         if files.len() >= MAX_OPEN_HANDLES {
+            if Arc::strong_count(&shared) == 1 {
+                open_files.remove(&path);
+            }
             return Err(Errno::from(libc::EMFILE));
         }
         let id = self.handle_id();
-        files.insert(id, Arc::new(Mutex::new(Some(handle))));
+        files.insert(
+            id,
+            MountedFile {
+                path,
+                handle: Arc::clone(&shared),
+            },
+        );
         drop(files);
-        Ok(id)
+        drop(open_files);
+        Ok((id, shared))
     }
 
     async fn insert_directory(&self, entries: Vec<DirectoryEntryPlus>) -> Result<u64> {
@@ -106,30 +147,47 @@ where
             .lock()
             .await
             .get(&id)
-            .cloned()
+            .map(|file| Arc::clone(&file.handle))
             .ok_or_else(|| Errno::from(libc::EBADF))
     }
 
-    async fn close_file(&self, id: u64) -> Result<()> {
-        let handle = self
-            .files
+    async fn shared_file(&self, path: &str) -> Option<SharedFileHandle<PeerId>> {
+        self.open_files
             .lock()
             .await
-            .remove(&id)
-            .ok_or_else(|| Errno::from(libc::EBADF))?;
-        let handle = handle
+            .get(path)
+            .and_then(Weak::upgrade)
+    }
+
+    async fn close_file(&self, id: u64) -> Result<()> {
+        let mut open_files = self.open_files.lock().await;
+        let mut files = self.files.lock().await;
+        let file = files.remove(&id).ok_or_else(|| Errno::from(libc::EBADF))?;
+        if files
+            .values()
+            .any(|candidate| Arc::ptr_eq(&candidate.handle, &file.handle))
+        {
+            return Ok(());
+        }
+        open_files.remove(&file.path);
+        drop(files);
+        let handle = file
+            .handle
             .lock()
             .await
             .take()
             .expect("open file handle is present");
+        drop(open_files);
         handle.close().await.map_err(errno)
     }
 
     pub async fn close_all(&self) {
+        let _mutation = self.mutations.lock().await;
         let files = mem::take(&mut *self.files.lock().await);
+        self.open_files.lock().await.clear();
         self.directories.lock().await.clear();
-        for (_, handle) in files {
-            let handle = handle.lock().await.take();
+        for (_, file) in files {
+            let handle = file.handle.lock().await.take();
             if let Some(handle) = handle {
                 let _ = handle.close().await;
             }
@@ -275,6 +333,11 @@ where
             let handle = guard.as_mut().ok_or_else(|| Errno::from(libc::EBADF))?;
             handle.truncate(size).await.map_err(errno)?;
             drop(guard);
+        } else if let Some(shared) = self.state.shared_file(&path).await {
+            let mut guard = shared.lock().await;
+            let handle = guard.as_mut().ok_or_else(|| Errno::from(libc::EBADF))?;
+            handle.truncate(size).await.map_err(errno)?;
+            drop(guard);
         } else {
             let mut handle = self
                 .state
@@ -310,19 +373,29 @@ where
         if entry.meta.kind == FileKind::Directory {
             return Err(Errno::from(libc::EISDIR));
         }
-        let mut handle = self
+        let handle = self
             .state
             .file_system
             .open_handle(OpenRequest {
-                path,
+                path: path.clone(),
                 revision: None,
             })
             .await
             .map_err(errno)?;
+        let (fh, shared) = self.state.insert_file(path, handle).await?;
         if truncate {
-            handle.truncate(0).await.map_err(errno)?;
+            let mut guard = shared.lock().await;
+            let result = guard
+                .as_mut()
+                .expect("inserted file handle is present")
+                .truncate(0)
+                .await;
+            drop(guard);
+            if let Err(error) = result {
+                let _ = self.state.close_file(fh).await;
+                return Err(errno(error));
+            }
         }
-        let fh = self.state.insert_file(handle).await?;
         Ok(ReplyOpen {
             fh,
             flags: FOPEN_DIRECT_IO,
@@ -360,7 +433,7 @@ where
             }
             Err(error) => return Err(errno(error)),
         };
-        let mut handle = self
+        let handle = self
             .state
             .file_system
             .open_handle(OpenRequest {
@@ -369,11 +442,27 @@ where
             })
             .await
             .map_err(errno)?;
+        let (fh, shared) = self.state.insert_file(path.clone(), handle).await?;
         if truncate {
-            handle.truncate(0).await.map_err(errno)?;
+            let mut guard = shared.lock().await;
+            let result = guard
+                .as_mut()
+                .expect("inserted file handle is present")
+                .truncate(0)
+                .await;
+            drop(guard);
+            if let Err(error) = result {
+                let _ = self.state.close_file(fh).await;
+                return Err(errno(error));
+            }
         }
-        let attr = self.state.attributes(&path).await?;
-        let fh = self.state.insert_file(handle).await?;
+        let attr = match self.state.attributes(&path).await {
+            Ok(attr) => attr,
+            Err(error) => {
+                let _ = self.state.close_file(fh).await;
+                return Err(error);
+            }
+        };
         Ok(ReplyCreated {
             ttl: NO_CACHE,
             attr,
@@ -522,6 +611,7 @@ where
     ) -> Result<ReplyWrite> {
         let path = path.ok_or_else(Errno::new_not_exist)?;
         let path = relative_path(path)?;
+        let _mutation = self.state.mutations.lock().await;
         let shared = self.state.file(fh).await?;
         let mut guard = shared.lock().await;
         let handle = guard.as_mut().ok_or_else(|| Errno::from(libc::EBADF))?;
@@ -579,6 +669,7 @@ where
         _lock_owner: u64,
         _flush: bool,
     ) -> Result<()> {
+        let _mutation = self.state.mutations.lock().await;
         self.state.close_file(fh).await
     }
 

@@ -171,6 +171,12 @@ where
         Ok(output.freeze())
     }
 
+    /// Returns the Content Revision this handle expects for its next operation.
+    #[must_use]
+    pub const fn revision(&self) -> Uuid {
+        self.revision
+    }
+
     /// Changes the file length and advances this handle to the resulting Content Revision.
     ///
     /// # Errors
