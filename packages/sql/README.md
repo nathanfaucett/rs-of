@@ -28,7 +28,7 @@ Database.open(name: string): Promise<Database>
 database.client(): Client
 database.close(): void
 database.synchronize(transport: JsPushSyncTransport, config: PushSynchronizeConfig): Promise<PushSynchronizeResult>
-database.synchronizeHistory(transport: JsSqlHistoryTransport, role?: SqlHistoryRole, config?: SqlHistoryConfig): Promise<SqlHistoryResult>
+database.synchronizeHistory(transport: JsSqlSyncTransport, role?: SqlHistoryRole): Promise<SqlHistoryResult>
 
 client.execute(sql: string, params?: QueryParams): Promise<Result[]>
 client.executeSql(sql: string, params?: QueryParams): Promise<Result[]>
@@ -88,9 +88,9 @@ are still accepted. Use a fresh database if it has legacy UUIDv5 row history.
 
 `synchronize` is the legacy direct-peer push operation. Its configuration and result are unchanged. IndexedDB construction retains the engine committed-change signal used by this operation. Do not send its v1 messages to a Storage SQL history v7 route.
 
-`synchronizeHistory` is the distinct SQL history v7 operation. `JsSqlHistoryTransport` accepts caller-owned `send(Uint8Array)` and `receive()` methods for ordered byte frames. The default role is `SqlHistoryRole.Initiator`; direct test peers can select `Responder`. The operation calls the canonical Rust history session and resolves only after a complete exchange. It does not implement Storage Hello/Attach framing, token exchange, authorization, or automatic reconnect.
+`JsSqlSyncTransport` accepts caller-owned `send(Uint8Array)` and `receive()` methods for ordered byte frames. Transports must bound each read and every queued frame before buffering. A resolved receive must be a `Uint8Array` no larger than 1 MiB; the binding checks its type and length before allocating or copying. `synchronizeHistory` is the distinct SQL history v7 operation. The default role is `SqlHistoryRole.Initiator`; direct test peers can select `Responder`. The operation calls the canonical Rust history session and resolves only after a complete exchange. It does not implement Storage Hello/Attach framing, token exchange, authorization, or automatic reconnect.
 
-`SqlHistoryConfig` uses the existing defaults: 64 units per frame and 64 MiB for `maxSessionBytes`. Staging is bounded in memory. This browser operation needs no staging directory, native filesystem, or Tokio runtime. A failure rejects with the package `Error`, retaining the exposed WASM message and original cause. An interrupted session can retain earlier complete apply batches; use a fresh transport to reconcile again.
+`synchronizeHistory` uses the existing defaults internally: 64 units per frame and 64 MiB for `maxSessionBytes`. Staging is bounded in memory. This browser operation needs no staging directory, native filesystem, or Tokio runtime. A failure rejects with the package `Error`, retaining the exposed WASM message and original cause. An interrupted session can retain earlier complete apply batches; use a fresh transport to reconcile again.
 
 Opening and synchronizing an existing IndexedDB database does not delete data, change its physical schema, or migrate the vault format. Neither operation starts automatically or provides continuous delivery.
 

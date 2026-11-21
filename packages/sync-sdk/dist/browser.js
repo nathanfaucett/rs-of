@@ -2,8 +2,9 @@
 import { BehaviorSubject, Subject } from "rxjs";
 import { StorageClient } from "@ofsdk/storage-client";
 import { SyncClient } from "@ofsdk/storage-sync-client";
-import { Database, JsSqlHistoryTransport } from "@ofsdk/sql";
+import { Database } from "@ofsdk/sql";
 import { execute } from "./sql";
+import { SqlSyncLifecycle } from "./sql-sync-lifecycle";
 /** Browser sync SDK implementation */
 export class BrowserSyncSDK {
     storageClient;
@@ -176,6 +177,7 @@ class BrowserDatabaseHandle {
     });
     sqlDatabase = null;
     syncClient = null;
+    lifecycle = null;
     closed = false;
     handle;
     config;
@@ -216,36 +218,29 @@ class BrowserDatabaseHandle {
     async sync(_options) {
         if (!this.sqlDatabase || this.closed)
             return;
-        this._state$.next({ ...this._state$.value, status: "connecting" });
-        try {
-            const syncClient = await this.getSyncClient();
-            const syncSession = await syncClient.attach({
-                identity: this.handle.storeIdentity,
-                direction: "Bidirectional",
-            });
-            const transport = new JsSqlHistoryTransport({
-                send: (data) => {
-                    syncSession.send(data);
-                    return Promise.resolve();
-                },
-                receive: () => syncSession.receive(),
-            });
-            await this.sqlDatabase.synchronizeHistory(transport);
-            this._state$.next({ ...this._state$.value, status: "synced" });
-        }
-        catch (error) {
-            this._state$.next({
-                ...this._state$.value,
-                status: "error",
-                error: error,
-            });
-            throw error;
-        }
+        const lifecycle = await this.getSyncLifecycle();
+        await lifecycle.sync();
     }
     async close() {
         this.closed = true;
+        await this.lifecycle?.close();
         this._changes$.complete();
         this._state$.complete();
+    }
+    async getSyncLifecycle() {
+        if (this.lifecycle)
+            return this.lifecycle;
+        const client = await this.getSyncClient();
+        this.lifecycle = new SqlSyncLifecycle(this.sqlDatabase, client, this.handle.storeIdentity, {
+            connecting: () => this._state$.next({ ...this._state$.value, status: "connecting" }),
+            synced: () => this._state$.next({ ...this._state$.value, status: "synced" }),
+            failed: (error) => this._state$.next({
+                ...this._state$.value,
+                status: "error",
+                error,
+            }),
+        });
+        return this.lifecycle;
     }
     async getSyncClient() {
         if (this.syncClient)

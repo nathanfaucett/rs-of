@@ -1,5 +1,7 @@
 use alloc::vec::Vec;
 
+/// Ordered byte frames. Implementations must bound reads and queued frames
+/// before buffering; session size checks happen after transport receipt.
 pub trait SyncTransport {
     type Error;
 

@@ -142,6 +142,20 @@ impl Snapshot {
     pub fn rollback(self) {}
 
     pub async fn commit(self) -> BTreeResult<()> {
+        self.commit_with_events(Vec::new(), ChangeSignal::default())
+            .await
+    }
+
+    /// Publishes legacy events after confirmed persistence, even if the caller drops its future.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the connection is closed, the revision conflicts, or persistence fails.
+    pub async fn commit_with_events(
+        self,
+        events: Vec<btree::ChangeEvent>,
+        signal: ChangeSignal,
+    ) -> BTreeResult<()> {
         platform::ensure_open(&self.database.handle.0).map_err(error)?;
         if self.original == self.tables {
             return Ok(());
@@ -200,7 +214,6 @@ impl Snapshot {
         drop(self.original);
         drop(self.tables);
         let (sender, receiver) = oneshot::channel();
-        let signal = self.database.changes;
         let connection = self.database.handle.clone();
         // Completion owns only the issued persistence and its invalidation, not
         // the caller's snapshot. Cancellation cannot discard the commit outcome.
@@ -208,7 +221,8 @@ impl Snapshot {
             let result = JsFuture::from(promise).await.map_err(error);
             drop(connection);
             if result.is_ok() {
-                signal.committed_with(invalidations);
+                self.database.changes.committed_with(invalidations);
+                signal.committed_with_events(events);
             }
             let _ = sender.send(result.map(|_| ()));
         });
