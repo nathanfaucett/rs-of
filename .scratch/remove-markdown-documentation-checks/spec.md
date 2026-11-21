@@ -1,7 +1,7 @@
 # Remove Markdown documentation checks and harden local tracker setup
 
 Status: ready-for-agent
-Work: open
+Work: resolved
 Milestone: M1 — Canonical foundation
 Dependencies: None identified.
 

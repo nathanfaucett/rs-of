@@ -64,16 +64,6 @@ jobs:
           cache-to: |
             type=gha,scope=ci,mode=max
 
-  docs:
-    name: Documentation links
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - *checkout
-
-      - name: Check Markdown local links and anchors
-        run: python3 scripts/check_docs.py
-
   fmt:
     name: Rust formatting
     needs: ci-image
@@ -205,7 +195,7 @@ jobs:
 
   e2e:
     name: Real backend E2E
-    needs: [ci-image, docs, cargo-tests, openapi]
+    needs: [ci-image, cargo-tests, openapi]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

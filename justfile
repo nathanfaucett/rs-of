@@ -18,7 +18,6 @@ help:
     @printf "  clean          Remove build artifacts\n"
     @printf "  doc            Build workspace documentation\n"
     @printf "  boundary-check Check server dependency boundaries\n"
-    @printf "  docs-check     Check Markdown local links and anchors\n"
     @printf "  sdk-build      Build TypeScript SDK packages\n"
     @printf "  build-wasm     Build all WASM crates for wasm32-unknown-unknown\n"
     @printf "  test-wasm      Run browser tests for WASM crates\n"
@@ -80,9 +79,6 @@ doc:
 
 boundary-check:
     python3 scripts/check_server_dependencies.py
-
-docs-check:
-    python3 scripts/check_docs.py
 
 # TypeScript/WASM
 npm-install:

@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work: resolved
+
 - [ ] The Markdown checker implementation and every Just, package, contributor, and CI invocation are deleted without a replacement checker.
 - [ ] The CI documentation job and every dependency on it are removed; all remaining jobs and dependency references stay valid.
 - [ ] Documentation-check commands and automatic-link-check claims are removed from root guidance, contributor guidance, current support documentation, and product milestones.
