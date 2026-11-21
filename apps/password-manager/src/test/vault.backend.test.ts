@@ -41,6 +41,15 @@ test("encrypted vault CRUD reaches real Storage and rejects a wrong password", a
     expect(remote.results[0].rows).toHaveLength(1);
     expect(JSON.stringify(remote)).not.toContain("E2E private note");
     expect(JSON.stringify(remote)).not.toContain(password);
+    await handle.sync({ direction: "push" });
+    const repeated = await storage.executeSql(
+      handle.id,
+      { statements: [{ sql: "SELECT ciphertext FROM secrets", params: [] }] },
+      ["read"]
+    );
+    expect(repeated.results[0].rows).toEqual(remote.results[0].rows);
+    expect(JSON.stringify(repeated)).not.toContain("E2E private note");
+    expect(JSON.stringify(repeated)).not.toContain(password);
     await expect(unlockSyncVault("wrong-password", vault.id, handle)).rejects.toThrow();
     const reopened = await unlockSyncVault(password, vault.id, handle);
     expect(reopened).not.toBeNull();
@@ -57,6 +66,16 @@ test("encrypted vault CRUD reaches real Storage and rejects a wrong password", a
     expect(updated.results[0].rows).toHaveLength(1);
     expect(updated.results[0].rows).not.toEqual(remote.results[0].rows);
     expect(JSON.stringify(updated)).not.toContain("Updated private note");
+    expect(JSON.stringify(updated)).not.toContain(password);
+    await handle.sync({ direction: "push" });
+    const repeatedUpdate = await storage.executeSql(
+      handle.id,
+      { statements: [{ sql: "SELECT ciphertext FROM secrets", params: [] }] },
+      ["read"]
+    );
+    expect(repeatedUpdate.results[0].rows).toEqual(updated.results[0].rows);
+    expect(JSON.stringify(repeatedUpdate)).not.toContain("Updated private note");
+    expect(JSON.stringify(repeatedUpdate)).not.toContain(password);
     await reopened.deleteSecret(item.id);
     await handle.sync({ direction: "push" });
     expect(await reopened.loadSecrets()).toEqual([]);
@@ -66,6 +85,14 @@ test("encrypted vault CRUD reaches real Storage and rejects a wrong password", a
       ["read"]
     );
     expect(deleted.results[0].rows).toEqual([]);
+    await handle.sync({ direction: "push" });
+    const repeatedDelete = await storage.executeSql(
+      handle.id,
+      { statements: [{ sql: "SELECT ciphertext FROM secrets", params: [] }] },
+      ["read"]
+    );
+    expect(repeatedDelete.results[0].rows).toEqual([]);
+    expect(JSON.stringify(repeatedDelete)).not.toContain(password);
   } finally {
     await sdk.close();
     await storage.deleteDatabase(handle.id);

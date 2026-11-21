@@ -236,12 +236,7 @@ test harness used 16 MiB. No default-stack guarantee is claimed.
 
 ### Browser checked synchronization
 
-Add `sync` to `indexeddb` to use the existing checked broad, selected and fixed-schema
-scoped APIs, including historical-value and complete-candidate validation. The SQL
-wire protocol remains v7; native snapshots, incremental changes, UUID identities,
-Tombstones and catalog formats are unchanged. Natural and composite primary keys
-remain immutable and distinct from internal row identities; only a single UUID
-primary key supplies that identity.
+Add `sync` to `indexeddb` to use `Database::exchange_resource_history_memory` for a broad SQL history v7 exchange. The browser WASM binding calls this same canonical session with a caller-supplied byte transport and initiator role by default. The wire protocol, native snapshots, incremental changes, UUID identities, Tombstones and catalog formats are unchanged. Natural and composite primary keys remain immutable and distinct from internal row identities; only a single UUID primary key supplies that identity.
 
 Sessions reuse bounded memory staging (`SessionConfig::max_session_bytes`, default
 64 MiB) and existing checked atomic apply. File stage types and stage-directory

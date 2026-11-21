@@ -2,7 +2,7 @@
 import { BehaviorSubject, Subject } from "rxjs";
 import { StorageClient } from "@ofsdk/storage-client";
 import { SyncClient } from "@ofsdk/storage-sync-client";
-import { Database, JsPushSyncTransport, PushSynchronizeConfig, } from "@ofsdk/sql";
+import { Database, JsSqlHistoryTransport } from "@ofsdk/sql";
 import { execute } from "./sql";
 /** Browser sync SDK implementation */
 export class BrowserSyncSDK {
@@ -223,14 +223,14 @@ class BrowserDatabaseHandle {
                 identity: this.handle.storeIdentity,
                 direction: "Bidirectional",
             });
-            const transport = new JsPushSyncTransport({
+            const transport = new JsSqlHistoryTransport({
                 send: (data) => {
                     syncSession.send(data);
                     return Promise.resolve();
                 },
                 receive: () => syncSession.receive(),
             });
-            await this.sqlDatabase.synchronize(transport, new PushSynchronizeConfig());
+            await this.sqlDatabase.synchronizeHistory(transport);
             this._state$.next({ ...this._state$.value, status: "synced" });
         }
         catch (error) {

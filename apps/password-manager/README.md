@@ -25,6 +25,12 @@ This is the accepted target, not a claim that every step works now. See [product
 
 OIDC authenticates the User and Application. It does not decrypt vaults, approve Devices, or select Resources.
 
+## Qualified single-Node synchronization
+
+The real-backend Chromium scenario creates an encrypted IndexedDB vault, signs in with OIDC, and explicitly synchronizes through the public sync SDK to one local Sync Server. Create, update, delete, and repeated synchronization complete through SQL history v7. The test reads changed ciphertext through the public Storage API, checks repeat idempotency, and verifies that plaintext records and the master password are absent. It also rejects a wrong password and reopens with the correct password.
+
+This is explicit single-Node behavior, not continuous delivery, two-Device convergence, durable replay, or production password-manager qualification.
+
 ## Local development
 
 Use the toolchain versions in `rust-toolchain.toml`, `.nvmrc`, and the root contributor guide. From the repository root:

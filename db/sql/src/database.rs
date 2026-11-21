@@ -392,10 +392,12 @@ impl Database {
     pub async fn open_indexeddb(name: &str) -> SqlResult<Self> {
         let kernel = IndexedDbKernel::open(name).await.map_err(from_engine)?;
         let engine = Engine::new(kernel, AutomergeRowCodec::new());
+        #[cfg(feature = "sync")]
+        let changes = engine.change_signal().clone();
         Ok(Self {
             backend: DatabaseBackend::IndexedDb(engine),
             #[cfg(feature = "sync")]
-            changes: None,
+            changes: Some(changes),
         })
     }
 
@@ -936,3 +938,11 @@ fn native_error(error: io::Error) -> QueryError {
 #[cfg(all(feature = "validated-history", not(target_arch = "wasm32")))]
 #[path = "history_session.rs"]
 mod history_session;
+
+#[cfg(all(
+    feature = "validated-history",
+    target_arch = "wasm32",
+    target_os = "unknown"
+))]
+#[path = "browser_history_session.rs"]
+mod browser_history_session;

@@ -34,4 +34,6 @@ Transport choice does not require one shared physical database or one database f
 
 Protocol unit tests, an attached browser session, and a synchronized SQL result establish different facts. KV, filesystem metadata, and filesystem content require their own evidence. Do not infer backup or multi-Device authorization from a mounted route.
 
+The password-manager reference scenario qualifies explicit single-Node encrypted-vault create, update, delete, and repeated synchronization through the public browser SDK and this WebSocket route. It checks remote ciphertext and plaintext/master-password absence. This does not qualify continuous delivery, two-Device convergence, durable replay, or other browser engines.
+
 GitHub Actions records qualification results for each tested commit. Do not present a past run as current evidence.
