@@ -5,7 +5,7 @@
 **Blocked by:** 03: Truncate mounted files; 05: Rename files and directory trees without replacement
 
 **Status:** ready-for-agent
-Work: in progress
+Work: resolved
 
 **Scope limits:** No distributed lock manager, complete POSIX concurrency or open-file model, new remote-change feed, kernel-notification optimization, or write-performance redesign.
 

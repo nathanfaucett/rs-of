@@ -5,7 +5,7 @@
 **Blocked by:** 01: Mount and read a Full-residency File System
 
 **Status:** ready-for-agent
-**Work:** in progress
+Work: resolved
 
 **Scope limits:** No truncate, directory mutation, rename replacement, write coalescing, Content Revision garbage collection, Passthrough writes, or claim of complete concurrent-writer POSIX behavior.
 

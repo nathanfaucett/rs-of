@@ -5,7 +5,7 @@
 **Blocked by:** 04: Mutate mounted directories
 
 **Status:** ready-for-agent
-**Work:** in progress
+Work: resolved
 
 **Scope limits:** No atomic destination replacement, rename exchange, complete open-file semantics after rename or unlink, hard links, or cross-Replica atomicity.
 

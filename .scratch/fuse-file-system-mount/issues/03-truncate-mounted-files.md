@@ -5,7 +5,7 @@
 **Blocked by:** 02: Create and write mounted files
 
 **Status:** ready-for-agent
-**Work:** in progress
+Work: resolved
 
 **Scope limits:** No chmod, chown, timestamp updates, atomic rename replacement, delayed write buffering, or new persisted metadata or synchronization schema.
 
@@ -24,7 +24,6 @@
 - [x] Focused backend and real-mount tests, fault tests, formatting, relevant feature and Clippy checks, and documentation checks pass with unrun qualification recorded.
 
 # Comments
-
 
 - 2026-11-20: Implemented public revision-checked `FileSystem::truncate` and owned-handle truncation with resulting-revision updates. Native, shared, and browser staged stores implement shrink and zero-fill extension. Content sync, publication, and metadata retain the existing order and cleanup behavior. FUSE open/create `O_TRUNC` and path/descriptor size setattr use the same operation; unsupported attribute components return `ENOSYS` before size mutation. FUSE lock-owner context is ignored because it is not an attribute mutation.
 - Core validation: `cargo test -p file-system --all-targets` passed all 81 tests. `cargo hack test --feature-powerset -p file-system --all-targets` passed all four feature combinations with 81 tests each. Coverage includes current/stale revisions, Full/Passthrough enforcement, stable identity, shrink/extension/zero length, subsequent owned-handle I/O, native/shared restart, every write/sync/publish/metadata fault checkpoint, and explicit version-1 metadata sync plus content fetch of a truncate revision.

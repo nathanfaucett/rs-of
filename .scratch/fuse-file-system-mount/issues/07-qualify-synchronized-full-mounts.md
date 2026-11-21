@@ -5,7 +5,7 @@
 **Blocked by:** 06: Harden concurrent mount operations and shutdown
 
 **Status:** ready-for-agent
-Work: in progress
+Work: resolved
 
 **Scope limits:** No Passthrough fetching, automatic Full-content materialization, live kernel notifications, new sync protocol, claim of immediate global revocation, or blanket completion of every M4 filesystem scenario.
 

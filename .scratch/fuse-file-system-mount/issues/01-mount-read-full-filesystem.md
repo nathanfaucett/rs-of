@@ -5,7 +5,7 @@
 **Blocked by:** None (can start immediately)
 
 **Status:** ready-for-agent
-**Work:** in progress
+Work: resolved
 
 **Scope limits:** No file creation or mutation, Passthrough retrieval, network callbacks, automatic synchronization, non-Linux qualification, or complete POSIX claim.
 

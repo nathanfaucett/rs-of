@@ -5,7 +5,7 @@
 **Blocked by:** 01: Mount and read a Full-residency File System
 
 **Status:** ready-for-agent
-**Work:** in progress
+Work: resolved
 
 **Scope limits:** No rename, recursive delete, atomic rename replacement, global atomicity against independent File System callers or remote Replicas, or open-after-unlink guarantee.
 
