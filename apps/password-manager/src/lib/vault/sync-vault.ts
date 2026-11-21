@@ -166,52 +166,39 @@ export class SyncVaultHandle implements VaultHandleLike {
     const current = await this.itemSnapshot();
     validateItemSnapshot(current);
 
-    await this.handle.execute("BEGIN TRANSACTION");
-    try {
-      if (mutation.folders?.length) {
-        for (const folder of mutation.folders) {
-          const encrypted = await encrypt(this.key, JSON.stringify(folder));
-          await this.handle.execute(
-            `INSERT INTO folders (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`,
-            [folder.id, this.meta.id, encrypted.ciphertext, encrypted.nonce, new Date().toISOString(), new Date().toISOString()],
-          );
-        }
-      }
+    const statements: string[] = [];
+    const params: unknown[] = [];
 
-      if (mutation.upsert?.length) {
-        for (const item of mutation.upsert) {
-          const encrypted = await encrypt(this.key, JSON.stringify(item));
-          await this.handle.execute(
-            `INSERT INTO secrets (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`,
-            [item.id, this.meta.id, encrypted.ciphertext, encrypted.nonce, new Date().toISOString(), new Date().toISOString()],
-          );
-        }
-      }
+    for (const folder of mutation.folders ?? []) {
+      const encrypted = await encrypt(this.key, JSON.stringify(folder));
+      statements.push(
+        `INSERT INTO folders (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`,
+      );
+      params.push(folder.id, this.meta.id, encrypted.ciphertext, encrypted.nonce, new Date().toISOString(), new Date().toISOString());
+    }
 
-      if (mutation.deleteIds?.length) {
-        for (const id of mutation.deleteIds) {
-          await this.handle.execute(
-            `DELETE FROM secrets WHERE id = ? AND vault_id = ?`,
-            [id, this.meta.id],
-          );
-        }
-      }
+    for (const item of mutation.upsert ?? []) {
+      const encrypted = await encrypt(this.key, JSON.stringify(item));
+      statements.push(
+        `INSERT INTO secrets (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`,
+      );
+      params.push(item.id, this.meta.id, encrypted.ciphertext, encrypted.nonce, new Date().toISOString(), new Date().toISOString());
+    }
 
-      if (mutation.deleteFolderIds?.length) {
-        for (const id of mutation.deleteFolderIds) {
-          await this.handle.execute(
-            `DELETE FROM folders WHERE id = ? AND vault_id = ?`,
-            [id, this.meta.id],
-          );
-        }
-      }
+    for (const id of mutation.deleteIds ?? []) {
+      statements.push("DELETE FROM secrets WHERE id = ? AND vault_id = ?");
+      params.push(id, this.meta.id);
+    }
 
-      await this.handle.execute("COMMIT");
-    } catch (error) {
-      await this.handle.execute("ROLLBACK");
-      throw error;
+    for (const id of mutation.deleteFolderIds ?? []) {
+      statements.push("DELETE FROM folders WHERE id = ? AND vault_id = ?");
+      params.push(id, this.meta.id);
+    }
+
+    if (statements.length) {
+      await this.handle.execute(statements.join("; "), params);
     }
   }
 

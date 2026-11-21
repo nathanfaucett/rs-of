@@ -4,6 +4,8 @@ mod kv;
 mod sql;
 mod sql_migration;
 mod sync;
+#[cfg(feature = "sync")]
+mod sql_history;
 mod value;
 
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -20,6 +22,10 @@ pub use sync::{
     KvChangeSubscription, SqlChangeSubscription,
     JsKvSyncError, JsKvSyncErrorKind, JsKvSyncTransport,
     JsSqlSyncError, JsSqlSyncErrorKind, JsSqlSyncTransport,
+};
+#[cfg(feature = "sync")]
+pub use sql_history::{
+    JsSqlHistoryError, JsSqlHistoryTransport, SqlHistoryConfig, SqlHistoryResult, SqlHistoryRole,
 };
 pub use kv::{KvClient, KvDatabase, KvTransaction};
 pub use sql::{SqlClient, SqlDatabase, SqlTransaction};

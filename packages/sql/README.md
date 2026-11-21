@@ -27,6 +27,8 @@ a build: retain its checksum. No database format migration is provided.
 Database.open(name: string): Promise<Database>
 database.client(): Client
 database.close(): void
+database.synchronize(transport: JsPushSyncTransport, config: PushSynchronizeConfig): Promise<PushSynchronizeResult>
+database.synchronizeHistory(transport: JsSqlHistoryTransport, role?: SqlHistoryRole, config?: SqlHistoryConfig): Promise<SqlHistoryResult>
 
 client.execute(sql: string, params?: QueryParams): Promise<Result[]>
 client.executeSql(sql: string, params?: QueryParams): Promise<Result[]>
@@ -81,6 +83,16 @@ For a table whose primary key is a single UUID column, omit that column or use
 `DEFAULT` on insert. Use `RETURNING` to get the generated UUIDv7. Explicit UUID
 primary keys are rejected. UUID values in other columns and in composite keys
 are still accepted. Use a fresh database if it has legacy UUIDv5 row history.
+
+## Synchronization
+
+`synchronize` is the legacy direct-peer push operation. Its configuration and result are unchanged. IndexedDB construction retains the engine committed-change signal used by this operation. Do not send its v1 messages to a Storage SQL history v7 route.
+
+`synchronizeHistory` is the distinct SQL history v7 operation. `JsSqlHistoryTransport` accepts caller-owned `send(Uint8Array)` and `receive()` methods for ordered byte frames. The default role is `SqlHistoryRole.Initiator`; direct test peers can select `Responder`. The operation calls the canonical Rust history session and resolves only after a complete exchange. It does not implement Storage Hello/Attach framing, token exchange, authorization, or automatic reconnect.
+
+`SqlHistoryConfig` uses the existing defaults: 64 units per frame and 64 MiB for `maxSessionBytes`. Staging is bounded in memory. This browser operation needs no staging directory, native filesystem, or Tokio runtime. A failure rejects with the package `Error`, retaining the exposed WASM message and original cause. An interrupted session can retain earlier complete apply batches; use a fresh transport to reconcile again.
+
+Opening and synchronizing an existing IndexedDB database does not delete data, change its physical schema, or migrate the vault format. Neither operation starts automatically or provides continuous delivery.
 
 ## Typed reads
 
@@ -421,5 +433,4 @@ It replaces only its generated
 `artifacts/consumer/` directory.
 
 Output: `packages/sql/artifacts/ofdb-sql-0.1.0.tgz`. The raw binary is
-`packages/sql/pkg/ofdb_wasm_bg.wasm`. This qualification does not include sync,
-app integration, the KV JS wrapper, or a different browser engine.
+`packages/sql/pkg/ofdb_wasm_bg.wasm`. The browser suite also covers direct v7 and legacy synchronization between IndexedDB Databases. Real-backend application synchronization has separate evidence in the E2E setup. This qualification does not include the KV JS wrapper, a different browser engine, continuous delivery, or multi-Device convergence.

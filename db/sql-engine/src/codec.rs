@@ -75,6 +75,16 @@ where
         value: &Row,
         changed_columns: &[usize],
     ) -> impl Future<Output = EngineResult<Vec<u8>>> + MaybeSend;
+    /// Decodes one committed row payload into raw native changes for legacy push sync.
+    /// The default preserves the existing payload for codecs without a native decoder.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the codec cannot decode its committed row payload.
+    #[cfg(feature = "std")]
+    fn committed_changes(&self, value: &[u8]) -> EngineResult<Vec<Vec<u8>>> {
+        Ok(Vec::from([value.to_vec()]))
+    }
     /// User-table catalogs contain every live table and field row from this operation's snapshot.
     fn conflicted_columns(
         &self,

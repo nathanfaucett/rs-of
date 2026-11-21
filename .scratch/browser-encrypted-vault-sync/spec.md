@@ -1,7 +1,7 @@
 # Synchronize encrypted browser vaults through Storage SQL history v7
 
 Status: ready-for-agent
-Work: open
+Work: resolved
 Milestone: M2 — Single-Node encrypted synchronization
 Dependencies: Existing SQL history v7 sessions, IndexedDB SQL persistence, Storage WebSocket synchronization, and real-backend browser runners. No new external service is required.
 

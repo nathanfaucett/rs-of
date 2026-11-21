@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>SQL history synchronization qualification</title>
+<script type="module">
+    import * as sql from "../browser/index.js";
+    window.sql = sql;
+    window.makeSqlWorker = () =>
+        new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+</script>

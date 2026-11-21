@@ -314,16 +314,18 @@ where
             let mut events = Vec::new();
             for change in &self.changes {
                 let crate::ChangeKey::Row { table, row } = &change.key;
-                if let Some(blob) = &change.value {
+                if let Some(value) = &change.value {
                     let storage_key = StorageKey {
                         table: table.clone(),
                         key: row.as_bytes().to_vec(),
                     };
-                    events.push(ChangeEvent {
-                        key: storage_key,
-                        blob: blob.clone(),
-                        generation: 0, // TODO: use proper generation
-                    });
+                    for blob in self.engine.reconciler.committed_changes(value)? {
+                        events.push(ChangeEvent {
+                            key: storage_key.clone(),
+                            blob,
+                            generation: 0, // TODO: use proper generation
+                        });
+                    }
                 }
             }
             if !events.is_empty() {

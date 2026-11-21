@@ -1,5 +1,4 @@
-export type DbErrorKind =
-  "timeout" | "query" | "connect" | "transport" | "internal";
+export type DbErrorKind = "timeout" | "query" | "connect" | "transport" | "internal";
 
 /** Base error for all @ofsdk/sql operations. */
 export class DbError extends globalThis.Error {
@@ -36,12 +35,16 @@ export class CommitError extends SqlError {
 export { SqlError as Error };
 
 /** Wrap a raw WASM/JS error into a typed DbError subclass. */
-export function wrapError(
-  error: unknown,
-  fallback: typeof SqlError = SqlError,
-): DbError {
+export function wrapError(error: unknown, fallback: typeof SqlError = SqlError): DbError {
   if (error instanceof DbError) return error;
   const message =
-    error instanceof globalThis.Error ? error.message : String(error);
+    error instanceof globalThis.Error
+      ? error.message
+      : typeof error === "object" &&
+          error !== null &&
+          "message" in error &&
+          typeof error.message === "string"
+        ? error.message
+        : String(error);
   return new fallback("internal", message, { cause: error });
 }

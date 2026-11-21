@@ -5,7 +5,11 @@ import { loadWasm } from "./wasm.js";
 import { wrapError, Error as SqlError } from "./error.js";
 import {
   JsPushSyncTransport,
+  JsSqlHistoryTransport,
   JsSqlSyncTransport,
+  SqlHistoryConfig,
+  SqlHistoryResult,
+  SqlHistoryRole,
   SqlSyncRole,
   JsSqlSyncError,
   PushConfig,
@@ -45,10 +49,23 @@ export class Database {
   /** Synchronize with a remote peer using the given transport. */
   async synchronize(
     transport: JsPushSyncTransport,
-    config: PushSynchronizeConfig,
+    config: PushSynchronizeConfig
   ): Promise<PushSynchronizeResult> {
     try {
       return await this.handle.get().synchronize(transport, config);
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
+
+  /** Exchange SQL history v7 over caller-supplied byte frames. */
+  async synchronizeHistory(
+    transport: JsSqlHistoryTransport,
+    role: SqlHistoryRole = SqlHistoryRole.Initiator,
+    config: SqlHistoryConfig = new SqlHistoryConfig()
+  ): Promise<SqlHistoryResult> {
+    try {
+      return await this.handle.get().synchronize_history(transport, config, role);
     } catch (error) {
       throw wrapError(error, SqlError);
     }
@@ -58,7 +75,11 @@ export class Database {
 // Re-export sync types and values
 export {
   JsPushSyncTransport,
+  JsSqlHistoryTransport,
   JsSqlSyncTransport,
+  SqlHistoryConfig,
+  SqlHistoryResult,
+  SqlHistoryRole,
   SqlSyncRole,
   JsSqlSyncError,
   PushConfig,

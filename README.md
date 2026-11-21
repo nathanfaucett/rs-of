@@ -15,7 +15,7 @@ The repository is migrating to the [accepted target architecture](docs/architect
 | Local encrypted password vault         | Development reference application, not a production password manager                                            |
 | Shared multi-User Installation Devices | Accepted target; migration is incomplete                                                                        |
 | Two-Device offline convergence         | Not qualified                                                                                                   |
-| Browser synchronization                | Incomplete; do not infer support from transport packages alone                                                  |
+| Browser synchronization                | Single-Node encrypted-vault sync passes real-backend Chromium tests; broader browser support remains incomplete |
 | Independent and desktop deployments    | Retain implementation paths, but current end-to-end qualification is not established                            |
 
 GitHub Actions records current and historical check results.

@@ -28,6 +28,7 @@ sync = [
     "in-memory",
 ]
 wasm = [
+    "validated-history",
     "dep:platform",
     "dep:sync",
     "sync/wasm",

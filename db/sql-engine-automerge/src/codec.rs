@@ -911,6 +911,14 @@ where
         Self::encode_incremental(columns.len(), &document.save_after(&previous_heads))
     }
 
+    fn committed_changes(&self, value: &[u8]) -> EngineResult<Vec<Vec<u8>>> {
+        let (_, incremental) = Self::decode_incremental(value)?;
+        Ok(Self::native_changes(incremental)?
+            .iter()
+            .map(|change| change.raw_bytes().to_vec())
+            .collect())
+    }
+
     async fn conflicted_columns(
         &self,
         transaction: &T,
