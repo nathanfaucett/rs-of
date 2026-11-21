@@ -441,6 +441,21 @@ impl FileSystemHandle {
         file_system.read(&path).await.map_err(error_value)
     }
 
+    pub async fn create_file(&self, path: String) -> Result<JsValue, JsValue> {
+        let file_system = self.borrowed()?;
+        let entry = file_system.create_file(&path).await.map_err(error_value)?;
+        let wasm_entry = WasmEntry {
+            path: entry.path,
+            meta: FileEntryMeta {
+                file_id: entry.meta.file_id,
+                revision: entry.meta.revision,
+                kind: entry.meta.kind,
+                mode: entry.meta.mode,
+            },
+        };
+        js_value(&wasm_entry)
+    }
+
     pub async fn write(&self, path: String, data: Vec<u8>) -> Result<JsValue, JsValue> {
         let file_system = self.borrowed()?;
         let entry = file_system.write(&path, &data).await.map_err(error_value)?;

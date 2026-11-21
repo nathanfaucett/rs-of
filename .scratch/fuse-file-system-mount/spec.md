@@ -1,7 +1,7 @@
 # Mount Full-residency File Systems with FUSE
 
 Status: ready-for-agent
-Work: open
+Work: resolved
 Milestone: M4 — Additional resource and client support
 Dependencies: Existing File System public contracts; a Linux FUSE runtime and unprivileged mount support for real-mount qualification; fuse3 0.10 with its Tokio runtime.
 

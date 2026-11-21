@@ -8,15 +8,16 @@ The reference workflow is an encrypted password vault that works on one Device w
 
 The repository is migrating to the [accepted target architecture](docs/architecture.md). Target design is not a claim of completed implementation.
 
-| Area                                   | Current state                                                                                                   |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Local unified backend                  | Available for loopback development; mounts IdP, Management, Device, and Storage APIs                            |
-| OIDC and remote Storage SQL            | Discovery, consent/PKCE sign-in, session reload, and remote Storage SQL CRUD pass real-backend Playwright tests |
-| Local encrypted password vault         | Development reference application, not a production password manager                                            |
-| Shared multi-User Installation Devices | Accepted target; migration is incomplete                                                                        |
-| Two-Device offline convergence         | Not qualified                                                                                                   |
-| Browser synchronization                | Incomplete; do not infer support from transport packages alone                                                  |
-| Independent and desktop deployments    | Retain implementation paths, but current end-to-end qualification is not established                            |
+| Area                                   | Current state                                                                                                                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local unified backend                  | Available for loopback development; mounts IdP, Management, Device, and Storage APIs                                                                                            |
+| OIDC and remote Storage SQL            | Discovery, consent/PKCE sign-in, session reload, and remote Storage SQL CRUD pass real-backend Playwright tests                                                                 |
+| Local encrypted password vault         | Development reference application, not a production password manager                                                                                                            |
+| Shared multi-User Installation Devices | Accepted target; migration is incomplete                                                                                                                                        |
+| Two-Device offline convergence         | Not qualified                                                                                                                                                                   |
+| Browser synchronization                | Incomplete; do not infer support from transport packages alone                                                                                                                  |
+| Linux FUSE mounts                      | Full Residency only; local file/directory operations and one authorized native two-Full sync/reopen scenario pass real mounts; broader multi-Device support remains unqualified |
+| Independent and desktop deployments    | Retain implementation paths, but current end-to-end qualification is not established                                                                                            |
 
 GitHub Actions records current and historical check results.
 

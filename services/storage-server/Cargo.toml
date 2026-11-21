@@ -178,5 +178,9 @@ version = "0.29"
 default-features = false
 features = ["connect", "rustls-tls-native-roots"]
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+file-system-fuse = { path = "../../fs/file-system-fuse", default-features = false }
+libc = { version = "0.2", default-features = false }
+
 [lints]
 workspace = true

@@ -1,0 +1,47 @@
+[package]
+name = "file-system-fuse"
+version.workspace = true
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["filesystem", "fuse", "linux", "offline-first"]
+categories = ["filesystem"]
+rust-version.workspace = true
+description = "Linux FUSE adapter for Full-residency file systems"
+
+[lib]
+name = "file_system_fuse"
+
+[dependencies]
+# Internal
+file-system = { path = "../file-system", default-features = false }
+
+# FUSE
+fuse3 = { version = "0.10", default-features = false, features = [
+    "tokio-runtime",
+    "unprivileged",
+] }
+libc = { version = "0.2", default-features = false }
+nix = { version = "0.31", default-features = false, features = ["user"] }
+
+# Async
+futures-util = { version = "0.3", default-features = false, features = [
+    "alloc",
+] }
+tokio = { version = "1.52", default-features = false, features = ["sync"] }
+
+# Serialization
+serde = { version = "1.0", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+tokio = { version = "1.52", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+    "time",
+] }
+uuid = { version = "1.29", default-features = false, features = ["v7"] }
+
+[lints]
+workspace = true

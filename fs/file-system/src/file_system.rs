@@ -19,7 +19,7 @@ use ofdb_platform::{MaybeSend, MaybeSync};
 use crate::{
     Error, FileKind, FileMeta, OperationControl, RemoteOperation, Residency,
     content::{ContentObject, StagedObject},
-    file_service::{ScanPage, scan_page},
+    file_service::{LocalFileHandle, ScanPage, scan_page},
     managed_copy::{ManagedCopy, Storage},
     path::{directory, file},
     residency::ResidencyRules,
@@ -230,7 +230,7 @@ where
     pub async fn open_handle(
         &self,
         request: crate::OpenRequest,
-    ) -> Result<crate::LocalFileHandle<'_, PeerId>, Error> {
+    ) -> Result<crate::LocalFileHandle<PeerId>, Error> {
         self.access().await?.open_handle(request).await
     }
 
@@ -241,6 +241,15 @@ where
     /// Returns an error for an invalid or missing path or a storage failure.
     pub async fn entry(&self, path: &str) -> Result<Entry<PeerId>, Error> {
         self.access().await?.entry(path).await
+    }
+
+    /// Returns the locally retained content length without fetching remote content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid path, wrong file type, unavailable content, or storage failure.
+    pub async fn local_content_len(&self, path: &str) -> Result<u64, Error> {
+        self.access().await?.local_content_len(path).await
     }
 
     /// Reads a complete file.
@@ -259,6 +268,16 @@ where
     /// Returns an error for an invalid chunk size, wrong file type, or storage failure.
     pub async fn stream(&self, path: &str, chunk_size: usize) -> Result<ReadStream, Error> {
         self.access().await?.stream(path, chunk_size).await
+    }
+
+    /// Atomically creates an empty regular file if the path does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for existing entries, invalid paths, residency restrictions, or
+    /// content/storage failures.
+    pub async fn create_file(&self, path: &str) -> Result<Entry<PeerId>, Error> {
+        self.access().await?.create_file(path).await
     }
 
     /// Replaces a file with new content.
@@ -285,6 +304,26 @@ where
         self.access()
             .await?
             .write_at(path, expected_revision, offset, data)
+            .await
+    }
+
+    /// Changes a file length if the expected revision is current.
+    ///
+    /// Extension fills new bytes with zeroes. The returned revision identifies the new content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for stale revisions, wrong file types, residency restrictions, or
+    /// content/storage failures.
+    pub async fn truncate(
+        &self,
+        path: &str,
+        expected_revision: Uuid,
+        length: u64,
+    ) -> Result<Uuid, Error> {
+        self.access()
+            .await?
+            .truncate(path, expected_revision, length)
             .await
     }
 
@@ -379,7 +418,7 @@ where
     }
 }
 
-impl<'a, PeerId> FileSystemAccess<'a, PeerId>
+impl<PeerId> FileSystemAccess<'_, PeerId>
 where
     PeerId: Clone + Debug + Ord + Serialize + DeserializeOwned + MaybeSend + MaybeSync + 'static,
 {
@@ -431,7 +470,7 @@ where
     pub async fn open_handle(
         &self,
         request: crate::OpenRequest,
-    ) -> Result<crate::LocalFileHandle<'a, PeerId>, Error> {
+    ) -> Result<crate::LocalFileHandle<PeerId>, Error> {
         let entry = self.entry(&request.path).await?;
         let revision = self.revision(&request.path).await?;
         if request
@@ -440,7 +479,7 @@ where
         {
             return Err(Error::StaleRevision);
         }
-        Ok(crate::file_service::LocalFileHandle::new(
+        Ok(LocalFileHandle::new(
             self.file_system,
             request.path,
             revision,
@@ -460,6 +499,17 @@ where
                 meta,
             })
             .ok_or(Error::NotFound)
+    }
+
+    pub async fn local_content_len(&self, path: &str) -> Result<u64, Error> {
+        let _execution = self.owner.execution.lock().await;
+        let entry = self.entry(path).await?;
+        if entry.meta.kind == FileKind::Directory {
+            return Err(Error::IsDirectory);
+        }
+        self.content_store()
+            .content_len(entry.meta.file_id, entry.meta.revision)
+            .await
     }
 
     pub async fn read(&self, path: &str) -> Result<Vec<u8>, Error> {
@@ -500,6 +550,27 @@ where
             Arc::clone(&self.owner),
             admitted,
         )
+    }
+
+    pub async fn create_file(&self, path: &str) -> Result<Entry<PeerId>, Error> {
+        let _execution = self.owner.execution.lock().await;
+        file(path)?;
+        self.require_full(path)?;
+        self.ensure_parent_directories(path).await?;
+        if self.get(path).await?.is_some() {
+            return Err(Error::AlreadyExists);
+        }
+        let meta = FileMeta::file(Uuid::now_v7(), self.node_id.clone());
+        let mut stage = self.stage(meta.file_id, meta.revision).await?;
+        self.stage_write(&mut *stage, &[]).await?;
+        self.stage_sync(&mut *stage).await?;
+        self.stage_publish(&mut *stage).await?;
+        self.put(path, meta.clone()).await?;
+        stage.commit();
+        Ok(Entry {
+            path: path.to_owned(),
+            meta,
+        })
     }
 
     pub async fn write(&self, path: &str, content: &[u8]) -> Result<Entry<PeerId>, Error> {
@@ -553,12 +624,16 @@ where
         if self.revision(path).await? != expected_revision {
             return Err(Error::StaleRevision);
         }
-        let length = u32::try_from(data.len()).map_err(|_error| {
-            Error::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "write is too large",
-            ))
-        })?;
+        let invalid_input =
+            |message| Error::Io(io::Error::new(io::ErrorKind::InvalidInput, message));
+        let data_len =
+            u64::try_from(data.len()).map_err(|_error| invalid_input("write is too large"))?;
+        let length =
+            u32::try_from(data.len()).map_err(|_error| invalid_input("write is too large"))?;
+        let end = offset
+            .checked_add(data_len)
+            .ok_or_else(|| invalid_input("write offset is too large"))?;
+        usize::try_from(end).map_err(|_error| invalid_input("write offset is too large"))?;
         let mut meta = entry.meta.clone();
         meta.revision = Uuid::now_v7();
         let mut stage = self.stage(meta.file_id, meta.revision).await?;
@@ -569,6 +644,41 @@ where
         self.put(path, meta).await?;
         stage.commit();
         Ok(length)
+    }
+
+    pub async fn truncate(
+        &self,
+        path: &str,
+        expected_revision: Uuid,
+        length: u64,
+    ) -> Result<Uuid, Error> {
+        let _execution = self.owner.execution.lock().await;
+        file(path)?;
+        self.require_full(path)?;
+        let entry = self.entry(path).await?;
+        if entry.meta.kind == FileKind::Directory {
+            return Err(Error::IsDirectory);
+        }
+        if entry.meta.revision != expected_revision {
+            return Err(Error::StaleRevision);
+        }
+        usize::try_from(length).map_err(|_error| {
+            Error::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "content length is too large",
+            ))
+        })?;
+        let mut meta = entry.meta.clone();
+        meta.revision = Uuid::now_v7();
+        let revision = meta.revision;
+        let mut stage = self.stage(meta.file_id, meta.revision).await?;
+        stage.copy_from(meta.file_id, entry.meta.revision).await?;
+        self.stage_truncate(&mut *stage, length).await?;
+        self.stage_sync(&mut *stage).await?;
+        self.stage_publish(&mut *stage).await?;
+        self.put(path, meta).await?;
+        stage.commit();
+        Ok(revision)
     }
 
     pub async fn append(&self, path: &str, content: &[u8]) -> Result<(), Error> {
@@ -883,6 +993,12 @@ where
         #[cfg(test)]
         self.content_checkpoint(ContentStep::Write)?;
         stage.write_end(bytes).await
+    }
+
+    async fn stage_truncate(&self, stage: &mut dyn StagedObject, length: u64) -> Result<(), Error> {
+        #[cfg(test)]
+        self.content_checkpoint(ContentStep::Write)?;
+        stage.truncate(length).await
     }
 
     async fn stage_sync(&self, stage: &mut dyn StagedObject) -> Result<(), Error> {

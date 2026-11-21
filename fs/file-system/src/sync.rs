@@ -33,7 +33,7 @@ where
     incoming: broadcast::Receiver<IncomingMessage<PeerId>>,
     sessions: broadcast::Receiver<SessionRequest<PeerId>>,
     changes: broadcast::Receiver<()>,
-    handles: BTreeMap<(PeerId, FileHandleId), crate::LocalFileHandle<'a, PeerId>>,
+    handles: BTreeMap<(PeerId, FileHandleId), crate::LocalFileHandle<PeerId>>,
     last_snapshots: Vec<KvSnapshot>,
     control: OperationControl<PeerId>,
 }

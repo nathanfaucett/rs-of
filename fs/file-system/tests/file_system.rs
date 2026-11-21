@@ -1,4 +1,4 @@
-use std::{env, fmt::Debug, fs, path::PathBuf, sync::Arc};
+use std::{env, fmt::Debug, fs, io::ErrorKind, path::PathBuf, sync::Arc};
 
 use serde::de::DeserializeOwned;
 use tokio::task::yield_now;
@@ -235,7 +235,15 @@ async fn syncs_content_and_rejects_stale_responses() {
 
     full(&left).await;
     full(&right).await;
-    left.write("file.txt", b"old").await.unwrap();
+    let created = left.create_file("file.txt").await.unwrap();
+    left.write_at(
+        "file.txt",
+        created.meta.revision,
+        0,
+        Bytes::from_static(b"old"),
+    )
+    .await
+    .unwrap();
     let stale_revision = left.revision("file.txt").await.unwrap();
     let mut left_sync = left.metadata_sync(left_transport);
     let mut right_sync = right.metadata_sync(right_transport);
@@ -278,6 +286,25 @@ async fn syncs_content_and_rejects_stale_responses() {
         right.entry("file.txt").await.unwrap().meta,
         left.entry("file.txt").await.unwrap().meta
     );
+
+    let current = left.revision("file.txt").await.unwrap();
+    let truncated = left.truncate("file.txt", current, 1).await.unwrap();
+    synchronize(&mut left_sync, &mut right_sync).await;
+    assert_eq!(right.revision("file.txt").await.unwrap(), truncated);
+    let fetch = right_sync.fetch("file.txt");
+    tokio::pin!(fetch);
+    loop {
+        tokio::select! {
+            biased;
+            result = &mut fetch => {
+                result.unwrap();
+                break;
+            }
+            () = yield_now() => left_sync.pump().await.unwrap(),
+        }
+    }
+    assert_eq!(right.read("file.txt").await.unwrap(), b"n");
+    assert_eq!(right.local_content_len("file.txt").await.unwrap(), 1);
     fs::remove_dir_all(left_root).unwrap();
     fs::remove_dir_all(right_root).unwrap();
 }
@@ -431,6 +458,174 @@ async fn write_at_requires_current_revision_and_preserves_offset_semantics() {
         .await;
     assert!(matches!(stale, Err(Error::StaleRevision)));
     assert_eq!(file_system.read("file.txt").await.unwrap(), b"hillo");
+
+    let current = file_system.revision("file.txt").await.unwrap();
+    let error = file_system
+        .write_at(
+            "file.txt",
+            current,
+            u64::MAX,
+            Bytes::from_static(b"overflow"),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        Error::Io(ref error) if error.kind() == ErrorKind::InvalidInput
+    ));
+    assert_eq!(file_system.revision("file.txt").await.unwrap(), current);
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"hillo");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn truncate_requires_current_revision_and_changes_length() {
+    let root = root();
+    let file_system = FileSystem::open(&root, 7_u8).await.unwrap();
+    full(&file_system).await;
+    let created = file_system.write("file.txt", b"hello world").await.unwrap();
+    let denied = file_system.write("denied.txt", b"keep").await.unwrap();
+    file_system
+        .set_residency("denied.txt", Residency::Passthrough)
+        .await
+        .unwrap();
+    assert!(matches!(
+        file_system
+            .truncate("denied.txt", denied.meta.revision, 0)
+            .await,
+        Err(Error::PassthroughWrite)
+    ));
+    assert_eq!(
+        file_system.revision("denied.txt").await.unwrap(),
+        denied.meta.revision
+    );
+
+    let shrunk = file_system
+        .truncate("file.txt", created.meta.revision, 5)
+        .await
+        .unwrap();
+    assert_ne!(shrunk, created.meta.revision);
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"hello");
+    assert_eq!(file_system.local_content_len("file.txt").await.unwrap(), 5);
+    assert_eq!(
+        file_system.entry("file.txt").await.unwrap().meta.file_id,
+        created.meta.file_id
+    );
+
+    assert!(matches!(
+        file_system
+            .truncate("file.txt", created.meta.revision, 0)
+            .await,
+        Err(Error::StaleRevision)
+    ));
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"hello");
+
+    let extended = file_system.truncate("file.txt", shrunk, 9).await.unwrap();
+    assert_eq!(
+        file_system.read("file.txt").await.unwrap(),
+        b"hello\0\0\0\0"
+    );
+    let emptied = file_system.truncate("file.txt", extended, 0).await.unwrap();
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"");
+    file_system.truncate("file.txt", emptied, 4).await.unwrap();
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"\0\0\0\0");
+
+    file_system.create_dir("dir").await.unwrap();
+    let directory_revision = file_system.revision("dir").await.unwrap();
+    assert!(matches!(
+        file_system.truncate("dir", directory_revision, 0).await,
+        Err(Error::IsDirectory)
+    ));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn create_file_is_atomic_and_preserves_existing_entries() {
+    let root = root();
+    let file_system = FileSystem::open(&root, 7_u8).await.unwrap();
+    assert!(matches!(
+        file_system.create_file("file.txt").await,
+        Err(Error::PassthroughWrite)
+    ));
+    full(&file_system).await;
+
+    let (first, second) = tokio::join!(
+        file_system.create_file("file.txt"),
+        file_system.create_file("file.txt")
+    );
+    let ((Ok(created), Err(Error::AlreadyExists)) | (Err(Error::AlreadyExists), Ok(created))) =
+        (first, second)
+    else {
+        panic!("exactly one create must succeed");
+    };
+    assert_eq!(created.meta.kind, FileKind::File);
+    assert_eq!(created.meta.mode, 0o644);
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"");
+
+    let existing = file_system.write("file.txt", b"keep").await.unwrap();
+    assert!(matches!(
+        file_system.create_file("file.txt").await,
+        Err(Error::AlreadyExists)
+    ));
+    assert_eq!(
+        file_system.entry("file.txt").await.unwrap().meta,
+        existing.meta
+    );
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"keep");
+
+    file_system.create_dir("dir").await.unwrap();
+    assert!(matches!(
+        file_system.create_file("dir").await,
+        Err(Error::AlreadyExists)
+    ));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn local_content_len_reports_current_revision_bytes() {
+    let root = root();
+    let file_system = FileSystem::open(&root, 7_u8).await.unwrap();
+    full(&file_system).await;
+    file_system.write("file.txt", b"hello").await.unwrap();
+
+    assert_eq!(file_system.local_content_len("file.txt").await.unwrap(), 5);
+    file_system.write("file.txt", b"hello world").await.unwrap();
+    assert_eq!(file_system.local_content_len("file.txt").await.unwrap(), 11);
+    file_system.create_dir("dir").await.unwrap();
+    assert!(matches!(
+        file_system.local_content_len("dir").await,
+        Err(Error::IsDirectory)
+    ));
+    file_system
+        .set_residency("file.txt", Residency::Passthrough)
+        .await
+        .unwrap();
+    assert!(matches!(
+        file_system.local_content_len("file.txt").await,
+        Err(Error::ContentUnavailable)
+    ));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn local_file_handle_owns_a_filesystem_clone() {
+    let root = root();
+    let file_system = FileSystem::open(&root, 7_u8).await.unwrap();
+    full(&file_system).await;
+    file_system.write("file.txt", b"hello").await.unwrap();
+    let mut handle = file_system
+        .open_handle(OpenRequest {
+            path: "file.txt".to_owned(),
+            revision: None,
+        })
+        .await
+        .unwrap();
+
+    drop(file_system);
+
+    assert_eq!(handle.read(1, 3).await.unwrap(), Bytes::from_static(b"ell"));
+    handle.close().await.unwrap();
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -468,6 +663,32 @@ async fn local_file_handle_supports_offset_io_and_scans() {
     assert_eq!(page.entries.len(), 1);
     assert!(page.next.is_some());
     directory.close().await.unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn local_file_handle_truncates_and_tracks_revision() {
+    let root = root();
+    let file_system = FileSystem::open(&root, 7_u8).await.unwrap();
+    full(&file_system).await;
+    let created = file_system.write("file.txt", b"hello").await.unwrap();
+    let mut handle = file_system
+        .open_handle(OpenRequest {
+            path: "file.txt".to_owned(),
+            revision: Some(created.meta.revision),
+        })
+        .await
+        .unwrap();
+
+    let truncated = handle.truncate(3).await.unwrap();
+    assert_ne!(truncated, created.meta.revision);
+    assert_eq!(file_system.revision("file.txt").await.unwrap(), truncated);
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"hel");
+    assert_eq!(handle.write(3, Bytes::from_static(b"!")).await.unwrap(), 1);
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"hel!");
+    handle.truncate(6).await.unwrap();
+    assert_eq!(file_system.read("file.txt").await.unwrap(), b"hel!\0\0");
+    handle.close().await.unwrap();
     fs::remove_dir_all(root).unwrap();
 }
 
