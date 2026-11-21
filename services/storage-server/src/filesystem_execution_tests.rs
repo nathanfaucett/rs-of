@@ -784,454 +784,489 @@ async fn fetch_mounted(
 }
 
 #[cfg(target_os = "linux")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+fn run_native_mount_test<F, Fut>(test: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + 'static,
+{
+    const STACK_SIZE: usize = 64 * 1024 * 1024;
+    std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(move || {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .thread_stack_size(STACK_SIZE)
+                .enable_all()
+                .build()
+                .expect("native mount runtime")
+                .block_on(test());
+        })
+        .expect("native mount test thread")
+        .join()
+        .expect("native mount test joins");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 #[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
-async fn real_mounted_full_replicas_converge_offline_edits_and_shutdown_cleanly() {
-    tokio::time::timeout(
-        Duration::from_secs(300),
-        Box::pin(async {
-            let mut fixture = Fixture::new().await;
-            for filesystem in &fixture.files {
-                filesystem
-                    .set_residency("", file_system::Residency::Full)
-                    .await
-                    .expect("Full Replica");
-            }
-            let left_mount = fixture._directory.0.join("left-mount");
-            let right_mount = fixture._directory.0.join("right-mount");
-            std::fs::create_dir(&left_mount).expect("left mountpoint");
-            std::fs::create_dir(&right_mount).expect("right mountpoint");
-            let guards = [
-                file_system_fuse::mount((*fixture.files[0]).clone(), &left_mount)
-                    .await
-                    .expect("left mount"),
-                file_system_fuse::mount((*fixture.files[1]).clone(), &right_mount)
-                    .await
-                    .expect("right mount"),
-            ];
-            let [left, right] = fixture.transports().await;
-            let left_task = serve_side(&fixture, 0, left.clone(), fixture.control(0, None)).await;
-            let right_task = serve_side(&fixture, 1, right.clone(), fixture.control(1, None)).await;
+fn real_mounted_full_replicas_converge_offline_edits_and_shutdown_cleanly() {
+    run_native_mount_test(|| async {
+        tokio::time::timeout(
+            Duration::from_secs(300),
+            Box::pin(async {
+                let fixture = Fixture::new().await;
+                for filesystem in &fixture.files {
+                    filesystem
+                        .set_residency("", file_system::Residency::Full)
+                        .await
+                        .expect("Full Replica");
+                }
+                let left_mount = fixture._directory.0.join("left-mount");
+                let right_mount = fixture._directory.0.join("right-mount");
+                std::fs::create_dir(&left_mount).expect("left mountpoint");
+                std::fs::create_dir(&right_mount).expect("right mountpoint");
+                let guards = [
+                    file_system_fuse::mount((*fixture.files[0]).clone(), &left_mount)
+                        .await
+                        .expect("left mount"),
+                    file_system_fuse::mount((*fixture.files[1]).clone(), &right_mount)
+                        .await
+                        .expect("right mount"),
+                ];
+                let [left, right] = fixture.transports().await;
+                let left_task =
+                    serve_side(&fixture, 0, left.clone(), fixture.control(0, None)).await;
+                let right_task =
+                    serve_side(&fixture, 1, right.clone(), fixture.control(1, None)).await;
 
-            for (path, content) in [
-                ("shared.txt", b"left initial" as &[u8]),
-                ("truncate.txt", b"truncate me"),
-                ("delete.txt", b"delete me"),
-                ("rename-source.txt", b"rename me"),
-            ] {
-                std::fs::write(left_mount.join(path), content).expect("left mounted create");
-            }
-            std::fs::write(right_mount.join("right.txt"), b"right initial")
-                .expect("right mounted create");
-            for path in [
-                "shared.txt",
-                "truncate.txt",
-                "delete.txt",
-                "rename-source.txt",
-            ] {
-                mounted_entry(&fixture.files[1], path).await;
-            }
-            mounted_entry(&fixture.files[0], "right.txt").await;
-            let initial_truncate = fixture.files[0]
-                .entry("truncate.txt")
-                .await
-                .expect("initial truncate identity");
-            let initial_rename = fixture.files[0]
-                .entry("rename-source.txt")
-                .await
-                .expect("initial rename identity");
-
-            let missing = std::fs::read(right_mount.join("shared.txt"))
-                .expect_err("remote metadata is not local content");
-            assert_eq!(missing.raw_os_error(), Some(libc::EIO));
-            let missing_attributes = std::fs::metadata(right_mount.join("shared.txt"))
-                .expect_err("attributes require retained bytes");
-            assert_eq!(missing_attributes.raw_os_error(), Some(libc::EIO));
-            assert_eq!(
-                std::fs::read(right_mount.join("right.txt")).expect("local retained read"),
-                b"right initial"
-            );
-
-            fetch_mounted(
-                &fixture,
-                1,
-                right.clone(),
-                &[
+                for (path, content) in [
+                    ("shared.txt", b"left initial" as &[u8]),
+                    ("truncate.txt", b"truncate me"),
+                    ("delete.txt", b"delete me"),
+                    ("rename-source.txt", b"rename me"),
+                ] {
+                    std::fs::write(left_mount.join(path), content).expect("left mounted create");
+                }
+                std::fs::write(right_mount.join("right.txt"), b"right initial")
+                    .expect("right mounted create");
+                for path in [
                     "shared.txt",
                     "truncate.txt",
                     "delete.txt",
                     "rename-source.txt",
-                ],
-            )
-            .await;
-            fetch_mounted(&fixture, 0, left.clone(), &["right.txt"]).await;
-            assert_eq!(
-                std::fs::metadata(right_mount.join("shared.txt"))
-                    .expect("fetched attributes")
-                    .len(),
-                12
-            );
-            assert_eq!(
-                std::fs::read(right_mount.join("shared.txt")).expect("fetched read"),
-                b"left initial"
-            );
-            assert_eq!(
-                std::fs::read(left_mount.join("right.txt")).expect("reverse fetched read"),
-                b"right initial"
-            );
-            let names = std::fs::read_dir(&right_mount)
-                .expect("fetched directory iteration")
-                .map(|entry| {
-                    entry
-                        .expect("directory entry")
-                        .file_name()
-                        .into_string()
-                        .expect("UTF-8 fixture")
-                })
-                .collect::<Vec<_>>();
-            assert!(names.iter().any(|name| name == "shared.txt"));
-
-            left.close();
-            right.close();
-            left_task
-                .await
-                .expect("left sync joins")
-                .expect("left sync stops");
-            right_task
-                .await
-                .expect("right sync joins")
-                .expect("right sync stops");
-            assert_eq!(
-                std::fs::read(left_mount.join("shared.txt")).expect("offline left read"),
-                b"left initial"
-            );
-            assert_eq!(
-                std::fs::read(right_mount.join("right.txt")).expect("offline right read"),
-                b"right initial"
-            );
-
-            std::fs::write(left_mount.join("shared.txt"), b"left offline")
-                .expect("offline left write");
-            std::fs::write(right_mount.join("right.txt"), b"right offline")
-                .expect("offline right write");
-            std::fs::write(left_mount.join("truncate.txt"), b"xy").expect("offline truncate");
-            std::fs::rename(
-                left_mount.join("rename-source.txt"),
-                left_mount.join("rename-target.txt"),
-            )
-            .expect("offline no-replace rename");
-            std::fs::remove_file(right_mount.join("delete.txt")).expect("offline delete");
-            std::fs::write(left_mount.join("left-only.txt"), b"left only")
-                .expect("offline left-only create");
-            std::fs::write(right_mount.join("right-only.txt"), b"right only")
-                .expect("offline right-only create");
-
-            let expected_shared = fixture.files[0]
-                .entry("shared.txt")
-                .await
-                .expect("left edit");
-            let expected_right = fixture.files[1]
-                .entry("right.txt")
-                .await
-                .expect("right edit");
-            let expected_truncate = fixture.files[0]
-                .entry("truncate.txt")
-                .await
-                .expect("truncate");
-            let expected_rename = fixture.files[0]
-                .entry("rename-target.txt")
-                .await
-                .expect("rename");
-            let expected_left_only = fixture.files[0]
-                .entry("left-only.txt")
-                .await
-                .expect("left only");
-            let expected_right_only = fixture.files[1]
-                .entry("right-only.txt")
-                .await
-                .expect("right only");
-            for guard in guards {
-                guard.unmount().await.expect("offline unmount");
-            }
-
-            let Fixture {
-                peers,
-                nodes,
-                files,
-                runtimes,
-                resource,
-                _directory,
-            } = fixture;
-            drop(files);
-            drop(runtimes);
-            let runtimes = [
-                Arc::new(
-                    ScopedFileSystemRuntime::new(nodes[0].root.join("storage"), peers.ids()[0])
-                        .expect("reopen left Storage"),
-                ),
-                Arc::new(
-                    ScopedFileSystemRuntime::new(nodes[1].root.join("storage"), peers.ids()[1])
-                        .expect("reopen right Storage"),
-                ),
-            ];
-            let scope = Scope {
-                owner: resource.owner_subject.clone(),
-                application: resource.application_id.parse().expect("Application"),
-            };
-            let id =
-                file_system::FileSystemId::parse(&resource.resource_id).expect("filesystem ID");
-            let files = [
-                runtimes[0]
-                    .open_resource(&scope, id)
-                    .await
-                    .expect("reopen left Replica"),
-                runtimes[1]
-                    .open_resource(&scope, id)
-                    .await
-                    .expect("reopen right Replica"),
-            ];
-            let fixture = Fixture {
-                peers,
-                nodes,
-                files,
-                runtimes,
-                resource,
-                _directory,
-            };
-            let guards = [
-                file_system_fuse::mount((*fixture.files[0]).clone(), &left_mount)
-                    .await
-                    .expect("reopened left mount"),
-                file_system_fuse::mount((*fixture.files[1]).clone(), &right_mount)
-                    .await
-                    .expect("reopened right mount"),
-            ];
-            assert_eq!(
-                std::fs::read(left_mount.join("shared.txt")).expect("restart left read"),
-                b"left offline"
-            );
-            assert_eq!(
-                std::fs::read(right_mount.join("right.txt")).expect("restart right read"),
-                b"right offline"
-            );
-            assert_eq!(
-                std::fs::read(left_mount.join("truncate.txt")).expect("restart truncate"),
-                b"xy"
-            );
-            assert!(
-                std::fs::metadata(right_mount.join("delete.txt")).is_err(),
-                "restart retains deletion"
-            );
-
-            let [left, right] = fixture.transports().await;
-            let left_task = serve_side(&fixture, 0, left.clone(), fixture.control(0, None)).await;
-            let right_task = serve_side(&fixture, 1, right.clone(), fixture.control(1, None)).await;
-            mounted_revision(
-                &fixture.files[1],
-                "shared.txt",
-                expected_shared.meta.revision,
-            )
-            .await;
-            mounted_revision(&fixture.files[0], "right.txt", expected_right.meta.revision).await;
-            let converged_truncate = mounted_revision(
-                &fixture.files[1],
-                "truncate.txt",
-                expected_truncate.meta.revision,
-            )
-            .await;
-            let converged_rename = mounted_revision(
-                &fixture.files[1],
-                "rename-target.txt",
-                expected_rename.meta.revision,
-            )
-            .await;
-            mounted_revision(
-                &fixture.files[1],
-                "left-only.txt",
-                expected_left_only.meta.revision,
-            )
-            .await;
-            mounted_revision(
-                &fixture.files[0],
-                "right-only.txt",
-                expected_right_only.meta.revision,
-            )
-            .await;
-            for filesystem in &fixture.files {
-                mounted_absent(filesystem, "delete.txt").await;
-                mounted_absent(filesystem, "rename-source.txt").await;
-            }
-            assert_eq!(
-                converged_truncate.meta.file_id,
-                initial_truncate.meta.file_id
-            );
-            assert_eq!(converged_rename.meta.file_id, initial_rename.meta.file_id);
-
-            let final_paths = [
-                "shared.txt",
-                "right.txt",
-                "truncate.txt",
-                "rename-target.txt",
-                "left-only.txt",
-                "right-only.txt",
-            ];
-            fetch_mounted(&fixture, 0, left.clone(), &final_paths).await;
-            fetch_mounted(&fixture, 1, right.clone(), &final_paths).await;
-            for mountpoint in [&left_mount, &right_mount] {
-                for (path, content) in [
-                    ("shared.txt", b"left offline" as &[u8]),
-                    ("right.txt", b"right offline"),
-                    ("truncate.txt", b"xy"),
-                    ("rename-target.txt", b"rename me"),
-                    ("left-only.txt", b"left only"),
-                    ("right-only.txt", b"right only"),
                 ] {
-                    assert_eq!(
-                        std::fs::read(mountpoint.join(path)).expect("converged mounted read"),
-                        content
-                    );
+                    mounted_entry(&fixture.files[1], path).await;
                 }
-                assert!(std::fs::metadata(mountpoint.join("delete.txt")).is_err());
-                assert!(std::fs::metadata(mountpoint.join("rename-source.txt")).is_err());
-            }
-            assert_eq!(file_system::FILESYSTEM_SYNC_PROTOCOL_VERSION, 1);
+                mounted_entry(&fixture.files[0], "right.txt").await;
+                let initial_truncate = fixture.files[0]
+                    .entry("truncate.txt")
+                    .await
+                    .expect("initial truncate identity");
+                let initial_rename = fixture.files[0]
+                    .entry("rename-source.txt")
+                    .await
+                    .expect("initial rename identity");
 
-            for guard in guards {
-                guard.unmount().await.expect("unmount during native sync");
-            }
-            left.close();
-            right.close();
-            left_task
-                .await
-                .expect("final left sync joins")
-                .expect("final left sync stops");
-            right_task
-                .await
-                .expect("final right sync joins")
-                .expect("final right sync stops");
-            fixture.runtimes[0]
-                .remove_local_copy(&scope, id)
-                .await
-                .expect("managed-copy cleanup after unmount");
-            fixture.peers.close().await;
-        }),
-    )
-    .await
-    .expect("mounted native Storage acceptance completes");
+                let missing = std::fs::read(right_mount.join("shared.txt"))
+                    .expect_err("remote metadata is not local content");
+                assert_eq!(missing.raw_os_error(), Some(libc::EIO));
+                let missing_attributes = std::fs::metadata(right_mount.join("shared.txt"))
+                    .expect_err("attributes require retained bytes");
+                assert_eq!(missing_attributes.raw_os_error(), Some(libc::EIO));
+                assert_eq!(
+                    std::fs::read(right_mount.join("right.txt")).expect("local retained read"),
+                    b"right initial"
+                );
+
+                fetch_mounted(
+                    &fixture,
+                    1,
+                    right.clone(),
+                    &[
+                        "shared.txt",
+                        "truncate.txt",
+                        "delete.txt",
+                        "rename-source.txt",
+                    ],
+                )
+                .await;
+                fetch_mounted(&fixture, 0, left.clone(), &["right.txt"]).await;
+                assert_eq!(
+                    std::fs::metadata(right_mount.join("shared.txt"))
+                        .expect("fetched attributes")
+                        .len(),
+                    12
+                );
+                assert_eq!(
+                    std::fs::read(right_mount.join("shared.txt")).expect("fetched read"),
+                    b"left initial"
+                );
+                assert_eq!(
+                    std::fs::read(left_mount.join("right.txt")).expect("reverse fetched read"),
+                    b"right initial"
+                );
+                let names = std::fs::read_dir(&right_mount)
+                    .expect("fetched directory iteration")
+                    .map(|entry| {
+                        entry
+                            .expect("directory entry")
+                            .file_name()
+                            .into_string()
+                            .expect("UTF-8 fixture")
+                    })
+                    .collect::<Vec<_>>();
+                assert!(names.iter().any(|name| name == "shared.txt"));
+
+                left.close();
+                right.close();
+                left_task
+                    .await
+                    .expect("left sync joins")
+                    .expect("left sync stops");
+                right_task
+                    .await
+                    .expect("right sync joins")
+                    .expect("right sync stops");
+                assert_eq!(
+                    std::fs::read(left_mount.join("shared.txt")).expect("offline left read"),
+                    b"left initial"
+                );
+                assert_eq!(
+                    std::fs::read(right_mount.join("right.txt")).expect("offline right read"),
+                    b"right initial"
+                );
+
+                std::fs::write(left_mount.join("shared.txt"), b"left offline")
+                    .expect("offline left write");
+                std::fs::write(right_mount.join("right.txt"), b"right offline")
+                    .expect("offline right write");
+                std::fs::write(left_mount.join("truncate.txt"), b"xy").expect("offline truncate");
+                std::fs::rename(
+                    left_mount.join("rename-source.txt"),
+                    left_mount.join("rename-target.txt"),
+                )
+                .expect("offline no-replace rename");
+                std::fs::remove_file(right_mount.join("delete.txt")).expect("offline delete");
+                std::fs::write(left_mount.join("left-only.txt"), b"left only")
+                    .expect("offline left-only create");
+                std::fs::write(right_mount.join("right-only.txt"), b"right only")
+                    .expect("offline right-only create");
+
+                let expected_shared = fixture.files[0]
+                    .entry("shared.txt")
+                    .await
+                    .expect("left edit");
+                let expected_right = fixture.files[1]
+                    .entry("right.txt")
+                    .await
+                    .expect("right edit");
+                let expected_truncate = fixture.files[0]
+                    .entry("truncate.txt")
+                    .await
+                    .expect("truncate");
+                let expected_rename = fixture.files[0]
+                    .entry("rename-target.txt")
+                    .await
+                    .expect("rename");
+                let expected_left_only = fixture.files[0]
+                    .entry("left-only.txt")
+                    .await
+                    .expect("left only");
+                let expected_right_only = fixture.files[1]
+                    .entry("right-only.txt")
+                    .await
+                    .expect("right only");
+                for guard in guards {
+                    guard.unmount().await.expect("offline unmount");
+                }
+
+                let Fixture {
+                    peers,
+                    nodes,
+                    files,
+                    runtimes,
+                    resource,
+                    _directory,
+                } = fixture;
+                drop(files);
+                drop(runtimes);
+                let runtimes = [
+                    Arc::new(
+                        ScopedFileSystemRuntime::new(nodes[0].root.join("storage"), peers.ids()[0])
+                            .expect("reopen left Storage"),
+                    ),
+                    Arc::new(
+                        ScopedFileSystemRuntime::new(nodes[1].root.join("storage"), peers.ids()[1])
+                            .expect("reopen right Storage"),
+                    ),
+                ];
+                let scope = Scope {
+                    owner: resource.owner_subject.clone(),
+                    application: resource.application_id.parse().expect("Application"),
+                };
+                let id =
+                    file_system::FileSystemId::parse(&resource.resource_id).expect("filesystem ID");
+                let files = [
+                    runtimes[0]
+                        .open_resource(&scope, id)
+                        .await
+                        .expect("reopen left Replica"),
+                    runtimes[1]
+                        .open_resource(&scope, id)
+                        .await
+                        .expect("reopen right Replica"),
+                ];
+                let fixture = Fixture {
+                    peers,
+                    nodes,
+                    files,
+                    runtimes,
+                    resource,
+                    _directory,
+                };
+                let guards = [
+                    file_system_fuse::mount((*fixture.files[0]).clone(), &left_mount)
+                        .await
+                        .expect("reopened left mount"),
+                    file_system_fuse::mount((*fixture.files[1]).clone(), &right_mount)
+                        .await
+                        .expect("reopened right mount"),
+                ];
+                assert_eq!(
+                    std::fs::read(left_mount.join("shared.txt")).expect("restart left read"),
+                    b"left offline"
+                );
+                assert_eq!(
+                    std::fs::read(right_mount.join("right.txt")).expect("restart right read"),
+                    b"right offline"
+                );
+                assert_eq!(
+                    std::fs::read(left_mount.join("truncate.txt")).expect("restart truncate"),
+                    b"xy"
+                );
+                assert!(
+                    std::fs::metadata(right_mount.join("delete.txt")).is_err(),
+                    "restart retains deletion"
+                );
+
+                let [left, right] = fixture.transports().await;
+                let left_task =
+                    serve_side(&fixture, 0, left.clone(), fixture.control(0, None)).await;
+                let right_task =
+                    serve_side(&fixture, 1, right.clone(), fixture.control(1, None)).await;
+                mounted_revision(
+                    &fixture.files[1],
+                    "shared.txt",
+                    expected_shared.meta.revision,
+                )
+                .await;
+                mounted_revision(&fixture.files[0], "right.txt", expected_right.meta.revision)
+                    .await;
+                let converged_truncate = mounted_revision(
+                    &fixture.files[1],
+                    "truncate.txt",
+                    expected_truncate.meta.revision,
+                )
+                .await;
+                let converged_rename = mounted_revision(
+                    &fixture.files[1],
+                    "rename-target.txt",
+                    expected_rename.meta.revision,
+                )
+                .await;
+                mounted_revision(
+                    &fixture.files[1],
+                    "left-only.txt",
+                    expected_left_only.meta.revision,
+                )
+                .await;
+                mounted_revision(
+                    &fixture.files[0],
+                    "right-only.txt",
+                    expected_right_only.meta.revision,
+                )
+                .await;
+                for filesystem in &fixture.files {
+                    mounted_absent(filesystem, "delete.txt").await;
+                    mounted_absent(filesystem, "rename-source.txt").await;
+                }
+                assert_eq!(
+                    converged_truncate.meta.file_id,
+                    initial_truncate.meta.file_id
+                );
+                assert_eq!(converged_rename.meta.file_id, initial_rename.meta.file_id);
+
+                let final_paths = [
+                    "shared.txt",
+                    "right.txt",
+                    "truncate.txt",
+                    "rename-target.txt",
+                    "left-only.txt",
+                    "right-only.txt",
+                ];
+                fetch_mounted(&fixture, 0, left.clone(), &final_paths).await;
+                fetch_mounted(&fixture, 1, right.clone(), &final_paths).await;
+                for mountpoint in [&left_mount, &right_mount] {
+                    for (path, content) in [
+                        ("shared.txt", b"left offline" as &[u8]),
+                        ("right.txt", b"right offline"),
+                        ("truncate.txt", b"xy"),
+                        ("rename-target.txt", b"rename me"),
+                        ("left-only.txt", b"left only"),
+                        ("right-only.txt", b"right only"),
+                    ] {
+                        assert_eq!(
+                            std::fs::read(mountpoint.join(path)).expect("converged mounted read"),
+                            content
+                        );
+                    }
+                    assert!(std::fs::metadata(mountpoint.join("delete.txt")).is_err());
+                    assert!(std::fs::metadata(mountpoint.join("rename-source.txt")).is_err());
+                }
+                assert_eq!(file_system::FILESYSTEM_SYNC_PROTOCOL_VERSION, 1);
+
+                for guard in guards {
+                    guard.unmount().await.expect("unmount during native sync");
+                }
+                left.close();
+                right.close();
+                left_task
+                    .await
+                    .expect("final left sync joins")
+                    .expect("final left sync stops");
+                right_task
+                    .await
+                    .expect("final right sync joins")
+                    .expect("final right sync stops");
+                fixture.runtimes[0]
+                    .remove_local_copy(&scope, id)
+                    .await
+                    .expect("managed-copy cleanup after unmount");
+                fixture.peers.close().await;
+            }),
+        )
+        .await
+        .expect("mounted native Storage acceptance completes");
+    });
 }
 
 #[cfg(target_os = "linux")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[test]
 #[ignore = "requires /dev/fuse and unprivileged Linux mount support"]
-async fn real_mount_observes_native_policy_and_retirement_limits() {
-    tokio::time::timeout(
-        Duration::from_secs(180),
-        Box::pin(async {
-            let fixture = Fixture::new().await;
-            fixture.files[0]
-                .write("local.txt", b"retained local bytes")
-                .await
-                .expect("left local content");
-            fixture.files[1]
-                .write("remote.txt", b"authorized remote bytes")
-                .await
-                .expect("right local content");
-            let mountpoint = fixture._directory.0.join("policy-mount");
-            std::fs::create_dir(&mountpoint).expect("policy mountpoint");
-            let guard = file_system_fuse::mount((*fixture.files[0]).clone(), &mountpoint)
-                .await
-                .expect("policy mount");
-            let [left, right] = fixture.transports().await;
-            let left_task = serve_side(&fixture, 0, left.clone(), fixture.control(0, None)).await;
-            let right_task = serve_side(&fixture, 1, right.clone(), fixture.control(1, None)).await;
-            let scope = Scope {
-                owner: fixture.resource.owner_subject.clone(),
-                application: fixture
-                    .resource
-                    .application_id
-                    .parse()
-                    .expect("Application"),
-            };
-            let id = file_system::FileSystemId::parse(&fixture.resource.resource_id)
-                .expect("filesystem ID");
-            let request = || OpenRequest {
-                path: "remote.txt".into(),
-                revision: None,
-            };
-            let handle = left
-                .open(fixture.peers.ids()[1], request())
-                .await
-                .expect("authorized remote open before policy changes");
-            drop(handle);
-
-            device_service::ofdb::selection_policy::DbSelectionPolicyRepo::new(
-                fixture.nodes[0].management.clone().client(),
-            )
-            .deselect_resource_owned(
-                fixture.nodes[0].devices[0],
-                &fixture.resource.owner_subject,
-                fixture
-                    .resource
-                    .application_id
-                    .parse()
-                    .expect("Application"),
-                "filesystem",
-                fixture.resource.resource_id.parse().expect("Resource ID"),
-            )
-            .await
-            .expect("real local deselection");
-            assert!(
-                left.open(fixture.peers.ids()[1], request()).await.is_err(),
-                "learned deselection denies later remote operations"
-            );
-            assert_eq!(
-                std::fs::read(mountpoint.join("local.txt"))
-                    .expect("deselection retains local read"),
-                b"retained local bytes"
-            );
-
-            fixture.nodes[0].select(&fixture.resource).await;
-            fixture.nodes[0].revoke(0).await;
-            assert!(
-                left.open(fixture.peers.ids()[1], request()).await.is_err(),
-                "learned Device revocation denies later remote operations"
-            );
-            assert_eq!(
-                std::fs::read(mountpoint.join("local.txt")).expect("revocation retains local read"),
-                b"retained local bytes"
-            );
-
-            assert!(
-                fixture.runtimes[0]
-                    .delete_resource(&scope, id)
+fn real_mount_observes_native_policy_and_retirement_limits() {
+    run_native_mount_test(|| async {
+        tokio::time::timeout(
+            Duration::from_secs(180),
+            Box::pin(async {
+                let fixture = Fixture::new().await;
+                fixture.files[0]
+                    .write("local.txt", b"retained local bytes")
                     .await
-                    .expect("Resource deletion")
-            );
-            assert!(
-                fixture.runtimes[0].open_resource(&scope, id).await.is_err(),
-                "deleted Resource cannot be reopened"
-            );
-            assert_eq!(
-                std::fs::read(mountpoint.join("local.txt"))
-                    .expect("deletion is not remote erasure"),
-                b"retained local bytes"
-            );
-            fixture.runtimes[0]
-                .remove_local_copy(&scope, id)
-                .await
-                .expect("managed-copy retirement");
-            let retired = std::fs::read(mountpoint.join("local.txt"))
-                .expect_err("retired managed copy denies mounted operations");
-            assert_eq!(retired.raw_os_error(), Some(libc::EACCES));
+                    .expect("left local content");
+                fixture.files[1]
+                    .write("remote.txt", b"authorized remote bytes")
+                    .await
+                    .expect("right local content");
+                let mountpoint = fixture._directory.0.join("policy-mount");
+                std::fs::create_dir(&mountpoint).expect("policy mountpoint");
+                let guard = file_system_fuse::mount((*fixture.files[0]).clone(), &mountpoint)
+                    .await
+                    .expect("policy mount");
+                let [left, right] = fixture.transports().await;
+                let left_task =
+                    serve_side(&fixture, 0, left.clone(), fixture.control(0, None)).await;
+                let right_task =
+                    serve_side(&fixture, 1, right.clone(), fixture.control(1, None)).await;
+                let scope = Scope {
+                    owner: fixture.resource.owner_subject.clone(),
+                    application: fixture
+                        .resource
+                        .application_id
+                        .parse()
+                        .expect("Application"),
+                };
+                let id = file_system::FileSystemId::parse(&fixture.resource.resource_id)
+                    .expect("filesystem ID");
+                let request = || OpenRequest {
+                    path: "remote.txt".into(),
+                    revision: None,
+                };
+                let handle = left
+                    .open(fixture.peers.ids()[1], request())
+                    .await
+                    .expect("authorized remote open before policy changes");
+                drop(handle);
 
-            guard.unmount().await.expect("retired mount unmount");
-            left.close();
-            right.close();
-            let _ = left_task.await;
-            let _ = right_task.await;
-            fixture.peers.close().await;
-        }),
-    )
-    .await
-    .expect("mounted native policy acceptance completes");
+                device_service::ofdb::selection_policy::DbSelectionPolicyRepo::new(
+                    fixture.nodes[0].management.clone().client(),
+                )
+                .deselect_resource_owned(
+                    fixture.nodes[0].devices[0],
+                    &fixture.resource.owner_subject,
+                    fixture
+                        .resource
+                        .application_id
+                        .parse()
+                        .expect("Application"),
+                    "filesystem",
+                    fixture.resource.resource_id.parse().expect("Resource ID"),
+                )
+                .await
+                .expect("real local deselection");
+                assert!(
+                    left.open(fixture.peers.ids()[1], request()).await.is_err(),
+                    "learned deselection denies later remote operations"
+                );
+                assert_eq!(
+                    std::fs::read(mountpoint.join("local.txt"))
+                        .expect("deselection retains local read"),
+                    b"retained local bytes"
+                );
+
+                fixture.nodes[0].select(&fixture.resource).await;
+                fixture.nodes[0].revoke(0).await;
+                assert!(
+                    left.open(fixture.peers.ids()[1], request()).await.is_err(),
+                    "learned Device revocation denies later remote operations"
+                );
+                assert_eq!(
+                    std::fs::read(mountpoint.join("local.txt"))
+                        .expect("revocation retains local read"),
+                    b"retained local bytes"
+                );
+
+                assert!(
+                    fixture.runtimes[0]
+                        .delete_resource(&scope, id)
+                        .await
+                        .expect("Resource deletion")
+                );
+                assert!(
+                    fixture.runtimes[0].open_resource(&scope, id).await.is_err(),
+                    "deleted Resource cannot be reopened"
+                );
+                assert_eq!(
+                    std::fs::read(mountpoint.join("local.txt"))
+                        .expect("deletion is not remote erasure"),
+                    b"retained local bytes"
+                );
+                fixture.runtimes[0]
+                    .remove_local_copy(&scope, id)
+                    .await
+                    .expect("managed-copy retirement");
+                let retired = std::fs::read(mountpoint.join("local.txt"))
+                    .expect_err("retired managed copy denies mounted operations");
+                assert_eq!(retired.raw_os_error(), Some(libc::EACCES));
+
+                guard.unmount().await.expect("retired mount unmount");
+                left.close();
+                right.close();
+                let _ = left_task.await;
+                let _ = right_task.await;
+                fixture.peers.close().await;
+            }),
+        )
+        .await
+        .expect("mounted native policy acceptance completes");
+    });
 }
