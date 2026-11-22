@@ -4,14 +4,6 @@ use of_model::id::Id;
 use ofdb_sql::Value;
 use ofdb_sql::{SyncCandidateView, SyncRowView as CandidateRow, SyncTableView as CandidateTable};
 
-pub struct JoinCandidate<'a> {
-    pub member_id: Id,
-    pub device_id: Id,
-    pub endpoint: &'a str,
-    pub owner: Id,
-    pub name: &'a str,
-}
-
 pub struct PeerBinding {
     pub member: Id,
     pub endpoint: String,
@@ -155,7 +147,6 @@ fn rfc_uuid(id: &Id, version: usize) -> bool {
 pub fn validate_device_history(
     view: &SyncCandidateView,
     bindings: &[PeerBinding],
-    approval: Option<&JoinCandidate<'_>>,
 ) -> Result<(), String> {
     for table in &view.tables {
         let columns =
@@ -206,12 +197,6 @@ pub fn validate_device_history(
                 return Err(invalid());
             }
             validate_device(table, row, bindings)?;
-            if let Some(approval) = approval
-                && row.id == approval.device_id
-                && text(table, row, "name").is_some_and(|name| name != approval.name)
-            {
-                return Err(invalid());
-            }
         }
     }
     Ok(())

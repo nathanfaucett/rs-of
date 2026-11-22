@@ -5,13 +5,9 @@ pub mod independent_create;
 #[cfg(unix)]
 mod independent_exchange;
 #[cfg(unix)]
-mod independent_history;
-#[cfg(unix)]
 mod independent_openapi;
 #[cfg(unix)]
 pub mod independent_operation;
-#[cfg(unix)]
-pub mod independent_peer;
 #[cfg(unix)]
 pub mod independent_reset;
 #[cfg(unix)]
@@ -42,8 +38,6 @@ pub use independent_exchange::{random_capability, routes};
 pub use independent_operation::{
     IndependentCreateIntent, IndependentCreateRequest, IndependentOwnerPublic,
 };
-#[cfg(unix)]
-pub use independent_peer::{IndependentPeer, exact_https};
 #[cfg(unix)]
 pub use independent_reset::{IndependentReset, uninstall_local_ca};
 #[cfg(unix)]

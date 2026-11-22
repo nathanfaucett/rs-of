@@ -1,5 +1,4 @@
 pub mod middleware;
-pub mod node_join_approval;
 pub mod openapi;
 pub mod openapi_router;
 pub mod public_metadata;

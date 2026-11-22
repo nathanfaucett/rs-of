@@ -1,6 +1,6 @@
 # Device client
 
-Generated TypeScript client for the Device authority: Device lifecycle, endpoint trust, pairing and Node joining, restrictions, whole-resource selections, and replication policy.
+Generated TypeScript client for the Device authority: Device lifecycle, endpoint trust, pairing, restrictions, whole-resource selections, and replication policy.
 
 Use a complete verified Device API base, including its mount prefix exactly once. Unified mounts this service at `/device`; Management's `/management` API is only for roles, permissions, and assignments.
 

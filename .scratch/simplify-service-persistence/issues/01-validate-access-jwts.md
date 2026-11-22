@@ -1,7 +1,7 @@
 # 01: Validate access JWTs with one issuing authority
 
 Status: ready-for-agent
-Work: in progress
+Work: resolved
 **Blocked by:** None (can start immediately).
 Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 
@@ -12,4 +12,8 @@ Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 - [ ] Remove `idp_replica_members`, `idp_replica_signers`, and the enrollment and exchange paths used only for independent Node issuance. Do not share private signing keys. Preserve Device enrollment and approval.
 - [ ] Verify issuance, JWKS, validation, and rotation through existing owner interfaces. Update affected contracts, generated clients, and docs. Fresh stores only; no migration, legacy path, or version bump.
 
-Evidence: The issuer cutover is integrated. The IdP service, generated-client checks, and Chromium sign-in passed. The broad owner test target did not compile. Independent Join approves the Device and retains JWKS, but does not provision the joined services' OAuth Clients at the issuer. Keep this ticket open until the affected owner workflow is qualified. Disconnected issuance remains out of scope.
+Evidence: The issuer cutover and server Join removal are integrated. Retained-key JWT verification, independent first-Installation Create and reopen, issuer rotation, owner contract checks, and real-owner signed Device approval passed. The broad Rust suite was not rerun after focused fixes. Disconnected issuance and automatic second-server setup are out of scope.
+
+## Comments
+
+The maintainer chose to remove obsolete second-server setup instead of adding issuer-side Client provisioning. A new Device uses endpoint-key proof and authorized Device approval. No migration, legacy path, or version bump.

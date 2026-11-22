@@ -1568,18 +1568,15 @@ dependencies = [
 name = "device-service"
 version = "0.1.0"
 dependencies = [
- "axum",
  "base64 0.22.1",
  "chrono",
  "futures-util",
- "getrandom 0.3.4",
  "idp-service",
  "iroh",
  "iroh-chain",
  "log",
  "management-service",
  "of-db",
- "of-device-client",
  "of-idp-client",
  "of-model",
  "of-storage-api-client",
@@ -1591,10 +1588,8 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "setup",
  "thiserror 2.0.21",
  "tokio",
- "tokio-tungstenite",
  "tokio-util",
  "utoipa",
  "uuid",
@@ -3138,7 +3133,6 @@ dependencies = [
  "log",
  "management-service",
  "of-db",
- "of-device-client",
  "of-idp-client",
  "of-management-client",
  "of-model",
@@ -3209,7 +3203,6 @@ dependencies = [
  "of-management-client",
  "of-model",
  "of-storage-api-client",
- "of-storage-client",
  "ofdb-sql",
  "postcard",
  "reqwest 0.12.28",
@@ -4867,7 +4860,6 @@ dependencies = [
  "serde_repr",
  "serde_with",
  "url",
- "uuid",
 ]
 
 [[package]]
@@ -4881,7 +4873,6 @@ dependencies = [
  "serde_repr",
  "serde_with",
  "url",
- "uuid",
 ]
 
 [[package]]
@@ -4932,7 +4923,6 @@ dependencies = [
  "serde_repr",
  "serde_with",
  "url",
- "uuid",
 ]
 
 [[package]]
@@ -7011,9 +7001,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "getrandom 0.3.4",
- "iroh",
  "log",
- "of-device-client",
  "of-idp-client",
  "rcgen",
  "reqwest 0.12.28",

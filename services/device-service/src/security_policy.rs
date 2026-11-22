@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     device_repo::DeviceRepo,
     ofdb::DbDeviceRepo,
-    security_candidates::{self, JoinCandidate, PeerBinding},
+    security_candidates::{self, PeerBinding},
     security_sync::{PUBLIC_DEVICE_TABLES, public_device_columns},
 };
 
@@ -139,25 +139,13 @@ impl SecurityHistory {
     pub fn validate_candidate(
         self,
         view: &ofdb_sql::SyncCandidateView,
-        _installation: &str,
-        approval: Option<&JoinCandidate<'_>>,
+        bindings: &[PeerBinding],
     ) -> Result<(), io::Error> {
         match self {
             Self::Idp | Self::IdentityPolicy => security_candidates::validate(view)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
-            Self::Devices => {
-                let bindings = approval
-                    .map(|a| {
-                        vec![PeerBinding {
-                            member: a.device_id,
-                            endpoint: a.endpoint.to_owned(),
-                            owner: a.owner,
-                        }]
-                    })
-                    .unwrap_or_default();
-                security_candidates::validate_device_history(view, &bindings, approval)
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-            }
+            Self::Devices => security_candidates::validate_device_history(view, bindings)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
         }
     }
 

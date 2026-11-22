@@ -23,7 +23,6 @@ independent = [
     "network",
     "dep:setup",
     "server-common/independent",
-    "device-service/independent",
 ]
 cli = [
     "independent",

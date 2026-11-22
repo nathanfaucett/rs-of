@@ -31,7 +31,7 @@ export type OnboardingObservation = Evidence &
     (
         | { state: "starting"; action: "observe" }
         | { state: "needs_setup"; action: "choose" }
-        | { state: "working"; action: "observe" | "approve" }
+        | { state: "working"; action: "observe" }
         | {
               state: "ready";
               action: "sign_in";
@@ -198,18 +198,7 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
             loginClient,
         };
     }
-    if (
-        hosts.some((host) =>
-            ["creating", "joining"].includes(host.status.state),
-        )
-    )
-        return {
-            target,
-            hosts,
-            state: "working",
-            action: hosts.some((host) => host.status.state === "joining")
-                ? "approve"
-                : "observe",
-        };
+    if (hosts.some((host) => host.status.state === "creating"))
+        return { target, hosts, state: "working", action: "observe" };
     return { target, hosts, state: "needs_setup", action: "choose" };
 }

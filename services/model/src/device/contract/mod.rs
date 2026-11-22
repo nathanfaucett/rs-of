@@ -18,7 +18,7 @@ pub use device_enrollment_request::DeviceEnrollmentRequest;
 pub use device_info::DeviceInfo;
 pub use device_pairing::{
     DevicePairingApprovalPayload, DevicePairingApprovalRequest, DevicePairingRequest,
-    PairingAcceptance, device_pairing_approval_payload,
+    device_pairing_approval_payload,
 };
 pub use device_self_revocation::{DeviceSelfRevocationRequest, device_self_revocation_payload};
 pub use device_state::DeviceState;

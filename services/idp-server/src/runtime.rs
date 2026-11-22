@@ -1,10 +1,7 @@
-use std::{io, sync::Arc, time::Duration};
+use std::{io, sync::Arc};
 
 use axum::Router;
-use device_service::{
-    DeviceIdentity, HostedControlPlane, PairingAcceptanceController,
-    TimedPairingAcceptanceController, replica::DbDeviceRepo,
-};
+use device_service::{DeviceIdentity, HostedControlPlane, replica::DbDeviceRepo};
 use idp_service::{
     oauth2::service::OAuth2Service,
     replica::{
@@ -13,13 +10,10 @@ use idp_service::{
     },
     repo::{KeyService, PrivateKeyKeyringRepo},
 };
-use iroh::protocol::{ProtocolHandler, Router as IrohRouter};
 use iroh_chain::Server;
 use management_service::LocalPermissions;
 use of_model::id::Id;
 
-use crate::bootstrap::BOOTSTRAP_ALPN;
-use crate::bootstrap::handler::BootstrapProtocolHandler;
 use crate::config::app_config::AppConfig;
 use crate::management_permission_client::ManagementPermissionClient;
 use crate::router::openapi_router::openapi_router;
@@ -27,8 +21,7 @@ use crate::router::state::RouterState;
 
 pub struct IdpRuntime {
     pub(crate) router: Router,
-    bootstrap_protocol: BootstrapProtocolHandler,
-    join_state: RouterState,
+    state: RouterState,
 }
 
 impl IdpRuntime {
@@ -37,16 +30,11 @@ impl IdpRuntime {
         bearer: &str,
     ) -> Result<of_model::idp::contract::introspection_response::IntrospectionResponse, String>
     {
-        crate::management_owner::authorize_management_bearer(&self.join_state, bearer).await
+        crate::management_owner::authorize_management_bearer(&self.state, bearer).await
     }
 
     pub async fn active_user(&self, user_id: Id) -> Result<(), String> {
-        crate::management_owner::active_management_user(&self.join_state, user_id).await
-    }
-
-    #[must_use]
-    pub fn pairing_acceptance(&self) -> Arc<device_service::PairingAcceptanceControllerSlot> {
-        Arc::clone(&self.join_state.pairing_acceptance)
+        crate::management_owner::active_management_user(&self.state, user_id).await
     }
 
     pub async fn authorize_storage_bearer(
@@ -56,79 +44,11 @@ impl IdpRuntime {
         of_model::idp::contract::introspection_response::IntrospectionResponse,
         of_model::idp::contract::error_response::ErrorResponse,
     > {
-        crate::storage_owner::authorize_storage_bearer(&self.join_state, bearer).await
-    }
-
-    pub async fn authorize_node_join_approver(&self, bearer: &str) -> io::Result<of_model::id::Id> {
-        self.join_state.authorize_node_join_approver(bearer).await
-    }
-
-    pub async fn node_join_accepting(
-        &self,
-        bearer: &str,
-        accepting: Option<bool>,
-    ) -> io::Result<bool> {
-        self.authorize_node_join_approver(bearer).await?;
-        if let Some(accepting) = accepting {
-            self.join_state
-                .pairing_acceptance
-                .set_pairing_accepting(accepting)
-                .map_err(io::Error::other)?;
-        }
-        self.join_state
-            .pairing_acceptance
-            .pairing_accepting()
-            .map_err(io::Error::other)
-    }
-
-    pub async fn approve_node_join(
-        &self,
-        offer: &iroh_chain::PairingOffer,
-        bearer: &str,
-    ) -> io::Result<of_model::node_join::NodeJoinApproval> {
-        self.join_state.approve_node_join(offer, bearer).await
-    }
-
-    pub async fn enroll_node_join_offer(
-        &self,
-        offer: &iroh_chain::PairingOffer,
-        bearer: &str,
-    ) -> io::Result<of_model::node_join::NodeJoinApproval> {
-        self.join_state.enroll_node_join_offer(offer, bearer).await
-    }
-
-    pub async fn verify_node_join_enrollment(
-        &self,
-        approval: &of_model::node_join::NodeJoinApproval,
-    ) -> io::Result<()> {
-        self.join_state.verify_node_join_enrollment(approval).await
-    }
-
-    pub async fn reply_node_join(
-        &self,
-        offer: &iroh_chain::PairingOffer,
-        bearer: &str,
-        approval: &of_model::node_join::NodeJoinApproval,
-    ) -> io::Result<()> {
-        self.join_state
-            .reply_node_join(offer, bearer, approval)
-            .await
+        crate::storage_owner::authorize_storage_bearer(&self.state, bearer).await
     }
 
     pub fn router(&self) -> Router {
         self.router.clone()
-    }
-
-    #[must_use]
-    pub fn bootstrap_protocol(&self) -> BootstrapProtocolHandler {
-        self.bootstrap_protocol.clone()
-    }
-
-    pub fn protocol_router<D>(&self, server: &Server, data_protocol: D) -> IrohRouter
-    where
-        D: ProtocolHandler,
-    {
-        server.router_with_protocol(data_protocol, BOOTSTRAP_ALPN, self.bootstrap_protocol())
     }
 }
 
@@ -227,13 +147,6 @@ pub async fn build_runtime(
         local_permissions,
     )
     .await?;
-    state
-        .pairing_acceptance
-        .bind(Arc::new(TimedPairingAcceptanceController::new(
-            server,
-            Duration::from_secs(config.pairing.accepting_timeout_seconds),
-        )))
-        .map_err(io::Error::other)?;
     Ok(runtime_from_state(config, state))
 }
 
@@ -399,49 +312,13 @@ async fn build_state_with_keys(
 }
 
 pub fn runtime_from_state(config: &AppConfig, router_state: RouterState) -> IdpRuntime {
-    let bootstrap_protocol = BootstrapProtocolHandler;
     let router = openapi_router(router_state.clone(), config.server.prefix())
         .split_for_parts()
         .0;
 
     IdpRuntime {
         router,
-        bootstrap_protocol,
-        join_state: router_state,
-    }
-}
-
-impl device_service::hosted_join::NodeJoinIdentity for IdpRuntime {
-    fn accepting<'a>(
-        &'a self,
-        bearer: &'a str,
-        accepting: Option<bool>,
-    ) -> device_service::hosted_join::JoinFuture<'a, bool> {
-        Box::pin(self.node_join_accepting(bearer, accepting))
-    }
-    fn authorize<'a>(&'a self, bearer: &'a str) -> device_service::hosted_join::JoinFuture<'a, ()> {
-        Box::pin(async move { self.authorize_node_join_approver(bearer).await.map(|_| ()) })
-    }
-    fn enroll<'a>(
-        &'a self,
-        offer: &'a iroh_chain::PairingOffer,
-        bearer: &'a str,
-    ) -> device_service::hosted_join::JoinFuture<'a, of_model::node_join::NodeJoinApproval> {
-        Box::pin(self.enroll_node_join_offer(offer, bearer))
-    }
-    fn verify<'a>(
-        &'a self,
-        approval: &'a of_model::node_join::NodeJoinApproval,
-    ) -> device_service::hosted_join::JoinFuture<'a, ()> {
-        Box::pin(self.verify_node_join_enrollment(approval))
-    }
-    fn reply<'a>(
-        &'a self,
-        offer: &'a iroh_chain::PairingOffer,
-        bearer: &'a str,
-        approval: &'a of_model::node_join::NodeJoinApproval,
-    ) -> device_service::hosted_join::JoinFuture<'a, ()> {
-        Box::pin(self.reply_node_join(offer, bearer, approval))
+        state: router_state,
     }
 }
 

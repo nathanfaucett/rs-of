@@ -115,7 +115,7 @@
         <p>
             These operations use the Device API. Each request
             independently enforces its exact User permission and Device/resource
-            owner binding; signing in or joining does not grant access.
+            owner binding; signing in or enrolling a Device does not grant access.
         </p>
         <Field label="Device">
             {#snippet children({

@@ -9,7 +9,9 @@ use idp_service::{
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
-use of_model::contract::{StorageAuthorizationAction, TokenResponse};
+use of_model::contract::{
+    authorization_details::StorageAuthorizationAction, token_response::TokenResponse,
+};
 use of_model::device::selection_policy::SelectionPolicy;
 use of_model::idp::{
     contract::{EntityType, GrantType, IdentityAction, TokenEndpointAuthMethod},
@@ -125,7 +127,11 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
         .with_local_device_policy(fixture.identity.endpoint().id(), authorizer.clone());
     fixture.storage_listener.stop().await;
     fixture.storage_listener = Listener::start(resource_router(
-        RouterState::new("https://storage.test").with_idp_client(fixture.client.clone()),
+        RouterState::new(
+            "https://storage.test",
+            fixture.identity.endpoint().id().to_string(),
+        )
+        .with_idp_client(fixture.client.clone()),
         Some(fixture.databases.clone()),
         Some(fixture.files.clone()),
     ))
@@ -157,7 +163,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
     ]);
     fixture
         .clients
-        .update_client(human)
+        .update_client(human, None)
         .await
         .expect("actor audiences");
     let service = ManagementService::new(
@@ -218,7 +224,6 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
             "",
             "storage-service",
             control.clone(),
-            None,
         )
         .await
         .expect("Management routes"),

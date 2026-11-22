@@ -71,13 +71,7 @@ pub(crate) async fn seed_idp_with_config(
         .prepare_setup_client_slots(&[])
         .await
         .expect("complete fixture inventory before private production");
-    let engine = match &config.identity_database {
-        Some(remote) => remote.connect().await.expect("fixture SQL client"),
-        None => owner
-            .node_join_database()
-            .expect("local identity owner")
-            .client(),
-    };
+    let engine = owner.client();
     let applications = DbApplicationRepo::new(engine.clone());
     let application = applications
         .create_application(
@@ -258,10 +252,7 @@ pub(crate) async fn seed_idp_with_config(
         .expect("Device fixture schema");
     let devices = DbDeviceRepo::new(management.client());
     let member_id = of_model::idp::model::Id::now_v7();
-    devices
-        .enroll_approved_exact(member_id, administrator, "owner-test", endpoint_id, 1)
-        .await
-        .expect("Device-owned approved local endpoint");
+    crate::support::seed_approved_device(&devices, administrator, "owner-test", endpoint_id).await;
     let local_signer = idp_service::oauth2::NodeSignerBinding {
         member_id,
         key_id: of_model::idp::model::Id::now_v7(),
@@ -315,7 +306,7 @@ pub(crate) async fn seed_permissions_at(path: &std::path::Path, fixture: &mut Pe
     fs::create_dir_all(path.parent().expect("database directory"))
         .expect("create Management data directory");
     let engine = Arc::new(Database::open(path).expect("open Management fixture"));
-    of_model::idp::replica::up_policy(&engine)
+    of_model::idp::replica::up_policy(&engine.client())
         .await
         .expect("initialize Management schema");
     seed_permissions_on(engine.client(), fixture).await;
@@ -869,83 +860,6 @@ pub(crate) async fn run_permission_http_checks(
     let admin = user_token(client, base, "administrator", "idp-services").await;
     let app_admin = user_token(client, base, "app-administrator", "idp-services").await;
     let unassigned = user_token(client, base, "unassigned", "idp-services").await;
-    let pairing_admin = user_token(
-        client,
-        base,
-        "administrator",
-        management_service::MANAGEMENT_APPLICATION_URI,
-    )
-    .await;
-    let pairing_app_admin = user_token(
-        client,
-        base,
-        "app-administrator",
-        management_service::MANAGEMENT_APPLICATION_URI,
-    )
-    .await;
-    let pairing_url = format!("{management_base}/device/devices/pairing-accepting");
-    expect_status(
-        client
-            .get(&pairing_url)
-            .send()
-            .await
-            .expect("reject unauthenticated pairing read"),
-        http::StatusCode::UNAUTHORIZED,
-    )
-    .await;
-    expect_status(
-        client
-            .get(&pairing_url)
-            .bearer_auth(&pairing_app_admin)
-            .send()
-            .await
-            .expect("deny application administrator pairing read"),
-        http::StatusCode::FORBIDDEN,
-    )
-    .await;
-    expect_status(
-        client
-            .get(&pairing_url)
-            .bearer_auth(&pairing_admin)
-            .send()
-            .await
-            .expect("allow installation administrator pairing read"),
-        http::StatusCode::OK,
-    )
-    .await;
-    let pairing_update = device_service::PairingAcceptance { accepting: false };
-    expect_status(
-        client
-            .put(&pairing_url)
-            .json(&pairing_update)
-            .send()
-            .await
-            .expect("reject unauthenticated pairing update"),
-        http::StatusCode::UNAUTHORIZED,
-    )
-    .await;
-    expect_status(
-        client
-            .put(&pairing_url)
-            .bearer_auth(&pairing_app_admin)
-            .json(&pairing_update)
-            .send()
-            .await
-            .expect("deny application administrator pairing update"),
-        http::StatusCode::FORBIDDEN,
-    )
-    .await;
-    expect_status(
-        client
-            .put(&pairing_url)
-            .bearer_auth(&pairing_admin)
-            .json(&pairing_update)
-            .send()
-            .await
-            .expect("allow installation administrator pairing update"),
-        http::StatusCode::OK,
-    )
-    .await;
     let registration_url = format!("{base}/idp/oauth2/register/human-client");
     let registration = expect_status(
         client
@@ -1393,7 +1307,7 @@ struct ModifierTolerantTestStore {
     inner: Arc<keyring_core::mock::Store>,
 }
 
-impl keyring_core::server_common::CredentialStoreApi for ModifierTolerantTestStore {
+impl keyring_core::api::CredentialStoreApi for ModifierTolerantTestStore {
     fn vendor(&self) -> String {
         self.inner.vendor()
     }
@@ -1408,11 +1322,11 @@ impl keyring_core::server_common::CredentialStoreApi for ModifierTolerantTestSto
         user: &str,
         _modifiers: Option<&HashMap<&str, &str>>,
     ) -> keyring_core::Result<keyring_core::Entry> {
-        keyring_core::server_common::CredentialStoreApi::build(&*self.inner, service, user, None)
+        keyring_core::api::CredentialStoreApi::build(&*self.inner, service, user, None)
     }
 
     fn search(&self, spec: &HashMap<&str, &str>) -> keyring_core::Result<Vec<keyring_core::Entry>> {
-        keyring_core::server_common::CredentialStoreApi::search(&*self.inner, spec)
+        keyring_core::api::CredentialStoreApi::search(&*self.inner, spec)
     }
 
     fn as_any(&self) -> &dyn Any {

@@ -43,13 +43,13 @@ mod tests {
     use of_model::idp::contract::jwks::Jwks;
     use tower::ServiceExt;
 
-    use crate::node_join_tests::{approval_fixture, user_token};
+    use crate::owner_test_fixture::{owner_fixture, user_token};
 
     use crate::management_owner::authorize_management_bearer;
 
     #[tokio::test]
     async fn local_management_bearer_retains_signed_application_after_client_deletion() {
-        let fixture = approval_fixture().await;
+        let fixture = owner_fixture().await;
         let token = user_token(&fixture, "idp-services").await;
         let router: axum::Router = crate::openapi_router(fixture.state.clone(), "/idp").into();
         let request = Request::builder()

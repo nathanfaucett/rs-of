@@ -17,16 +17,7 @@
     let active = true;
     let retrieving = $state(false);
     const session = untrack(() => new IndependentSetupSession(hosts));
-    let purpose = $state<"create" | "join">(
-        untrack(() =>
-            hosts.some((host) => host.status.state === "joining")
-                ? "join"
-                : "create",
-        ),
-    );
     let administrator = $state("");
-    let node = $state("");
-    let peer = $state("");
     let password = $state("");
     let codes = $state<OwnerCodes>({ idp: "", device: "", storage: "" });
     const canSubmit = $derived(
@@ -80,13 +71,8 @@
         await session.submit(
             current,
             {
-                purpose,
                 administrator,
-                node:
-                    purpose === "create"
-                        ? (session.intent?.node ?? "My Node")
-                        : node,
-                peer,
+                node: session.intent?.node ?? "My Node",
             },
             credential,
         );
@@ -98,12 +84,7 @@
         const current = await currentCodes(supplied);
         if (!current) return;
         await session.recover(current);
-        if (session.intent) {
-            purpose = session.intent.purpose;
-            administrator = session.intent.administrator;
-            node = session.intent.node;
-            peer = session.intent.peer ?? "";
-        }
+        if (session.intent) administrator = session.intent.administrator;
     }
     async function cancel() {
         if (retrieving || session.busy) return;
@@ -126,7 +107,7 @@
 </script>
 
 <section aria-labelledby="independent-setup-title" class="flex flex-col gap-3">
-    <h2 id="independent-setup-title">Owner Create / Join</h2>
+    <h2 id="independent-setup-title">Create the first Installation</h2>
     <p>
         Each owner requires its own code in its own HTTPS Authorization header.
         Codes and passwords are transient, never saved. Bundled setup uses one local
@@ -138,34 +119,7 @@
         rollback. After reload, recover all current owner tuples before retrying
         or canceling; do not invent a replacement nonce.
     </p>
-    <p>
-        For Join, sign in on the source app and use <a
-            href={resolve("/devices")}>Devices → Equal-Node joining</a
-        > to inspect and approve the exact offer. Target setup codes never authorize
-        source approval.
-    </p>
     <form onsubmit={submit} class="flex flex-col gap-3">
-        <Field label="Installation setup choice">
-            {#snippet children({
-                id,
-                "aria-describedby": describedby,
-                "aria-invalid": invalid,
-                required,
-            })}
-                <select
-                    {id}
-                    aria-describedby={describedby}
-                    aria-invalid={invalid}
-                    {required}
-                    bind:value={purpose}
-                    onchange={clearSecrets}
-                    disabled={session.busy || retrieving || !!session.intent}
-                >
-                    <option value="create">Create an Installation</option>
-                    <option value="join">Join through a trusted peer</option>
-                </select>
-            {/snippet}
-        </Field>
         {#each independentOwners as owner (owner)}
             {@const current = session.hosts.find(
                 (host) => host.status.owners[0] === owner,
@@ -202,76 +156,25 @@
                 </Field>
             {/if}
         {/each}
-        {#if purpose === "create"}
-            <Field label="Administrator username" required>
-                {#snippet children({
-                    id,
-                    "aria-describedby": describedby,
-                    "aria-invalid": invalid,
-                    required,
-                })}
-                    <input
-                        {id}
-                        aria-describedby={describedby}
-                        aria-invalid={invalid}
-                        {required}
-                        bind:value={administrator}
-                        autocomplete="username"
-                        disabled={session.busy || retrieving || !!session.intent}
-                    />
-                {/snippet}
-            </Field>
-        {/if}
-        {#if purpose === "join"}
-            <Field label="Node name" required>
-                {#snippet children({
-                    id,
-                    "aria-describedby": describedby,
-                    "aria-invalid": invalid,
-                    required,
-                })}
-                    <input
-                        {id}
-                        aria-describedby={describedby}
-                        aria-invalid={invalid}
-                        {required}
-                        bind:value={node}
-                        autocomplete="off"
-                        disabled={session.busy || retrieving || !!session.intent}
-                    />
-                {/snippet}
-            </Field>
-        {/if}
-        {#if purpose === "join"}
-            <Field
-                label="Trusted source Device HTTPS base#pinned endpoint"
-                required
-            >
-                {#snippet children({
-                    id,
-                    "aria-describedby": describedby,
-                    "aria-invalid": invalid,
-                    required,
-                })}
-                    <input
-                        {id}
-                        aria-describedby={describedby}
-                        aria-invalid={invalid}
-                        {required}
-                        bind:value={peer}
-                        autocomplete="off"
-                        spellcheck="false"
-                        disabled={session.busy || retrieving || !!session.intent}
-                        placeholder="https://source.example/device#…"
-                    />
-                {/snippet}
-            </Field>
-            <p>
-                The target authenticates the pinned source and discovers its
-                issuer. Do not supply an administrator, issuer or password for
-                Join.
-            </p>
-        {:else if !session.hosts.find((host) => host.status.owners[0] === "idp")?.status.ready}
+        <Field label="Administrator username" required>
+            {#snippet children({
+                id,
+                "aria-describedby": describedby,
+                "aria-invalid": invalid,
+                required,
+            })}
+                <input
+                    {id}
+                    aria-describedby={describedby}
+                    aria-invalid={invalid}
+                    {required}
+                    bind:value={administrator}
+                    autocomplete="username"
+                    disabled={session.busy || retrieving || !!session.intent}
+                />
+            {/snippet}
+        </Field>
+        {#if !session.hosts.find((host) => host.status.owners[0] === "idp")?.status.ready}
             <Field label="IdP administrator password" required>
                 {#snippet children({
                     id,
@@ -303,7 +206,7 @@
             class="btn btn-primary btn-md"
             type="submit"
             disabled={!canSubmit}
-            >{`${session.intent ? "Retry exact" : "Start"} ${purpose === "create" ? "Create" : "Join"} across owners`}</button
+            >{`${session.intent ? "Retry exact" : "Start"} Create across owners`}</button
         >
         <button
             class="btn btn-secondary btn-md"
@@ -320,7 +223,6 @@
                 retrieving ||
                 session.ready ||
                 !session.intent ||
-                !session.intent.issuer ||
                 session.observationRequired}
             >Cancel exact operation across owners</button
         >

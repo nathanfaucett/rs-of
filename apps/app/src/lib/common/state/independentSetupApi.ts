@@ -14,7 +14,7 @@ import {
 
 export const independentOwners: SetupOwner[] = ["idp", "device", "storage"];
 export type IndependentIntent = {
-    purpose: "create" | "join";
+    purpose: "create";
     operation_nonce: string;
     administrator: string;
     node: string;
@@ -22,7 +22,6 @@ export type IndependentIntent = {
     device: string;
     storage: string;
     issuer: string;
-    peer: string | null;
 };
 export type OwnerCodes = Record<SetupOwner, string>;
 export type IndependentPublic = {
@@ -31,25 +30,10 @@ export type IndependentPublic = {
     facts: Record<string, unknown>;
 };
 const keys =
-    "administrator,device,idp,issuer,node,operation_nonce,peer,purpose,storage";
-
-export function exactIndependentPeer(peer: string): string {
-    const parts = peer.split("#");
-    if (
-        parts.length !== 2 ||
-        setupBase(parts[0]) !== parts[0] ||
-        !/^[a-f0-9]{64}$/.test(parts[1]) ||
-        /^0+$/.test(parts[1])
-    )
-        throw new Error(
-            "Use the exact source Device HTTPS base#pinned-endpoint",
-        );
-    return peer;
-}
+    "administrator,device,idp,issuer,node,operation_nonce,purpose,storage";
 
 export function exactIndependentIntent(
     value: unknown,
-    resolved = false,
 ): IndependentIntent {
     if (
         !value ||
@@ -81,24 +65,8 @@ export function exactIndependentIntent(
         throw new Error(
             "Independent owners require distinct exact HTTPS bases",
         );
-    if (intent.purpose === "create") {
-        if (
-            !intent.administrator.trim() ||
-            intent.issuer !== intent.idp ||
-            intent.peer !== null
-        )
-            throw new Error("Invalid exact Create intent");
-    } else if (intent.purpose === "join") {
-        if (
-            intent.administrator !== "" ||
-            typeof intent.peer !== "string" ||
-            (resolved && !intent.issuer)
-        )
-            throw new Error("Invalid exact Join intent");
-        exactIndependentPeer(intent.peer);
-        if (intent.issuer && setupBase(intent.issuer) !== intent.issuer)
-            throw new Error("Invalid authenticated issuer");
-    } else throw new Error("Invalid setup purpose");
+    if (intent.purpose !== "create" || !intent.administrator.trim() || intent.issuer !== intent.idp)
+        throw new Error("Invalid exact Create intent");
     return Object.fromEntries(
         keys
             .split(",")
@@ -109,13 +77,11 @@ export function exactIndependentIntent(
 export function sameIndependentIntent(
     a: IndependentIntent,
     b: IndependentIntent,
-    unresolved = false,
 ): boolean {
     return keys
         .split(",")
         .every(
             (key) =>
-                (key === "issuer" && unresolved && (!a.issuer || !b.issuer)) ||
                 a[key as keyof IndependentIntent] ===
                     b[key as keyof IndependentIntent],
         );
@@ -175,7 +141,7 @@ export async function submitIndependentSetup(
     if (base !== intent[owner]) throw new Error("Setup target changed");
     const { operation_nonce, ...fields } = intent;
     const body = { ...fields, operationNonce: operation_nonce };
-    const includePassword = owner === "idp" && intent.purpose === "create";
+    const includePassword = owner === "idp";
     if (
         includePassword &&
         (typeof password !== "string" ||
@@ -189,10 +155,7 @@ export async function submitIndependentSetup(
             ? { ...body, password }
             : body,
     };
-    const response =
-        intent.purpose === "create"
-            ? await api.ownerSetupCreateRaw(parameters, requestInit)
-            : await api.ownerSetupJoinRaw(parameters, requestInit);
+    const response = await api.ownerSetupCreateRaw(parameters, requestInit);
     if (response.raw.status !== 202)
         throw new Error(
             `Independent setup rejected (${response.raw.status}); observe all owners`,
@@ -213,7 +176,6 @@ export async function recoverIndependentIntent(
         );
     return exactIndependentIntent(
         IndependentCreateIntentToJSON(await response.value()),
-        true,
     );
 }
 export async function cancelIndependentSetup(
@@ -222,7 +184,7 @@ export async function cancelIndependentSetup(
     code: string,
     value: IndependentIntent,
 ): Promise<void> {
-    const intent = exactIndependentIntent(value, true);
+    const intent = exactIndependentIntent(value);
     if (base !== intent[owner]) throw new Error("Setup target changed");
     const response = await independentClient(
         base,
@@ -269,7 +231,7 @@ export async function fetchIndependentPublic(
     if (!raw || typeof raw !== "object" || Array.isArray(raw))
         throw new Error("Invalid public owner evidence");
     const value = raw as Record<string, unknown>;
-    const operation = exactIndependentIntent(value.operation, true);
+    const operation = exactIndependentIntent(value.operation);
     if (
         value.owner !== owner ||
         operation[owner] !== base ||

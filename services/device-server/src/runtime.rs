@@ -89,7 +89,6 @@ pub async fn build_local_router(
         "/device",
         &storage_base,
         Arc::new(control),
-        None,
     )
     .await
     .map_err(std::io::Error::other)
@@ -103,7 +102,6 @@ pub async fn build_router(
     prefix: &str,
     storage_audience: &str,
     control_plane: Arc<HostedControlPlane>,
-    node_joins: Option<Arc<crate::node_join_source::NodeJoinSource>>,
 ) -> Result<Router, ofdb_sql::QueryError> {
     let control_plane = Arc::new(
         control_plane
@@ -123,10 +121,7 @@ pub async fn build_router(
         storage_audience,
     );
 
-    let router: Router = openapi_router(router_state, prefix).into();
-    Ok(router.merge(crate::node_join_source::node_join_router(
-        node_joins, prefix,
-    )))
+    Ok(openapi_router(router_state, prefix).into())
 }
 
 #[cfg(test)]

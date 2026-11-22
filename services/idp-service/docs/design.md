@@ -28,7 +28,7 @@ A token subject is a stable Principal identity, not a raw authentication key or 
 
 One IdP authority issues tokens for an issuer. It keeps private signing keys in its local key store and serves public keys through JWKS. The issuer key ring is not part of peer history exchange. A relying Node uses trusted public keys and has no signing capability. Device enrollment and approval do not grant token-signing trust.
 
-Configure a verifier with `oauth2.trusted_issuer_jwks` and no `local_signer`. Use a trusted snapshot from the configured issuer. Install an updated snapshot to accept tokens signed by a new key. Independent Join retains the issuer public keys, but does not register the joined services’ OAuth Clients at the issuer. Device approval alone does not complete that setup.
+Configure a verifier with `oauth2.trusted_issuer_jwks` and no `local_signer`. Use a trusted snapshot from the configured issuer. Install an updated snapshot to accept tokens signed by a new key. Device approval does not add an issuer or provision OAuth Clients.
 
 Access JWT verification uses trusted issuer public keys and signed claims, not records for the User, Client, or authentication root. A verifier with a trusted JWKS snapshot can check a JWT without contacting the issuer. The OAuth token endpoint still checks current Principal, Client, and grant state before it issues or refreshes tokens. Resource and Device authorization remain separate. An actor header or authenticated transport endpoint does not prove API identity.
 

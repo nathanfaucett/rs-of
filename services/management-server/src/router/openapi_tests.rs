@@ -67,7 +67,6 @@ async fn management_serves_only_permission_contract() {
             .keys()
             .all(|path| !path.starts_with("/device")
                 && !path.starts_with("/replication")
-                && !path.starts_with("/node-joins")
                 && !path.starts_with("/resources"))
     );
 }

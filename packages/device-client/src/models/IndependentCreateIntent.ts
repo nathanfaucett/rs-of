@@ -46,10 +46,6 @@ export interface IndependentCreateIntent {
   /**
    *
    */
-  peer?: string | null;
-  /**
-   *
-   */
   purpose: string;
   /**
    *
@@ -98,7 +94,6 @@ export function IndependentCreateIntentFromJSONTyped(
           "issuer",
           "node",
           "operation_nonce",
-          "peer",
           "purpose",
           "storage",
         ].includes(key)
@@ -115,7 +110,6 @@ export function IndependentCreateIntentFromJSONTyped(
     issuer: json["issuer"],
     node: json["node"],
     operationNonce: json["operation_nonce"],
-    peer: json["peer"] === undefined ? undefined : json["peer"] === null ? null : json["peer"],
     purpose: json["purpose"],
     storage: json["storage"],
   };
@@ -140,7 +134,6 @@ export function IndependentCreateIntentToJSONTyped(
     issuer: value["issuer"],
     node: value["node"],
     operation_nonce: value["operationNonce"],
-    peer: value["peer"],
     purpose: value["purpose"],
     storage: value["storage"],
   };

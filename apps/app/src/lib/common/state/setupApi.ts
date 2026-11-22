@@ -16,7 +16,6 @@ export type SetupStatus = {
     state:
         | "awaiting_choice"
         | "creating"
-        | "joining"
         | "unfinished"
         | "unavailable"
         | "ready";
@@ -146,7 +145,6 @@ export function readSetupStatus(
         ![
             "awaiting_choice",
             "creating",
-            "joining",
             "unfinished",
             "unavailable",
             "ready",

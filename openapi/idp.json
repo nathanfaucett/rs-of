@@ -886,26 +886,6 @@
           }
         ]
       },
-      "HistoryRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "approval": {
-            "$ref": "#/components/schemas/IndependentJoinApproval"
-          },
-          "recipient": {
-            "type": "string"
-          },
-          "return_nonce": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "approval",
-          "recipient",
-          "return_nonce"
-        ],
-        "type": "object"
-      },
       "IdToken": {
         "type": "string"
       },
@@ -929,12 +909,6 @@
           },
           "operation_nonce": {
             "type": "string"
-          },
-          "peer": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "purpose": {
             "type": "string"
@@ -973,62 +947,6 @@
           }
         ]
       },
-      "IndependentJoinApproval": {
-        "additionalProperties": false,
-        "properties": {
-          "device_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "owner_subject": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "request": {
-            "$ref": "#/components/schemas/IndependentJoinRequest"
-          },
-          "signature": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "request",
-          "device_id",
-          "owner_subject",
-          "signature"
-        ],
-        "type": "object"
-      },
-      "IndependentJoinRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "endpoint_id": {
-            "type": "string"
-          },
-          "member_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "operation": {
-            "$ref": "#/components/schemas/IndependentCreateIntent"
-          },
-          "request_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "source": {
-            "$ref": "#/components/schemas/IndependentPeer"
-          }
-        },
-        "required": [
-          "operation",
-          "request_id",
-          "member_id",
-          "endpoint_id",
-          "source"
-        ],
-        "type": "object"
-      },
       "IndependentOwnerPublic": {
         "additionalProperties": false,
         "properties": {
@@ -1056,40 +974,6 @@
           "clients",
           "facts",
           "registered"
-        ],
-        "type": "object"
-      },
-      "IndependentPeer": {
-        "additionalProperties": false,
-        "properties": {
-          "address": {},
-          "device": {
-            "type": "string"
-          },
-          "endpoint": {
-            "type": "string"
-          },
-          "idp": {
-            "type": "string"
-          },
-          "issuer": {
-            "type": "string"
-          },
-          "nonce": {
-            "type": "string"
-          },
-          "signature": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "nonce",
-          "issuer",
-          "idp",
-          "device",
-          "endpoint",
-          "address",
-          "signature"
         ],
         "type": "object"
       },
@@ -2424,111 +2308,6 @@
         }
       }
     },
-    "/independent/node-joins/history/request": {
-      "post": {
-        "description": "Requires verified exact independent approval and current owner permission. Returns a capability only through the operation-bound recipient callback.",
-        "operationId": "independent_join_request_history",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HistoryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "Callback accepted"
-          },
-          "400": {
-            "description": "Invalid recipient"
-          },
-          "403": {
-            "description": "Approval denied"
-          },
-          "503": {
-            "description": "Unavailable"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
-    "/independent/node-joins/history/stream": {
-      "get": {
-        "description": "WebSocket upgrade only. The subsequent bounded binary SQL history protocol is not implemented by generated HTTP clients.",
-        "operationId": "independent_join_history_stream",
-        "parameters": [
-          {
-            "description": "History <single-use operation-bound capability>",
-            "in": "header",
-            "name": "Authorization",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Upgrade",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Connection",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Sec-WebSocket-Key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Sec-WebSocket-Version",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "101": {
-            "description": "Switching to bounded history WebSocket protocol"
-          },
-          "400": {
-            "description": "Invalid WebSocket handshake"
-          },
-          "401": {
-            "description": "History capability required"
-          },
-          "403": {
-            "description": "Capability expired or denied"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
     "/issuer-keys/rotate": {
       "post": {
         "operationId": "rotate_issuer_key",
@@ -3272,39 +3051,6 @@
         ]
       }
     },
-    "/setup/owner/history": {
-      "post": {
-        "description": "Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.",
-        "operationId": "owner_setup_history",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "History capability accepted"
-          },
-          "403": {
-            "description": "Operation or return nonce denied"
-          },
-          "409": {
-            "description": "Return channel full"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "owner_setup"
-        ]
-      }
-    },
     "/setup/owner/intent": {
       "post": {
         "operationId": "owner_setup_recover",
@@ -3327,49 +3073,6 @@
           },
           "503": {
             "description": "Admission unavailable"
-          }
-        },
-        "security": [
-          {
-            "setup_code": []
-          }
-        ],
-        "tags": [
-          "owner_setup"
-        ]
-      }
-    },
-    "/setup/owner/join": {
-      "post": {
-        "operationId": "owner_setup_join",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IndependentCreateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "Exact Join accepted after authenticated discovery; empty body"
-          },
-          "400": {
-            "description": "Invalid tuple; Join forbids password and administrator"
-          },
-          "401": {
-            "description": "Code invalid or retired"
-          },
-          "409": {
-            "description": "Conflicting retained operation"
-          },
-          "502": {
-            "description": "Pinned peer discovery failed"
-          },
-          "503": {
-            "description": "Owner unavailable"
           }
         },
         "security": [

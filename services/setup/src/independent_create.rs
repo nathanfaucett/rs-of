@@ -6,7 +6,6 @@ use std::{
 };
 
 use crate::canonical_openapi_router;
-use crate::independent_peer::IndependentPeer;
 use axum::{
     Json, Router,
     extract::{Request, State},
@@ -55,7 +54,6 @@ pub(crate) struct CreateLifecycle {
     pub(crate) registrar: Option<IndependentRegistrar>,
     pub(crate) loader: Option<IndependentSecretLoader>,
     pub(crate) challenges: Vec<crate::independent_exchange::OutstandingChallenge>,
-    pub(crate) history: Option<(String, serde_json::Value, mpsc::Sender<serde_json::Value>)>,
 }
 
 pub(crate) struct CreateShared {
@@ -142,7 +140,6 @@ impl IndependentSetupHost {
                 registrar: None,
                 loader: None,
                 challenges: Vec::new(),
-                history: None,
             }),
             normal: RwLock::new(None),
             readiness: RwLock::new(None),
@@ -187,7 +184,10 @@ impl IndependentCreateHost {
                 &self.control.0.base,
             ))
             .layer(setup_cors)
-            .layer(middleware::from_fn_with_state(origin, setup_origin_guard));
+            .layer(middleware::from_fn_with_state(
+                origin.clone(),
+                setup_origin_guard,
+            ));
         let setup = if self.host.settings.prefix.is_empty() {
             setup
         } else {
@@ -197,7 +197,11 @@ impl IndependentCreateHost {
             Router::new()
                 .fallback(normal)
                 .with_state(self.control.clone())
-                .layer(CorsLayer::very_permissive().allow_private_network(true)),
+                .layer(
+                    CorsLayer::very_permissive()
+                        .allow_origin(origin)
+                        .allow_private_network(true),
+                ),
         )
     }
     pub async fn serve(self) -> io::Result<()> {
@@ -375,7 +379,6 @@ impl IndependentCreateControl {
         state.view = "ready";
         state.active = None;
         state.challenges.clear();
-        state.history = None;
         state.loader = None;
         state.registrar = None;
         Ok(())
@@ -387,7 +390,6 @@ impl IndependentCreateControl {
         }
         state.view = "unfinished";
         state.challenges.clear();
-        state.history = None;
         state.loader = None;
         state.registrar = None;
     }
@@ -485,38 +487,6 @@ pub(crate) async fn create(
     accept(control, headers, request).await
 }
 
-#[utoipa::path(post, tag = "default", path = "/setup/owner/join", request_body = IndependentCreateRequest, responses((status = 202, description = "Exact Join accepted after authenticated discovery; empty body"), (status = 400, description = "Invalid tuple; Join forbids password and administrator"), (status = 401, description = "Code invalid or retired"), (status = 409, description = "Conflicting retained operation"), (status = 502, description = "Pinned peer discovery failed"), (status = 503, description = "Owner unavailable")), security(("setup_code" = [])))]
-pub(crate) async fn join(
-    State(control): State<IndependentCreateControl>,
-    headers: HeaderMap,
-    Json(mut request): Json<IndependentCreateRequest>,
-) -> Response {
-    if let Err(error) = control.0.admission.check(&headers) {
-        return error.into_response();
-    }
-    if request.intent.purpose != "join" || request.password.is_some() {
-        return StatusCode::BAD_REQUEST.into_response();
-    }
-    if let Some(retained) = control.intent().await {
-        if request.intent.issuer.is_empty() {
-            request.intent.issuer = retained.issuer;
-        }
-    } else {
-        let Some(choice) = request.intent.peer.as_deref() else {
-            return StatusCode::BAD_REQUEST.into_response();
-        };
-        let peer = match IndependentPeer::discover(choice).await {
-            Ok(peer) => peer,
-            Err(_) => return StatusCode::BAD_GATEWAY.into_response(),
-        };
-        if !request.intent.issuer.is_empty() && request.intent.issuer != peer.issuer {
-            return StatusCode::CONFLICT.into_response();
-        }
-        request.intent.issuer = peer.issuer;
-    }
-    accept(control, headers, request).await
-}
-
 async fn accept(
     control: IndependentCreateControl,
     headers: HeaderMap,
@@ -532,12 +502,11 @@ async fn accept(
     };
     if intent.base(control.owner()).ok() != Some(control.0.base.as_str())
         || (control.owner() == "idp"
-            && intent.purpose == "create"
             && request
                 .password
                 .as_ref()
                 .is_none_or(|p| p.len() < 8 || p.len() > 4096))
-        || ((control.owner() != "idp" || intent.purpose == "join") && request.password.is_some())
+        || (control.owner() != "idp" && request.password.is_some())
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
@@ -566,11 +535,7 @@ async fn accept(
     state.intent = Some(intent.clone());
     let cancellation = control.0.shutdown.child_token();
     state.active = Some(cancellation.clone());
-    state.view = if intent.purpose == "join" {
-        "joining"
-    } else {
-        "creating"
-    };
+    state.view = "creating";
     if control
         .0
         .commands
@@ -620,7 +585,6 @@ pub(crate) async fn cancel(
     };
     active.cancel();
     state.challenges.clear();
-    state.history = None;
     state.view = "unfinished";
     StatusCode::NO_CONTENT.into_response()
 }
@@ -742,9 +706,7 @@ pub fn setup_routes() -> utoipa_axum::router::OpenApiRouter<IndependentCreateCon
         .routes(utoipa_axum::routes!(status))
         .routes(utoipa_axum::routes!(admission))
         .routes(utoipa_axum::routes!(create))
-        .routes(utoipa_axum::routes!(join))
         .routes(utoipa_axum::routes!(recover))
         .routes(utoipa_axum::routes!(cancel))
-        .routes(utoipa_axum::routes!(crate::independent_history::challenge))
         .merge(crate::independent_exchange::routes())
 }

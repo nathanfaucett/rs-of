@@ -27,7 +27,6 @@ default = ["cli", "completions"]
 independent = [
     "dep:setup",
     "server-common/independent",
-    "device-service/independent",
 ]
 cli = ["independent", "dep:dotenvy", "dep:clap", "dep:cli"]
 completions = ["cli?/completions"]

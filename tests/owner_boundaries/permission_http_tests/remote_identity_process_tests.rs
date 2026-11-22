@@ -330,7 +330,7 @@ fn remote_identity_child() {
             if mode == "sql" {
                 let database = db::Database::open(root.join("identity.redb"))
                     .expect("identity database owner");
-                of_model::idp::replica::up(&database)
+                of_model::idp::replica::up(&database.client())
                     .await
                     .expect("owner migrations");
                 fs::write(root.join("sql.ready"), "ready").expect("owner ready");

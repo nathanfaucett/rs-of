@@ -52,7 +52,6 @@ pub async fn identity_client(config: &AppConfig) -> io::Result<Client> {
 #[derive(Clone)]
 pub(crate) struct DeviceStore {
     pub client: Client,
-    pub owner: Option<std::sync::Arc<ofdb_sql::Database>>,
 }
 
 impl DeviceStore {
@@ -60,15 +59,11 @@ impl DeviceStore {
         if config.device_database.is_some() {
             let client = device_client(config).await?;
             std::fs::create_dir_all(&config.data_dir)?;
-            Ok(Self {
-                client,
-                owner: None,
-            })
+            Ok(Self { client })
         } else {
             let owner = crate::provisioning::open_device_database(config).await?;
             Ok(Self {
                 client: owner.client(),
-                owner: Some(owner),
             })
         }
     }

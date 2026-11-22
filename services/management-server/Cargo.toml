@@ -21,7 +21,6 @@ required-features = ["cli"]
 default = ["cli"]
 independent = [
     "server-common/independent",
-    "device-service/independent",
     "dep:setup",
 ]
 cli = ["independent", "dep:clap", "dep:cli", "dep:dotenvy", "dep:tokio-util"]

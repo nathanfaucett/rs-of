@@ -566,7 +566,7 @@ async fn blocked_user_or_disabled_client_cannot_issue_or_refresh_but_access_surv
         client.allowed_grant_types.push(GrantType::Password);
         let client = service
             .client_repo
-            .update_client(client)
+            .update_client(client, None)
             .await
             .expect("enable password grant");
         let password = || {

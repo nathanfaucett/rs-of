@@ -59,7 +59,9 @@ pub use db::DatabaseTransport;
 pub use device_client::DeviceClient;
 pub use idp_client::{IdpClient, IdpIntrospectionError};
 #[cfg(all(unix, feature = "independent"))]
-pub use independent_create::serve_independent_create;
+pub use independent_create::{run_owner_setup, serve_independent_create};
+#[cfg(all(unix, feature = "independent"))]
+pub use independent_reset::reset_independent;
 #[cfg(feature = "network")]
 pub use local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
 #[cfg(feature = "network")]

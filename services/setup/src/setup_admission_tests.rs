@@ -218,7 +218,7 @@ fn binding_retries_reopen_and_explicit_retirement_are_durable() {
         .bind(&headers, "create:operation-1")
         .expect("exact retry");
     assert_eq!(
-        admission.bind(&headers, "join:operation-1"),
+        admission.bind(&headers, "create:other-operation-1"),
         Err(SetupAdmissionError::Conflict)
     );
     drop(admission);
@@ -232,7 +232,7 @@ fn binding_retries_reopen_and_explicit_retirement_are_durable() {
         Err(SetupAdmissionError::Conflict)
     );
     assert_eq!(
-        admission.retire(&headers, "join:operation-1"),
+        admission.retire(&headers, "create:other-operation-1"),
         Err(SetupAdmissionError::Conflict)
     );
     admission
@@ -288,7 +288,7 @@ async fn setup_handler_binds_before_work_without_changing_other_routes() {
     for (intent, expected) in [
         ("create:http-1", StatusCode::NO_CONTENT),
         ("create:http-1", StatusCode::NO_CONTENT),
-        ("join:http-1", StatusCode::CONFLICT),
+        ("create:other-http-1", StatusCode::CONFLICT),
         ("", StatusCode::BAD_REQUEST),
     ] {
         let mut request = Request::builder()
@@ -326,7 +326,7 @@ async fn setup_handler_binds_before_work_without_changing_other_routes() {
         .bind(&headers, "create:http-1")
         .expect("exact HTTP intent retry");
     assert_eq!(
-        admission.bind(&headers, "join:http-1"),
+        admission.bind(&headers, "create:other-http-1"),
         Err(SetupAdmissionError::Conflict)
     );
 }
@@ -370,7 +370,7 @@ fn concurrent_conflicting_operations_bind_only_one_intent() {
     let (_parent, root, admission, headers, _code) = fixture();
     let admission = Arc::new(admission);
     let mut handles = Vec::new();
-    for intent in ["create:first", "join:second"] {
+    for intent in ["create:first", "create:other-second"] {
         let admission = Arc::clone(&admission);
         let headers = headers.clone();
         handles.push(std::thread::spawn(move || {
@@ -535,7 +535,7 @@ fn failed_durable_write_poisoning_does_not_authorize_mutation() {
         "failed update changed retained state"
     );
     assert_eq!(
-        admission.bind(&headers, "join:other"),
+        admission.bind(&headers, "create:other-other"),
         Err(SetupAdmissionError::Unavailable)
     );
     assert_eq!(

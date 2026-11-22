@@ -27,14 +27,12 @@ default = ["cli", "completions"]
 independent = [
     "dep:setup",
     "server-common/independent",
-    "device-service/independent",
 ]
 cli = ["independent", "dep:dotenvy", "dep:clap", "dep:cli"]
 completions = ["cli?/completions", "dep:clap_complete"]
 
 [dependencies]
 btree-redb = { package = "ofdb-btree-redb", path = "../../db/btree-redb", default-features = false }
-of-device-client = { path = "../device-client", default-features = false }
 device-service = { path = "../device-service", default-features = false, features = [
     "ofdb",
     "std",

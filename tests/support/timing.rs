@@ -8,7 +8,6 @@ impl log::Log for SetupTimingLog {
                     || metadata.target() == "idp_server::hosted_setup")
             || metadata.level() == log::Level::Debug
                 && [
-                    "server_common::independent_history",
                     "device_service::join_history",
                     "idp_server::independent",
                     "device_server::independent",

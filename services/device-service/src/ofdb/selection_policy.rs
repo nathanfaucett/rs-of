@@ -1583,7 +1583,7 @@ mod tests {
                         },
                         |view| {
                             owner
-                                .validate_candidate(view, "fixture", None)
+                                .validate_candidate(view, &[])
                                 .map_err(|error| error.to_string())
                         },
                         || async { Ok(()) },

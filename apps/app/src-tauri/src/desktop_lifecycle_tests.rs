@@ -69,13 +69,23 @@ async fn native_host_keeps_one_listener_and_shared_routes_until_coordinated_clos
     assert!(serialized["failure"].is_null());
     assert!(!serialized.to_string().contains("historical-marker"));
     assert!(!serialized.to_string().contains("setup-admission"));
-    let denied = client.post(format!("{}/idp/setup/owner/create", host.base_url()))
-        .json(&serde_json::json!({"operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"admin", "node":"Desktop", "password":"not-authorized"}))
-        .send().await.expect("real shared Create route");
-    assert_eq!(denied.status(), reqwest::StatusCode::UNAUTHORIZED);
-    let denied = client.post(format!("{}/idp/setup/owner/join", host.base_url()))
-        .json(&serde_json::json!({"operation_nonce":"0123456789abcdef0123456789abcdef", "node":"Desktop", "peer":iroh::SecretKey::generate().public().to_string()}))
-        .send().await.expect("real shared Join route");
+    let base = host.base_url();
+    let denied = client
+        .post(format!("{base}/idp/setup/owner/create"))
+        .json(&serde_json::json!({
+            "purpose": "create",
+            "operation_nonce": "0123456789abcdef0123456789abcdef",
+            "administrator": "admin",
+            "node": "Desktop",
+            "password": "not-authorized",
+            "idp": format!("{base}/idp"),
+            "issuer": format!("{base}/idp"),
+            "device": format!("{base}/device"),
+            "storage": format!("{base}/storage"),
+        }))
+        .send()
+        .await
+        .expect("real shared Create route");
     assert_eq!(denied.status(), reqwest::StatusCode::UNAUTHORIZED);
     assert_eq!(
         host.base_url(),

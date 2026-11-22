@@ -61,20 +61,6 @@ export interface OwnerSetupCreateRequest {
   independentCreateRequest: IndependentCreateRequest;
 }
 
-export interface OwnerSetupHistoryRequest {
-  /**
-   *
-   */
-  body: object;
-}
-
-export interface OwnerSetupJoinRequest {
-  /**
-   *
-   */
-  independentCreateRequest: IndependentCreateRequest;
-}
-
 export interface OwnerSetupRegisterRequest {
   /**
    *
@@ -195,63 +181,6 @@ export interface OwnerSetupApiInterface {
    */
   ownerSetupCreate(
     requestParameters: OwnerSetupCreateRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<void>;
-
-  /**
-   * Creates request options for ownerSetupHistory without sending the request
-   * @param {object} body
-   * @throws {RequiredError}
-   * @memberof OwnerSetupApiInterface
-   */
-  ownerSetupHistoryRequestOpts(
-    requestParameters: OwnerSetupHistoryRequest
-  ): Promise<runtime.RequestOpts>;
-
-  /**
-   * Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.
-   * @param {object} body
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof OwnerSetupApiInterface
-   */
-  ownerSetupHistoryRaw(
-    requestParameters: OwnerSetupHistoryRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<void>>;
-
-  /**
-   * Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.
-   */
-  ownerSetupHistory(
-    requestParameters: OwnerSetupHistoryRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<void>;
-
-  /**
-   * Creates request options for ownerSetupJoin without sending the request
-   * @param {IndependentCreateRequest} independentCreateRequest
-   * @throws {RequiredError}
-   * @memberof OwnerSetupApiInterface
-   */
-  ownerSetupJoinRequestOpts(requestParameters: OwnerSetupJoinRequest): Promise<runtime.RequestOpts>;
-
-  /**
-   *
-   * @param {IndependentCreateRequest} independentCreateRequest
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof OwnerSetupApiInterface
-   */
-  ownerSetupJoinRaw(
-    requestParameters: OwnerSetupJoinRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<void>>;
-
-  /**
-   */
-  ownerSetupJoin(
-    requestParameters: OwnerSetupJoinRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void>;
 
@@ -561,114 +490,6 @@ export class OwnerSetupApi extends runtime.BaseAPI implements OwnerSetupApiInter
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void> {
     await this.ownerSetupCreateRaw(requestParameters, initOverrides);
-  }
-
-  /**
-   * Creates request options for ownerSetupHistory without sending the request
-   */
-  async ownerSetupHistoryRequestOpts(
-    requestParameters: OwnerSetupHistoryRequest
-  ): Promise<runtime.RequestOpts> {
-    if (requestParameters["body"] == null) {
-      throw new runtime.RequiredError(
-        "body",
-        'Required parameter "body" was null or undefined when calling ownerSetupHistory().'
-      );
-    }
-
-    const queryParameters: any = {};
-
-    const headerParameters: runtime.HTTPHeaders = {};
-
-    headerParameters["Content-Type"] = "application/json";
-
-    let urlPath = `/setup/owner/history`;
-
-    return {
-      path: urlPath,
-      method: "POST",
-      headers: headerParameters,
-      query: queryParameters,
-      body: requestParameters["body"] as any,
-    };
-  }
-
-  /**
-   * Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.
-   */
-  async ownerSetupHistoryRaw(
-    requestParameters: OwnerSetupHistoryRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<void>> {
-    const requestOptions = await this.ownerSetupHistoryRequestOpts(requestParameters);
-    const response = await this.request(requestOptions, initOverrides);
-
-    return new runtime.VoidApiResponse(response);
-  }
-
-  /**
-   * Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.
-   */
-  async ownerSetupHistory(
-    requestParameters: OwnerSetupHistoryRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<void> {
-    await this.ownerSetupHistoryRaw(requestParameters, initOverrides);
-  }
-
-  /**
-   * Creates request options for ownerSetupJoin without sending the request
-   */
-  async ownerSetupJoinRequestOpts(
-    requestParameters: OwnerSetupJoinRequest
-  ): Promise<runtime.RequestOpts> {
-    if (requestParameters["independentCreateRequest"] == null) {
-      throw new runtime.RequiredError(
-        "independentCreateRequest",
-        'Required parameter "independentCreateRequest" was null or undefined when calling ownerSetupJoin().'
-      );
-    }
-
-    const queryParameters: any = {};
-
-    const headerParameters: runtime.HTTPHeaders = {};
-
-    headerParameters["Content-Type"] = "application/json";
-
-    if (this.configuration && this.configuration.apiKey) {
-      headerParameters["Authorization"] = await this.configuration.apiKey("Authorization"); // setup_code authentication
-    }
-
-    let urlPath = `/setup/owner/join`;
-
-    return {
-      path: urlPath,
-      method: "POST",
-      headers: headerParameters,
-      query: queryParameters,
-      body: IndependentCreateRequestToJSON(requestParameters["independentCreateRequest"]),
-    };
-  }
-
-  /**
-   */
-  async ownerSetupJoinRaw(
-    requestParameters: OwnerSetupJoinRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<void>> {
-    const requestOptions = await this.ownerSetupJoinRequestOpts(requestParameters);
-    const response = await this.request(requestOptions, initOverrides);
-
-    return new runtime.VoidApiResponse(response);
-  }
-
-  /**
-   */
-  async ownerSetupJoin(
-    requestParameters: OwnerSetupJoinRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<void> {
-    await this.ownerSetupJoinRaw(requestParameters, initOverrides);
   }
 
   /**

@@ -66,8 +66,6 @@ async fn exchange_history() {
     let server_a = Server::new(a, peers_a);
     let server_b = Server::new(b, peers_b);
     let actor = Id::now_v7();
-    let key_a = Id::now_v7();
-    let key_b = Id::now_v7();
     let (member_a, member_b) = {
         let idp = Arc::new(Database::open(root.join("a-idp.redb")).expect("seed IdP"));
         db::ofdb::up(&idp.client())
@@ -157,11 +155,6 @@ async fn exchange_history() {
         management_a.clone(),
         idp_a.clone(),
         INSTALLATION.into(),
-        Some(NodeSignerBinding {
-            member_id: member_a,
-            key_id: key_a,
-            endpoint_id: server_a.endpoint().id().to_string(),
-        }),
         root.join("a-stage"),
         cancellation.clone(),
     );
@@ -171,11 +164,6 @@ async fn exchange_history() {
         management_b.clone(),
         idp_b.clone(),
         INSTALLATION.into(),
-        Some(NodeSignerBinding {
-            member_id: member_b,
-            key_id: key_b,
-            endpoint_id: server_b.endpoint().id().to_string(),
-        }),
         root.join("b-stage"),
         cancellation.clone(),
     );
@@ -299,21 +287,10 @@ async fn exchange_history() {
         assert_eq!(sql(management, &format!("SELECT pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = '{own_device}'")).await[0].rows[0].values, vec![Value::Text(format!("private-enrollment-{label}"))]);
         assert!(sql(management, &format!("SELECT device_id FROM local_device_enrollments WHERE device_id = '{other_device}'")).await[0].rows.is_empty());
     }
-    let unsigned = SecurityProtocol::new(
-        server_a.clone(),
-        idp_a.clone(),
-        management_a.clone(),
-        idp_a.clone(),
-        INSTALLATION.into(),
-        None,
-        root.join("unsigned-stage"),
-        cancellation.clone(),
-    );
-    unsigned
+    protocol_a
         .synchronize(&connection, SecurityContext::Idp)
         .await
-        .expect("approved transport works without configured or trusted local token signer");
-    drop(unsigned);
+        .expect("approved transport works without a local token signer");
 
     eprintln!(
         "security fixture {:?}: valid identity/replay/secret checks complete",

@@ -352,8 +352,9 @@ pub(super) async fn normal_use(
             .and_then(|value| value.to_str().ok()),
         Some("https://untrusted.example")
     );
-    let token: of_model::contract::TokenResponse = response.json().await.expect("normal token");
-    let administration_token: of_model::contract::TokenResponse = http
+    let token: of_model::contract::token_response::TokenResponse =
+        response.json().await.expect("normal token");
+    let administration_token: of_model::contract::token_response::TokenResponse = http
         .post(format!("{}/oauth2/token", intent.idp))
         .form(&[
             (
@@ -400,21 +401,21 @@ pub(super) async fn normal_use(
                 "subject_token_type",
                 "urn:ietf:params:oauth:token-type:access_token",
             ),
-            ("resource", "idp-management"),
+            ("resource", intent.device.as_str()),
         ])
         .send()
         .await
-        .expect("Management audience exchange");
+        .expect("Device audience exchange");
     assert_eq!(response.status(), StatusCode::OK);
-    let token: of_model::contract::TokenResponse =
-        response.json().await.expect("Management audience token");
-    let management_token = token.access_token.0.clone();
+    let token: of_model::contract::token_response::TokenResponse =
+        response.json().await.expect("Device audience token");
+    let device_token = token.access_token.0.clone();
     let response = http
         .get(format!("{}/devices/trusted", intent.device))
         .bearer_auth(&token.access_token.0)
         .send()
         .await
-        .expect("normal Management use");
+        .expect("normal Device use");
     assert_eq!(response.status(), StatusCode::OK);
     let devices: serde_json::Value = response.json().await.expect("trusted Devices");
     assert_eq!(
@@ -445,7 +446,8 @@ pub(super) async fn normal_use(
         .await
         .expect("Storage token exchange");
     assert_eq!(response.status(), StatusCode::OK);
-    let token: of_model::contract::TokenResponse = response.json().await.expect("Storage token");
+    let token: of_model::contract::token_response::TokenResponse =
+        response.json().await.expect("Storage token");
     let response = http
         .get(format!("{}/databases", intent.storage))
         .bearer_auth(&token.access_token.0)
@@ -460,7 +462,7 @@ pub(super) async fn normal_use(
             .as_str()
             .expect("actual Management endpoint")
             .into(),
-        management_token,
+        device_token,
         token.access_token.0,
     )
 }
@@ -484,7 +486,6 @@ async fn independent_create_child() {
         device: format!("https://{}/device", addresses[1]),
         storage: format!("https://{}/storage", addresses[2]),
         issuer: format!("https://{}/idp", addresses[0]),
-        peer: None,
     };
     let http = LocalTls::verification_client().expect("native verified HTTPS");
     delayed_forged_https_callback(&root, &addresses, &intent, &http).await;
@@ -775,7 +776,7 @@ async fn independent_create_child() {
             .status(),
         StatusCode::UNAUTHORIZED
     );
-    let (endpoint, management_token, storage_token) = normal_use(&http, &intent).await;
+    let (endpoint, device_token, storage_token) = normal_use(&http, &intent).await;
     assert_public_has_no_secrets(&root, &http, &intent).await;
     fail_node_readback.store(true, std::sync::atomic::Ordering::SeqCst);
     current_status(&http, &intent.idp, false).await;
@@ -956,8 +957,7 @@ async fn independent_create_child() {
             .expect("offline owner shutdown");
     }
     let endpoints = seed_endpoint_negatives(&root).await;
-    review_transfer_restart_tests::qualify(&root, &addresses, &intent, &http, &management_token)
-        .await;
+    review_transfer_restart_tests::qualify(&root, &addresses, &intent, &http, &device_token).await;
     let shutdown = CancellationToken::new();
     let servers = start(&root, &addresses, &shutdown).await;
     wait(&http, &intent, true).await;
@@ -966,7 +966,7 @@ async fn independent_create_child() {
         &http,
         &intent,
         &endpoints,
-        &management_token,
+        &device_token,
         &storage_token,
     )
     .await;
@@ -994,7 +994,7 @@ async fn independent_create_child() {
         StatusCode::SERVICE_UNAVAILABLE
     );
     current_status(&http, &intent.device, true).await;
-    rotate_current_issuer(&http, &intent, &management_token).await;
+    rotate_current_issuer(&http, &intent, &device_token).await;
     current_status(&http, &intent.idp, true).await;
     assert_eq!(
         http.get(format!("{}/databases", intent.storage))
@@ -1076,8 +1076,6 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
     )
     .expect("record");
     let owner: Id = serde_json::from_value(record["user"].clone()).expect("setup owner");
-    let role: Id = serde_json::from_value(record["create"]["role"].clone())
-        .expect("Create administrator role");
     let opened = db::Database::open(root.join("device/devices.redb"));
     if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
         let unix_ms = std::time::SystemTime::now()
@@ -1096,6 +1094,13 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
         DbPermissionRepo::new(identity.client()),
         DbRoleRepo::new(identity.client()),
     );
+    let role = service
+        .list_user_roles(Id::nil(), owner)
+        .await
+        .expect("initial administrator roles")
+        .into_iter()
+        .next()
+        .expect("initial administrator role");
     for action in [
         IdentityAction::DevicesRevoke,
         IdentityAction::DeviceRestrictionsUpdate,
@@ -1105,7 +1110,7 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
             .await
             .expect("explicit fixture permission");
         service
-            .add_permission_to_role(Id::nil(), role, permission.id)
+            .add_permission_to_role(Id::nil(), role.id, permission.id)
             .await
             .expect("ordinary fixture administrator grant");
     }
@@ -1133,11 +1138,8 @@ pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusC
                 .await
                 .expect("pending Device is not approval");
         } else if case != "unknown" {
-            let device = devices
-                .enroll_approved_exact(Id::now_v7(), owner, case, &endpoint, 1)
-                .await
-                .expect("Management-only approved endpoint; no IdP signer is enrolled")
-                .id;
+            let device =
+                crate::support::seed_approved_device(&devices, owner, case, &endpoint).await;
             policies
                 .set_prevalidated(SelectionPolicy {
                     device_id: device,
@@ -1216,7 +1218,7 @@ async fn storage_policy_token(
         );
     }
     response
-        .json::<of_model::contract::TokenResponse>()
+        .json::<of_model::contract::token_response::TokenResponse>()
         .await
         .expect("service token")
         .access_token
@@ -1364,7 +1366,8 @@ async fn rotate_current_issuer(http: &Client, intent: &IndependentCreateIntent, 
         .await
         .expect("ordinary IdP owner audience exchange");
     assert_eq!(response.status(), StatusCode::OK);
-    let token: of_model::contract::TokenResponse = response.json().await.expect("IdP User token");
+    let token: of_model::contract::token_response::TokenResponse =
+        response.json().await.expect("IdP User token");
     let rotated = http
         .post(format!("{}/issuer-keys/rotate", intent.idp))
         .bearer_auth(token.access_token.0)

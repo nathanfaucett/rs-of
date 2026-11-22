@@ -37,7 +37,6 @@ use crate::device_identity::DeviceIdentity;
 #[cfg(feature = "ofdb")]
 use crate::device_repo::DeviceRepo;
 use crate::ofdb::DbDeviceRepo;
-use crate::pairing_acceptance::PairingAcceptanceController;
 use of_model::device::contract::device_state::DeviceState;
 
 #[derive(Clone)]
@@ -52,7 +51,6 @@ pub struct HostedControlPlane {
     #[cfg(feature = "ofdb")]
     local_devices: Option<Arc<DbDeviceRepo>>,
     device_identity: Option<Arc<DeviceIdentity>>,
-    pairing_acceptance: Option<Arc<dyn PairingAcceptanceController>>,
 }
 
 type LocalCall<I, O> =
@@ -101,7 +99,6 @@ impl HostedControlPlane {
             #[cfg(feature = "ofdb")]
             local_devices: None,
             device_identity: None,
-            pairing_acceptance: None,
             client: Client::builder()
                 .tls_built_in_native_certs(true)
                 .connect_timeout(Duration::from_secs(3))
@@ -149,20 +146,6 @@ impl HostedControlPlane {
         self.device_identity
             .as_deref()
             .ok_or_else(|| "local endpoint identity is unavailable".into())
-    }
-
-    pub fn with_pairing_acceptance(
-        mut self,
-        controller: Arc<dyn PairingAcceptanceController>,
-    ) -> Self {
-        self.pairing_acceptance = Some(controller);
-        self
-    }
-
-    pub fn pairing_acceptance(&self) -> Result<&dyn PairingAcceptanceController, String> {
-        self.pairing_acceptance
-            .as_deref()
-            .ok_or_else(|| "pairing controller is unavailable".into())
     }
 
     pub async fn active_user(&self, user: Id) -> Result<(), String> {

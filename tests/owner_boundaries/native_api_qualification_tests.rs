@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use device_service::replica::DbSelectionPolicyRepo;
 use idp_service::repo::ClientRepo;
-use of_model::contract::StorageAuthorizationAction;
+use of_model::contract::authorization_details::StorageAuthorizationAction;
 use of_model::idp::{
     contract::{GrantType, TokenEndpointAuthMethod},
     model::Id,
@@ -91,7 +91,7 @@ async fn bundled_storage_direct_idp_checks_signed_bearer_and_retained_issuer_key
         human.allowed_scopes.clear();
         fixture
             .clients
-            .update_client(human)
+            .update_client(human, None)
             .await
             .expect("learn scope withdrawal");
         fixture
@@ -197,7 +197,7 @@ async fn reassign_application(fixture: &Fixture) -> Id {
     human.application_id = other.application_id;
     fixture
         .clients
-        .update_client(human)
+        .update_client(human, None)
         .await
         .expect("learn Client Application reassignment");
     let current = fixture

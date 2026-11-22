@@ -1,8 +1,8 @@
-use file_system::FileSystem;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use storage_server::fs::FileSystem;
 
 use axum::Router;
 use db::Database;
@@ -16,7 +16,10 @@ use iroh::{SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
 use management_service::LocalPermissions;
 use of_model::contract::{
-    AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail, TokenResponse,
+    authorization_details::{
+        AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail,
+    },
+    token_response::TokenResponse,
 };
 use of_model::idp::{
     contract::{
@@ -318,16 +321,13 @@ impl Fixture {
         let devices = Arc::new(device_service::replica::DbDeviceRepo::new(
             device_database.clone().client(),
         ));
-        devices
-            .enroll_approved_exact(
-                binding.member_id,
-                owner,
-                "API Node",
-                &binding.endpoint_id,
-                1,
-            )
-            .await
-            .expect("Device-owned initial endpoint");
+        crate::support::seed_approved_device(
+            devices.as_ref(),
+            owner,
+            "API Node",
+            &binding.endpoint_id,
+        )
+        .await;
         let runtime = idp_server::build_runtime(
             &config,
             idp.client(),
@@ -423,7 +423,8 @@ impl Fixture {
         let actual = scoped_file_system_socket_authorizer(client.clone(), files.clone());
         let gated = storage_router(Arc::new(GatedAuthorizer { actual, gate }));
         let router = resource_router(
-            RouterState::new("https://storage.test").with_idp_client(client.clone()),
+            RouterState::new("https://storage.test", identity.endpoint().id().to_string())
+                .with_idp_client(client.clone()),
             Some(databases.clone()),
             Some(files.clone()),
         )

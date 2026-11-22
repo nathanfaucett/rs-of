@@ -1,12 +1,7 @@
 #![cfg(feature = "std")]
 
-use std::{sync::Arc, time::Duration};
-
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use device_service::{DeviceIdentity, device_identity_from_server};
-use device_service::{
-    PairingAcceptanceController, PairingAcceptanceControllerSlot, TimedPairingAcceptanceController,
-};
 use iroh::{EndpointAddr, SecretKey, Signature, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
 
@@ -30,7 +25,7 @@ async fn shared_endpoint_identity_signs_without_an_idp_signer_or_database() {
     .expect("transport endpoint address");
     assert_eq!(address.id, server.endpoint().id());
 
-    let payload = b"of.equal-node-join-approval.v1:exact-owner-and-request";
+    let payload = b"device transport identity proof";
     let signature = identity.sign(payload);
     identity
         .endpoint_id()
@@ -63,34 +58,5 @@ async fn shared_endpoint_identity_signs_without_an_idp_signer_or_database() {
             .verify(expected.as_bytes(), &signature)
             .is_err()
     );
-    server.endpoint().close().await;
-}
-
-#[tokio::test]
-async fn pairing_control_requires_a_bound_controller_and_uses_the_shared_endpoint() {
-    let server = Server::bind_with_secret_key(
-        presets::Minimal,
-        SecretKey::generate(),
-        EndpointIdStore::default(),
-    )
-    .await
-    .expect("bind pairing endpoint");
-    server.set_pairing_enabled(false);
-    let slot = device_service::PairingAcceptanceControllerSlot::new();
-    assert!(slot.pairing_accepting().is_err());
-    assert!(slot.set_pairing_accepting(true).is_err());
-    slot.bind(Arc::new(
-        device_service::TimedPairingAcceptanceController::new(
-            server.clone(),
-            Duration::from_secs(1),
-        ),
-    ))
-    .expect("bind Management pairing controller");
-    assert!(!slot.pairing_accepting().expect("initial pairing state"));
-    slot.set_pairing_accepting(true).expect("enable pairing");
-    assert!(server.pairing_enabled());
-    slot.set_pairing_accepting(false).expect("disable pairing");
-    assert!(!server.pairing_enabled());
-    assert!(!slot.pairing_accepting().expect("disabled pairing state"));
     server.endpoint().close().await;
 }

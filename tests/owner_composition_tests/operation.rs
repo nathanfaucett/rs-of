@@ -104,7 +104,6 @@ async fn operation_child() {
         device: format!("https://{}/device", addresses[1]),
         storage: format!("https://{}/storage", addresses[2]),
         issuer: format!("https://{}/idp", addresses[0]),
-        peer: None,
     };
     let http = LocalTls::verification_client().expect("native HTTPS");
     let shutdown = CancellationToken::new();
@@ -133,7 +132,7 @@ async fn operation_child() {
         );
     }
     wait(&http, &intent, true).await;
-    let (_, management_token, storage_token) = normal_use(&http, &intent).await;
+    let (_, device_token, storage_token) = normal_use(&http, &intent).await;
     shutdown.cancel();
     for server in servers {
         server.await.expect("join").expect("shutdown");
@@ -210,7 +209,7 @@ async fn operation_child() {
     let url = format!("https://{operation_address}/storage/databases");
     assert_eq!(operation(&http, &url, None).await, StatusCode::UNAUTHORIZED);
     for allowed in [false, true, false] {
-        restrict(&http, &intent, &management_token, device, allowed).await;
+        restrict(&http, &intent, &device_token, device, allowed).await;
         let status = operation(&http, &url, Some(&storage_token)).await;
         assert_eq!(
             status,
@@ -259,14 +258,14 @@ async fn operation_child() {
         operation(&http, &url, Some(&storage_token)).await,
         StatusCode::UNAUTHORIZED
     );
-    restrict(&http, &intent, &management_token, device, true).await;
+    restrict(&http, &intent, &device_token, device, true).await;
     assert_eq!(
         operation(&http, &url, Some(&storage_token)).await,
         StatusCode::OK
     );
     assert_eq!(
         http.delete(format!("{}/devices/{device}", intent.device))
-            .bearer_auth(&management_token)
+            .bearer_auth(&device_token)
             .send()
             .await
             .expect("learned endpoint revocation")
@@ -405,7 +404,7 @@ fn operation_runtime(
     )
     .expect("Management client");
     storage_server::build_http_runtime(
-        storage_server::RouterState::new(&intent.storage)
+        storage_server::RouterState::new(&intent.storage, endpoint)
             .with_idp_client(idp)
             .with_device_client(device),
         data,

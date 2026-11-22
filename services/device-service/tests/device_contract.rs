@@ -1,5 +1,3 @@
-use of_model::device::contract::device_info::DeviceInfo;
-use of_model::device::contract::device_state::DeviceState;
 use of_model::device::device::Device;
 use serde_json::json;
 
@@ -82,7 +80,6 @@ fn device_contracts_export_api_schemas_from_management() {
     schema::<of_model::device::contract::device_pairing::DevicePairingRequest>();
     schema::<of_model::device::contract::device_pairing::DevicePairingApprovalRequest>();
     schema::<of_model::device::contract::device_pairing::DevicePairingApprovalPayload>();
-    schema::<of_model::device::contract::device_pairing::PairingAcceptance>();
     schema::<of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity>();
     schema::<of_model::device::contract::approved_device_endpoints::ApprovedDeviceEndpoints>();
     schema::<of_model::device::contract::trusted_device::TrustedDevice>();
@@ -93,176 +90,91 @@ fn device_contracts_export_api_schemas_from_management() {
 
 #[cfg(feature = "ofdb")]
 #[tokio::test]
-async fn approved_enrollment_preserves_exact_identity_and_denies_replacement_or_revocation() {
-    use device_service::device_repo::DeviceRepo;
-    use device_service::replica::DbDeviceRepo;
-    use of_model::id::Id;
+async fn standard_pairing_requires_endpoint_proof_and_allows_revocation() {
     use std::sync::Arc;
 
-    let engine = Arc::new(ofdb_sql::Database::in_memory());
-    device_service::replica::up(&engine)
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use device_service::{
+        DeviceEnrollmentRequest, DeviceEnrollmentService, DevicePairingApprovalRequest,
+        DevicePairingRequest, DeviceRepo, DeviceState, ofdb::DbDeviceRepo,
+    };
+    use iroh::SecretKey;
+    use of_model::id::Id;
+    use ofdb_sql::Database;
+
+    let database = Database::in_memory();
+    device_service::ofdb::up(&database)
         .await
-        .expect("Management schema");
-    let repo = DbDeviceRepo::new(engine.clone().client());
-    let id = Id::now_v7();
-    let owner = Id::now_v7();
-    let endpoint = iroh::SecretKey::generate().public().to_string();
-    let enrolled = repo
-        .enroll_approved_exact(id, owner, "Joining Node", &endpoint, 123)
+        .expect("Device owner schema");
+    let repo = Arc::new(DbDeviceRepo::new(database.client()));
+    let accepting = SecretKey::generate();
+    let owner = Id::now_v7().to_string();
+    let enrollment = DeviceEnrollmentService::new(repo.clone());
+    let initial = enrollment
+        .enroll(
+            owner.clone(),
+            DeviceEnrollmentRequest {
+                name: "First Device".into(),
+                public_key: accepting.public().to_string(),
+                address: "https://first.test".into(),
+            },
+        )
         .await
-        .expect("exact approved enrollment");
-    assert_ne!(enrolled.id, id);
-    assert_eq!(enrolled.id.get_version_num(), 7);
-    assert_eq!(enrolled.owner_subject, owner.to_string());
-    assert_eq!(enrolled.created_at.timestamp(), 123);
-    assert_eq!(
-        repo.enroll_approved_exact(id, owner, "Joining Node", &endpoint, 456)
-            .await
-            .expect("exact retry preserves original timestamps"),
-        enrolled
-    );
-    for (id, owner, name, endpoint) in [
-        (Id::now_v7(), owner, "Joining Node", endpoint.clone()),
-        (id, Id::now_v7(), "Joining Node", endpoint.clone()),
-        (id, owner, "Changed Node", endpoint.clone()),
-        (
-            id,
-            owner,
-            "Joining Node",
-            iroh::SecretKey::generate().public().to_string(),
-        ),
-    ] {
-        assert!(
-            repo.enroll_approved_exact(id, owner, name, &endpoint, 456)
-                .await
-                .is_err()
-        );
-    }
-    assert_eq!(
-        repo.find_approved_by_public_key(&endpoint)
-            .await
-            .expect("current Device"),
-        Some(enrolled)
-    );
-    repo.revoke_self(&endpoint).await.expect("revoke Device");
+        .expect("first Device enrollment");
+    assert_eq!(initial.state, DeviceState::Approved);
+
+    let peer = SecretKey::generate();
+    let endpoint = peer.public().to_string();
+    let pending = enrollment
+        .request_pairing(DevicePairingRequest {
+            name: "Second Device".into(),
+            public_key: endpoint.clone(),
+            address: "https://second.test".into(),
+            accepting_public_key: accepting.public().to_string(),
+        })
+        .await
+        .expect("pairing request in the existing Installation");
+    assert_eq!(pending.state, DeviceState::Pending);
+    let payload = enrollment
+        .pairing_approval_payload(pending.id)
+        .await
+        .expect("exact approval payload");
+    let proof = |key: &SecretKey| DevicePairingApprovalRequest {
+        signature: URL_SAFE_NO_PAD.encode(key.sign(payload.as_bytes()).to_bytes()),
+    };
     assert!(
-        repo.enroll_approved_exact(id, owner, "Joining Node", &endpoint, 456)
+        enrollment
+            .approve_pairing(pending.id, proof(&accepting))
             .await
             .is_err()
     );
     assert!(
         repo.find_approved_by_public_key(&endpoint)
             .await
-            .expect("revoked binding")
+            .expect("Device lookup")
             .is_none()
     );
-}
-
-#[cfg(feature = "ofdb")]
-#[tokio::test]
-async fn approved_enrollment_denies_tombstones_pending_and_timestamp_only_revocation() {
-    use device_service::device_repo::DeviceRepo;
-    use device_service::replica::DbDeviceRepo;
-    use of_model::id::Id;
-    use std::sync::Arc;
-
-    let engine = Arc::new(ofdb_sql::Database::in_memory());
-    device_service::replica::up(&engine)
-        .await
-        .expect("Management schema");
-    let repo = DbDeviceRepo::new(engine.clone().client());
-    let owner = Id::now_v7();
-    let endpoint = iroh::SecretKey::generate().public().to_string();
-    let id = Id::now_v7();
-    let device_id = repo
-        .enroll_approved_exact(id, owner, "Joining Node", &endpoint, 123)
-        .await
-        .expect("approved binding")
-        .id;
-    for mutation in [
-        "UPDATE devices SET state = 0",
-        "UPDATE devices SET state = 1, revoked_at = 1",
-        "DELETE FROM devices",
-    ] {
-        engine
-            .client()
-            .translate_and_execute(
-                &format!("{mutation} WHERE id = CAST('{device_id}' AS UUID)"),
-                &ofdb_sql::SqlTranslator,
-            )
+    assert_eq!(
+        enrollment
+            .approve_pairing(pending.id, proof(&peer))
             .await
-            .expect("learn invalid enrollment state");
-        assert!(
-            repo.enroll_approved_exact(id, owner, "Joining Node", &endpoint, 456)
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.find_approved_by_public_key(&endpoint)
-                .await
-                .expect("current admission")
-                .is_none()
-        );
-    }
-}
-
-#[cfg(feature = "ofdb")]
-#[tokio::test]
-async fn approved_enrollment_denies_unresolved_owner_conflicts_even_with_exact_visible_binding() {
-    use device_service::replica::DbDeviceRepo;
-    use of_model::id::Id;
-    use std::sync::Arc;
-
-    let left = Arc::new(ofdb_sql::Database::in_memory());
-    device_service::replica::up(&left)
+            .expect("new endpoint proof")
+            .state,
+        DeviceState::Approved
+    );
+    enrollment
+        .revoke(&owner, pending.id, &accepting.public().to_string())
         .await
-        .expect("Management schema");
-    let repo = DbDeviceRepo::new(left.clone().client());
-    let id = Id::now_v7();
-    let owner = Id::now_v7();
-    let endpoint = iroh::SecretKey::generate().public().to_string();
-    let device_id = repo
-        .enroll_approved_exact(id, owner, "Joining Node", &endpoint, 123)
-        .await
-        .expect("approved binding")
-        .id;
-    let right = ofdb_sql::Database::in_memory();
-    right
-        .import_history(left.export_history().await.expect("initial native history"))
-        .await
-        .expect("atomic Management history import");
-    for (engine, address) in [(left.as_ref(), "left"), (&right, "right")] {
-        engine
-            .client()
-            .translate_and_execute(
-                &format!(
-                    "UPDATE devices SET address = '{address}' WHERE id = CAST('{device_id}' AS UUID)"
-                ),
-                &ofdb_sql::SqlTranslator,
-            )
-            .await
-            .expect("concurrent Management update");
-    }
-    for unit in right
-        .export_history()
-        .await
-        .expect("concurrent public state")
-    {
-        left.apply_history(unit).await.expect("learn conflict");
-    }
+        .expect("Device revocation");
     assert!(
-        !left
-            .client()
-            .row_conflicts(
-                "devices",
-                &ofdb_sql::Row::new(vec![ofdb_sql::Value::Uuid(device_id)])
-            )
+        repo.find_approved_by_public_key(&endpoint)
             .await
-            .expect("conflicted fixture")
-            .is_empty()
+            .expect("Device lookup")
+            .is_none()
     );
     assert!(
-        repo.enroll_approved_exact(id, owner, "Joining Node", &endpoint, 456)
+        enrollment
+            .approve_pairing(pending.id, proof(&accepting))
             .await
             .is_err()
     );

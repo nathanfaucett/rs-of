@@ -15,7 +15,6 @@ use db::DatabaseTransport;
 
 use ofdb_sql::Row;
 
-use idp_service::oauth2::NodeSignerBinding;
 use iroh::{
     Endpoint,
     address_lookup::MemoryLookup,
@@ -189,8 +188,6 @@ impl Pair {
         let a = Server::new(a, peers_a);
         let b = Server::new(b, peers_b);
         let actor = Id::now_v7();
-        let key_a = Id::now_v7();
-        let key_b = Id::now_v7();
         let (member_a, member_b, row) = {
             let idp = Arc::new(
                 Database::open(root.join("baseline-idp.redb")).expect("open public baseline"),
@@ -264,11 +261,6 @@ impl Pair {
             management_a.clone(),
             idp_a.clone(),
             INSTALLATION.into(),
-            Some(NodeSignerBinding {
-                member_id: member_a,
-                key_id: key_a,
-                endpoint_id: a.endpoint().id().to_string(),
-            }),
             root.join("a-stage"),
             cancellation.clone(),
         );
@@ -278,11 +270,6 @@ impl Pair {
             management_b.clone(),
             idp_b.clone(),
             INSTALLATION.into(),
-            Some(NodeSignerBinding {
-                member_id: member_b,
-                key_id: key_b,
-                endpoint_id: b.endpoint().id().to_string(),
-            }),
             root.join("b-stage"),
             cancellation.clone(),
         );

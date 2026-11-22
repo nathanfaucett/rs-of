@@ -12,13 +12,13 @@ use alloc::string::String;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DiscoveryRequest {
-    #[serde(rename = "nonce")]
-    pub nonce: String,
+pub struct DevicePairingApprovalPayload {
+    #[serde(rename = "payload")]
+    pub payload: String,
 }
 
-impl DiscoveryRequest {
-    pub fn new(nonce: String) -> DiscoveryRequest {
-        DiscoveryRequest { nonce }
+impl DevicePairingApprovalPayload {
+    pub fn new(payload: String) -> DevicePairingApprovalPayload {
+        DevicePairingApprovalPayload { payload }
     }
 }

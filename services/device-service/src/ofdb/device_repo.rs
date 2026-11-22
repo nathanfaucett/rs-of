@@ -57,205 +57,6 @@ impl DbDeviceRepo {
         Self { engine }
     }
 
-    /// Caller verifies enrollment permission and the currently active User through IdP.
-    /// Commits only Management state; an exact retry never replaces or revives a Device.
-    pub async fn enroll_approved_exact(
-        &self,
-        request_id: Id,
-        owner: Id,
-        name: &str,
-        endpoint: &str,
-        now: i64,
-    ) -> DeviceResult<Device> {
-        let public_key: iroh::EndpointId = endpoint
-            .parse()
-            .map_err(|_| DeviceError::InvalidInput("invalid Device endpoint ID".into()))?;
-        if request_id.get_version_num() != 7
-            || owner.is_nil()
-            || name.trim().is_empty()
-            || name.len() > 256
-            || public_key.to_string() != endpoint
-            || DateTime::from_timestamp(now, 0).is_none()
-        {
-            return Err(DeviceError::InvalidInput(
-                "invalid approved Device binding".into(),
-            ));
-        }
-        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
-        let result = async {
-            let key = Row::new(vec![Value::Text(request_id.to_string())]);
-            let bindings = transaction.translate_and_execute_with_params(
-                "SELECT device_id FROM local_device_join_bindings WHERE request_id = ?",
-                Some(&QueryParams::Positional(key.values.clone())),
-                &SqlTranslator,
-            ).await.map_err(db_error)?;
-            if !transaction.row_conflicts("local_device_join_bindings", &key).await.map_err(db_error)?.is_empty() {
-                return Err(DeviceError::InvalidInput("conflicted Device Join request".into()));
-            }
-            let retained = match bindings[0].rows.as_slice() {
-                [] => None,
-                [row] => match row.values.as_slice() {
-                    [Value::Uuid(id)] => Some(*id),
-                    _ => return Err(DeviceError::InvalidInput("invalid Device Join binding".into())),
-                },
-                _ => return Err(DeviceError::InvalidInput("ambiguous Device Join binding".into())),
-            };
-            let Query::Select(mut query) = select() else {
-                unreachable!("Device query is a Select")
-            };
-            let by_endpoint = equals("public_key", Value::Text(endpoint.to_owned()));
-            query.predicate = Some(if let Some(id) = retained {
-                QueryExpr::Or(Box::new(equals("id", Value::Uuid(id))), Box::new(by_endpoint))
-            } else {
-                by_endpoint
-            });
-            let results = transaction.execute(vec![Statement::Query(Query::Select(query))]).await.map_err(db_error)?;
-            let rows = results[0].rows_as::<DeviceRow>().map_err(row_error)?;
-            let row = match (retained, rows.as_slice()) {
-                (None, []) => {
-                    let row = DeviceRow {
-                        id: Id::nil(),
-                        owner_subject: owner.to_string(),
-                        name: name.to_owned(),
-                        public_key: endpoint.to_owned(),
-                        address: String::new(),
-                        enrollment_code_hash: None,
-                        enrollment_expires_at: None,
-                        pairing_accepting_public_key: None,
-                        state: DeviceState::Approved,
-                        approved_at: Some(now),
-                        revoked_at: None,
-                        created_at: now,
-                        updated_at: now,
-                    };
-                    let row = Self::insert_generated_device(&mut transaction, row).await?;
-                    transaction.translate_and_execute_with_params(
-                        "INSERT INTO local_device_join_bindings (request_id, device_id) VALUES (?, ?)",
-                        Some(&QueryParams::Positional(vec![Value::Text(request_id.to_string()), Value::Uuid(row.id)])),
-                        &SqlTranslator,
-                    ).await.map_err(db_error)?;
-                    row
-                }
-                (Some(id), [row])
-                    if row.id == id
-                        && row.owner_subject == owner.to_string()
-                        && row.name == name
-                        && row.public_key == endpoint
-                        && row.state == DeviceState::Approved
-                        && row.revoked_at.is_none() =>
-                {
-                    row.clone()
-                }
-                _ => {
-                    return Err(DeviceError::InvalidInput(
-                        "Device conflicts with current approved owner state".into(),
-                    ));
-                }
-            };
-            for table in [TABLE, "local_device_enrollments"] {
-                if !transaction.row_conflicts(table, &device_key(table, row.id)).await.map_err(db_error)?.is_empty() {
-                    return Err(DeviceError::InvalidInput("conflicted Device enrollment".into()));
-                }
-            }
-            row.try_into()
-        }
-        .await;
-        match result {
-            Ok(device) => {
-                transaction.commit().await.map_err(db_error)?;
-                Ok(device)
-            }
-            Err(error) => {
-                transaction.rollback().await.map_err(db_error)?;
-                Err(error)
-            }
-        }
-    }
-
-    /// Missing imported rows may be pending; contradictions, conflicts and learned revocation deny.
-    pub async fn check_pending_approved_binding(
-        &self,
-        device_id: Id,
-        owner: Id,
-        name: &str,
-        endpoint: &str,
-    ) -> DeviceResult<()> {
-        let public_key: iroh::EndpointId = endpoint
-            .parse()
-            .map_err(|_| DeviceError::InvalidInput("invalid Device endpoint ID".into()))?;
-        if device_id.get_version_num() != 7
-            || owner.is_nil()
-            || name.trim().is_empty()
-            || name.len() > 256
-            || public_key.to_string() != endpoint
-        {
-            return Err(DeviceError::InvalidInput(
-                "invalid pending Device binding".into(),
-            ));
-        }
-        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
-        let result = async {
-            let Query::Select(mut query) = select() else {
-                unreachable!("Device query is a Select")
-            };
-            query.predicate = Some(QueryExpr::Or(
-                Box::new(equals("id", Value::Uuid(device_id))),
-                Box::new(equals("public_key", Value::Text(endpoint.to_owned()))),
-            ));
-            let results = transaction
-                .execute(vec![Statement::Query(Query::Select(query))])
-                .await
-                .map_err(db_error)?;
-            let rows = &results[0].rows;
-            if rows.len() > 1 {
-                return Err(DeviceError::InvalidInput(
-                    "non-unique pending Device binding".into(),
-                ));
-            }
-            for row in rows {
-                if row.values[0] != Value::Uuid(device_id) {
-                    return Err(DeviceError::InvalidInput(
-                        "pending Device endpoint belongs to another Device".into(),
-                    ));
-                }
-                for table in [TABLE, "local_device_enrollments"] {
-                    if !transaction
-                        .row_conflicts(table, &device_key(table, device_id))
-                        .await
-                        .map_err(db_error)?
-                        .is_empty()
-                    {
-                        return Err(DeviceError::InvalidInput(
-                            "conflicted pending Device binding".into(),
-                        ));
-                    }
-                }
-                for (index, expected) in [
-                    (1, Value::Text(owner.to_string())),
-                    (2, Value::Text(name.to_owned())),
-                    (3, Value::Text(endpoint.to_owned())),
-                    (5, Value::Integer(DeviceState::Approved as i64)),
-                ] {
-                    let value = &row.values[index];
-                    if value != &Value::Null && value != &expected {
-                        return Err(DeviceError::InvalidInput(
-                            "pending Device binding changed".into(),
-                        ));
-                    }
-                }
-                if row.values[7] != Value::Null {
-                    return Err(DeviceError::InvalidInput(
-                        "pending Device binding was revoked".into(),
-                    ));
-                }
-            }
-            Ok(())
-        }
-        .await;
-        transaction.rollback().await.map_err(db_error)?;
-        result
-    }
-
     /// Caller verifies exact mutation permission and an active new User in IdP.
     pub async fn transfer_owned(
         &self,
@@ -496,16 +297,10 @@ impl DeviceRepo for DbDeviceRepo {
         accepting_public_key: String,
     ) -> DeviceResult<Device> {
         let owner_subject = self
-            .records()
+            .find_approved_by_public_key(&accepting_public_key)
             .await?
-            .into_iter()
-            .find(|device| {
-                device.public_key == accepting_public_key
-                    && !device.owner_subject.trim().is_empty()
-                    && device.state == DeviceState::Approved
-            })
-            .map(|device| device.owner_subject)
-            .ok_or_else(|| DeviceError::InvalidInput("approving device has no owner".into()))?;
+            .ok_or_else(|| DeviceError::InvalidInput("accepting Device is not approved".into()))?
+            .owner_subject;
         let now = now();
         let row = DeviceRow {
             id: Id::nil(),
@@ -720,7 +515,7 @@ impl DeviceRepo for DbDeviceRepo {
             return Ok(None);
         };
         self.ensure_clear(device_id).await?;
-        if row.state != DeviceState::Pending {
+        if row.state != DeviceState::Pending || row.pairing_accepting_public_key.is_some() {
             return Ok(None);
         }
         let updated_at = now();
@@ -1070,55 +865,6 @@ mod tests {
             .await
             .expect("initialize replica schema");
         DbDeviceRepo::new(engine.client())
-    }
-
-    #[tokio::test]
-    async fn pending_join_binding_allows_absence_but_denies_changed_or_revoked_management_device() {
-        let repo = repo().await;
-        let device = of_model::id::Id::now_v7();
-        let owner = of_model::id::Id::now_v7();
-        let endpoint = iroh::SecretKey::generate().public().to_string();
-        repo.check_pending_approved_binding(device, owner, "Joining", &endpoint)
-            .await
-            .expect("public import may be pending");
-        assert!(matches!(
-            repo.enroll_approved_exact(device, owner, "Joining", "invalid-endpoint", 1)
-                .await,
-            Err(of_model::device_error::DeviceError::InvalidInput(_))
-        ));
-        let device = repo
-            .enroll_approved_exact(device, owner, "Joining", &endpoint, 1)
-            .await
-            .expect("exact Management enrollment")
-            .id;
-        repo.check_pending_approved_binding(device, owner, "Joining", &endpoint)
-            .await
-            .expect("matching import");
-        assert!(
-            repo.check_pending_approved_binding(device, owner, "Changed", &endpoint)
-                .await
-                .is_err()
-        );
-        assert!(
-            repo.check_pending_approved_binding(
-                device,
-                of_model::id::Id::now_v7(),
-                "Joining",
-                &endpoint
-            )
-            .await
-            .is_err()
-        );
-        assert!(
-            repo.revoke_self(&endpoint)
-                .await
-                .expect("learn Device revocation")
-        );
-        assert!(
-            repo.check_pending_approved_binding(device, owner, "Joining", &endpoint)
-                .await
-                .is_err()
-        );
     }
 
     #[tokio::test]

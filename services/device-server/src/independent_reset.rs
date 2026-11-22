@@ -1,9 +1,6 @@
 #[cfg(feature = "independent")]
 use std::{io, path::Path};
 
-use setup::IndependentPeer;
-
-use device_service::independent_join::IndependentJoinApproval;
 use idp_service::setup_credentials::delete_setup_secrets;
 use of_model::id::Id;
 use serde::Deserialize;
@@ -13,15 +10,10 @@ use crate::AppConfig;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Create {}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct References {
     version: u8,
     client: Id,
     device: Id,
-    create: Option<Create>,
 
     user: Option<Id>,
     evaluator: Option<Id>,
@@ -29,10 +21,6 @@ struct References {
     endpoint_attempted: bool,
     endpoint: Option<String>,
     domain_attempted: bool,
-    source: Option<IndependentPeer>,
-    approval: Option<IndependentJoinApproval>,
-    #[serde(default)]
-    imported: bool,
     complete: bool,
 }
 
@@ -69,10 +57,10 @@ pub async fn reset_independent(
     if reset.secrets_pending() {
         if let Some(worker) = reset.worker() {
             let references: References = serde_json::from_value(worker.clone())?;
-            let intent = reset
-                .intent()
-                .ok_or_else(|| io::Error::other("worker intent missing"))?;
-            let ids = [references.client, references.device];
+            let mut ids = vec![references.client];
+            if references.complete || !references.device.is_nil() {
+                ids.push(references.device);
+            }
             if references.version != 2 {
                 return Err(io::Error::other("unsupported Device reset record"));
             }
@@ -84,12 +72,6 @@ pub async fn reset_independent(
                     .endpoint
                     .as_ref()
                     .is_some_and(|endpoint| endpoint.parse::<iroh::EndpointId>().is_err())
-                || (intent.purpose == "create"
-                    && (references.create.is_none()
-                        || references.source.is_some()
-                        || references.approval.is_some()
-                        || references.imported))
-                || (intent.purpose == "join" && worker.get("create").is_some())
                 || (references.complete
                     && (!references.domain_attempted
                         || !references.secret_attempted
@@ -102,42 +84,6 @@ pub async fn reset_independent(
                 return Err(io::Error::other(
                     "invalid retained Management reset inventory",
                 ));
-            }
-            if let Some(source) = &references.source {
-                source.verify(
-                    intent
-                        .peer
-                        .as_deref()
-                        .ok_or_else(|| io::Error::other("Join peer missing"))?,
-                    &source.nonce,
-                )?;
-                if source.issuer != intent.issuer {
-                    return Err(io::Error::other("Join issuer changed"));
-                }
-            }
-            if let Some(approval) = &references.approval {
-                approval.verify()?;
-                if approval.request.operation != *intent
-                    || approval.request.request_id != references.device
-                    || Some(approval.request.endpoint_id.as_str()) != references.endpoint.as_deref()
-                    || Some(approval.owner_subject) != references.user
-                    || references
-                        .source
-                        .as_ref()
-                        .map(serde_json::to_value)
-                        .transpose()?
-                        != Some(serde_json::to_value(&approval.request.source)?)
-                {
-                    return Err(io::Error::other("Management Join reset binding changed"));
-                }
-            }
-            if intent.purpose == "join"
-                && (references.imported || references.complete)
-                && (references.source.is_none()
-                    || references.approval.is_none()
-                    || (references.complete && !references.imported))
-            {
-                return Err(io::Error::other("completed Join lacks exact approval"));
             }
             delete_setup_secrets(
                 &format!("independent-setup:{}", reset.directory().display()),

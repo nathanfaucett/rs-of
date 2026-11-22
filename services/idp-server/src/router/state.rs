@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use device_service::{
-    DeviceIdentity, HostedControlPlane, PairingAcceptanceControllerSlot, replica::DbDeviceRepo,
-};
+use device_service::{DeviceIdentity, HostedControlPlane, replica::DbDeviceRepo};
 use idp_service::{
     oauth2::service::OAuth2Service,
     replica::{
@@ -37,13 +35,9 @@ pub struct RouterState {
     pub oauth2_service: Arc<NativeOAuth2Service>,
     pub devices: Option<Arc<NativeDeviceRepo>>,
     pub(crate) device_identity: Option<Arc<DeviceIdentity>>,
-    pub pairing_acceptance: Arc<PairingAcceptanceControllerSlot>,
     pub hosted_control_plane: Option<Arc<HostedControlPlane>>,
     pub local_permissions: Option<Arc<LocalPermissions>>,
     pub management_permissions: Option<Arc<ManagementPermissionClient>>,
-    #[cfg(test)]
-    pub(crate) before_node_join_activation:
-        Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
 }
 
 impl RouterState {
@@ -76,29 +70,18 @@ impl RouterState {
             oauth2_service,
             devices: None,
             device_identity: None,
-            pairing_acceptance: Arc::new(PairingAcceptanceControllerSlot::new()),
             hosted_control_plane: None,
             local_permissions: None,
             management_permissions: None,
-            #[cfg(test)]
-            before_node_join_activation: None,
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn transport_identity(&self) -> std::io::Result<&Arc<DeviceIdentity>> {
         self.device_identity.as_ref().ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
                 "Management transport identity is unavailable",
-            )
-        })
-    }
-
-    pub(crate) fn management_devices(&self) -> std::io::Result<&Arc<NativeDeviceRepo>> {
-        self.devices.as_ref().ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "Management Device owner is unavailable",
             )
         })
     }

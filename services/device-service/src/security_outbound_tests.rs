@@ -2,7 +2,6 @@
 use std::{io, path::PathBuf, sync::Arc, time::Duration};
 
 use db::DatabaseTransport;
-use idp_service::oauth2::NodeSignerBinding;
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::ofdb::{DbPermissionRepo, DbRoleRepo};
@@ -26,6 +25,7 @@ struct Fixture {
     root: PathBuf,
     source: SecurityProtocol,
     peer: Server,
+    local_member: Id,
     peer_member: Id,
     actor: Id,
     payload: Id,
@@ -59,7 +59,6 @@ impl Fixture {
         allowed.add(source.endpoint().id());
         let peer = Server::new(peer, allowed);
         let actor = Id::now_v7();
-        let key = Id::now_v7();
         let (member, peer_member) = {
             let idp = Arc::new(Database::open(root.join("source-idp.redb")).expect("native IdP"));
             db::ofdb::up(&idp.client()).await.expect("IdP schema");
@@ -112,21 +111,14 @@ impl Fixture {
             management,
             idp,
             INSTALLATION.into(),
-            Some(NodeSignerBinding {
-                member_id: member,
-                key_id: key,
-                endpoint_id: String::new(),
-            }),
             root.join("stage"),
             CancellationToken::new(),
         );
-        let mut source = source;
-        source.binding.as_mut().expect("fixture signer").endpoint_id =
-            source.server.endpoint().id().to_string();
         Self {
             root,
             source,
             peer,
+            local_member: member,
             peer_member,
             actor,
             payload,
@@ -307,12 +299,7 @@ async fn peer_exchange(
             assert_eq!(remote.version, 1);
             assert_eq!(
                 remote.member,
-                fixture
-                    .source
-                    .binding
-                    .as_ref()
-                    .expect("local signer")
-                    .member_id
+                fixture.local_member
             );
             transport
                 .send(serde_json::to_vec(&Response::Accepted(hello)).expect("peer approval"))
@@ -658,12 +645,7 @@ async fn identity_policy_history_grant_and_policy_deletion_reach_an_existing_pee
         .into_iter()
         .next()
         .expect("explicit sync grant role");
-    let local_member = fixture
-        .source
-        .binding
-        .as_ref()
-        .expect("local signer")
-        .member_id;
+    let local_member = fixture.local_member;
     for subject in [local_member, fixture.peer_member] {
         service
             .add_role_to_user(Id::nil(), subject, session_role.id)

@@ -23,9 +23,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{config::app_config::AppConfig, provisioning::OwnerProvisioner, runtime::IdpRuntime};
 
-#[path = "independent_join_worker.rs"]
-pub mod join;
-
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
@@ -40,59 +37,10 @@ struct Record {
     inventory_attempted: bool,
     endpoint: Option<String>,
     registrations: Vec<ClientRegistration>,
-    request: Option<device_service::independent_join::IndependentJoinRequest>,
-    approval: Option<device_service::independent_join::IndependentJoinApproval>,
-    #[serde(default)]
-    imported: bool,
-    jwks: Option<of_model::idp::contract::jwks::Jwks>,
     complete: bool,
 }
 
 impl Record {
-    fn validate_operation(&self, intent: &IndependentCreateIntent) -> io::Result<()> {
-        self.validate()?;
-        if intent.purpose == "create" {
-            if self.request.is_some()
-                || self.approval.is_some()
-                || self.imported
-                || self.jwks.is_some()
-            {
-                return Err(io::Error::other("Create contains Join evidence"));
-            }
-            return Ok(());
-        }
-        if let Some(request) = &self.request {
-            request.validate()?;
-            if request.operation != *intent
-                || request.member_id != self.member
-                || Some(request.endpoint_id.as_str()) != self.endpoint.as_deref()
-            {
-                return Err(io::Error::other("retained Join endpoint binding changed"));
-            }
-        }
-        if let Some(approval) = &self.approval {
-            approval.verify()?;
-            if self
-                .request
-                .as_ref()
-                .map(serde_json::to_value)
-                .transpose()?
-                != Some(serde_json::to_value(&approval.request)?)
-                || (self.imported && approval.owner_subject != self.user)
-            {
-                return Err(io::Error::other("retained Join approval changed"));
-            }
-        }
-        if ((self.complete || self.imported) && (self.request.is_none() || self.approval.is_none()))
-            || (self.complete && !self.imported)
-            || self.imported != self.jwks.is_some()
-        {
-            return Err(io::Error::other(
-                "completed Join lacks exact public import evidence",
-            ));
-        }
-        Ok(())
-    }
     fn new() -> Self {
         Self {
             version: 2,
@@ -106,10 +54,6 @@ impl Record {
             inventory_attempted: false,
             endpoint: None,
             registrations: Vec::new(),
-            request: None,
-            approval: None,
-            imported: false,
-            jwks: None,
             complete: false,
         }
     }
@@ -188,7 +132,6 @@ async fn run(
                 .intent()
                 .await
                 .ok_or_else(|| io::Error::other("completed IdP has no exact operation"))?;
-            record.validate_operation(&intent)?;
             open(&config, &intent, &record, &mut owner).await?;
             owners.send_replace(owner.as_ref().expect("opened owner").database.clone());
             let opened = owner.as_ref().expect("opened IdP");
@@ -215,12 +158,9 @@ async fn run(
             }
             public(&config, &control, &intent, &record).await?;
             runtime = Some(
-                crate::independent_join::build_independent_idp(
+                build(
                     &runtime_config(&config, &intent, &record)?,
                     opened.engine.clone(),
-                    opened.database.clone(),
-                    control.shutdown_token(),
-                    binding(&record)?.endpoint_id,
                 )
                 .await?,
             );
@@ -275,12 +215,8 @@ fn runtime_config(
     let mut config = config.clone();
     config.api_public_uri = intent.idp.clone();
     config.oauth2.issuer = intent.issuer.clone();
-    config.oauth2.local_signer = if intent.purpose == "create" {
-        Some(binding(record)?)
-    } else {
-        None
-    };
-    config.oauth2.trusted_issuer_jwks.clone_from(&record.jwks);
+    config.oauth2.local_signer = Some(binding(record)?);
+    config.oauth2.trusted_issuer_jwks = None;
     config.service_audience = Some(intent.idp.clone());
     config.management_data_dir = None;
     config.control_plane_uri = Some(intent.device.clone());
@@ -342,7 +278,7 @@ fn observe(
             let current: Record = control
                 .read_record()?
                 .ok_or_else(|| io::Error::other("IdP worker evidence missing"))?;
-            current.validate_operation(&intent)?;
+            current.validate()?;
             if serde_json::to_value(current)? != expected
                 || load_setup_secret(&service(&control), &record.client.to_string())? != secret
             {
@@ -404,7 +340,7 @@ async fn public(
     } else {
         None
     };
-    control.set_public(IndependentOwnerPublic { operation: intent.clone(), owner: "idp".into(), clients: vec![serde_json::to_value(registration)?], facts: serde_json::json!({"identity_socket":identity_socket, "user":record.user, "login_client":record.login, "endpoint":record.endpoint, "evaluator":record.client, "join_request":record.request, "approval":record.approval}), registered: Vec::new() }, Arc::new(move |requested| {
+    control.set_public(IndependentOwnerPublic { operation: intent.clone(), owner: "idp".into(), clients: vec![serde_json::to_value(registration)?], facts: serde_json::json!({"identity_socket":identity_socket, "user":record.user, "login_client":record.login, "endpoint":record.endpoint, "evaluator":record.client}), registered: Vec::new() }, Arc::new(move |requested| {
         if requested != id { return Err(io::Error::other("unknown consumer Client")); }
         load_setup_secret(&scope, requested)
     })).await
@@ -426,7 +362,7 @@ async fn provision(
             record
         }
     };
-    record.validate_operation(&command.intent)?;
+    record.validate()?;
     let intent = &command.intent;
     if record.complete {
         let current = runtime
@@ -447,18 +383,6 @@ async fn provision(
         protected.elapsed().as_millis()
     );
     public(config, control, intent, &record).await?;
-    if intent.purpose == "join" {
-        return join::provision(
-            config,
-            control,
-            command,
-            &mut record,
-            owner,
-            runtime,
-            owners,
-        )
-        .await;
-    }
     let device = control
         .wait_peer(intent, "device", &command.cancellation)
         .await?;
@@ -628,12 +552,9 @@ async fn provision(
     let serving_at = Instant::now();
     if runtime.is_none() {
         *runtime = Some(
-            crate::independent_join::build_independent_idp(
+            build(
                 &runtime_config(config, intent, &record)?,
                 owner.engine.clone(),
-                owner.database.clone(),
-                control.shutdown_token(),
-                binding(&record)?.endpoint_id,
             )
             .await?,
         );
@@ -715,6 +636,7 @@ fn login(intent: &IndependentCreateIntent, id: Id) -> ClientRegistration {
         allowed_audiences: vec![
             intent.idp.clone(),
             "idp-management".into(),
+            intent.device.clone(),
             intent.storage.clone(),
             "storage:databases".into(),
             "storage:filesystems".into(),
@@ -724,4 +646,10 @@ fn login(intent: &IndependentCreateIntent, id: Id) -> ClientRegistration {
         software_id: None,
         software_version: None,
     }
+}
+
+async fn build(config: &AppConfig, engine: ofdb_sql::Client) -> io::Result<IdpRuntime> {
+    let permissions = management_service::LocalPermissions::new(engine.clone());
+    let state = crate::runtime::build_state(config, engine, None, None, Some(permissions)).await?;
+    Ok(crate::runtime::runtime_from_state(config, state))
 }

@@ -17,9 +17,14 @@ The repository is migrating to the [accepted target architecture](docs/architect
 | Two-Device offline convergence         | Not qualified                                                                                                                                                                   |
 | Browser synchronization                | Single-Node encrypted-vault sync passes real-backend Chromium tests; broader browser support remains incomplete                                                                 |
 | Linux FUSE mounts                      | Full Residency only; local file/directory operations and one authorized native two-Full sync/reopen scenario pass real mounts; broader multi-Device support remains unqualified |
-| Independent and desktop deployments    | Retain implementation paths; automatic independent Join does not provision service Clients at the issuing IdP                                                                                            |
+| Independent and desktop deployments    | Can create a first Installation. An existing Installation admits Devices, not additional server authorities. |
 
 GitHub Actions records current and historical check results.
+
+Installation setup requires fresh owner stores. If you have an older setup, back up its data and redo setup in an empty root. This change provides no migration, old-format reader, or version bump.
+
+To add a Device to an existing Installation, use the [Device owner pairing contract](openapi/device.json). An authorized User creates a pending request against an approved Device. The new Device signs the UTF-8 payload with its Ed25519 endpoint key and encodes the signature as base64url without padding. An authorized User submits that signature to approve the Device. No server setup or transport listener is required.
+
 
 ## Local backend
 

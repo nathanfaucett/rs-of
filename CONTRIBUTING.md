@@ -65,7 +65,7 @@ Do not duplicate route tables, method inventories, or implementation-status tabl
 | TypeScript package   | Filtered build, test, lint, and type check                        | `pnpm test`, dependent package checks                                       |
 | Public HTTP contract | OpenAPI generation/checks and generated-client tests              | Real-backend owner and browser tests                                        |
 | Browser/WASM         | Filtered WASM build and browser tests                             | `pnpm test:backend`, `pnpm test:e2e`, supported browser matrix              |
-| Deployment/lifecycle | Focused process tests                                             | Independent create/join/restart and platform qualification                  |
+| Deployment/lifecycle | Focused process tests                                             | Independent Create, restart, and Device admission and platform qualification                  |
 
 Do not claim a check passed unless you ran it or can link to a specific CI result. Record unrun or failed qualification explicitly.
 

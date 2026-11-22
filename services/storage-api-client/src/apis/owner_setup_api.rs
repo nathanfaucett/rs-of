@@ -31,18 +31,6 @@ pub struct OwnerSetupCreateParams {
     pub independent_create_request: models::IndependentCreateRequest,
 }
 
-/// struct for passing parameters to the method [`owner_setup_history`]
-#[derive(Clone, Debug)]
-pub struct OwnerSetupHistoryParams {
-    pub body: serde_json::Value,
-}
-
-/// struct for passing parameters to the method [`owner_setup_join`]
-#[derive(Clone, Debug)]
-pub struct OwnerSetupJoinParams {
-    pub independent_create_request: models::IndependentCreateRequest,
-}
-
 /// struct for passing parameters to the method [`owner_setup_register`]
 #[derive(Clone, Debug)]
 pub struct OwnerSetupRegisterParams {
@@ -86,27 +74,6 @@ pub enum OwnerSetupCreateError {
     Status400(),
     Status401(),
     Status409(),
-    Status503(),
-    UnknownValue(serde_json::Value),
-}
-
-/// struct for typed errors of method [`owner_setup_history`]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum OwnerSetupHistoryError {
-    Status403(),
-    Status409(),
-    UnknownValue(serde_json::Value),
-}
-
-/// struct for typed errors of method [`owner_setup_join`]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum OwnerSetupJoinError {
-    Status400(),
-    Status401(),
-    Status409(),
-    Status502(),
     Status503(),
     UnknownValue(serde_json::Value),
 }
@@ -294,81 +261,6 @@ pub async fn owner_setup_create(
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<OwnerSetupCreateError> = serde_json::from_str(&content).ok();
-        Err(Error::ResponseError(ResponseContent {
-            status,
-            content,
-            entity,
-        }))
-    }
-}
-
-/// Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.
-pub async fn owner_setup_history(
-    configuration: &configuration::Configuration,
-    params: OwnerSetupHistoryParams,
-) -> Result<(), Error<OwnerSetupHistoryError>> {
-    let uri_str = format!("{}/setup/owner/history", configuration.base_path);
-    let mut req_builder = configuration
-        .client
-        .request(reqwest::Method::POST, &uri_str);
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    req_builder = req_builder.json(&params.body);
-
-    let req = req_builder.build()?;
-    configuration::check_request(&req, configuration.request_limit)?;
-    let resp = configuration.client.execute(req).await?;
-
-    let status = resp.status();
-
-    if status.as_u16() == 202 || false {
-        Ok(())
-    } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        let entity: Option<OwnerSetupHistoryError> = serde_json::from_str(&content).ok();
-        Err(Error::ResponseError(ResponseContent {
-            status,
-            content,
-            entity,
-        }))
-    }
-}
-
-pub async fn owner_setup_join(
-    configuration: &configuration::Configuration,
-    params: OwnerSetupJoinParams,
-) -> Result<(), Error<OwnerSetupJoinError>> {
-    let uri_str = format!("{}/setup/owner/join", configuration.base_path);
-    let mut req_builder = configuration
-        .client
-        .request(reqwest::Method::POST, &uri_str);
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    if let Some(ref apikey) = configuration.api_key {
-        let key = apikey.key.clone();
-        let value = match apikey.prefix {
-            Some(ref prefix) => format!("{} {}", prefix, key),
-            None => key,
-        };
-        req_builder = req_builder.header("Authorization", value);
-    };
-    req_builder = req_builder.json(&params.independent_create_request);
-
-    let req = req_builder.build()?;
-    configuration::check_request(&req, configuration.request_limit)?;
-    let resp = configuration.client.execute(req).await?;
-
-    let status = resp.status();
-
-    if status.as_u16() == 202 || false {
-        Ok(())
-    } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        let entity: Option<OwnerSetupJoinError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

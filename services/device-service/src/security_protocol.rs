@@ -3,11 +3,9 @@ use crate::security_policy::SecurityContext;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::security_policy::{SecurityHistory, SecuritySync};
 use db::DatabaseTransport;
-use idp_service::oauth2::NodeSignerBinding;
 use idp_service::replica::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh_chain::Server;
@@ -23,9 +21,6 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use crate::ofdb::DbDeviceRepo;
-
-#[path = "security_bootstrap.rs"]
-pub mod bootstrap;
 
 const SECURITY_STREAM_KIND: u8 = 3;
 
@@ -55,7 +50,6 @@ pub struct SecurityProtocol {
     device_repo: DbDeviceRepo,
     permissions: LocalPermissions,
     installation: String,
-    binding: Option<NodeSignerBinding>,
     staging_directory: PathBuf,
     cancellation: CancellationToken,
 }
@@ -65,17 +59,12 @@ impl SecurityProtocol {
         self.cancellation.cancel();
     }
 
-    pub fn into_databases(self) -> (Arc<Database>, Arc<Database>) {
-        (self.idp, self.management)
-    }
-
     pub fn new(
         server: Server,
         idp: Arc<Database>,
         management: Arc<Database>,
         policy: Arc<Database>,
         installation: String,
-        binding: Option<NodeSignerBinding>,
         staging_directory: PathBuf,
         cancellation: CancellationToken,
     ) -> Self {
@@ -91,7 +80,6 @@ impl SecurityProtocol {
             device_repo,
             permissions,
             installation,
-            binding,
             staging_directory,
             cancellation,
         }
@@ -291,7 +279,7 @@ impl SecurityProtocol {
                     },
                     |view| {
                         history
-                            .validate_candidate(view, &self.installation, None)
+                            .validate_candidate(view, &bindings)
                             .map_err(|e| e.to_string())
                     },
                     || async {
@@ -341,68 +329,6 @@ impl SecurityProtocol {
     }
 }
 
-impl crate::hosted_join::NodeJoinIdentity for SecurityProtocol {
-    fn accepting<'a>(
-        &'a self,
-        bearer: &'a str,
-        accepting: Option<bool>,
-    ) -> crate::hosted_join::JoinFuture<'a, bool> {
-        Box::pin(async move {
-            let _ = (bearer, accepting);
-            Ok(false)
-        })
-    }
-
-    fn authorize<'a>(&'a self, bearer: &'a str) -> crate::hosted_join::JoinFuture<'a, ()> {
-        Box::pin(async move {
-            let _ = bearer;
-            Ok(())
-        })
-    }
-
-    fn enroll<'a>(
-        &'a self,
-        offer: &'a crate::hosted_join::PairingOffer,
-        bearer: &'a str,
-    ) -> crate::hosted_join::JoinFuture<'a, crate::hosted_join::NodeJoinApproval> {
-        Box::pin(async move {
-            let _ = (offer, bearer);
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "enroll not implemented for security protocol",
-            ))
-        })
-    }
-
-    fn verify<'a>(
-        &'a self,
-        approval: &'a crate::hosted_join::NodeJoinApproval,
-    ) -> crate::hosted_join::JoinFuture<'a, ()> {
-        Box::pin(async move {
-            let _ = approval;
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "verify not implemented for security protocol",
-            ))
-        })
-    }
-
-    fn reply<'a>(
-        &'a self,
-        offer: &'a crate::hosted_join::PairingOffer,
-        bearer: &'a str,
-        approval: &'a crate::hosted_join::NodeJoinApproval,
-    ) -> crate::hosted_join::JoinFuture<'a, ()> {
-        Box::pin(async move {
-            let _ = (offer, bearer, approval);
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "reply not implemented for security protocol",
-            ))
-        })
-    }
-}
-
 struct AuthorizedSecurityTransport<'a, T> {
     transport: &'a mut T,
     protocol: &'a SecurityProtocol,
@@ -434,15 +360,6 @@ impl<T: SyncTransport<Error = io::Error> + Send> SyncTransport
 
 fn denied(reason: impl std::fmt::Display) -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, reason.to_string())
-}
-
-fn now() -> io::Result<i64> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(io::Error::other)?
-        .as_secs()
-        .try_into()
-        .map_err(io::Error::other)
 }
 
 fn accumulate(total: &mut SyncResult, result: SyncResult) {

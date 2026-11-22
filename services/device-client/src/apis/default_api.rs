@@ -19,6 +19,13 @@ pub struct ApproveEnrollmentParams {
     pub device_id: String,
 }
 
+/// struct for passing parameters to the method [`approve_pairing`]
+#[derive(Clone, Debug)]
+pub struct ApprovePairingParams {
+    pub device_id: String,
+    pub device_pairing_approval_request: models::DevicePairingApprovalRequest,
+}
+
 /// struct for passing parameters to the method [`delete_device_resource_selection`]
 #[derive(Clone, Debug)]
 pub struct DeleteDeviceResourceSelectionParams {
@@ -58,6 +65,12 @@ pub struct LookupDeviceIdentityParams {
     pub device_id: String,
 }
 
+/// struct for passing parameters to the method [`pairing_approval_payload`]
+#[derive(Clone, Debug)]
+pub struct PairingApprovalPayloadParams {
+    pub device_id: String,
+}
+
 /// struct for passing parameters to the method [`put_device_restriction`]
 #[derive(Clone, Debug)]
 pub struct PutDeviceRestrictionParams {
@@ -73,6 +86,12 @@ pub struct PutDeviceSelectionParams {
     pub selection_request: models::SelectionRequest,
 }
 
+/// struct for passing parameters to the method [`request_pairing`]
+#[derive(Clone, Debug)]
+pub struct RequestPairingParams {
+    pub device_pairing_request: models::DevicePairingRequest,
+}
+
 /// struct for passing parameters to the method [`revoke_device`]
 #[derive(Clone, Debug)]
 pub struct RevokeDeviceParams {
@@ -84,12 +103,6 @@ pub struct RevokeDeviceParams {
 #[derive(Clone, Debug)]
 pub struct RevokeSelfParams {
     pub device_self_revocation_request: models::DeviceSelfRevocationRequest,
-}
-
-/// struct for passing parameters to the method [`set_pairing_acceptance`]
-#[derive(Clone, Debug)]
-pub struct SetPairingAcceptanceParams {
-    pub pairing_acceptance: models::PairingAcceptance,
 }
 
 /// struct for passing parameters to the method [`transfer_device`]
@@ -111,6 +124,15 @@ pub struct UpdateDeviceParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ApproveEnrollmentError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`approve_pairing`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ApprovePairingError {
+    Status401(),
+    Status403(),
     UnknownValue(serde_json::Value),
 }
 
@@ -196,10 +218,12 @@ pub enum OpenapiJsonError {
     UnknownValue(serde_json::Value),
 }
 
-/// struct for typed errors of method [`pairing_acceptance`]
+/// struct for typed errors of method [`pairing_approval_payload`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum PairingAcceptanceError {
+pub enum PairingApprovalPayloadError {
+    Status401(),
+    Status403(),
     UnknownValue(serde_json::Value),
 }
 
@@ -217,6 +241,15 @@ pub enum PutDeviceSelectionError {
     UnknownValue(serde_json::Value),
 }
 
+/// struct for typed errors of method [`request_pairing`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RequestPairingError {
+    Status401(),
+    Status403(),
+    UnknownValue(serde_json::Value),
+}
+
 /// struct for typed errors of method [`revoke_device`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -228,13 +261,6 @@ pub enum RevokeDeviceError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RevokeSelfError {
-    UnknownValue(serde_json::Value),
-}
-
-/// struct for typed errors of method [`set_pairing_acceptance`]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SetPairingAcceptanceError {
     UnknownValue(serde_json::Value),
 }
 
@@ -316,6 +342,65 @@ pub async fn approve_enrollment(
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ApproveEnrollmentError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+pub async fn approve_pairing(
+    configuration: &configuration::Configuration,
+    params: ApprovePairingParams,
+) -> Result<models::DeviceInfo, Error<ApprovePairingError>> {
+    let uri_str = format!(
+        "{}/devices/pairings/{device_id}/approve",
+        configuration.base_path,
+        device_id = crate::apis::urlencode(params.device_id)
+    );
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&params.device_pairing_approval_request);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if status.as_u16() == 200 || false {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => {
+                return Err(Error::from(serde_json::Error::custom(
+                    "Received `text/plain` content type response that cannot be converted to `models::DeviceInfo`",
+                )));
+            }
+            ContentType::Unsupported(unknown_type) => {
+                return Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceInfo`"
+                ))));
+            }
+        }
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<ApprovePairingError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,
@@ -868,10 +953,15 @@ pub async fn openapi_json(
     }
 }
 
-pub async fn pairing_acceptance(
+pub async fn pairing_approval_payload(
     configuration: &configuration::Configuration,
-) -> Result<models::PairingAcceptance, Error<PairingAcceptanceError>> {
-    let uri_str = format!("{}/devices/pairing-accepting", configuration.base_path);
+    params: PairingApprovalPayloadParams,
+) -> Result<models::DevicePairingApprovalPayload, Error<PairingApprovalPayloadError>> {
+    let uri_str = format!(
+        "{}/devices/pairings/{device_id}/payload",
+        configuration.base_path,
+        device_id = crate::apis::urlencode(params.device_id)
+    );
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
     if let Some(ref user_agent) = configuration.user_agent {
@@ -899,18 +989,18 @@ pub async fn pairing_acceptance(
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
             ContentType::Text => {
                 return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::PairingAcceptance`",
+                    "Received `text/plain` content type response that cannot be converted to `models::DevicePairingApprovalPayload`",
                 )));
             }
             ContentType::Unsupported(unknown_type) => {
                 return Err(Error::from(serde_json::Error::custom(format!(
-                    "Received `{unknown_type}` content type response that cannot be converted to `models::PairingAcceptance`"
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::DevicePairingApprovalPayload`"
                 ))));
             }
         }
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        let entity: Option<PairingAcceptanceError> = serde_json::from_str(&content).ok();
+        let entity: Option<PairingApprovalPayloadError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,
@@ -995,6 +1085,61 @@ pub async fn put_device_selection(
     }
 }
 
+pub async fn request_pairing(
+    configuration: &configuration::Configuration,
+    params: RequestPairingParams,
+) -> Result<models::DeviceEnrollment, Error<RequestPairingError>> {
+    let uri_str = format!("{}/devices/pairings", configuration.base_path);
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&params.device_pairing_request);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if status.as_u16() == 200 || false {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => {
+                return Err(Error::from(serde_json::Error::custom(
+                    "Received `text/plain` content type response that cannot be converted to `models::DeviceEnrollment`",
+                )));
+            }
+            ContentType::Unsupported(unknown_type) => {
+                return Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceEnrollment`"
+                ))));
+            }
+        }
+    } else {
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        let entity: Option<RequestPairingError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
 pub async fn revoke_device(
     configuration: &configuration::Configuration,
     params: RevokeDeviceParams,
@@ -1059,59 +1204,6 @@ pub async fn revoke_self(
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<RevokeSelfError> = serde_json::from_str(&content).ok();
-        Err(Error::ResponseError(ResponseContent {
-            status,
-            content,
-            entity,
-        }))
-    }
-}
-
-pub async fn set_pairing_acceptance(
-    configuration: &configuration::Configuration,
-    params: SetPairingAcceptanceParams,
-) -> Result<models::PairingAcceptance, Error<SetPairingAcceptanceError>> {
-    let uri_str = format!("{}/devices/pairing-accepting", configuration.base_path);
-    let mut req_builder = configuration.client.request(reqwest::Method::PUT, &uri_str);
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    if let Some(ref token) = configuration.bearer_access_token {
-        req_builder = req_builder.bearer_auth(token.to_owned());
-    };
-    req_builder = req_builder.json(&params.pairing_acceptance);
-
-    let req = req_builder.build()?;
-    configuration::check_request(&req, configuration.request_limit)?;
-    let resp = configuration.client.execute(req).await?;
-
-    let status = resp.status();
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream");
-    let content_type = super::ContentType::from(content_type);
-
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        match content_type {
-            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::PairingAcceptance`",
-                )));
-            }
-            ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
-                    "Received `{unknown_type}` content type response that cannot be converted to `models::PairingAcceptance`"
-                ))));
-            }
-        }
-    } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        let entity: Option<SetPairingAcceptanceError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

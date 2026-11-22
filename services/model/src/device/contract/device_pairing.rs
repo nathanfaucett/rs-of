@@ -26,13 +26,6 @@ pub struct DevicePairingApprovalPayload {
     pub payload: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct PairingAcceptance {
-    pub accepting: bool,
-}
-
 #[must_use]
 pub fn device_pairing_approval_payload(
     device_id: Id,

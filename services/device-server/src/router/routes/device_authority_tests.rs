@@ -118,7 +118,6 @@ impl Fixture {
             "/device",
             "storage",
             Arc::new(control),
-            None,
         )
         .await
         .expect("existing owner router");
@@ -570,58 +569,76 @@ async fn device_discovery_denies_ambiguous_endpoint_bindings() {
 }
 
 #[tokio::test]
-async fn device_pairing_controls_require_exact_permissions_and_an_injected_transport_capability() {
+async fn device_owner_requires_enrollment_permission_separately_from_key_proof() {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use of_model::device::contract::device_pairing::device_pairing_approval_payload;
+
     let fixture = Fixture::new().await;
+    let accepting = iroh::SecretKey::generate().public().to_string();
+    fixture
+        .devices
+        .create(
+            fixture.owner.to_string(),
+            "First Device".into(),
+            accepting.clone(),
+            "local".into(),
+            vec![],
+            0,
+        )
+        .await
+        .expect("initial Device");
+    let key = iroh::SecretKey::generate();
+    let public_key = key.public().to_string();
+    let request = serde_json::json!({
+        "name": "Second Device", "publicKey": public_key,
+        "acceptingPublicKey": accepting, "address": "127.0.0.1:23456",
+    })
+    .to_string();
+    assert_eq!(
+        fixture
+            .call("POST", "/devices/pairings", "user", &request)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let pending = fixture
+        .devices
+        .create_pairing(
+            "Second Device".into(),
+            public_key,
+            "127.0.0.1:23456".into(),
+            accepting,
+        )
+        .await
+        .expect("pending Device");
+    let payload = device_pairing_approval_payload(
+        pending.id,
+        &pending.name,
+        &pending.public_key,
+        &pending.address,
+    );
+    let approval = serde_json::json!({"signature": URL_SAFE_NO_PAD.encode(key.sign(payload.as_bytes()).to_bytes())}).to_string();
+    let path = format!("/devices/pairings/{}/approve", pending.id);
+    assert_eq!(
+        fixture
+            .call("POST", &path, "user", &approval)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    fixture.grant(IdentityAction::DevicesEnroll).await;
+    assert_eq!(
+        fixture
+            .call("POST", &path, "user", &approval)
+            .await
+            .status(),
+        StatusCode::OK
+    );
     assert_eq!(
         fixture
             .call("GET", "/devices/pairing-accepting", "user", "")
             .await
             .status(),
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        fixture
-            .call(
-                "PUT",
-                "/devices/pairing-accepting",
-                "user",
-                r#"{"accepting":true}"#
-            )
-            .await
-            .status(),
-        StatusCode::FORBIDDEN
-    );
-    fixture.grant(IdentityAction::DevicePairingRead).await;
-    assert_eq!(
-        fixture
-            .call("GET", "/devices/pairing-accepting", "user", "")
-            .await
-            .status(),
-        StatusCode::SERVICE_UNAVAILABLE
-    );
-    assert_eq!(
-        fixture
-            .call(
-                "PUT",
-                "/devices/pairing-accepting",
-                "user",
-                r#"{"accepting":true}"#
-            )
-            .await
-            .status(),
-        StatusCode::FORBIDDEN
-    );
-    fixture.grant(IdentityAction::DevicePairingUpdate).await;
-    assert_eq!(
-        fixture
-            .call(
-                "PUT",
-                "/devices/pairing-accepting",
-                "user",
-                r#"{"accepting":true}"#
-            )
-            .await
-            .status(),
-        StatusCode::SERVICE_UNAVAILABLE
+        StatusCode::METHOD_NOT_ALLOWED
     );
 }

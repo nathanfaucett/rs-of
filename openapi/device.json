@@ -1,29 +1,6 @@
 {
   "components": {
     "schemas": {
-      "Acceptance": {
-        "additionalProperties": false,
-        "properties": {
-          "accepting": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "accepting"
-        ],
-        "type": "object"
-      },
-      "AcceptanceRequest": {
-        "properties": {
-          "accepting": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "accepting"
-        ],
-        "type": "object"
-      },
       "ApprovedDeviceEndpoints": {
         "additionalProperties": false,
         "properties": {
@@ -179,6 +156,51 @@
         ],
         "type": "object"
       },
+      "DevicePairingApprovalPayload": {
+        "properties": {
+          "payload": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "type": "object"
+      },
+      "DevicePairingApprovalRequest": {
+        "properties": {
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "signature"
+        ],
+        "type": "object"
+      },
+      "DevicePairingRequest": {
+        "properties": {
+          "acceptingPublicKey": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "publicKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "publicKey",
+          "address",
+          "acceptingPublicKey"
+        ],
+        "type": "object"
+      },
       "DeviceRestriction": {
         "additionalProperties": false,
         "properties": {
@@ -226,20 +248,6 @@
         ],
         "type": "object"
       },
-      "DiscoveryRequest": {
-        "properties": {
-          "nonce": {
-            "maxLength": 64,
-            "minLength": 64,
-            "pattern": "^[0-9a-fA-F]{64}$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "nonce"
-        ],
-        "type": "object"
-      },
       "HealthResponse": {
         "properties": {
           "database": {
@@ -272,26 +280,6 @@
           }
         ]
       },
-      "HistoryRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "approval": {
-            "$ref": "#/components/schemas/IndependentJoinApproval"
-          },
-          "recipient": {
-            "type": "string"
-          },
-          "return_nonce": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "approval",
-          "recipient",
-          "return_nonce"
-        ],
-        "type": "object"
-      },
       "IndependentCreateIntent": {
         "additionalProperties": false,
         "properties": {
@@ -312,12 +300,6 @@
           },
           "operation_nonce": {
             "type": "string"
-          },
-          "peer": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "purpose": {
             "type": "string"
@@ -356,62 +338,6 @@
           }
         ]
       },
-      "IndependentJoinApproval": {
-        "additionalProperties": false,
-        "properties": {
-          "device_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "owner_subject": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "request": {
-            "$ref": "#/components/schemas/IndependentJoinRequest"
-          },
-          "signature": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "request",
-          "device_id",
-          "owner_subject",
-          "signature"
-        ],
-        "type": "object"
-      },
-      "IndependentJoinRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "endpoint_id": {
-            "type": "string"
-          },
-          "member_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "operation": {
-            "$ref": "#/components/schemas/IndependentCreateIntent"
-          },
-          "request_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "source": {
-            "$ref": "#/components/schemas/IndependentPeer"
-          }
-        },
-        "required": [
-          "operation",
-          "request_id",
-          "member_id",
-          "endpoint_id",
-          "source"
-        ],
-        "type": "object"
-      },
       "IndependentOwnerPublic": {
         "additionalProperties": false,
         "properties": {
@@ -439,99 +365,6 @@
           "clients",
           "facts",
           "registered"
-        ],
-        "type": "object"
-      },
-      "IndependentPeer": {
-        "additionalProperties": false,
-        "properties": {
-          "address": {},
-          "device": {
-            "type": "string"
-          },
-          "endpoint": {
-            "type": "string"
-          },
-          "idp": {
-            "type": "string"
-          },
-          "issuer": {
-            "type": "string"
-          },
-          "nonce": {
-            "type": "string"
-          },
-          "signature": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "nonce",
-          "issuer",
-          "idp",
-          "device",
-          "endpoint",
-          "address",
-          "signature"
-        ],
-        "type": "object"
-      },
-      "NodeJoinApproval": {
-        "additionalProperties": false,
-        "properties": {
-          "device_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "owner_subject": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "request": {
-            "$ref": "#/components/schemas/NodeJoinRequest"
-          },
-          "signature": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "request",
-          "device_id",
-          "owner_subject",
-          "signature"
-        ],
-        "type": "object"
-      },
-      "NodeJoinRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "approving_peer": {
-            "type": "string"
-          },
-          "endpoint_id": {
-            "type": "string"
-          },
-          "installation": {
-            "type": "string"
-          },
-          "member_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "purpose": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "purpose",
-          "installation",
-          "member_id",
-          "endpoint_id",
-          "name",
-          "approving_peer"
         ],
         "type": "object"
       },
@@ -587,17 +420,6 @@
           "state",
           "ready",
           "owners"
-        ],
-        "type": "object"
-      },
-      "PairingAcceptance": {
-        "properties": {
-          "accepting": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "accepting"
         ],
         "type": "object"
       },
@@ -773,21 +595,6 @@
         },
         "required": [
           "name"
-        ],
-        "type": "object"
-      },
-      "VerificationRequest": {
-        "properties": {
-          "approval": {
-            "$ref": "#/components/schemas/IndependentJoinApproval"
-          },
-          "context": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "approval",
-          "context"
         ],
         "type": "object"
       },
@@ -1078,34 +885,14 @@
         ]
       }
     },
-    "/devices/pairing-accepting": {
-      "get": {
-        "operationId": "pairing_acceptance",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PairingAcceptance"
-                }
-              }
-            },
-            "description": "Pairing acceptance state"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ]
-      },
-      "put": {
-        "operationId": "set_pairing_acceptance",
+    "/devices/pairings": {
+      "post": {
+        "operationId": "request_pairing",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PairingAcceptance"
+                "$ref": "#/components/schemas/DevicePairingRequest"
               }
             }
           },
@@ -1116,11 +903,103 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PairingAcceptance"
+                  "$ref": "#/components/schemas/DeviceEnrollment"
                 }
               }
             },
-            "description": "Pairing acceptance state"
+            "description": "Pending Device pairing"
+          },
+          "401": {
+            "description": "User authentication required"
+          },
+          "403": {
+            "description": "Enrollment not authorized"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/devices/pairings/{device_id}/approve": {
+      "post": {
+        "operationId": "approve_pairing",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevicePairingApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceInfo"
+                }
+              }
+            },
+            "description": "Approved Device after proof of its endpoint key"
+          },
+          "401": {
+            "description": "User authentication required"
+          },
+          "403": {
+            "description": "Proof or enrollment permission denied"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
+      }
+    },
+    "/devices/pairings/{device_id}/payload": {
+      "get": {
+        "operationId": "pairing_approval_payload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevicePairingApprovalPayload"
+                }
+              }
+            },
+            "description": "Exact payload to sign with the new Device key"
+          },
+          "401": {
+            "description": "User authentication required"
+          },
+          "403": {
+            "description": "Pairing not authorized or no longer pending"
           }
         },
         "security": [
@@ -1448,569 +1327,6 @@
         }
       }
     },
-    "/independent/node-joins/acceptance": {
-      "get": {
-        "operationId": "independent_join_accepting",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AcceptanceRequest"
-                }
-              }
-            },
-            "description": "Operation-bound Node-join result"
-          },
-          "403": {
-            "description": "Invalid input or current authorization/operation denied"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      },
-      "put": {
-        "operationId": "independent_join_set_accepting",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AcceptanceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "Operation-bound Node-join result"
-          },
-          "400": {
-            "description": "Invalid input or current authorization/operation denied"
-          },
-          "403": {
-            "description": "Invalid input or current authorization/operation denied"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
-    "/independent/node-joins/discover": {
-      "post": {
-        "operationId": "independent_join_discover",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DiscoveryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IndependentPeer"
-                }
-              }
-            },
-            "description": "Operation-bound Node-join result"
-          },
-          "400": {
-            "description": "Invalid input or current authorization/operation denied"
-          },
-          "403": {
-            "description": "Invalid input or current authorization/operation denied"
-          },
-          "503": {
-            "description": "Invalid input or current authorization/operation denied"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
-    "/independent/node-joins/history/request": {
-      "post": {
-        "description": "Requires verified exact independent approval and current owner permission. Returns a capability only through the operation-bound recipient callback.",
-        "operationId": "independent_join_request_history",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HistoryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "Callback accepted"
-          },
-          "400": {
-            "description": "Invalid recipient"
-          },
-          "403": {
-            "description": "Approval denied"
-          },
-          "503": {
-            "description": "Unavailable"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
-    "/independent/node-joins/history/stream": {
-      "get": {
-        "description": "WebSocket upgrade only. The subsequent bounded binary SQL history protocol is not implemented by generated HTTP clients.",
-        "operationId": "independent_join_history_stream",
-        "parameters": [
-          {
-            "description": "History <single-use operation-bound capability>",
-            "in": "header",
-            "name": "Authorization",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Upgrade",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Connection",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Sec-WebSocket-Key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "Sec-WebSocket-Version",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "101": {
-            "description": "Switching to bounded history WebSocket protocol"
-          },
-          "400": {
-            "description": "Invalid WebSocket handshake"
-          },
-          "401": {
-            "description": "History capability required"
-          },
-          "403": {
-            "description": "Capability expired or denied"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
-    "/independent/node-joins/pending": {
-      "get": {
-        "operationId": "independent_join_pending",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {},
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Operation-bound Node-join result"
-          },
-          "403": {
-            "description": "Invalid input or current authorization/operation denied"
-          },
-          "409": {
-            "description": "Invalid input or current authorization/operation denied"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
-    "/independent/node-joins/verify": {
-      "post": {
-        "operationId": "independent_join_verify",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerificationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "Operation-bound Node-join result"
-          },
-          "400": {
-            "description": "Invalid input or current authorization/operation denied"
-          },
-          "403": {
-            "description": "Invalid input or current authorization/operation denied"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
-    "/independent/node-joins/{id}/approve": {
-      "post": {
-        "operationId": "independent_join_approve",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Operation-bound Node-join result"
-          },
-          "403": {
-            "description": "Invalid input or current authorization/operation denied"
-          },
-          "409": {
-            "description": "Invalid input or current authorization/operation denied"
-          },
-          "503": {
-            "description": "Invalid input or current authorization/operation denied"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
-    "/independent/node-joins/{id}/reject": {
-      "post": {
-        "operationId": "independent_join_reject",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Operation-bound Node-join result"
-          },
-          "403": {
-            "description": "Invalid input or current authorization/operation denied"
-          },
-          "409": {
-            "description": "Invalid input or current authorization/operation denied"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
-    "/node-joins/acceptance": {
-      "get": {
-        "operationId": "node_join_acceptance",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Acceptance"
-                }
-              }
-            },
-            "description": "Current locally authorized Node-join operation"
-          },
-          "401": {
-            "description": "Bearer required"
-          },
-          "403": {
-            "description": "Permission denied"
-          },
-          "404": {
-            "description": "Offer not found"
-          },
-          "409": {
-            "description": "Offer changed"
-          },
-          "503": {
-            "description": "Unavailable"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "node_join"
-        ]
-      },
-      "put": {
-        "operationId": "node_join_set_acceptance",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Acceptance"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Acceptance"
-                }
-              }
-            },
-            "description": "Current locally authorized Node-join operation"
-          },
-          "401": {
-            "description": "Bearer required"
-          },
-          "403": {
-            "description": "Permission denied"
-          },
-          "404": {
-            "description": "Offer not found"
-          },
-          "409": {
-            "description": "Offer changed"
-          },
-          "503": {
-            "description": "Unavailable"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "node_join"
-        ]
-      }
-    },
-    "/node-joins/pending": {
-      "get": {
-        "operationId": "node_join_pending",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Current locally authorized Node-join operation"
-          },
-          "401": {
-            "description": "Bearer required"
-          },
-          "403": {
-            "description": "Permission denied"
-          },
-          "404": {
-            "description": "Offer not found"
-          },
-          "409": {
-            "description": "Offer changed"
-          },
-          "503": {
-            "description": "Unavailable"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "node_join"
-        ]
-      }
-    },
-    "/node-joins/{id}/approve": {
-      "post": {
-        "operationId": "node_join_approve",
-        "parameters": [
-          {
-            "description": "Pending offer UUID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NodeJoinApproval"
-                }
-              }
-            },
-            "description": "Current locally authorized Node-join operation"
-          },
-          "401": {
-            "description": "Bearer required"
-          },
-          "403": {
-            "description": "Permission denied"
-          },
-          "404": {
-            "description": "Offer not found"
-          },
-          "409": {
-            "description": "Offer changed"
-          },
-          "503": {
-            "description": "Unavailable"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "node_join"
-        ]
-      }
-    },
-    "/node-joins/{id}/reject": {
-      "post": {
-        "operationId": "node_join_reject",
-        "parameters": [
-          {
-            "description": "Pending offer UUID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Current locally authorized Node-join operation"
-          },
-          "401": {
-            "description": "Bearer required"
-          },
-          "403": {
-            "description": "Permission denied"
-          },
-          "404": {
-            "description": "Offer not found"
-          },
-          "409": {
-            "description": "Offer changed"
-          },
-          "503": {
-            "description": "Unavailable"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "node_join"
-        ]
-      }
-    },
     "/openapi.json": {
       "get": {
         "operationId": "openapi_json",
@@ -2280,39 +1596,6 @@
         ]
       }
     },
-    "/setup/owner/history": {
-      "post": {
-        "description": "Worker-only return channel: active exact admitted Join, matching approval and constant-time return nonce, and a 64-character capability are required. Not OAuth authority.",
-        "operationId": "owner_setup_history",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "History capability accepted"
-          },
-          "403": {
-            "description": "Operation or return nonce denied"
-          },
-          "409": {
-            "description": "Return channel full"
-          }
-        },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "owner_setup"
-        ]
-      }
-    },
     "/setup/owner/intent": {
       "post": {
         "operationId": "owner_setup_recover",
@@ -2335,49 +1618,6 @@
           },
           "503": {
             "description": "Admission unavailable"
-          }
-        },
-        "security": [
-          {
-            "setup_code": []
-          }
-        ],
-        "tags": [
-          "owner_setup"
-        ]
-      }
-    },
-    "/setup/owner/join": {
-      "post": {
-        "operationId": "owner_setup_join",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IndependentCreateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "Exact Join accepted after authenticated discovery; empty body"
-          },
-          "400": {
-            "description": "Invalid tuple; Join forbids password and administrator"
-          },
-          "401": {
-            "description": "Code invalid or retired"
-          },
-          "409": {
-            "description": "Conflicting retained operation"
-          },
-          "502": {
-            "description": "Pinned peer discovery failed"
-          },
-          "503": {
-            "description": "Owner unavailable"
           }
         },
         "security": [

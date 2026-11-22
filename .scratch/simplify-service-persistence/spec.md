@@ -1,7 +1,7 @@
 # Simplify IdP, Management, and Storage persistence
 
 Status: ready-for-agent
-Work: in progress
+Work: resolved
 Milestone: [M3 — Two-Device offline use and administration](../../docs/goal.md#milestones)
 Dependencies: Use the existing generated Logical Row identities and public Database and Client interfaces. No external dependencies identified.
 
@@ -60,8 +60,8 @@ Validate access JWTs with trusted issuer keys and signed claims. Keep sign-in, t
 
 ## Further Notes
 
-This spec records the result of source review, not shipped behavior. The single-authority issuer is the proposed baseline for this scope. If disconnected issuance is a product requirement, resolve that before removing Node signing trust; it does not change the JWT verification seam. The catalog lifecycle representation is an implementation choice, subject to the reconciliation checks above. The review inspected existing tests but did not run them.
+This spec records the result of source review, not shipped behavior. One authority issues tokens per issuer. The maintainer removed automatic second-server setup instead of adding Client provisioning for it. First Installation setup remains; a new Device joins the existing Installation by proving possession of its endpoint key and receiving approval. The catalog lifecycle representation is an implementation choice, subject to the reconciliation checks above. The review inspected existing tests but did not run them.
 
 ## Comments
 
-All five implementation branches are merged into `integration/simplify-service-persistence`. Tickets 02–05 have focused validation; see their evidence for limits. Ticket 01 stays open: the issuer cutover does not yet provision OAuth Clients for joined independent services at the issuing authority, and the broader owner suite did not compile. No change was pushed to `main`.
+All five implementation branches are integrated. The follow-up removes second-server setup and keeps first Installation Create and signed Device approval. The owner test targets compile; focused owner, browser, and generated-contract checks passed. A full Rust rerun and broad offline convergence qualification remain outstanding. See the tickets for focused evidence and limits.

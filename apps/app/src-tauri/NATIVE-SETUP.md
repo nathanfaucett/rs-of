@@ -24,9 +24,8 @@ participates from configuration and has no setup code/worker/operator step.
   only IdP gets the administrator password. Codes/passwords are not persisted,
   logged or sent in URLs. Recovery, retry and cancellation retain exact intent;
   request disconnect is not cancellation, 202 is not completion.
-- Source approval uses Device `/independent/node-joins/...` with an ordinary
-  Management-audience authorized User in both layouts. No native Create/Join,
-  approval, cancellation or recovery mutation proxy is provided.
+- An existing Installation admits Devices through Device authority, not owner
+  setup. There is no native proxy for Create, cancellation, or recovery.
 
 ## Startup and one authority
 

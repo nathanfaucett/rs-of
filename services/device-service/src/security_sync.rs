@@ -129,12 +129,12 @@ mod tests {
                 }],
             }],
         };
-        assert!(owner.validate_candidate(&view, "fixture", None).is_ok());
+        assert!(owner.validate_candidate(&view, &[]).is_ok());
         view.tables[0].rows[0].row.values[1] = Value::Null;
-        assert!(owner.validate_candidate(&view, "fixture", None).is_err());
+        assert!(owner.validate_candidate(&view, &[]).is_err());
         view.tables[0].rows[0].row.values[1] = Value::Uuid(selection);
         view.tables[0].rows[0].id = Uuid::now_v7();
-        assert!(owner.validate_candidate(&view, "fixture", None).is_err());
+        assert!(owner.validate_candidate(&view, &[]).is_err());
     }
 
     #[test]
@@ -154,7 +154,6 @@ mod tests {
             "local_client_secret_verifiers",
             "local_user_password_verifiers",
             "local_device_enrollments",
-            "local_device_join_bindings",
             "unknown",
         ] {
             assert!(!permits_device_table(table));

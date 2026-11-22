@@ -86,6 +86,11 @@ impl OwnerProvisioner {
 }
 
 impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
+    #[must_use]
+    pub fn client(&self) -> ofdb_sql::Client {
+        self.engine.clone()
+    }
+
     pub async fn open_with_private_keys(config: &AppConfig, private_keys: P) -> io::Result<Self> {
         if config.identity_database.is_some() {
             let client = crate::runtime::identity_client(config).await?;

@@ -12,7 +12,7 @@ pub(super) async fn qualify(
     addresses: &[SocketAddr],
     intent: &IndependentCreateIntent,
     http: &Client,
-    management_token: &str,
+    device_token: &str,
 ) {
     let record: serde_json::Value = serde_json::from_slice(
         &fs::read(root.join("device.setup-host/worker.json")).expect("completed worker"),
@@ -126,7 +126,7 @@ pub(super) async fn qualify(
         }
         super::current_status(http, &intent.device, false).await;
         let token = super::storage_policy_token(root, http, intent).await;
-        let policy: of_model::contract::SelectedResourcesResponse = http
+        let policy: of_model::contract::replication::SelectedResourcesResponse = http
             .get(format!(
                 "{}/replication/devices/{endpoint}/selections",
                 intent.device
@@ -197,7 +197,7 @@ pub(super) async fn qualify(
             );
             assert_eq!(
                 http.put(&restriction)
-                    .bearer_auth(management_token)
+                    .bearer_auth(device_token)
                     .json(&body)
                     .send()
                     .await

@@ -23,7 +23,7 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation() {
     let identity = Arc::new(Database::in_memory());
-    of_model::idp::replica::up(&identity)
+    of_model::idp::replica::up(&identity.client())
         .await
         .expect("identity owner schema");
     let devices = Arc::new(Database::in_memory());
@@ -55,7 +55,7 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
                             iat: 0,
                             nbf: 0,
                             iss: "https://installation.example".into(),
-                            aud: management_service::MANAGEMENT_APPLICATION_URI.into(),
+                            aud: "https://node.example".into(),
                             client_id: "human".into(),
                             sub: owner.to_string(),
                             principal_type: PrincipalType::User,
@@ -91,7 +91,6 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
             "/device",
             "storage",
             control.clone(),
-            None,
         )
         .await
         .expect("Device router"),
@@ -160,29 +159,7 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
             .is_err(),
         "unknown endpoint must fail closed"
     );
-    for table in [
-        "devices",
-        "device_selection_policies",
-        "device_resource_selections",
-        "local_device_enrollments",
-    ] {
-        assert!(
-            identity
-                .client()
-                .translate_and_execute(
-                    &format!("SELECT * FROM {table} LIMIT 0"),
-                    &db::SqlTranslator
-                )
-                .await
-                .is_err(),
-            "Device records must not enter the identity schema: {table}"
-        );
-    }
-    for path in [
-        "/management/devices",
-        "/management/replication/admission",
-        "/management/node-joins/acceptance",
-    ] {
+    for path in ["/management/devices", "/management/replication/admission"] {
         assert_eq!(
             router
                 .clone()

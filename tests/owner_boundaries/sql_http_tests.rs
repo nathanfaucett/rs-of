@@ -1,4 +1,4 @@
-use of_model::contract::StorageAuthorizationAction::{Read, Write};
+use of_model::contract::authorization_details::StorageAuthorizationAction::{Read, Write};
 use serde_json::{Value, json};
 
 use crate::support::native::Fixture;
@@ -151,7 +151,11 @@ async fn restart(f: &mut Fixture) {
             .expect("reopen Storage owner"),
     );
     f.storage_listener = crate::support::native::Listener::start(storage_server::resource_router(
-        storage_server::RouterState::new("https://storage.test").with_idp_client(f.client.clone()),
+        storage_server::RouterState::new(
+            "https://storage.test",
+            f.identity.endpoint().id().to_string(),
+        )
+        .with_idp_client(f.client.clone()),
         Some(f.databases.clone()),
         Some(f.files.clone()),
     ))
@@ -262,7 +266,11 @@ async fn disconnected_nodes_derive_the_same_identity_and_learned_tombstones_win(
             .expect("independent offline Node root"),
     );
     let mut other = crate::support::native::Listener::start(storage_server::resource_router(
-        storage_server::RouterState::new("https://storage.test").with_idp_client(f.client.clone()),
+        storage_server::RouterState::new(
+            "https://storage.test",
+            f.identity.endpoint().id().to_string(),
+        )
+        .with_idp_client(f.client.clone()),
         Some(other_runtime.clone()),
         None,
     ))
@@ -682,7 +690,8 @@ async fn generated_sql_contract_roundtrips_lossless_wire_scalars() {
 
 #[tokio::test]
 async fn learned_device_restriction_denies_subsequent_sql_and_creation() {
-    use device_service::replica::{DbSelectionPolicyRepo, SelectionPolicy};
+    use device_service::replica::DbSelectionPolicyRepo;
+    use of_model::device::selection_policy::SelectionPolicy;
     use std::sync::{Arc, OnceLock};
     let mut f = Fixture::new(Default::default()).await;
     let policy = |allowed| SelectionPolicy {
@@ -718,7 +727,11 @@ async fn learned_device_restriction_denies_subsequent_sql_and_creation() {
         .with_local_device_policy(f.identity.endpoint().id(), authorizer);
     f.storage_listener.stop().await;
     f.storage_listener = crate::support::native::Listener::start(storage_server::resource_router(
-        storage_server::RouterState::new("https://storage.test").with_idp_client(client),
+        storage_server::RouterState::new(
+            "https://storage.test",
+            f.identity.endpoint().id().to_string(),
+        )
+        .with_idp_client(client),
         Some(f.databases.clone()),
         Some(f.files.clone()),
     ))
@@ -787,7 +800,11 @@ async fn response_revalidation_runs_after_commit_without_holding_the_sql_owner()
     });
     f.storage_listener.stop().await;
     f.storage_listener = crate::support::native::Listener::start(storage_server::resource_router(
-        storage_server::RouterState::new("https://storage.test").with_idp_client(client),
+        storage_server::RouterState::new(
+            "https://storage.test",
+            f.identity.endpoint().id().to_string(),
+        )
+        .with_idp_client(client),
         Some(f.databases.clone()),
         Some(f.files.clone()),
     ))

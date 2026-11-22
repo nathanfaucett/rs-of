@@ -22,14 +22,7 @@ use serde_json::json;
 mod authorization;
 #[path = "filesystem.rs"]
 mod filesystem;
-#[path = "recovery.rs"]
-mod recovery;
-
 pub use authorization::denial_scenario;
-use recovery::{
-    JoinAdmission, assert_learned_grants, denied_refresh, pending_offer, prepare_learned_grants,
-    refresh_grant, retry_rejected_join,
-};
 
 const PASSWORD: &str = "system-test-initial-password";
 const NONCE: &str = "0123456789abcdef0123456789abcdef";
@@ -165,7 +158,7 @@ impl Node {
                 self.root.path().join(format!("{name}.provider")),
             )
             .env("RUST_MIN_STACK", "67108864")
-            .env("RUST_LOG", "warn,idp_server::independent_create=debug,idp_server::independent_create::join=debug,device_server::independent_create=debug,device_server::independent_create::join=debug,storage_server::idp_client=debug")
+            .env("RUST_LOG", "warn,idp_server::independent_create=debug,device_server::independent_create=debug,storage_server::idp_client=debug")
             .env("SSL_CERT_FILE", self.root.path().join("roots.pem"))
             .env("SSL_CERT_DIR", self.root.path().join("empty-certs"))
             .env(
@@ -526,7 +519,6 @@ impl Node {
             assert_eq!(public.operation.administrator, "operator");
             assert_eq!(public.operation.node, "System Node");
             assert_eq!(public.operation.purpose, "create");
-            assert!(public.operation.peer.as_ref().is_none_or(Option::is_none));
             evidence.push(public.facts.expect("current public owner facts"));
         }
         assert_eq!(evidence[0]["endpoint"], evidence[1]["endpoint"]);
@@ -892,208 +884,4 @@ fn device_config(node: &Node) -> of_device_client::apis::configuration::Configur
         base_path: node.device.clone(),
         ..Default::default()
     }
-}
-
-pub async fn join_scenario() {
-    use of_device_client::apis::independent_join_api as independent_joins;
-    let mut source = Node::new();
-    source.independent_create(true).await;
-    let source_device = of_device_client::apis::default_api::device(&device_config(&source))
-        .await
-        .expect("public source endpoint");
-    let grants = prepare_learned_grants(&source).await;
-    let session = source.login().await;
-    let authority = source.exchange(&session, "idp-management", "").await;
-    let resource_token = source.exchange(&session, "storage:filesystems", "").await;
-    let mut approval = device_config(&source);
-    approval.bearer_access_token = Some(authority.clone());
-    let anonymous = device_config(&source);
-    authorization_denied(
-        independent_joins::independent_join_set_accepting(
-            &anonymous,
-            independent_joins::IndependentJoinSetAcceptingParams {
-                acceptance_request: of_device_client::models::AcceptanceRequest::new(true),
-            },
-        )
-        .await,
-    );
-    independent_joins::independent_join_set_accepting(
-        &approval,
-        independent_joins::IndependentJoinSetAcceptingParams {
-            acceptance_request: of_device_client::models::AcceptanceRequest::new(true),
-        },
-    )
-    .await
-    .unwrap_or_else(|_| panic!("authorized source acceptance"));
-    let mut target = Node::new();
-    let roots = fs::read(source.root.path().join("roots.pem")).expect("source trust");
-    let capabilities = target.start_independent(true, &roots).await;
-    let roots = fs::read(target.root.path().join("roots.pem")).expect("mutual HTTPS trust");
-    fs::write(source.root.path().join("roots.pem"), &roots).expect("verified history callbacks");
-    source.http = client(Some(&roots));
-    let target_authority = source.exchange(&session, &target.idp, "").await;
-    let mut request = models::IndependentCreateRequest::new(
-        String::new(),
-        target.device.clone(),
-        target.idp.clone(),
-        source.issuer.clone(),
-        "Joining System Node".into(),
-        NONCE.into(),
-        "join".into(),
-        target.storage.clone(),
-    );
-    request.peer = Some(format!("{}#{}", source.device, source_device.public_key));
-    let mut configs = Vec::new();
-    for (i, base) in [
-        target.idp.clone(),
-        target.device.clone(),
-        target.storage.clone(),
-    ]
-    .iter()
-    .enumerate()
-    {
-        let mut config = target.config(base);
-        config.api_key = Some(capabilities[i].clone());
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            target.alive();
-            if owner_setup::owner_setup_status(&config).await.is_ok() {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "target owner listener startup timeout"
-            );
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        configs.push(config);
-    }
-    let admission = JoinAdmission { configs, request };
-    admission.submit().await;
-    let offer = pending_offer(&mut source, &mut target, &approval).await;
-    assert_eq!(
-        offer["authenticated_endpoint"],
-        offer["request"]["endpoint_id"]
-    );
-    assert_eq!(offer["request"]["operation"]["issuer"], source.issuer);
-    let pending_ready = {
-        owner_setup::owner_setup_status(&target.config(&target.idp))
-            .await
-            .expect("pending independent target status")
-            .ready
-    };
-    assert!(!pending_ready);
-    let offer = retry_rejected_join(&mut source, &mut target, &approval, &admission, offer).await;
-    let id = offer["offer_id"]
-        .as_str()
-        .expect("exact pending offer ID")
-        .to_owned();
-    authorization_denied(
-        independent_joins::independent_join_approve(
-            &anonymous,
-            independent_joins::IndependentJoinApproveParams { id: id.clone() },
-        )
-        .await,
-    );
-    independent_joins::independent_join_approve(
-        &approval,
-        independent_joins::IndependentJoinApproveParams { id },
-    )
-    .await
-    .unwrap_or_else(|_| panic!("authorized exact independent Device approval"));
-    let deadline = Instant::now() + Duration::from_secs(180);
-    loop {
-        source.alive();
-        target.alive();
-        let mut ready = true;
-        for base in [&target.idp, &target.device, &target.storage] {
-            ready &= owner_setup::owner_setup_status(&target.config(base))
-                .await
-                .is_ok_and(|s| s.ready);
-        }
-        if ready {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "completed Join readiness timeout"
-        );
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-    target.issuer = source.issuer.clone();
-    let mut operations = Vec::new();
-    let mut endpoints = Vec::new();
-    for (owner, base) in [
-        ("idp", &target.idp),
-        ("device", &target.device),
-        ("storage", &target.storage),
-    ] {
-        let public = owner_setup::owner_setup_owner_public(&target.config(base))
-            .await
-            .expect("completed Join owner evidence");
-        assert_eq!(public.owner, owner);
-        assert_eq!(public.operation.operation_nonce, NONCE);
-        assert_eq!(public.operation.issuer, source.issuer);
-        assert_eq!(public.operation.node, "Joining System Node");
-        assert_eq!(public.operation.purpose, "join");
-        assert_eq!(public.operation.idp, target.idp);
-        assert_eq!(public.operation.device, target.device);
-        assert_eq!(public.operation.storage, target.storage);
-        endpoints.push(public.facts.expect("completed owner facts")["endpoint"].clone());
-        operations.push(public.operation);
-    }
-    assert_eq!(operations[0], operations[1]);
-    assert_eq!(operations[1], operations[2]);
-    assert_eq!(endpoints[0], endpoints[1]);
-    assert_eq!(endpoints[1], endpoints[2]);
-    assert!(endpoints[0].as_str().is_some_and(|value| !value.is_empty()));
-    target.start_management(Some(&target_authority)).await;
-    target.management_ready().await;
-    let mut user_config = source.config(&source.idp);
-    user_config.bearer_access_token = Some(session);
-    let subject = idp::userinfo(&user_config)
-        .await
-        .unwrap_or_else(|_| panic!("source public User info"))
-        .sub;
-    assert_learned_grants(&target, &source.login, &grants).await;
-    let replacement = refresh_grant(&target, &source.login, &grants[2])
-        .await
-        .unwrap_or_else(|_| panic!("unconsumed learned grant remains usable"));
-    assert!(
-        replacement
-            .refresh_token
-            .flatten()
-            .expect("rotated learned grant")
-            != grants[2],
-        "refresh rotation must replace the consumed learned grant"
-    );
-    denied_refresh(refresh_grant(&target, &source.login, &grants[2]).await);
-    let resource = use_node(&mut target, Some(&resource_token), None).await;
-    target.policy_permission(&authority, &subject).await;
-    let endpoint = of_device_client::apis::default_api::device(&device_config(&target))
-        .await
-        .expect("joined endpoint");
-    assert_ne!(endpoint.public_key, source_device.public_key);
-    while let Some(process) = source.processes.pop() {
-        drop(process);
-    }
-    target.restart().await;
-    assert_eq!(
-        of_device_client::apis::default_api::device(&device_config(&target))
-            .await
-            .expect("offline reopened endpoint")
-            .public_key,
-        endpoint.public_key
-    );
-    assert_learned_grants(&target, &source.login, &grants).await;
-    denied_refresh(refresh_grant(&target, &source.login, &grants[2]).await);
-    use_node(&mut target, Some(&resource_token), Some(&resource)).await;
-    target.policy_permission(&authority, &subject).await;
-}
-
-fn authorization_denied<T, E>(result: Result<T, of_device_client::apis::Error<E>>) {
-    assert!(
-        matches!(result, Err(of_device_client::apis::Error::ResponseError(response)) if matches!(response.status.as_u16(), 401 | 403)),
-        "source administration requires ordinary User authority"
-    );
 }

@@ -45,23 +45,18 @@ mod tests {
     fn complete_routes_include_operation_bound_handoffs() {
         let document = crate::independent_openapi::owner_setup_openapi();
         let paths = document.paths.paths;
-        assert_eq!(paths.len(), 10);
+        assert_eq!(paths.len(), 8);
         for path in [
             "/setup/owner/status",
             "/setup/owner/admission",
             "/setup/owner/create",
-            "/setup/owner/join",
             "/setup/owner/intent",
             "/setup/owner/cancel",
             "/setup/owner/public",
         ] {
             assert!(paths.contains_key(path), "actual public route {path}");
         }
-        for path in [
-            "/setup/owner/challenge",
-            "/setup/owner/register",
-            "/setup/owner/history",
-        ] {
+        for path in ["/setup/owner/challenge", "/setup/owner/register"] {
             assert!(
                 paths.contains_key(path),
                 "worker handoff is part of the contract"

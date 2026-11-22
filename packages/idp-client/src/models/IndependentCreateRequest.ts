@@ -46,10 +46,6 @@ export interface IndependentCreateRequest {
   /**
    *
    */
-  peer?: string;
-  /**
-   *
-   */
   purpose: string;
   /**
    *
@@ -102,7 +98,6 @@ export function IndependentCreateRequestFromJSONTyped(
     issuer: json["issuer"],
     node: json["node"],
     operationNonce: json["operation_nonce"],
-    peer: json["peer"] == null ? undefined : json["peer"],
     purpose: json["purpose"],
     storage: json["storage"],
     password:
@@ -133,7 +128,6 @@ export function IndependentCreateRequestToJSONTyped(
     issuer: value["issuer"],
     node: value["node"],
     operation_nonce: value["operationNonce"],
-    peer: value["peer"],
     purpose: value["purpose"],
     storage: value["storage"],
     password: value["password"],

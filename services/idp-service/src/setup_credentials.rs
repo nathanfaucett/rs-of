@@ -99,6 +99,7 @@ impl SetupRelationship {
                 Self::ManagementIdp => vec![
                     idp.into(),
                     "idp-management".into(),
+                    management.into(),
                     storage.into(),
                     "storage:databases".into(),
                     "storage:filesystems".into(),

@@ -32,19 +32,7 @@ pub fn canonical_documents() -> BTreeMap<&'static str, OpenApi> {
             "owner_setup",
             None,
         );
-        merge(
-            document,
-            device_service::join_history::history_openapi(),
-            "independent_join",
-            None,
-        );
     }
-    merge(
-        documents.get_mut("device").expect("Device"),
-        device_server::independent_join_openapi(),
-        "independent_join",
-        None,
-    );
     documents
 }
 fn write(
@@ -122,13 +110,7 @@ mod tests {
         let documents = super::canonical_documents();
         for owner in ["idp", "device", "storage"] {
             let paths = &documents[owner].paths.paths;
-            for path in [
-                "/setup/owner/status",
-                "/setup/owner/create",
-                "/setup/owner/join",
-                "/independent/node-joins/history/request",
-                "/independent/node-joins/history/stream",
-            ] {
+            for path in ["/setup/owner/status", "/setup/owner/create"] {
                 assert!(paths.contains_key(path), "{owner}: missing {path}");
             }
         }

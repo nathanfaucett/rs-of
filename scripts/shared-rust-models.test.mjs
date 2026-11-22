@@ -12,7 +12,7 @@ import path from "node:path";
 import test from "node:test";
 import { extractRustModels } from "./shared-rust-models.mjs";
 
-test("generation reuses canonical setup and join contracts", () => {
+test("generation reuses canonical setup contracts", () => {
   const root = mkdtempSync(path.join(tmpdir(), "of-canonical-models-"));
   try {
     const output = path.join(root, "client");
@@ -20,26 +20,26 @@ test("generation reuses canonical setup and join contracts", () => {
     mkdirSync(models, { recursive: true });
     writeFileSync(
       path.join(models, "mod.rs"),
-      "pub mod independent_peer;\npub use self::independent_peer::IndependentPeer;\npub mod node_join_request;\npub use self::node_join_request::NodeJoinRequest;\n",
+      "pub mod independent_create_intent;\npub use self::independent_create_intent::IndependentCreateIntent;\npub mod independent_create_request;\npub use self::independent_create_request::IndependentCreateRequest;\n",
     );
     writeFileSync(
-      path.join(models, "independent_peer.rs"),
-      "pub struct IndependentPeer {}\n",
+      path.join(models, "independent_create_intent.rs"),
+      "pub struct IndependentCreateIntent {}\n",
     );
     writeFileSync(
-      path.join(models, "node_join_request.rs"),
-      "pub struct NodeJoinRequest {}\n",
+      path.join(models, "independent_create_request.rs"),
+      "pub struct IndependentCreateRequest {}\n",
     );
     const shared = path.join(root, "shared");
     extractRustModels(output, "device", shared);
     const index = readFileSync(path.join(shared, "mod.rs"), "utf8");
-    assert.match(index, /pub use crate::setup::IndependentPeer;/);
-    assert.match(index, /pub use crate::node_join::NodeJoinRequest;/);
-    assert.equal(existsSync(path.join(shared, "independent_peer.rs")), false);
-    assert.equal(existsSync(path.join(shared, "node_join_request.rs")), false);
+    assert.match(index, /pub use crate::setup::IndependentCreateIntent;/);
+    assert.match(index, /pub use crate::setup::IndependentCreateRequest;/);
+    assert.equal(existsSync(path.join(shared, "independent_create_intent.rs")), false);
+    assert.equal(existsSync(path.join(shared, "independent_create_request.rs")), false);
     assert.doesNotMatch(
       readFileSync(path.join(models, "mod.rs"), "utf8"),
-      /\bindependent_peer\b|\bnode_join_request\b/,
+      /\bindependent_create_intent\b|\bindependent_create_request\b/,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

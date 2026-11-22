@@ -31,7 +31,6 @@ pub async fn validate_device(client: &ofdb_sql::Client) -> Result<(), ofdb_sql::
             "local_device_enrollments",
             "device_id, enrollment_code_hash, enrollment_expires_at, pairing_accepting_public_key",
         ),
-        ("local_device_join_bindings", "request_id, device_id"),
         (
             "local_device_copy_cleanup",
             "device_id, cleanup_id, completed",

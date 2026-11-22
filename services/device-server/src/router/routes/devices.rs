@@ -12,7 +12,9 @@ use of_model::device::contract::device_endpoint_identity::DeviceEndpointIdentity
 use of_model::device::contract::device_enrollment::DeviceEnrollment;
 use of_model::device::contract::device_enrollment_request::DeviceEnrollmentRequest;
 use of_model::device::contract::device_info::DeviceInfo;
-use of_model::device::contract::device_pairing::PairingAcceptance;
+use of_model::device::contract::device_pairing::{
+    DevicePairingApprovalPayload, DevicePairingApprovalRequest, DevicePairingRequest,
+};
 use of_model::device::contract::trusted_device::TrustedDevice;
 use of_model::device::contract::update_device_request::UpdateDeviceRequest;
 use of_model::id::Id;
@@ -367,62 +369,71 @@ pub(crate) async fn enroll_device(
         .map(Json)
 }
 
-#[utoipa::path(
-    get,
-    path = "/devices/pairing-accepting",
-    responses((status = 200, description = "Pairing acceptance state", body = PairingAcceptance)),
-    security(("authorization" = []))
-)]
-pub(crate) async fn pairing_acceptance(
+#[utoipa::path(post, path = "/devices/pairings", request_body = DevicePairingRequest,
+    responses((status = 200, description = "Pending Device pairing", body = DeviceEnrollment),
+        (status = 401, description = "User authentication required"), (status = 403, description = "Enrollment not authorized")),
+    security(("authorization" = [])))]
+pub(crate) async fn request_pairing(
     State(state): State<RouterState>,
     actor: DeviceAuthorization,
-) -> Result<Json<PairingAcceptance>, ErrorResponse> {
-    require_identity_permission(
-        &state,
-        &actor,
-        IdentityAction::DevicePairingRead,
-        PermissionTarget::Installation {
-            resource: IdentityResource::DevicePairing,
-        },
-    )
-    .await?;
-    state
-        .control_plane
-        .pairing_acceptance()
-        .map_err(unavailable)?
-        .pairing_accepting()
-        .map(|accepting| Json(PairingAcceptance { accepting }))
-        .map_err(|_| ErrorResponse::new(ErrorCode::ServerError))
+    Json(request): Json<DevicePairingRequest>,
+) -> Result<Json<DeviceEnrollment>, ErrorResponse> {
+    require_pairing_permission(&state, &actor, None).await?;
+    DeviceEnrollmentService::new(devices(&state)?)
+        .request_pairing(request)
+        .await
+        .map(Json)
 }
 
-#[utoipa::path(
-    put,
-    path = "/devices/pairing-accepting",
-    request_body = PairingAcceptance,
-    responses((status = 200, description = "Pairing acceptance state", body = PairingAcceptance)),
-    security(("authorization" = []))
-)]
-pub(crate) async fn set_pairing_acceptance(
+#[utoipa::path(get, path = "/devices/pairings/{device_id}/payload",
+    params(("device_id" = String, Path)),
+    responses((status = 200, description = "Exact payload to sign with the new Device key", body = DevicePairingApprovalPayload),
+        (status = 401, description = "User authentication required"), (status = 403, description = "Pairing not authorized or no longer pending")),
+    security(("authorization" = [])))]
+pub(crate) async fn pairing_approval_payload(
     State(state): State<RouterState>,
+    Path(device_id): Path<Id>,
     actor: DeviceAuthorization,
-    Json(PairingAcceptance { accepting }): Json<PairingAcceptance>,
-) -> Result<Json<PairingAcceptance>, ErrorResponse> {
+) -> Result<Json<DevicePairingApprovalPayload>, ErrorResponse> {
+    require_pairing_permission(&state, &actor, Some(device_id)).await?;
+    DeviceEnrollmentService::new(devices(&state)?)
+        .pairing_approval_payload(device_id)
+        .await
+        .map(|payload| Json(DevicePairingApprovalPayload { payload }))
+}
+
+#[utoipa::path(post, path = "/devices/pairings/{device_id}/approve", request_body = DevicePairingApprovalRequest,
+    params(("device_id" = String, Path)),
+    responses((status = 200, description = "Approved Device after proof of its endpoint key", body = DeviceInfo),
+        (status = 401, description = "User authentication required"), (status = 403, description = "Proof or enrollment permission denied")),
+    security(("authorization" = [])))]
+pub(crate) async fn approve_pairing(
+    State(state): State<RouterState>,
+    Path(device_id): Path<Id>,
+    actor: DeviceAuthorization,
+    Json(request): Json<DevicePairingApprovalRequest>,
+) -> Result<Json<DeviceInfo>, ErrorResponse> {
+    require_pairing_permission(&state, &actor, Some(device_id)).await?;
+    DeviceEnrollmentService::new(devices(&state)?)
+        .approve_pairing(device_id, request)
+        .await
+        .map(Json)
+}
+
+async fn require_pairing_permission(
+    state: &RouterState,
+    actor: &DeviceAuthorization,
+    id: Option<Id>,
+) -> Result<(), ErrorResponse> {
     require_identity_permission(
-        &state,
-        &actor,
-        IdentityAction::DevicePairingUpdate,
+        state,
+        actor,
+        IdentityAction::DevicesEnroll,
         PermissionTarget::Installation {
-            resource: IdentityResource::DevicePairing,
+            resource: IdentityResource::Device { id },
         },
     )
-    .await?;
-    state
-        .control_plane
-        .pairing_acceptance()
-        .map_err(unavailable)?
-        .set_pairing_accepting(accepting)
-        .map(|()| Json(PairingAcceptance { accepting }))
-        .map_err(|_| ErrorResponse::new(ErrorCode::ServerError))
+    .await
 }
 
 #[utoipa::path(

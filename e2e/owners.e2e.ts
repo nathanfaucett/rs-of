@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { Configuration, DefaultApi } from "../packages/device-client/src/index";
 import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
@@ -114,7 +114,7 @@ for (const [clientId, origin] of [
   });
 }
 
-test("app session enrolls and lists the first approved Device through the Device owner", async ({
+test("Device owner requires authorized approval and proof of a second Device key", async ({
   request,
 }) => {
   const session = await frontendSession(request, "app", appURL);
@@ -136,7 +136,8 @@ test("app session enrolls and lists the first approved Device through the Device
       fetchApi: checkedFetch,
     })
   );
-  const key = generateKeyPairSync("ed25519").publicKey.export({
+  const first = generateKeyPairSync("ed25519");
+  const key = first.publicKey.export({
     format: "jwk",
   });
   const publicKey = Buffer.from(key.x!, "base64url").toString("hex");
@@ -157,6 +158,39 @@ test("app session enrolls and lists the first approved Device through the Device
       }),
     ])
   );
+  const second = generateKeyPairSync("ed25519");
+  const secondKey = Buffer.from(
+    second.publicKey.export({ format: "jwk" }).x!, "base64url"
+  ).toString("hex");
+  const headers = { Authorization: `Bearer ${token.access_token}` };
+  const pairings = `${backendURL}/device/devices/pairings`;
+  const pending = await json(await request.post(pairings, {
+    headers,
+    data: {
+      name: "Second Device",
+      publicKey: secondKey,
+      acceptingPublicKey: publicKey,
+      address: "127.0.0.1:23457",
+    },
+  }));
+  expect(pending.state).toBe("pending");
+  const { payload } = await json(
+    await request.get(`${pairings}/${pending.id}/payload`, { headers })
+  );
+  const approve = `${pairings}/${pending.id}/approve`;
+  const bytes = Buffer.from(payload);
+  const signature = sign(null, bytes, second.privateKey).toString("base64url");
+  expect((await request.post(approve, { data: { signature } })).status()).toBe(401);
+  expect((await request.post(approve, { headers, data: { signature: "" } })).status()).toBe(403);
+  const wrongProof = sign(null, bytes, first.privateKey).toString("base64url");
+  expect((await request.post(approve, { headers, data: { signature: wrongProof } })).status()).toBe(403);
+  const unsignedApproval = await request.post(
+    `${backendURL}/device/devices/enrollments/${pending.id}/approve`, { headers }
+  );
+  expect(unsignedApproval.ok()).toBe(false);
+  const approved = await json(await request.post(approve, { headers, data: { signature } }));
+  expect(approved).toMatchObject({ id: pending.id, publicKey: secondKey, state: "approved" });
+  expect((await request.post(approve, { headers, data: { signature } })).status()).toBe(403);
   const denied = await request.get(`${backendURL}/device/devices`);
   expect(denied.ok()).toBeFalsy();
 });

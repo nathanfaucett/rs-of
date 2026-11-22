@@ -116,7 +116,7 @@ async fn independent_transfer_https_child() {
         use device_service::HostedControlPlane;
         use device_service::replica::DbDeviceRepo;
         use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
-        use of_model::contract::{OwnerCopyCleanup, SelectedResourcesResponse};
+        use of_model::contract::replication::{OwnerCopyCleanup, SelectedResourcesResponse};
         use storage_server::{DeviceClient, LocalReplicationAuthorizer, StorageCopyRetirement};
         use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};
         use tokio_util::sync::CancellationToken;
@@ -225,7 +225,6 @@ async fn independent_transfer_https_child() {
             "/device",
             "storage-service",
             control,
-            None,
         )
         .await
         .expect("production Management router");
@@ -385,7 +384,7 @@ async fn independent_transfer_https_child() {
                 .status(),
             StatusCode::UNAUTHORIZED
         );
-        let token_response: of_model::contract::TokenResponse = http
+        let token_response: of_model::contract::token_response::TokenResponse = http
             .post(format!("{idp_base}/oauth2/token"))
             .form(&[
                 ("grant_type", "client_credentials"),
@@ -578,7 +577,7 @@ async fn independent_transfer_https_child() {
         drop(databases);
         drop(files);
         let storage_runtime = storage_server::build_http_runtime(
-            storage_server::RouterState::new("https://storage.example")
+            storage_server::RouterState::new("https://storage.example", local.to_string())
                 .with_device_client(client.clone())
                 .with_idp_client(storage_server::IdpClient::local(|_| async {
                     Err(storage_server::IdpIntrospectionError::InvalidToken)

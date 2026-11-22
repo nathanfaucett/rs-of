@@ -4,7 +4,6 @@
     import Modal from "$lib/common/components/Modal.svelte";
     import SyncPanel from "$lib/common/components/SyncPanel.svelte";
     import DevicePolicy from "$lib/common/components/DevicePolicy.svelte";
-    import SourceApproval from "$lib/common/components/SourceApproval.svelte";
     import {
         deviceApi,
         getDeviceApiUrl,
@@ -29,7 +28,6 @@
     let deviceEndpointId = $state<string | null>(null);
     let editingId = $state<string | null>(null);
     let editingName = $state("");
-    let publicIdQr = $state<string | null>(null);
     let enrolling = $state(false);
     let enrollmentError = $state<string | null>(null);
     let enrollmentResultModal = $state<{
@@ -196,11 +194,8 @@
     onMount(() => {
         void deviceApi
             .device()
-            .then(async (device) => {
+            .then((device) => {
                 deviceEndpointId = device.publicKey;
-                publicIdQr = await toDataURL(
-                    `${getDeviceApiUrl()}#${device.publicKey}`,
-                );
             })
             .catch(console.error);
         void loadDevices();
@@ -219,6 +214,7 @@
             <button
                 class="btn btn-primary btn-md"
                 type="button"
+                id="device-pairing"
                 onclick={openEnrollmentForm}
             >
                 Add device
@@ -235,13 +231,6 @@
     <SyncPanel />
 
     <DevicePolicy {devices} />
-
-    <div id="device-pairing"></div>
-    <SourceApproval
-        endpoint={deviceEndpointId}
-        qr={publicIdQr}
-        oncopy={(value) => void onCopy(value, "Trusted peer")}
-    />
 
     {#if error}
         <Alert tone="danger">{error}</Alert>

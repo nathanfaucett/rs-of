@@ -16,7 +16,7 @@ pub use of_model::device::contract::{
     ApprovedDeviceEndpoints, DeviceApprovalRequest, DeviceEndpointIdentity, DeviceEnrollment,
     DeviceEnrollmentRequest, DeviceInfo, DevicePairingApprovalPayload,
     DevicePairingApprovalRequest, DevicePairingRequest, DeviceSelfRevocationRequest,
-    DeviceTransferRequest, PairingAcceptance, TrustedDevice, UpdateDeviceRequest,
+    DeviceTransferRequest, TrustedDevice, UpdateDeviceRequest,
 };
 pub use of_model::device::device::Device;
 
@@ -31,8 +31,6 @@ mod device_identity;
 pub mod device_repo;
 #[cfg(feature = "std")]
 pub mod hosted_control_plane;
-#[cfg(feature = "std")]
-mod pairing_acceptance;
 
 #[cfg(feature = "std")]
 pub use device_enrollment::DeviceEnrollmentService;
@@ -46,15 +44,7 @@ pub use device_repo::DeviceRepo;
 #[cfg(feature = "std")]
 pub use hosted_control_plane::HostedControlPlane;
 pub use of_model::device_error::{DeviceError, DeviceResult};
-#[cfg(feature = "std")]
-pub use pairing_acceptance::{
-    PairingAcceptanceController, PairingAcceptanceControllerSlot, TimedPairingAcceptanceController,
-};
 
-#[cfg(all(feature = "ofdb", unix))]
-pub mod independent_join;
-#[cfg(all(feature = "ofdb", unix))]
-pub mod join_history;
 #[cfg(feature = "ofdb")]
 pub mod security_candidates;
 #[cfg(feature = "ofdb")]
@@ -65,30 +55,8 @@ pub mod security_policy;
 mod security_sync;
 pub use security_sync::{PUBLIC_DEVICE_TABLES, permits_device_table, public_device_columns};
 
-#[cfg(feature = "std")]
-pub mod hosted_join;
-#[cfg(feature = "ofdb")]
-pub mod issuer_discovery;
-
 #[cfg(all(test, feature = "ofdb"))]
 mod security_protocol_contract_tests;
 
 #[cfg(feature = "ofdb")]
 pub mod security_protocol;
-
-// Direct constant for easier access - always available
-pub const BOOTSTRAP_ALPN: &[u8] = b"idp-bootstrap/1";
-
-#[cfg(feature = "ofdb")]
-pub mod node_join_owner;
-
-#[cfg(feature = "ofdb")]
-pub mod join_admission;
-
-#[cfg(test)]
-mod test_bootstrap_export {
-    #[test]
-    fn test_bootstrap_alpn_exported() {
-        let _ = crate::BOOTSTRAP_ALPN;
-    }
-}

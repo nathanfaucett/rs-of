@@ -119,7 +119,7 @@ impl LocalTls {
         self.directory.join("ca.pem")
     }
 
-    /// Mandatory for both create and join, including continuation; no browser-only fallback.
+    /// Mandatory for Create, including continuation; no browser-only fallback.
     pub fn install_os_ca(&self) -> io::Result<()> {
         self.install_os_ca_with(command_succeeds)
     }

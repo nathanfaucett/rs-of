@@ -1,8 +1,6 @@
 #[cfg(feature = "independent")]
 use std::{fs, io, path::Path, sync::Arc};
 
-use device_service::independent_join::IndependentJoinApproval;
-use device_service::independent_join::IndependentJoinRequest;
 use idp_service::setup_credentials::delete_setup_secrets;
 use of_model::id::Id;
 use of_model::idp::contract::client_registration::ClientRegistration;
@@ -17,7 +15,6 @@ use crate::{config::app_config::AppConfig, provisioning::OwnerProvisioner};
 struct References {
     version: u8,
     user: Id,
-    credential: Option<Id>,
     login: Id,
     member: Id,
     key: Id,
@@ -27,10 +24,6 @@ struct References {
     inventory_attempted: bool,
     endpoint: Option<String>,
     registrations: Vec<ClientRegistration>,
-    request: Option<IndependentJoinRequest>,
-    approval: Option<IndependentJoinApproval>,
-    #[serde(default)]
-    imported: bool,
     complete: bool,
 }
 
@@ -46,20 +39,14 @@ pub async fn reset_independent(
             let intent = reset
                 .intent()
                 .ok_or_else(|| io::Error::other("worker intent missing"))?;
-            let mut ids = vec![
+            let ids = vec![
                 references.user,
                 references.login,
                 references.member,
                 references.key,
                 references.client,
             ];
-            ids.extend(references.credential);
-            let supported = match (references.version, intent.purpose.as_str()) {
-                (1, "create" | "join") | (2, "create") => references.credential.is_some(),
-                (2, "join") => worker.get("credential").is_none(),
-                _ => false,
-            };
-            if !supported
+            if references.version != 2
                 || ids.iter().any(Id::is_nil)
                 || ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id))
                 || references
@@ -70,14 +57,6 @@ pub async fn reset_independent(
                     .endpoint
                     .as_ref()
                     .is_some_and(|endpoint| endpoint.parse::<iroh::EndpointId>().is_err())
-                || (intent.purpose == "create"
-                    && (references.credential.is_none()
-                        || references.request.is_some()
-                        || references.approval.is_some()
-                        || references.imported))
-                || (references.version == 2
-                    && intent.purpose == "join"
-                    && references.credential.is_some())
                 || (references.complete
                     && (!references.domain_attempted
                         || !references.inventory_attempted
@@ -87,36 +66,6 @@ pub async fn reset_independent(
                 || (!references.domain_attempted && Path::new(&config.data_dir).try_exists()?)
             {
                 return Err(io::Error::other("invalid retained IdP reset inventory"));
-            }
-            if let Some(request) = &references.request {
-                request.validate()?;
-                if request.operation != *intent
-                    || request.member_id != references.member
-                    || Some(request.endpoint_id.as_str()) != references.endpoint.as_deref()
-                {
-                    return Err(io::Error::other("IdP Join reset request changed"));
-                }
-            }
-            if let Some(approval) = &references.approval {
-                approval.verify()?;
-                if references
-                    .request
-                    .as_ref()
-                    .map(serde_json::to_value)
-                    .transpose()?
-                    != Some(serde_json::to_value(&approval.request)?)
-                    || (references.imported && references.user != approval.owner_subject)
-                {
-                    return Err(io::Error::other("IdP Join reset approval changed"));
-                }
-            }
-            if intent.purpose == "join"
-                && (references.imported || references.complete)
-                && (references.request.is_none()
-                    || references.approval.is_none()
-                    || (references.complete && !references.imported))
-            {
-                return Err(io::Error::other("completed IdP Join lacks exact approval"));
             }
             let inventory_path = Path::new(&config.data_dir).join("setup-secret-inventory.json");
             if references.inventory_attempted {
@@ -134,7 +83,7 @@ pub async fn reset_independent(
                             .map_err(io::Error::other)?,
                     );
                 }
-                if clients != expected || (intent.purpose == "create" && owner != references.user) {
+                if clients != expected || owner != references.user {
                     return Err(io::Error::other(
                         "IdP protected inventory disagrees with worker references",
                     ));

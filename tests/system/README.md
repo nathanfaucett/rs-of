@@ -24,11 +24,10 @@ The composition source starts the actual binary with fresh state. It covers loca
 
 - independent Create and Resource use;
 - retained restart;
-- Join and source-offline reopen;
 - permission and Resource denial; and
 - current local-owner Create/restart behavior.
 
-They require the `identity-database` binary and an example launcher named `system-test-service` in the same Cargo target profile. Current Cargo metadata contains `identity-database` and `system_create`, but no `system-test-service` example. The five scenarios are therefore blocked as checked in; do not report them as qualified.
+They require the `identity-database` binary and an example launcher named `system-test-service` in the same Cargo target profile. Current Cargo metadata contains `identity-database` and `system_create`, but no `system-test-service` example. The scenarios are therefore blocked as checked in; do not report them as qualified.
 
 After that launcher is restored, the intended commands are:
 
@@ -41,7 +40,7 @@ Use the same Cargo target directory and profile for both commands. The scenarios
 
 ## What the process scenarios cover
 
-The source drives generated clients against independent IdP, Device, Storage, and Management entry points. It checks current Create/Join retries, approval, restart, retained endpoint evidence, token/grant denial, and namespace authorization.
+The source drives generated clients against independent IdP, Device, Storage, and Management entry points. It checks current Create retries, restart, retained endpoint evidence, token/grant denial, and namespace authorization.
 
 Filesystem cases exercise exact file bytes, deletion/listing behavior, local Residency transitions, Resource deletion, and retained restart. Authorization cases include actor/Application substitution, wrong audience, ungranted Device actions, read-only writes, wrong Resource kinds, and denial on an existing connection.
 

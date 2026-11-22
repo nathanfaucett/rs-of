@@ -1,5 +1,4 @@
 use of_model::http;
-use of_model::node_join::NodeJoinRequest;
 use of_model::setup::IndependentCreateIntent;
 
 #[test]
@@ -9,22 +8,6 @@ fn all_owners_use_one_setup_wire_type() {
     let idp: http::idp::IndependentCreateIntent = device;
     let storage: http::storage::IndependentCreateIntent = idp;
     let _: http::storage_api::IndependentCreateIntent = storage;
-}
-
-#[test]
-fn join_request_keeps_the_signed_field_order() {
-    let fixture = r#"{"purpose":"of.equal-node-join.v1","installation":"https://issuer.test","member_id":"00000000-0000-7000-8000-000000000001","endpoint_id":"endpoint","name":"node","approving_peer":"peer"}"#;
-    let request: NodeJoinRequest = serde_json::from_str(fixture).expect("signed join request");
-    let client: http::device::NodeJoinRequest = request;
-    let wire = serde_json::to_string(&client).expect("serialize join request");
-    assert_eq!(
-        wire,
-        r#"{"purpose":"of.equal-node-join.v1","installation":"https://issuer.test","member_id":"00000000-0000-7000-8000-000000000001","endpoint_id":"endpoint","name":"node","approving_peer":"peer"}"#
-    );
-    serde_json::from_str::<NodeJoinRequest>(
-        &fixture.replace("\"name\":\"node\"", "\"name\":\"node\",\"untrusted\":true"),
-    )
-    .unwrap_err();
 }
 
 #[test]

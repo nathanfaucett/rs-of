@@ -9,15 +9,14 @@ import {
 } from "../packages/idp-client/esm/index.js";
 
 const operation = {
-    purpose: "join",
+    purpose: "create",
     operationNonce: "1".repeat(32),
-    administrator: "",
-    node: "Joining Node",
+    administrator: "Alice",
+    node: "New Node",
     idp: "https://target.test/idp",
     device: "https://target.test/device",
     storage: "https://target.test/storage",
-    issuer: "",
-    peer: "https://source.test/device#" + "d".repeat(64),
+    issuer: "https://target.test/idp",
 };
 const options = { credentials: "omit", redirect: "error", cache: "no-store" };
 
@@ -34,31 +33,14 @@ test("complete owner setup schema includes worker handoffs with owner-relative b
             "/setup/owner/cancel",
             "/setup/owner/challenge",
             "/setup/owner/create",
-            "/setup/owner/history",
             "/setup/owner/intent",
-            "/setup/owner/join",
             "/setup/owner/public",
             "/setup/owner/register",
             "/setup/owner/status",
         ],
     );
-    assert.ok(
-        JSON.stringify(document).includes(
-            "/setup/owner/challenge",
-        ),
-    );
-    assert.ok(
-        JSON.stringify(document).includes(
-            "/setup/owner/register",
-        ),
-    );
-    assert.ok(
-        JSON.stringify(document).includes(
-            "/setup/owner/history",
-        ),
-    );
 });
-test("generated Join sends empty issuer/admin without password to each exact owner base", async () => {
+test("generated Create sends the exact owner tuple and password only to IdP", async () => {
     for (const owner of ["idp", "device", "storage"]) {
         const api = new DefaultApi(
             new Configuration({
@@ -67,38 +49,32 @@ test("generated Join sends empty issuer/admin without password to each exact own
                 fetchApi: async (url, init) => {
                     assert.equal(
                         url,
-                        operation[owner] + "/setup/owner/join",
+                        operation[owner] + "/setup/owner/create",
                     );
                     assert.equal(init.headers.Authorization, "Setup " + owner);
                     const { operationNonce, ...fields } = operation;
                     assert.deepEqual(JSON.parse(init.body), {
                         ...fields,
                         operation_nonce: operationNonce,
+                        ...(owner === "idp" ? { password: "protected-password" } : {}),
                     });
                     return new Response(null, { status: 202 });
                 },
             }),
         );
-        const raw = await api.ownerSetupJoinRaw(
-            { independentCreateRequest: operation },
+        const raw = await api.ownerSetupCreateRaw(
+            { independentCreateRequest: owner === "idp" ? { ...operation, password: "protected-password" } : operation },
             options,
         );
         assert.equal(raw.raw.status, 202);
     }
 });
-test("generated serializers preserve the wire tuple, nullable peer and optional IdP-only password", () => {
-    const create = {
-        ...operation,
-        purpose: "create",
-        administrator: "Alice",
-        issuer: operation.idp,
-        peer: null,
-    };
+test("generated serializers preserve the wire tuple and optional IdP-only password", () => {
+    const create = operation;
     const intent = JSON.parse(
         JSON.stringify(IndependentCreateIntentToJSON(create)),
     );
     assert.equal(intent.operation_nonce, operation.operationNonce);
-    assert.equal(intent.peer, null);
     assert.ok(!("password" in intent));
     assert.ok(!("operationNonce" in intent));
     assert.equal(
@@ -130,17 +106,14 @@ test("public observation carries no setup code and recovery/cancel retain distin
                 if (url.endsWith("/status"))
                     return Response.json({
                         stage: "installation",
-                        state: "joining",
+                        state: "creating",
                         ready: false,
                         owners: ["device"],
                     });
                 if (url.endsWith("/public"))
                     return Response.json({
                         owner: "device",
-                        operation: IndependentCreateIntentToJSON({
-                            ...operation,
-                            issuer: "https://installation.test/idp",
-                        }),
+                        operation: IndependentCreateIntentToJSON(operation),
                         clients: [],
                         facts: {},
                         registered: [],

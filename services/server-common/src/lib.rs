@@ -15,13 +15,13 @@ pub use setup::serve_setup_verified;
 #[cfg(all(unix, feature = "independent"))]
 pub use setup::{
     HostSettings, IndependentCreateCommand, IndependentCreateControl, IndependentCreateHost,
-    IndependentCreateIntent, IndependentCreateRequest, IndependentOwnerPublic, IndependentPeer,
+    IndependentCreateIntent, IndependentCreateRequest, IndependentOwnerPublic,
     IndependentRegistrar, IndependentReset, IndependentSecretLoader, IndependentSetupHost,
     LocalTls, LocalTlsConfig, SetupAdmission, SetupAdmissionError, SetupAdmissionHistory,
     SetupScope, TlsListener, absolute, canonical_openapi, canonical_openapi_router,
-    create_private_directory, exact_https, present, private_options, random_capability,
-    read_private, require_absent, require_private, routes, serve_setup, setup_admission_middleware,
-    setup_files, setup_origin, setup_origin_guard, setup_router, sync_ancestry, uninstall_local_ca,
+    create_private_directory, present, private_options, random_capability, read_private,
+    require_absent, require_private, routes, serve_setup, setup_admission_middleware, setup_files,
+    setup_origin, setup_origin_guard, setup_router, sync_ancestry, uninstall_local_ca,
 };
 
 #[cfg(all(unix, feature = "independent", feature = "test-support"))]

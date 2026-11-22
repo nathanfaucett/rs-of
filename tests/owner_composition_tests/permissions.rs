@@ -119,7 +119,7 @@ async fn evaluator_token(
         .expect("production evaluator token endpoint");
     assert_eq!(response.status(), StatusCode::OK);
     response
-        .json::<of_model::contract::TokenResponse>()
+        .json::<of_model::contract::token_response::TokenResponse>()
         .await
         .expect("typed evaluator token")
         .access_token
@@ -190,7 +190,7 @@ async fn independent_permission_management_https_child() {
                 .expect("existing evaluator relationship");
             registration.token_endpoint_auth_method = TokenEndpointAuthMethod::ClientSecretBasic;
             clients
-                .update_client(registration)
+                .update_client(registration, None)
                 .await
                 .expect("fixture matches evaluator Client authentication method");
         }

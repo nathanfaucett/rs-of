@@ -13,11 +13,6 @@ const canonicalModels = {
   independent_create_intent: ["setup", "IndependentCreateIntent"],
   independent_create_request: ["setup", "IndependentCreateRequest"],
   independent_owner_public: ["setup", "IndependentOwnerPublic"],
-  independent_peer: ["setup", "IndependentPeer"],
-  independent_join_request: ["setup", "IndependentJoinRequest"],
-  independent_join_approval: ["setup", "IndependentJoinApproval"],
-  node_join_request: ["node_join", "NodeJoinRequest"],
-  node_join_approval: ["node_join", "NodeJoinApproval"],
   create_user_request: ["oauth_user", "CreateUserRequest"],
   update_user_info_request: ["oauth_user", "UpdateUserInfoRequest"],
 };

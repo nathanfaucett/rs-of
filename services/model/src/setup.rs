@@ -49,13 +49,6 @@ pub struct IndependentCreateIntent {
     pub node: String,
     #[serde(rename = "operation_nonce")]
     pub operation_nonce: String,
-    #[serde(
-        rename = "peer",
-        default,
-        with = "::serde_with::rust::double_option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub peer: Option<Option<String>>,
     #[serde(rename = "purpose")]
     pub purpose: String,
     #[serde(rename = "storage")]
@@ -81,7 +74,6 @@ impl IndependentCreateIntent {
             issuer,
             node,
             operation_nonce,
-            peer: None,
             purpose,
             storage,
         }
@@ -103,8 +95,6 @@ pub struct IndependentCreateRequest {
     pub node: String,
     #[serde(rename = "operation_nonce")]
     pub operation_nonce: String,
-    #[serde(rename = "peer", skip_serializing_if = "Option::is_none")]
-    pub peer: Option<String>,
     #[serde(rename = "purpose")]
     pub purpose: String,
     #[serde(rename = "storage")]
@@ -137,7 +127,6 @@ impl IndependentCreateRequest {
             issuer,
             node,
             operation_nonce,
-            peer: None,
             purpose,
             storage,
             password: None,
@@ -176,109 +165,6 @@ impl IndependentOwnerPublic {
             operation: Box::new(operation),
             owner,
             registered,
-        }
-    }
-}
-
-#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(deny_unknown_fields)]
-pub struct IndependentPeer {
-    #[serde(rename = "address", deserialize_with = "Option::deserialize")]
-    pub address: Option<serde_json::Value>,
-    #[serde(rename = "device")]
-    pub device: String,
-    #[serde(rename = "endpoint")]
-    pub endpoint: String,
-    #[serde(rename = "idp")]
-    pub idp: String,
-    #[serde(rename = "issuer")]
-    pub issuer: String,
-    #[serde(rename = "nonce")]
-    pub nonce: String,
-    #[serde(rename = "signature")]
-    pub signature: String,
-}
-
-impl IndependentPeer {
-    #[must_use]
-    pub const fn new(
-        address: Option<serde_json::Value>,
-        device: String,
-        endpoint: String,
-        idp: String,
-        issuer: String,
-        nonce: String,
-        signature: String,
-    ) -> Self {
-        Self {
-            address,
-            device,
-            endpoint,
-            idp,
-            issuer,
-            nonce,
-            signature,
-        }
-    }
-}
-
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct IndependentJoinRequest {
-    #[serde(rename = "device_id")]
-    pub device_id: uuid::Uuid,
-    #[serde(rename = "endpoint_id")]
-    pub endpoint_id: String,
-    #[serde(rename = "member_id")]
-    pub member_id: uuid::Uuid,
-    #[serde(rename = "operation")]
-    pub operation: Box<models::IndependentCreateIntent>,
-    #[serde(rename = "source")]
-    pub source: Box<models::IndependentPeer>,
-}
-
-impl IndependentJoinRequest {
-    #[must_use]
-    pub fn new(
-        device_id: uuid::Uuid,
-        endpoint_id: String,
-        member_id: uuid::Uuid,
-        operation: models::IndependentCreateIntent,
-        source: models::IndependentPeer,
-    ) -> Self {
-        Self {
-            device_id,
-            endpoint_id,
-            member_id,
-            operation: Box::new(operation),
-            source: Box::new(source),
-        }
-    }
-}
-
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct IndependentJoinApproval {
-    #[serde(rename = "owner_subject")]
-    pub owner_subject: uuid::Uuid,
-    #[serde(rename = "request")]
-    pub request: Box<models::IndependentJoinRequest>,
-    #[serde(rename = "signature")]
-    pub signature: String,
-}
-
-impl IndependentJoinApproval {
-    #[must_use]
-    pub fn new(
-        owner_subject: uuid::Uuid,
-        request: models::IndependentJoinRequest,
-        signature: String,
-    ) -> Self {
-        Self {
-            owner_subject,
-            request: Box::new(request),
-            signature,
         }
     }
 }

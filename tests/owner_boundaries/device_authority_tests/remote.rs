@@ -16,12 +16,13 @@ use axum::{
 use db::Database;
 use device_service::{
     HostedControlPlane,
-    replica::{DbDeviceRepo, DbSelectionPolicyRepo, SelectionPolicy},
+    replica::{DbDeviceRepo, DbSelectionPolicyRepo},
 };
 use of_model::contract::principal_type::PrincipalType;
 use of_model::contract::standard_claims::StandardClaims;
 use of_model::contract::token_type::TokenType;
 use of_model::contract::token_use::TokenUse;
+use of_model::device::selection_policy::SelectionPolicy;
 use of_model::idp::{
     contract::{IdentityAction, IntrospectionResponse},
     model::Id,
@@ -247,11 +248,7 @@ async fn remote_device_child() {
         let mut ids = Vec::new();
         for name in ["replica", "peer"] {
             let endpoint = iroh::SecretKey::generate().public().to_string();
-            let id = repo
-                .enroll_approved_exact(Id::now_v7(), owner, name, &endpoint, 1)
-                .await
-                .expect("trusted fixture")
-                .id;
+            let id = crate::support::seed_approved_device(&repo, owner, name, &endpoint).await;
             DbSelectionPolicyRepo::new(Arc::new(database.clone()).client())
                 .set_prevalidated(SelectionPolicy {
                     device_id: id,
@@ -325,7 +322,7 @@ async fn remote_device_child() {
             .parse()
             .expect("owner ID");
         let identity = Database::in_memory();
-        of_model::idp::replica::up(&identity)
+        of_model::idp::replica::up(&identity.client())
             .await
             .expect("identity schema");
         management_service::provision_initial_administrator(
@@ -399,7 +396,6 @@ async fn remote_device_child() {
             "/device",
             "storage",
             Arc::new(plane),
-            None,
         )
         .await
         .expect("Device router");

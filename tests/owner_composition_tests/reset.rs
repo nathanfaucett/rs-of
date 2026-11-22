@@ -14,7 +14,7 @@ use std::{
 use idp_service::repo::RawKeyringRepo;
 use keyring_core::{
     Entry,
-    server_common::{Credential, CredentialApi, CredentialStoreApi},
+    api::{Credential, CredentialApi, CredentialStoreApi},
 };
 use of_model::idp::model::Id;
 use serde_json::Value;
@@ -83,7 +83,6 @@ pub(super) async fn qualify_interrupted(root: &Path, address: SocketAddr, provid
         device: "https://127.0.0.1:2/device".into(),
         storage: base.clone(),
         issuer: "https://127.0.0.1:1/idp".into(),
-        peer: None,
     };
     provider.unavailable.store(true, Ordering::SeqCst);
     let response = http
@@ -293,7 +292,7 @@ async fn reset(owner: &str, domain: &Path, trust: bool) -> io::Result<()> {
     }
 }
 
-/// Runs inside the existing bounded child after actual HTTPS Create/Join and offline reopen.
+/// Runs inside the existing bounded child after actual HTTPS Create and reopen.
 pub(super) async fn qualify_completed(root: &Path, provider: &Provider, issuer: &str) {
     let commands = std::env::var_os("PATH").expect("isolated trust PATH");
     assert_eq!(

@@ -54,7 +54,7 @@ pub mod validators {
             SecurityTable::UserRole,
         ] {
             client
-                .execute_sql(&format!("SELECT 1 FROM {} LIMIT 1", table.name()), None)
+                .execute_sql(&format!("SELECT * FROM {} LIMIT 0", table.name()), None)
                 .await?;
         }
         client

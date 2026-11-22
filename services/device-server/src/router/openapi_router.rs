@@ -18,14 +18,14 @@ use super::routes::device_selection::{
 };
 use super::routes::device_self_revocation::{__path_revoke_self, revoke_self};
 use super::routes::devices::{
-    __path_approve_enrollment, __path_enroll_device, __path_list_approved_device_endpoints,
-    __path_list_devices, __path_list_pending_enrollments, __path_lookup_device_endpoint,
-    __path_lookup_device_identity, __path_pairing_acceptance, __path_revoke_device,
-    __path_set_pairing_acceptance, __path_transfer_device, __path_trusted_devices,
-    __path_update_device, approve_enrollment, enroll_device, list_approved_device_endpoints,
-    list_devices, list_pending_enrollments, lookup_device_endpoint, lookup_device_identity,
-    pairing_acceptance, revoke_device, set_pairing_acceptance, transfer_device, trusted_devices,
-    update_device,
+    __path_approve_enrollment, __path_approve_pairing, __path_enroll_device,
+    __path_list_approved_device_endpoints, __path_list_devices, __path_list_pending_enrollments,
+    __path_lookup_device_endpoint, __path_lookup_device_identity, __path_pairing_approval_payload,
+    __path_request_pairing, __path_revoke_device, __path_transfer_device, __path_trusted_devices,
+    __path_update_device, approve_enrollment, approve_pairing, enroll_device,
+    list_approved_device_endpoints, list_devices, list_pending_enrollments, lookup_device_endpoint,
+    lookup_device_identity, pairing_approval_payload, request_pairing, revoke_device,
+    transfer_device, trusted_devices, update_device,
 };
 use super::routes::health::{__path_health, health};
 use super::routes::replication::{
@@ -59,8 +59,9 @@ fn routes() -> OpenApiRouter<RouterState> {
         .routes(routes!(enroll_device))
         .routes(routes!(list_pending_enrollments))
         .routes(routes!(approve_enrollment))
-        .routes(routes!(pairing_acceptance))
-        .routes(routes!(set_pairing_acceptance))
+        .routes(routes!(request_pairing))
+        .routes(routes!(pairing_approval_payload))
+        .routes(routes!(approve_pairing))
         .routes(routes!(list_devices))
         .routes(routes!(update_device))
         .routes(routes!(revoke_device))
@@ -81,39 +82,6 @@ pub fn openapi_document(api_base_uri: &str, prefix: &str) -> OpenApiDocument {
 
     let mut openapi_spec = spec_router.get_openapi().clone();
 
-    let mut joins = crate::node_join_openapi();
-    joins.paths.paths = joins
-        .paths
-        .paths
-        .into_iter()
-        .map(|(path, mut item)| {
-            for operation in [
-                &mut item.get,
-                &mut item.put,
-                &mut item.post,
-                &mut item.delete,
-            ]
-            .into_iter()
-            .flatten()
-            {
-                operation.operation_id = Some(format!(
-                    "node_join_{}",
-                    operation
-                        .operation_id
-                        .as_deref()
-                        .expect("Node join operation ID")
-                ));
-                operation.tags = Some(vec!["node_join".into()]);
-            }
-            (
-                path.strip_prefix("/device")
-                    .expect("Device Node-join path")
-                    .to_owned(),
-                item,
-            )
-        })
-        .collect();
-    openapi_spec.merge(joins);
     openapi_spec.servers = Some(vec![Server::new(format!("{}{}", api_base_uri, prefix))]);
 
     let mut schemas = Vec::<(String, RefOr<Schema>)>::new();
@@ -177,16 +145,11 @@ mod tests {
                 .flat_map(|item| item.as_object().expect("path item").values())
                 .filter_map(|operation| operation["operationId"].as_str())
                 .collect::<Vec<_>>();
-            assert_eq!(
-                operations.len(),
-                30,
-                "complete Management operation inventory"
-            );
-            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 30);
+            assert_eq!(operations.len(), 26, "complete Device operation inventory");
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 26);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");
-            registered_paths.retain(|path, _| !path.starts_with("/node-joins/"));
             assert_eq!(
                 serde_json::Value::Object(registered_paths),
                 expected["paths"]

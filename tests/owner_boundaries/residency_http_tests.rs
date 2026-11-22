@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use device_service::replica::DbSelectionPolicyRepo;
 use idp_service::repo::ClientRepo;
-use of_model::contract::StorageAuthorizationAction;
+use of_model::contract::authorization_details::StorageAuthorizationAction;
 use of_model::device::selection_policy::SelectionPolicy;
 use of_model::idp::contract::{GrantType, TokenEndpointAuthMethod};
 use storage_server::{RouterState, StorageCopyRetirement, openapi_router, resource_router};
@@ -26,7 +26,11 @@ async fn start_storage(fixture: &mut Fixture) -> Arc<OnceLock<StorageCopyRetirem
         fixture.identity.endpoint().id(),
         copies.clone(),
     );
-    let state = RouterState::new("https://storage.test").with_idp_client(
+    let state = RouterState::new(
+        "https://storage.test",
+        fixture.identity.endpoint().id().to_string(),
+    )
+    .with_idp_client(
         fixture
             .client
             .clone()
@@ -135,7 +139,7 @@ async fn authorized_whole_filesystem_residency_uses_public_storage_owner() {
             .await
             .residency("")
             .expect("whole-resource mode"),
-        file_system::Residency::Passthrough
+        storage_server::fs::Residency::Passthrough
     );
     let response = fixture
         .http
@@ -234,7 +238,7 @@ async fn public_residency_read_reports_durable_mode_after_native_reopen() {
     );
     assert_eq!(
         fixture.file().await.residency("").expect("restored Full"),
-        file_system::Residency::Full
+        storage_server::fs::Residency::Full
     );
     fixture.stop().await;
 }
@@ -289,7 +293,7 @@ async fn overlapping_residency_puts_serialize_only_the_exact_copy_and_reopen_con
         .set_resource_residency(
             &fixture.scope,
             unrelated.id,
-            file_system::Residency::Passthrough,
+            storage_server::fs::Residency::Passthrough,
         )
         .await
         .expect("unrelated copy is not locked by paused PUT");
@@ -474,7 +478,7 @@ async fn residency_denials_preserve_mode_and_cleanup_fences() {
             .await
             .residency("")
             .expect("denials preserve Full"),
-        file_system::Residency::Full
+        storage_server::fs::Residency::Full
     );
     fixture
         .files
@@ -539,7 +543,7 @@ async fn residency_rechecks_learned_user_denial_before_owner_mutation() {
             .await
             .residency("")
             .expect("denied mode preserved"),
-        file_system::Residency::Full
+        storage_server::fs::Residency::Full
     );
     fixture.stop().await;
 }

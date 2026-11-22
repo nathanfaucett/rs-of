@@ -15,11 +15,9 @@ import {
   type OwnerCodes,
 } from "./independentSetupApi";
 
-export type IndependentChoice = {
-  purpose: "create" | "join";
-  administrator?: string;
+type IndependentCreate = {
+  administrator: string;
   node: string;
-  peer?: string;
 };
 export class IndependentSetupSession {
   readonly bases: Pick<IndependentIntent, SetupOwner>;
@@ -50,7 +48,7 @@ export class IndependentSetupSession {
       exact &&
       (independentOwners.some((owner) => exact[owner] !== this.bases[owner]) ||
         values.some((value) => !sameIndependentIntent(exact, value)) ||
-        (reference && !sameIndependentIntent(reference, exact, true)))
+        (reference && !sameIndependentIntent(reference, exact)))
     )
       throw new Error(
         "Owner operations conflict with the exact retained intent or issuer",
@@ -96,7 +94,7 @@ export class IndependentSetupSession {
   }
   async submit(
     codes: OwnerCodes,
-    choice: IndependentChoice,
+    choice: IndependentCreate,
     password?: string,
   ): Promise<void> {
     if (!this.active || this.busy || this.ready) return;
@@ -119,22 +117,16 @@ export class IndependentSetupSession {
           "Recover the retained operation; never invent a replacement nonce",
         );
       const candidate = exactIndependentIntent({
-        purpose: choice.purpose,
+        purpose: "create",
         operation_nonce: this.intent?.operation_nonce ?? "0".repeat(32),
-        administrator:
-          choice.purpose === "create" ? (choice.administrator ?? "") : "",
+        administrator: choice.administrator,
         node: choice.node,
         ...this.bases,
-        issuer:
-          choice.purpose === "create"
-            ? this.bases.idp
-            : (this.intent?.issuer ?? ""),
-        peer: choice.purpose === "join" ? (choice.peer ?? "") : null,
+        issuer: this.bases.idp,
       });
       if (this.intent && !sameIndependentIntent(candidate, this.intent))
         throw new Error("Retry requires the exact retained choices");
       if (
-        choice.purpose === "create" &&
         unfinished.includes("idp") &&
         (typeof password !== "string" ||
           new TextEncoder().encode(password).length < 8 ||
@@ -178,7 +170,7 @@ export class IndependentSetupSession {
       );
       this.message = this.observationRequired
         ? "Partial or uncertain admission. Accepted owner work continues. Observe or recover all owners before retrying."
-        : "Accepted by each incomplete owner; not complete. Observe all owners. Join also requires exact source approval.";
+        : "Accepted by each incomplete owner; not complete. Observe all owners.";
     } catch {
       if (this.active) {
         this.observationRequired = true;
@@ -226,13 +218,13 @@ export class IndependentSetupSession {
       );
       const recovered = await Promise.all(
         current.map(async (host) => {
-        const owner = host.status.owners[0];
-          const value = host.status.ready
-            ? (await fetchIndependentPublic(host.base, owner))!.operation
-            : await recoverIndependentIntent(host.base, codes[owner]);
-          if (!value && host.status.state !== "awaiting_choice")
-            throw new Error("Unbound owner disagrees with current status");
-        return { owner, value };
+          const owner = host.status.owners[0];
+            const value = host.status.ready
+              ? (await fetchIndependentPublic(host.base, owner))!.operation
+              : await recoverIndependentIntent(host.base, codes[owner]);
+            if (!value && host.status.state !== "awaiting_choice")
+              throw new Error("Unbound owner disagrees with current status");
+          return { owner, value };
         }),
       );
       const exact = this.match(
@@ -247,7 +239,7 @@ export class IndependentSetupSession {
       this.observationRequired = false;
       this.message = exact
         ? "Exact operation and authenticated issuer recovered across current owner scopes. Re-enter each incomplete owner's code for retry/cancel; only IdP Create needs the original password."
-        : "No bound operation observed. No nonce generated; choose Create or Join explicitly.";
+        : "No bound operation observed. No nonce generated.";
     } catch {
       if (this.active) {
         this.ready = false;
@@ -264,7 +256,7 @@ export class IndependentSetupSession {
     this.busy = true;
     try {
       requireCurrentSetupUiOrigin();
-      if (this.observationRequired || !this.intent.issuer)
+      if (this.observationRequired)
         throw new Error("Recover exact intent before cancellation");
       const current = await this.current();
       const owners = current
@@ -304,8 +296,8 @@ export class IndependentSetupSession {
     } finally {
       if (this.active) this.observationRequired = true;
       this.busy = false;
+    }
   }
-}
   destroy(): void {
     this.active = false;
     this.intent = null;

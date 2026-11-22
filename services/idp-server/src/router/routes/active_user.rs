@@ -55,7 +55,7 @@ mod tests {
 
     #[tokio::test]
     async fn active_user_route_requires_client_exact_scope_audience_and_current_user() {
-        let fixture = crate::node_join_tests::approval_fixture().await;
+        let fixture = crate::owner_test_fixture::owner_fixture().await;
         fixture
             .state
             .oauth2_service
@@ -108,7 +108,7 @@ mod tests {
                     .status()
             }
         };
-        let user_token = crate::node_join_tests::user_token(&fixture, "idp-services").await;
+        let user_token = crate::owner_test_fixture::user_token(&fixture, "idp-services").await;
         assert!(!call(user_token, fixture.owner).await.is_success());
         let mut authorized = None;
         for (scope, audience, expected) in [

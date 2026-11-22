@@ -17,14 +17,7 @@ use setup::{
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{AppConfig, database_client::DeviceStore, independent_join::IndependentDeviceRuntime};
-
-#[path = "independent_join_worker.rs"]
-pub mod join;
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Create {}
+use crate::{AppConfig, database_client::DeviceStore};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,104 +25,43 @@ struct Record {
     version: u8,
     client: Id,
     device: Id,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    create: Option<Create>,
     user: Option<Id>,
     evaluator: Option<Id>,
     secret_attempted: bool,
     endpoint_attempted: bool,
     endpoint: Option<String>,
     domain_attempted: bool,
-    source: Option<setup::IndependentPeer>,
-    approval: Option<device_service::independent_join::IndependentJoinApproval>,
-    #[serde(default)]
-    imported: bool,
     complete: bool,
 }
+struct IndependentDeviceRuntime {
+    router: axum::Router,
+    identity: ofdb_sql::Client,
+    plane: Arc<HostedControlPlane>,
+}
+impl IndependentDeviceRuntime {
+    fn router(&self) -> axum::Router {
+        self.router.clone()
+    }
+}
 impl Record {
-    fn approved_device_id(&self) -> Id {
-        self.approval
-            .as_ref()
-            .map_or(self.device, |approval| approval.device_id)
-    }
-
-    fn validate_operation(&self, intent: &IndependentCreateIntent) -> io::Result<()> {
-        self.validate()?;
-        if intent.purpose == "create" {
-            if self.create.is_none()
-                || self.source.is_some()
-                || self.approval.is_some()
-                || self.imported
-            {
-                return Err(io::Error::other("Create contains Join evidence"));
-            }
-            return Ok(());
-        }
-        if self.create.is_some() {
-            return Err(io::Error::other(
-                "Join contains fresh administrator grant identities",
-            ));
-        }
-        if let Some(source) = &self.source {
-            source.verify(
-                intent
-                    .peer
-                    .as_deref()
-                    .ok_or_else(|| io::Error::other("Join peer missing"))?,
-                &source.nonce,
-            )?;
-            if source.issuer != intent.issuer {
-                return Err(io::Error::other("retained source issuer changed"));
-            }
-        }
-        if let Some(approval) = &self.approval {
-            approval.verify()?;
-            if approval.request.operation != *intent
-                || approval.request.request_id != self.device
-                || Some(approval.request.endpoint_id.as_str()) != self.endpoint.as_deref()
-                || Some(approval.owner_subject) != self.user
-                || self.source.as_ref().map(serde_json::to_value).transpose()?
-                    != Some(serde_json::to_value(&approval.request.source)?)
-            {
-                return Err(io::Error::other(
-                    "retained Management Join approval changed",
-                ));
-            }
-        }
-        if ((self.complete || self.imported) && (self.source.is_none() || self.approval.is_none()))
-            || (self.complete && !self.imported)
-        {
-            return Err(io::Error::other(
-                "completed Management Join lacks exact public import evidence",
-            ));
-        }
-        Ok(())
-    }
-    fn new(purpose: &str) -> Self {
+    fn new() -> Self {
         Self {
             version: 2,
             client: Id::now_v7(),
-            device: if purpose == "create" {
-                Id::nil()
-            } else {
-                Id::now_v7()
-            },
-            create: (purpose == "create").then_some(Create {}),
+            device: Id::nil(),
             user: None,
             evaluator: None,
             secret_attempted: false,
             endpoint_attempted: false,
             endpoint: None,
             domain_attempted: false,
-            source: None,
-            approval: None,
-            imported: false,
             complete: false,
         }
     }
+
     fn validate(&self) -> io::Result<()> {
         let mut ids = vec![self.client];
-        if self.create.is_none() || self.complete || !self.device.is_nil() {
+        if self.complete || !self.device.is_nil() {
             ids.push(self.device);
         }
         if self.version != 2
@@ -203,7 +135,6 @@ pub async fn run_owner_setup(
                 .intent()
                 .await
                 .ok_or_else(|| io::Error::other("completed Management has no exact operation"))?;
-            record.validate_operation(&intent)?;
             identity = Some(open_identity(&control, &record).await?);
             engine = Some(open_existing(&config).await?);
             verify_identity(engine.as_ref().expect("owner"), &record).await?;
@@ -219,19 +150,14 @@ pub async fn run_owner_setup(
                 )
                 .await?,
             );
-            observe(
-                &control,
-                engine.as_ref().expect("owner").clone(),
-                &intent,
-                &record,
-            )?;
+            observe(&control, engine.as_ref().expect("owner").clone(), &record)?;
             control
                 .restore(router.as_ref().expect("router").router())
                 .await?;
         }
     }
     if let (Some(serving), Some(runtime)) = (&serving, &router) {
-        serving.send_replace(Some((runtime.identity_client(), runtime.control_plane())));
+        serving.send_replace(Some((runtime.identity.clone(), runtime.plane.clone())));
     }
     loop {
         let command = tokio::select! { biased; () = shutdown.cancelled() => break, command = commands.recv() => match command { Some(command) => command, None => break } };
@@ -252,12 +178,10 @@ pub async fn run_owner_setup(
             control.unfinished().await;
         }
         if let (Some(serving), Some(runtime)) = (&serving, &router) {
-            serving.send_replace(Some((runtime.identity_client(), runtime.control_plane())));
+            serving.send_replace(Some((runtime.identity.clone(), runtime.plane.clone())));
         }
     }
-    if let Some(runtime) = router {
-        runtime.shutdown().await?;
-    }
+    drop(router);
     if let Some(identity) = identity {
         identity.endpoint().close().await;
     }
@@ -303,8 +227,7 @@ async fn verify_identity(engine: &DeviceStore, record: &Record) -> io::Result<St
         .await
         .map_err(io::Error::other)?
         .ok_or_else(|| io::Error::other("current approved Management endpoint missing"))?;
-    if device.id != record.approved_device_id()
-        || (!record.complete && device.owner_subject != user.to_string())
+    if device.id != record.device || (!record.complete && device.owner_subject != user.to_string())
     {
         return Err(io::Error::other("Management endpoint binding changed"));
     }
@@ -323,11 +246,11 @@ async fn verify(engine: &DeviceStore, record: &Record) -> io::Result<()> {
     let owner_subject = verify_identity(engine, record).await?;
     let policies = DbSelectionPolicyRepo::new(engine.client.clone());
     if policies
-        .local_cleanup_pending(record.approved_device_id())
+        .local_cleanup_pending(record.device)
         .await
         .map_err(io::Error::other)?
         || !policies
-            .get(record.approved_device_id(), &owner_subject, Id::nil())
+            .get(record.device, &owner_subject, Id::nil())
             .await
             .map_err(io::Error::other)?
             .is_some_and(|policy| policy.admin_allowed)
@@ -339,17 +262,14 @@ async fn verify(engine: &DeviceStore, record: &Record) -> io::Result<()> {
 fn observe(
     control: &IndependentCreateControl,
     engine: DeviceStore,
-    intent: &IndependentCreateIntent,
     record: &Record,
 ) -> io::Result<()> {
-    let intent = intent.clone();
     let record = record.clone();
     let expected = serde_json::to_value(&record)?;
     let secret = load_setup_secret(&service(control), &record.client.to_string())?;
     control.set_readiness(move |control| {
-        let (engine, intent, record, expected, secret) = (
+        let (engine, record, expected, secret) = (
             engine.clone(),
-            intent.clone(),
             record.clone(),
             expected.clone(),
             secret.clone(),
@@ -358,7 +278,7 @@ fn observe(
             let current: Record = control
                 .read_record()?
                 .ok_or_else(|| io::Error::other("Management worker evidence missing"))?;
-            current.validate_operation(&intent)?;
+            current.validate()?;
             let endpoint: iroh::SecretKey = load_setup_secret(&service(&control), "endpoint")?
                 .parse()
                 .map_err(io::Error::other)?;
@@ -394,7 +314,7 @@ async fn public(
                 operation: intent.clone(),
                 owner: "device".into(),
                 clients: vec![serde_json::to_value(client)?],
-                facts: serde_json::json!({"endpoint":record.endpoint, "device":record.device, "source":record.source, "approval":record.approval}),
+                facts: serde_json::json!({"endpoint":record.endpoint, "device":record.device}),
                 registered: Vec::new(),
             },
             Arc::new(move |requested| {
@@ -434,21 +354,24 @@ async fn build(
         .map_err(io::Error::other)?
         .with_device_identity(identity.clone())
         .with_http_client(control.http_client());
-    let mut serving = config.clone();
-    serving.expected_issuer = intent.issuer.clone();
-    serving.idp_api_base = intent.idp.clone();
-    serving.api_public_uri = intent.device.clone();
-    serving.storage_api_base = intent.storage.clone();
-    crate::independent_join::build_independent_device(
-        &serving,
+    let identity = identity_client(config, control, intent).await?;
+    let plane =
+        Arc::new(plane.with_local_devices(Arc::new(DbDeviceRepo::new(engine.client.clone()))));
+    let router = crate::runtime::build_router(
+        identity.clone(),
         engine.client,
-        identity_client(config, control, intent).await?,
-        engine.owner,
-        Arc::new(plane),
-        identity,
-        control.shutdown_token(),
+        &intent.device,
+        config.server.prefix(),
+        &intent.storage,
+        plane.clone(),
     )
     .await
+    .map_err(io::Error::other)?;
+    Ok(IndependentDeviceRuntime {
+        router,
+        identity,
+        plane,
+    })
 }
 async fn provision(
     config: &AppConfig,
@@ -461,12 +384,12 @@ async fn provision(
     let mut record = match control.read_record::<Record>()? {
         Some(record) => record,
         None => {
-            let record = Record::new(&command.intent.purpose);
+            let record = Record::new();
             control.write_record(&record)?;
             record
         }
     };
-    record.validate_operation(&command.intent)?;
+    record.validate()?;
     if record.complete {
         return control
             .finish(
@@ -512,18 +435,6 @@ async fn provision(
         command.intent.purpose,
         protected_at.elapsed().as_millis()
     );
-    if command.intent.purpose == "join" {
-        return join::provision(
-            config,
-            control,
-            command,
-            &mut record,
-            engine,
-            identity.as_ref().expect("identity").clone(),
-            router,
-        )
-        .await;
-    }
     public(control, &command.intent, &record).await?;
     control
         .wait_registered(&record.client.to_string(), &command.cancellation)
@@ -610,7 +521,7 @@ async fn provision(
         serving_at.elapsed().as_millis()
     );
     record.complete = true;
-    observe(control, opened.clone(), &command.intent, &record)?;
+    observe(control, opened.clone(), &record)?;
     control
         .finish(
             command,

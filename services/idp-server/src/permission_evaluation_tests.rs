@@ -37,7 +37,7 @@ use tower::ServiceExt;
 use crate::{
     config::{app_config::AppConfig, management_permission_config::ManagementPermissionConfig},
     management_permission_client::ManagementPermissionClient,
-    node_join_tests::{approval_fixture, user_token},
+    owner_test_fixture::{owner_fixture, user_token},
     router::state::RouterState,
 };
 
@@ -203,7 +203,7 @@ async fn applications(state: RouterState, bearer: &str) -> StatusCode {
 #[tokio::test]
 async fn independent_permission_http_binds_exact_request_and_fails_closed() {
     tokio::time::timeout(std::time::Duration::from_secs(120), async {
-        let fixture = approval_fixture().await;
+        let fixture = owner_fixture().await;
         let user = user_token(&fixture, "idp-services").await;
         let mut state = fixture.state.clone();
         state.local_permissions = None;
@@ -388,7 +388,7 @@ async fn local_permission_http_remains_offline_and_does_not_fallback() {
         use management_service::ofdb::DbRoleRepo;
         use management_service::service::ManagementService;
 
-        let fixture = approval_fixture().await;
+        let fixture = owner_fixture().await;
         let user = user_token(&fixture, "idp-services").await;
         let state = fixture.state.clone().with_management_permissions(
             ManagementPermissionClient::new(&config("https://127.0.0.1:1/management"))
@@ -448,7 +448,7 @@ async fn local_permission_http_remains_offline_and_does_not_fallback() {
 #[tokio::test]
 async fn permission_runtime_rejects_remote_database_configuration_before_opening_it() {
     tokio::time::timeout(std::time::Duration::from_secs(120), async {
-    let fixture = approval_fixture().await;
+    let fixture = owner_fixture().await;
     let directory = fixture.root.join("must-not-open");
     let mut configuration = AppConfig {
         data_dir: fixture.root.to_string_lossy().into_owned(),

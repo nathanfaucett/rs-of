@@ -433,7 +433,6 @@ mod tests {
             device: "https://127.0.0.1:3001".into(),
             storage: "https://127.0.0.1:3002".into(),
             issuer: "https://127.0.0.1:3000".into(),
-            peer: None,
         };
         let mut create = serde_json::to_value(&intent).expect("intent");
         create["password"] = serde_json::json!("protected-password");

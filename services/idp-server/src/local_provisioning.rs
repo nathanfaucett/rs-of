@@ -145,7 +145,7 @@ fn private_permissions(metadata: &fs::Metadata) -> io::Result<()> {
     }
 }
 
-pub fn require_unix_bootstrap() -> io::Result<()> {
+fn require_unix_provisioning() -> io::Result<()> {
     #[cfg(unix)]
     {
         Ok(())
@@ -154,13 +154,13 @@ pub fn require_unix_bootstrap() -> io::Result<()> {
     {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
-            "Node bootstrap supports Unix owner-only permissions only",
+            "Local provisioning requires Unix owner-only permissions",
         ))
     }
 }
 
 pub fn create_private_directory(path: &Path, recursive: bool) -> io::Result<()> {
-    require_unix_bootstrap()?;
+    require_unix_provisioning()?;
     reject_symlinks(path)?;
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]

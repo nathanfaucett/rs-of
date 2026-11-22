@@ -1,7 +1,5 @@
 use std::io;
 
-use crate::independent_peer::IndependentPeer;
-use crate::independent_peer::exact_https;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -15,7 +13,6 @@ pub struct IndependentCreateIntent {
     pub device: String,
     pub storage: String,
     pub issuer: String,
-    pub peer: Option<String>,
 }
 
 impl IndependentCreateIntent {
@@ -29,23 +26,9 @@ impl IndependentCreateIntent {
     }
 
     pub fn canonical(&self) -> io::Result<String> {
-        let purpose_valid = match self.purpose.as_str() {
-            "create" => {
-                self.peer.is_none()
-                    && self.issuer == self.idp
-                    && !self.administrator.trim().is_empty()
-            }
-            "join" => {
-                self.administrator.is_empty()
-                    && self
-                        .peer
-                        .as_deref()
-                        .is_some_and(|peer| IndependentPeer::choice(peer).is_ok())
-                    && exact_https(&self.issuer).is_ok()
-            }
-            _ => false,
-        };
-        if !purpose_valid
+        if self.purpose != "create"
+            || self.issuer != self.idp
+            || self.administrator.trim().is_empty()
             || self.operation_nonce.len() != 32
             || !self
                 .operation_nonce

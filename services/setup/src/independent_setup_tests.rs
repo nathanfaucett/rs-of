@@ -2,15 +2,6 @@ use std::{fs, path::Path};
 
 use crate::independent_setup::IndependentSetupHost;
 
-#[test]
-fn independent_join_binds_a_pinned_source_without_an_administrator_seed() {
-    let pin = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
-    let intent: crate::independent_operation::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"join", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"", "node":"Joining Node", "idp":"https://127.0.0.1:3000/idp", "device":"https://127.0.0.1:3001/device", "storage":"https://127.0.0.1:3002/storage", "issuer":"https://existing.installation/idp", "peer":format!("https://127.0.0.1:4001/device#{pin}")})).expect("Join intent");
-    intent
-        .canonical()
-        .expect("Join is not a fresh administrator Create");
-}
-
 fn prepare(
     root: &Path,
     owner: &str,
@@ -42,7 +33,7 @@ async fn independent_create_requires_owner_code_and_retains_exact_intent() {
     let (host, mut commands) = setup
         .into_create(tokio_util::sync::CancellationToken::new())
         .expect("host");
-    let payload = serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3000", "device":"https://127.0.0.1:3001", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3000", "peer":null, "password":"protected-password"});
+    let payload = serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3000", "device":"https://127.0.0.1:3001", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3000", "password":"protected-password"});
     for (authorization, expected) in [
         ("Setup wrong".to_owned(), StatusCode::UNAUTHORIZED),
         (format!("Setup {code}"), StatusCode::ACCEPTED),
@@ -167,7 +158,7 @@ async fn delayed_forged_challenge_does_not_block_cancel_or_commit_after_cancel()
     let (host, mut commands) = setup
         .into_create(tokio_util::sync::CancellationToken::new())
         .expect("host");
-    let intent: crate::independent_operation::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3001", "device":"https://127.0.0.1:3000", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3001", "peer":null})).expect("operation");
+    let intent: crate::independent_operation::IndependentCreateIntent = serde_json::from_value(serde_json::json!({"purpose":"create", "operation_nonce":"0123456789abcdef0123456789abcdef", "administrator":"operator", "node":"Independent Node", "idp":"https://127.0.0.1:3001", "device":"https://127.0.0.1:3000", "storage":"https://127.0.0.1:3002", "issuer":"https://127.0.0.1:3001"})).expect("operation");
     let response = host
         .router()
         .oneshot(

@@ -20,12 +20,10 @@ required-features = ["cli"]
 [features]
 default = ["cli"]
 independent-contracts = [
-
     "idp-server/independent",
     "device-server/independent",
     "storage-server/independent",
     "server-common/independent",
-    "device-service/independent",
 ]
 cli = ["dep:clap", "dep:cli", "dep:env_logger", "tokio/signal"]
 completions = ["cli", "dep:clap_complete"]

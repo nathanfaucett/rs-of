@@ -117,8 +117,7 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
     .expect("configure introspection relationship")
     .with_permission_evaluator("idp-evaluator")
     .expect("pin distinct assertion client")
-    .with_local_devices(Arc::new(DbDeviceRepo::new(device_engine.clone().client())))
-    .with_pairing_acceptance(runtime.pairing_acceptance());
+    .with_local_devices(Arc::new(DbDeviceRepo::new(device_engine.clone().client())));
     let control_plane = Arc::new(control_plane);
     let router = management_server::build_router(
         idp_engine.client(),
@@ -136,7 +135,6 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
             "/device",
             "storage-service",
             control_plane,
-            None,
         )
         .await
         .expect("Device router"),

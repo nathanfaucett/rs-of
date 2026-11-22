@@ -1,7 +1,6 @@
 #[cfg(target_os = "linux")]
 mod create;
 #[cfg(target_os = "linux")]
-mod join;
 #[cfg(target_os = "linux")]
 mod operation;
 mod permissions;

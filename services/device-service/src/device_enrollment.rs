@@ -106,8 +106,17 @@ where
             .await
             .map_err(ErrorResponse::from)?
             .ok_or_else(|| ErrorResponse::new(ErrorCode::AccessDenied))?;
+        if !self
+            .repo
+            .find_approved_by_public_key(&accepting_public_key)
+            .await
+            .map_err(ErrorResponse::from)?
+            .is_some_and(|accepting| accepting.owner_subject == device.owner_subject)
+        {
+            return Err(ErrorResponse::new(ErrorCode::AccessDenied));
+        }
         verify_signature(
-            &accepting_public_key,
+            &device.public_key,
             &device_pairing_approval_payload(
                 device.id,
                 &device.name,

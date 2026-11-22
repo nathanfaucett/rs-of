@@ -21,6 +21,5 @@ pub mod server;
 pub mod id;
 pub use id::Id;
 
-pub mod node_join;
 pub mod oauth_user;
 pub mod setup;

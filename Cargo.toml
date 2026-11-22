@@ -209,7 +209,6 @@ storage-server = { path = "services/storage-server", default-features = false, f
 of-device-client = { path = "services/device-client", default-features = false }
 of-idp-client = { path = "services/idp-client", default-features = false }
 of-management-client = { path = "services/management-client", default-features = false }
-of-storage-client = { path = "services/storage-client", default-features = false }
 of-storage-api-client = { path = "services/storage-api-client", default-features = false }
 
 # Isolated fixtures

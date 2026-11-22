@@ -99,12 +99,10 @@ for (const owner of ["idp", "management", "device", "storage"]) {
         }
     } else {
         assert.ok(sdk.OwnerSetupApi);
-        assert.ok(sdk.IndependentJoinApi);
+        assert.equal(sdk.IndependentJoinApi, undefined);
         assert.equal(sdk.IndependentSetupApi, undefined);
         assert.equal(sdk.SetupApi, undefined);
-        if (owner === "device") {
-            assert.ok(sdk.NodeJoinApi);
-        }
+        assert.equal(sdk.NodeJoinApi, undefined);
     }
 }
 
@@ -129,8 +127,7 @@ const operation = {
     storage: "",
     node: "",
     operationNonce: "",
-    purpose: "join",
-    peer: null,
+    purpose: "create",
 };
 const wireIntent = owner.IndependentCreateIntentToJSON(operation);
 assert.equal(

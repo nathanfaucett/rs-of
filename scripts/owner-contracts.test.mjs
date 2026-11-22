@@ -17,16 +17,21 @@ test("exactly four owner contracts and service Rust clients", () => {
     }
     assert.ok(!existsSync(new URL("clients/rust", root)));
 });
-test("coordinated and independent Device approvals retain distinct semantics", () => {
-    const doc = JSON.parse(readFileSync(new URL("openapi/device.json", root)));
-    assert.ok(doc.paths["/node-joins/{id}/approve"].post.responses["200"]);
-    assert.ok(
-        doc.paths["/independent/node-joins/{id}/approve"].post.responses["202"],
-    );
-    assert.notEqual(
-        doc.paths["/node-joins/{id}/approve"].post.operationId,
-        doc.paths["/independent/node-joins/{id}/approve"].post.operationId,
-    );
+test("Device keeps enrollment and approval without server Join routes", () => {
+    for (const owner of ["idp", "device", "management", "storage"]) {
+        const doc = JSON.parse(readFileSync(new URL(`openapi/${owner}.json`, root)));
+        for (const path of Object.keys(doc.paths))
+            assert.doesNotMatch(path, /node-joins|\/setup\/owner\/(join|history)$/);
+        if (owner === "device") {
+            assert.ok(doc.paths["/devices/enrollments"].post);
+            assert.ok(doc.paths["/devices/enrollments/{device_id}/approve"].post);
+            assert.ok(!doc.paths["/devices/pairing-accepting"]);
+            assert.ok(doc.paths["/devices/pairings"].post);
+            assert.ok(doc.paths["/devices/pairings/{device_id}/payload"].get);
+            assert.ok(doc.paths["/devices/pairings/{device_id}/approve"].post);
+            assert.ok(doc.paths["/devices/{id}"].delete);
+        }
+    }
 });
 
 test("only Device publishes Selection routes", () => {
@@ -34,7 +39,7 @@ test("only Device publishes Selection routes", () => {
     assert.ok(management.paths["/applications/{application_id}/roles"]);
     assert.ok(management.paths["/permissions/evaluate"]);
     for (const route of Object.keys(management.paths))
-        assert.doesNotMatch(route, /^\/(devices?|replication|node-joins|resources)(\/|$)/);
+        assert.doesNotMatch(route, /^\/(devices?|replication|resources)(\/|$)/);
 
     const device = JSON.parse(readFileSync(new URL("openapi/device.json", root)));
     assert.ok(device.paths["/devices/{device_id}/selection"].put);

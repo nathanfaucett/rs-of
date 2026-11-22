@@ -6,6 +6,8 @@ This document defines the target composition and ownership. Current support and 
 
 An **Installation** contains Users, Applications, OAuth Clients, Devices, permissions, and Resources. A **Node** hosts services and retained local state. A **Sync Server** is a Node that exposes synchronization APIs.
 
+Set up one server authority for a new Installation. Add Devices to an existing Installation through Device approval. Device approval does not provision another server authority.
+
 A Resource belongs to one `(User subject, Application)` namespace. A Device is an approved Installation endpoint. A Selection requests a Resource replica on a Device. Devices do not own Resources and may serve several Users and Applications when policy permits.
 
 ## How the parts fit
