@@ -1,0 +1,15 @@
+# 05: Use one scoped Resource Selection path
+
+Status: ready-for-agent
+Work: open
+**Blocked by:** None (can start immediately).
+Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
+
+**What to build:** A User or authorized administrator manages Selection through one Device-facing path. Storage uses that Selection to authorize replication. Deselection stops future authorized replication without deleting the Resource.
+
+- [ ] Remove `sync_selections`, its Management routes, and the Storage caller that depends on them. Management still supplies administrative permissions; it does not store a second Selection.
+- [ ] Check Device, owner, Application, Resource kind, and Resource ID on the remaining path. Prove that permission in one scope cannot list, replace, or remove a Selection in another scope.
+- [ ] Use real owner routes and native synchronization to verify both Devices need approval and Selection, and that learned deselection stops later synchronization without deleting the Resource. Verify the removed routes are unavailable.
+- [ ] Update the initial schema, OpenAPI, generated clients, and affected consumers together. Run the real-backend browser vault regression. No migration, legacy path, or version bump.
+
+Evidence: Legacy Management queries omit scope predicates. Native Storage already checks the newer scoped Selection path. Tests were inspected, not run.
