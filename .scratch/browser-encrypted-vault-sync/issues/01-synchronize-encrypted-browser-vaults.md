@@ -100,3 +100,10 @@ Remaining qualification limits:
 - Replaced the IndexedDB deletion heuristic with a public generated-WASM `SqlDatabase.free()` spy for both history and legacy operations. The test proves zero free calls after `Database.close()` while receive is pending, exactly one after settlement, and no duplicate after a second close. Temporarily restoring `handle.get()` reproduced both failures; restoring `handle.run()` passes all **3 focused tests**.
 - This pass changes tests and tracker evidence only, so the prior **9 Vitest and 11 Playwright real-backend results remain valid** with no new production-code qualification claim.
 - The dist smoke tests import built entry points through Vitest/workspace module resolution. They do not qualify native Node clean-package ESM loading. The missing `dist/sql.js` and extensionless relative-import concerns are baseline package-resolution debt, not introduced by this specification. Native Node/clean-package ESM qualification is explicitly out of scope.
+
+### 2026-11-21 — Merged-main qualification
+
+- Merged `main` at `a41f842b` into the integration branch. The only conflict was `README.md`; its resolution preserves both the FUSE support entry and the new single-Node browser synchronization entry.
+- `cargo build --locked -p unified-server` — passed.
+- The first combined browser run did not start tests because generated workspace ESM artifacts were absent. `pnpm install --frozen-lockfile --ignore-scripts` did not generate them. `pnpm e2e:prepare` passed and rebuilt the required artifacts.
+- After preparation, `E2E_BACKEND_BIN=./target/debug/unified-server pnpm test:backend` — **9 passed**: app **4**, password-manager **5**. `E2E_BACKEND_BIN=./target/debug/unified-server pnpm test:e2e` — **13 passed**.
