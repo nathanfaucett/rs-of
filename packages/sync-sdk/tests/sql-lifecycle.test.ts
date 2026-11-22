@@ -14,6 +14,7 @@ const bytes = (hex: string) =>
 
 class StalledSocket extends EventTarget {
   static latest: StalledSocket;
+  static instances: StalledSocket[] = [];
   readonly url: string;
   binaryType = "blob";
   readyState = 0;
@@ -24,6 +25,7 @@ class StalledSocket extends EventTarget {
     super();
     this.url = url;
     StalledSocket.latest = this;
+    StalledSocket.instances.push(this);
     queueMicrotask(() => {
       this.readyState = 1;
       this.dispatchEvent(new Event("open"));
@@ -93,6 +95,7 @@ async function flush() {
 
 describe.each(["browser", "node"] as const)("%s SQL sync lifecycle", (kind) => {
   beforeEach(() => {
+    StalledSocket.instances = [];
     vi.stubGlobal("indexedDB", indexedDB);
   });
 
@@ -151,5 +154,49 @@ describe.each(["browser", "node"] as const)("%s SQL sync lifecycle", (kind) => {
     expect(settled).not.toBe("unexpected success");
     expect(states).toContain("error");
     expect(states).not.toContain("synced");
+  });
+
+  it("does not attach after close during lifecycle initialization", async () => {
+    const { sdk, handle } = await createHandle(kind);
+    vi.useFakeTimers();
+    const outcome = handle.sync().then(
+      () => "unexpected success",
+      (error: unknown) => String(error),
+    );
+    await handle.close();
+    await vi.advanceTimersByTimeAsync(0);
+    const sockets = [...StalledSocket.instances];
+    const states = sockets.map((socket) => ({
+      readyState: socket.readyState,
+      closeCount: socket.closeCount,
+    }));
+    for (const socket of sockets) socket.close();
+    const result = await outcome;
+    await sdk.close();
+    expect(sockets.length).toBeLessThanOrEqual(1);
+    for (const state of states) {
+      expect(state).toEqual({ readyState: 3, closeCount: 1 });
+    }
+    expect(result).not.toBe("unexpected success");
+  });
+
+  it("deduplicates concurrent sync initialization and closes the shared session", async () => {
+    const { sdk, handle } = await createHandle(kind);
+    vi.useFakeTimers();
+    const first = handle.sync();
+    const second = handle.sync();
+    const outcomes = Promise.allSettled([first, second]);
+    await flush();
+    const sockets = [...StalledSocket.instances];
+    for (const socket of sockets) socket.close();
+    const results = await outcomes;
+    await handle.close();
+    await sdk.close();
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0].closeCount).toBe(1);
+    expect(results.map((result) => result.status)).toEqual([
+      "rejected",
+      "rejected",
+    ]);
   });
 });

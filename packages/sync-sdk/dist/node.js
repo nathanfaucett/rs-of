@@ -205,11 +205,10 @@ class NodeDatabaseHandle {
     get state$() {
         return this._state$.asObservable();
     }
-    async sync(_options) {
+    sync(_options) {
         if (!this.sqlDatabase || this.closed)
-            return;
-        const lifecycle = await this.getSyncLifecycle();
-        await lifecycle.sync();
+            return Promise.resolve();
+        return this.getSyncLifecycle().sync();
     }
     async close() {
         this.closed = true;
@@ -217,10 +216,10 @@ class NodeDatabaseHandle {
         this._changes$.complete();
         this._state$.complete();
     }
-    async getSyncLifecycle() {
+    getSyncLifecycle() {
         if (this.lifecycle)
             return this.lifecycle;
-        const client = await this.getSyncClient();
+        const client = this.getSyncClient();
         this.lifecycle = new SqlSyncLifecycle(this.sqlDatabase, client, this.handle.storeIdentity, {
             connecting: () => this._state$.next({ ...this._state$.value, status: "connecting" }),
             synced: () => this._state$.next({ ...this._state$.value, status: "synced" }),
@@ -232,7 +231,7 @@ class NodeDatabaseHandle {
         });
         return this.lifecycle;
     }
-    async getSyncClient() {
+    getSyncClient() {
         if (this.syncClient)
             return this.syncClient;
         this.syncClient = new SyncClient({
