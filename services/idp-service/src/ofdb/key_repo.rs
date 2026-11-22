@@ -1,7 +1,7 @@
 use super::insert::{generated_id, generated_insert};
 use crate::repo::{KeyRepo, RepoError, RepoResult};
 use chrono::{DateTime, Utc};
-use db::ofdb::validators::allows_authentication;
+use db::ofdb::validators::{SecurityRow, SecurityTable, allows_authorization};
 use of_model::id::Id;
 use of_model::idp::contract::entity_type::EntityType;
 use of_model::idp::contract::jwk_public::JwkPublic;
@@ -87,7 +87,7 @@ impl DbKeyRepo {
     }
 
     async fn ensure_clear(&self, id: Id) -> RepoResult<()> {
-        if allows_authentication(&self.engine, &[], &[id])
+        if allows_authorization(&self.engine, &[SecurityRow::new(SecurityTable::Key, id)])
             .await
             .map_err(db_error)?
         {

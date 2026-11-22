@@ -217,12 +217,7 @@ impl ExistingSource {
             .await
             .expect("source Client inventory");
         owner
-            .ensure_initial_user(
-                user,
-                Id::now_v7(),
-                "source-operator",
-                "source-protected-password",
-            )
+            .ensure_initial_user(user, "source-operator", "source-protected-password")
             .await
             .expect("existing source administrator");
         owner

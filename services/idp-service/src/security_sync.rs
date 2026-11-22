@@ -3,7 +3,6 @@ use alloc::vec::Vec;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PublicSecurityTable {
     Users,
-    Credentials,
     Applications,
     Clients,
     Keys,
@@ -24,7 +23,6 @@ impl PublicSecurityTable {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Users => "users",
-            Self::Credentials => "credentials",
             Self::Applications => "applications",
             Self::Clients => "clients",
             Self::Keys => "keys",
@@ -97,15 +95,6 @@ impl PublicSecurityTable {
                 "blocked_at",
                 "blocked_by",
             ],
-            Self::Credentials => &[
-                "id",
-                "user_id",
-                "kind",
-                "active",
-                "revoked_at",
-                "created_at",
-                "updated_at",
-            ],
             Self::Applications => &[
                 "id",
                 "name",
@@ -118,7 +107,7 @@ impl PublicSecurityTable {
                 "id",
                 "application_id",
                 "client_id",
-                "credential_id",
+                "secret_revision",
                 "client_id_issued_at",
                 "client_secret_expires_at",
                 "client_name",
@@ -226,10 +215,7 @@ impl PublicSecurityTable {
     fn nullable(self, column: &str) -> bool {
         if self == Self::RbacRevocations
             || matches!(column, "id" | "row_id" | "incarnation")
-            || matches!(
-                (self, column),
-                (Self::Users, "created_at") | (Self::Credentials, "user_id")
-            )
+            || matches!((self, column), (Self::Users, "created_at"))
         {
             return false;
         }
@@ -266,7 +252,7 @@ impl PublicSecurityTable {
             column,
             "id" | "row_id"
                 | "blocked_by"
-                | "credential_id"
+                | "secret_revision"
                 | "parent_id"
                 | "entity_id"
                 | "application_id"
@@ -294,10 +280,7 @@ impl PublicSecurityTable {
                         );
                     let generated_key = column == "row_id"
                         || (column == "id"
-                            && !matches!(
-                                self,
-                                Self::Users | Self::Credentials | Self::Roles | Self::Permissions
-                            ));
+                            && !matches!(self, Self::Users | Self::Roles | Self::Permissions));
                     let grant_ref = matches!(column, "role_id" | "permission_id");
                     (installation_scope || !id.is_nil())
                         && (!grant_ref
@@ -307,8 +290,7 @@ impl PublicSecurityTable {
         }
         let integer = matches!(
             column,
-            "active"
-                | "blocked"
+            "blocked"
                 | "sex"
                 | "entity_type"
                 | "derivation_index"
@@ -386,7 +368,6 @@ pub fn public_security_tables() -> Vec<PublicSecurityTable> {
     use PublicSecurityTable as T;
     let mut tables = alloc::vec![
         T::Users,
-        T::Credentials,
         T::Applications,
         T::Clients,
         T::Keys,
@@ -500,25 +481,20 @@ mod tests {
     #[test]
     fn public_domain_ids_need_not_be_uuid_v7() {
         let domain_id = serde_json::json!("01900000-0000-5000-8000-000000000001");
-        for table in [PublicSecurityTable::Users, PublicSecurityTable::Credentials] {
-            let mut record: serde_json::Map<_, _> = table
-                .columns()
-                .iter()
-                .map(|column| ((*column).into(), serde_json::Value::Null))
-                .collect();
-            record.insert("id".into(), domain_id.clone());
-            if table == PublicSecurityTable::Users {
-                record.insert("created_at".into(), serde_json::json!(1));
-            } else {
-                record.insert("user_id".into(), domain_id.clone());
-            }
-            assert!(table.permits_record(&record), "{table:?} domain ID");
-            record.insert(
-                "id".into(),
-                serde_json::json!("00000000-0000-0000-0000-000000000000"),
-            );
-            assert!(!table.permits_record(&record), "{table:?} nil ID");
-        }
+        let table = PublicSecurityTable::Users;
+        let mut record: serde_json::Map<_, _> = table
+            .columns()
+            .iter()
+            .map(|column| ((*column).into(), serde_json::Value::Null))
+            .collect();
+        record.insert("id".into(), domain_id.clone());
+        record.insert("created_at".into(), serde_json::json!(1));
+        assert!(table.permits_record(&record), "{table:?} domain ID");
+        record.insert(
+            "id".into(),
+            serde_json::json!("00000000-0000-0000-0000-000000000000"),
+        );
+        assert!(!table.permits_record(&record), "{table:?} nil ID");
     }
 
     #[test]
@@ -600,17 +576,18 @@ mod tests {
                     "mfa_totp_secret" | "mfa_webauthn_credentials"
                 ) {
                     serde_json::Value::Null
-                } else if matches!(column.name.as_str(), "id" | "row_id" | "blocked_by")
-                    || column.name.ends_with("_id")
-                        && !["installation_id", "endpoint_id", "software_id"]
-                            .contains(&column.name.as_str())
-                        && !(column.name == "client_id" && table == PublicSecurityTable::Clients)
+                } else if matches!(
+                    column.name.as_str(),
+                    "id" | "row_id" | "blocked_by" | "secret_revision"
+                ) || column.name.ends_with("_id")
+                    && !["installation_id", "endpoint_id", "software_id"]
+                        .contains(&column.name.as_str())
+                    && !(column.name == "client_id" && table == PublicSecurityTable::Clients)
                 {
                     serde_json::json!(of_model::id::Id::now_v7())
                 } else if column.name.ends_with("_at")
                     || [
                         "incarnation",
-                        "active",
                         "blocked",
                         "sex",
                         "entity_type",

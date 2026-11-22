@@ -211,12 +211,7 @@ pub(crate) async fn seed_idp_with_config(
     ] {
         if name == "administrator" {
             owner
-                .ensure_initial_user(
-                    administrator,
-                    of_model::idp::model::Id::now_v7(),
-                    name,
-                    "user-password",
-                )
+                .ensure_initial_user(administrator, name, "user-password")
                 .await
                 .expect("initial fixture User");
             owner
@@ -450,21 +445,7 @@ pub(crate) async fn user_token(
     username: &str,
     resource: &str,
 ) -> String {
-    let response = client
-        .post(format!("{base}/idp/oauth2/token"))
-        .basic_auth("human-client", Some("human-secret"))
-        .form(&[
-            ("grant_type", "password"),
-            ("client_id", "human-client"),
-            ("client_secret", "human-secret"),
-            ("username", username),
-            ("password", "user-password"),
-            ("scope", "openid"),
-            ("resource", resource),
-        ])
-        .send()
-        .await
-        .expect("obtain normal user token");
+    let response = post_password_grant(client, base, username, "user-password", resource).await;
     let status = response.status();
     let body = response.text().await.expect("read user token response");
     assert_eq!(status, http::StatusCode::OK, "{body}");
@@ -495,6 +476,30 @@ pub(crate) async fn user_token(
         .as_str()
         .expect("API access token present")
         .to_owned()
+}
+
+async fn post_password_grant(
+    client: &reqwest::Client,
+    base: &str,
+    username: &str,
+    password: &str,
+    resource: &str,
+) -> reqwest::Response {
+    client
+        .post(format!("{base}/idp/oauth2/token"))
+        .basic_auth("human-client", Some("human-secret"))
+        .form(&[
+            ("grant_type", "password"),
+            ("client_id", "human-client"),
+            ("client_secret", "human-secret"),
+            ("username", username),
+            ("password", password),
+            ("scope", "openid"),
+            ("resource", resource),
+        ])
+        .send()
+        .await
+        .expect("post password grant")
 }
 
 pub(crate) async fn expect_status(
@@ -1215,6 +1220,16 @@ pub(crate) async fn run_permission_http_checks(
         http::StatusCode::OK,
     )
     .await;
+    let sign_in =
+        |password| post_password_grant(client, base, "app-administrator", password, "idp-services");
+    let denied = expect_status(
+        sign_in("user-password").await,
+        http::StatusCode::BAD_REQUEST,
+    )
+    .await;
+    assert_eq!(denied["error"], "invalid_grant");
+    let replaced = expect_status(sign_in("replacement-password").await, http::StatusCode::OK).await;
+    assert!(replaced["access_token"].is_string());
     let service_token = client
         .post(format!("{base}/idp/oauth2/token"))
         .form(&[

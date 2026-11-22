@@ -350,7 +350,7 @@ pub(crate) async fn approval_fixture_for_issuer(issuer: String) -> ApprovalFixtu
         .await
         .expect("ready approval owner secret inventory");
     provisioner
-        .ensure_initial_user(owner, Id::now_v7(), "admin", "valid-password")
+        .ensure_initial_user(owner, "admin", "valid-password")
         .await
         .expect("initial owner");
     provisioner

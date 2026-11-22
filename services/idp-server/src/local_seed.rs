@@ -248,7 +248,7 @@ pub async fn seed_user(
 ) -> io::Result<()> {
     let oauth = &state.oauth2_service;
     oauth
-        .ensure_initial_user(user, Id::new_v5(&user, b"password"), username, password)
+        .ensure_initial_user(user, username, password)
         .await
         .map_err(|error| io::Error::other(format!("local user: {error:?}")))?;
     if oauth

@@ -147,13 +147,12 @@ where
     pub async fn ensure_initial_user(
         &self,
         user_id: Id,
-        credential_id: Id,
         name: &str,
         password: &str,
     ) -> ErrorResponseResult<User> {
-        if user_id == Id::nil() || credential_id == Id::nil() || name.trim().is_empty() {
+        if user_id == Id::nil() || name.trim().is_empty() {
             return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
-                .with_description("stable user and credential IDs and a name are required"));
+                .with_description("a stable User ID and name are required"));
         }
         if password.trim().is_empty() {
             return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
@@ -172,18 +171,16 @@ where
             }
             let stored = self
                 .user_repo
-                .find_user_password_by_user_id(user_id)
+                .find_user_password_hash(user_id)
                 .await
                 .map_err(ErrorResponse::from)?
                 .ok_or_else(|| {
                     ErrorResponse::new(ErrorCode::InvalidRequest)
-                        .with_description("initial user has no active password credential")
+                        .with_description("initial User has no local password verifier")
                 })?;
-            if stored.id != credential_id
-                || !verify_password(password, &stored.password_hash).map_err(|error| {
-                    ErrorResponse::new(ErrorCode::ServerError).with_description(error.to_string())
-                })?
-            {
+            if !verify_password(password, &stored).map_err(|error| {
+                ErrorResponse::new(ErrorCode::ServerError).with_description(error.to_string())
+            })? {
                 return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
                     .with_description("initial user ID is already used by different credentials"));
             }
@@ -191,7 +188,7 @@ where
         }
 
         self.user_repo
-            .create_user_with_password_and_ids(user_id, credential_id, name, password)
+            .create_user_with_password_and_id(user_id, name, password)
             .await
             .map_err(ErrorResponse::from)
     }
@@ -230,6 +227,7 @@ where
         request: ClientRegistration,
     ) -> ErrorResponseResult<ClientRegistration> {
         if request.client_type != ClientType::Confidential
+            || !request.token_endpoint_auth_method.uses_secret_verifier()
             || request.allowed_grant_types != [GrantType::ClientCredentials]
         {
             return Err(ErrorResponse::new(ErrorCode::InvalidRequest));
@@ -242,6 +240,7 @@ where
         request: ClientRegistration,
     ) -> ErrorResponseResult<ClientRegistration> {
         if request.client_type != ClientType::Confidential
+            || !request.token_endpoint_auth_method.uses_secret_verifier()
             || request.allowed_grant_types != [GrantType::ClientCredentials]
         {
             return Err(ErrorResponse::new(ErrorCode::InvalidRequest));
@@ -343,19 +342,17 @@ where
                     .client_id
                     .unwrap_or_else(generate_random_string::<32>),
             ),
-            client_secret: Some(
+            client_secret: (request.client_type == ClientType::Confidential
+                && request.token_endpoint_auth_method.uses_secret_verifier())
+            .then(|| {
                 request
                     .client_secret
-                    .unwrap_or_else(generate_random_string::<32>),
-            ),
+                    .unwrap_or_else(generate_random_string::<32>)
+            }),
             ..request
         };
 
-        let issued_secret = if client.client_type == ClientType::Confidential {
-            client.client_secret.clone()
-        } else {
-            None
-        };
+        let issued_secret = client.client_secret.clone();
         let client = if allow_application_creation {
             self.client_repo.create_client(client).await
         } else {
@@ -585,6 +582,7 @@ where
         request: ClientRegistration,
     ) -> ErrorResponseResult<ClientRegistration> {
         if request.client_type != ClientType::Confidential
+            || !request.token_endpoint_auth_method.uses_secret_verifier()
             || request.allowed_grant_types != [GrantType::ClientCredentials]
         {
             return Err(ErrorResponse::new(ErrorCode::InvalidRequest));
@@ -599,41 +597,34 @@ where
     ) -> ErrorResponseResult<ClientRegistration> {
         let existing = self
             .client_repo
-            .find_client_by_client_id(client_id)
+            .find_client_registration(client_id)
             .await
             .map_err(ErrorResponse::from)?
             .ok_or_else(|| {
                 ErrorResponse::new(ErrorCode::InvalidClient).with_description("client not found")
             })?;
 
-        let issued_secret = if request.client_type == ClientType::Confidential {
-            request.client_secret
-        } else {
-            None
-        };
-        let client_secret_hash = if request.client_type == ClientType::Confidential {
-            match issued_secret.as_deref() {
-                Some(secret) if !secret.trim().is_empty() => {
-                    encrypt_password(&PasswordConfig::default(), secret).map_err(|error| {
-                        ErrorResponse::new(ErrorCode::ServerError)
-                            .with_description(error.to_string())
-                    })?
-                }
-                None if !existing.client_secret_hash.is_empty() => existing.client_secret_hash,
-                _ => {
+        let uses_verifier = request.client_type == ClientType::Confidential
+            && request.token_endpoint_auth_method.uses_secret_verifier();
+        let issued_secret = uses_verifier.then_some(request.client_secret).flatten();
+        let new_secret_hash = issued_secret
+            .as_deref()
+            .map(|secret| {
+                if secret.trim().is_empty() {
                     return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
                         .with_description("a confidential client requires a nonempty secret"));
                 }
-            }
-        } else {
-            String::new()
-        };
+                encrypt_password(&PasswordConfig::default(), secret).map_err(|error| {
+                    ErrorResponse::new(ErrorCode::ServerError).with_description(error.to_string())
+                })
+            })
+            .transpose()?;
         let now = Utc::now();
         let client = Client {
             id: existing.id,
             application_id: existing.application_id,
             client_id: existing.client_id,
-            client_secret_hash,
+            client_secret_hash: String::new(),
             client_id_issued_at: existing.client_id_issued_at,
             client_secret_expires_at: request
                 .client_secret_expires_at
@@ -662,7 +653,7 @@ where
 
         let client = self
             .client_repo
-            .update_client(client)
+            .update_client(client, new_secret_hash)
             .await
             .map_err(ErrorResponse::from)?;
         let mut registration = self.registration_for_client(client).await?;
@@ -879,7 +870,7 @@ where
 
         let user_password = self
             .user_repo
-            .find_user_password_by_user_id(user.id)
+            .find_user_password_hash(user.id)
             .await
             .map_err(ErrorResponse::from)?
             .ok_or_else(|| {
@@ -887,8 +878,8 @@ where
                     .with_description("user password not found")
             })?;
 
-        let verified_password = verify_password(&request.password, &user_password.password_hash)
-            .map_err(|e| {
+        let verified_password =
+            verify_password(&request.password, &user_password).map_err(|e| {
                 ErrorResponse::new(ErrorCode::ServerError).with_description(e.to_string())
             })?;
 
@@ -1295,11 +1286,7 @@ where
                         .with_description("client_id does not match token subject"));
                 }
                 if auth.method != client.token_endpoint_auth_method
-                    || !matches!(
-                        auth.method,
-                        TokenEndpointAuthMethod::ClientSecretBasic
-                            | TokenEndpointAuthMethod::ClientSecretPost
-                    )
+                    || !auth.method.uses_secret_verifier()
                 {
                     return Err(ErrorResponse::new(ErrorCode::InvalidClient)
                         .with_description("unsupported client authentication method"));
@@ -1393,24 +1380,24 @@ where
     }
 
     pub async fn rotate_client_secret(&self, client_id: &str) -> ErrorResponseResult<String> {
-        let mut client = self
+        let client = self
             .client_repo
-            .find_client_by_client_id(client_id)
+            .find_client_registration(client_id)
             .await
             .map_err(ErrorResponse::from)?
             .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))?;
-        if client.client_type != ClientType::Confidential {
+        if client.client_type != ClientType::Confidential
+            || !client.token_endpoint_auth_method.uses_secret_verifier()
+        {
             return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
-                .with_description("secret rotation requires a confidential client"));
+                .with_description("secret rotation requires shared-secret Client authentication"));
         }
         let secret = generate_random_string::<64>();
-        client.client_secret_hash =
-            encrypt_password(&PasswordConfig::default(), &secret).map_err(|error| {
-                ErrorResponse::new(ErrorCode::ServerError).with_description(error.to_string())
-            })?;
-        client.updated_at = Utc::now();
+        let hash = encrypt_password(&PasswordConfig::default(), &secret).map_err(|error| {
+            ErrorResponse::new(ErrorCode::ServerError).with_description(error.to_string())
+        })?;
         self.client_repo
-            .update_client(client)
+            .update_client(client, Some(hash))
             .await
             .map_err(ErrorResponse::from)?;
         Ok(secret)

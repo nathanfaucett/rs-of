@@ -38,7 +38,7 @@ async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) 
         let ofdb_sql::SyncKey::Row { table, .. } = &unit.key;
         !matches!(
             table.as_str(),
-            "credentials" | "local_client_credentials" | "local_credential_secrets"
+            "local_client_secret_verifiers" | "local_user_password_verifiers"
         )
     });
     engine
@@ -69,7 +69,7 @@ async fn provision_fixture_client_secret(engine: &TestEngine, client_id: Id, sec
     let metadata = engine
         .client()
         .translate_and_execute(
-            &format!("SELECT credential_id FROM clients WHERE id = CAST('{client_id}' AS UUID)"),
+            &format!("SELECT secret_revision FROM clients WHERE id = CAST('{client_id}' AS UUID)"),
             &SqlTranslator,
         )
         .await
@@ -79,7 +79,7 @@ async fn provision_fixture_client_secret(engine: &TestEngine, client_id: Id, sec
         .client()
         .execute(vec![Statement::Query(Query::Insert(
             ofdb_sql::QueryInsert {
-                table: "local_client_credentials".into(),
+                table: "local_client_secret_verifiers".into(),
                 row: ofdb_sql::Row::new(vec![Value::Uuid(client_id), revision, Value::Text(hash)]),
                 returning: None,
             },

@@ -37,11 +37,12 @@ use ofdb_sql::Uuid;
 use ofdb_sql::Value;
 
 const TABLE: &str = "clients";
+const VERIFIERS: &str = "local_client_secret_verifiers";
 const COLUMNS: [&str; 25] = [
     "id",
     "application_id",
     "client_id",
-    "credential_id",
+    "secret_revision",
     "client_id_issued_at",
     "client_secret_expires_at",
     "client_name",
@@ -99,20 +100,21 @@ where
             .client_id
             .clone()
             .ok_or_else(|| RepoError::InvalidInput("client_id is required".into()))?;
-        let client_secret = match registration.client_type {
-            ClientType::Confidential => registration
+        let uses_verifier = registration.client_type == ClientType::Confidential
+            && registration
+                .token_endpoint_auth_method
+                .uses_secret_verifier();
+        let client_secret_hash = if uses_verifier {
+            let secret = registration
                 .client_secret
-                .clone()
+                .as_deref()
                 .filter(|secret| !secret.trim().is_empty())
                 .ok_or_else(|| {
                     RepoError::InvalidInput(
-                        "client_secret is required for confidential client key material".into(),
+                        "client_secret is required for shared-secret authentication".into(),
                     )
-                })?,
-            ClientType::Public => String::new(),
-        };
-        let client_secret_hash = if registration.client_type == ClientType::Confidential {
-            encrypt_password(&PasswordConfig::default(), &client_secret)
+                })?;
+            encrypt_password(&PasswordConfig::default(), secret)
                 .map_err(|error| RepoError::Other(error.into()))?
         } else {
             String::new()
@@ -158,9 +160,9 @@ where
             created_at: now,
             updated_at: now,
         };
-        let revision = Id::now_v7();
+        let revision = uses_verifier.then(Id::now_v7);
         let mut metadata = ClientRow::from(&client);
-        metadata.credential_id = Some(revision);
+        metadata.secret_revision = revision;
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let results = transaction
             .execute(vec![Statement::Query(generated_insert(
@@ -174,12 +176,14 @@ where
             id: generated_id(&results)?,
             ..client
         };
-        transaction
-            .execute(vec![Statement::Query(local_credential_insert(
-                &client, revision,
-            ))])
-            .await
-            .map_err(db_error)?;
+        if let Some(revision) = revision {
+            transaction
+                .execute(vec![Statement::Query(local_verifier_insert(
+                    &client, revision,
+                ))])
+                .await
+                .map_err(db_error)?;
+        }
         transaction.commit().await.map_err(db_error)?;
 
         self.key_service
@@ -222,7 +226,7 @@ where
             .map_err(row_error)?
             .into_iter()
             .map(|row| {
-                let revision = row.credential_id;
+                let revision = row.secret_revision;
                 Client::try_from(row).map(|client| (client, revision))
             })
             .collect::<RepoResult<Vec<_>>>()?;
@@ -235,12 +239,13 @@ where
     ) -> RepoResult<Vec<Client>> {
         let mut clients = Self::registrations(transaction, predicate).await?;
         for (client, revision) in &mut clients {
-            if let Some(row) = local_credential(transaction, client.id)
-                .await?
-                .filter(|row| row.values[1] == revision.map_or(Value::Null, Value::Uuid))
+            if client.client_type == ClientType::Confidential
+                && client.token_endpoint_auth_method.uses_secret_verifier()
+                && let Some(revision) = *revision
+                && let Some((hash, local_revision)) = local_verifier(transaction, client.id).await?
+                && local_revision == revision
             {
-                client.client_secret_hash =
-                    ofdb_sql::decode(&row.values[0], "secret_hash").map_err(row_error)?;
+                client.client_secret_hash = hash;
             }
         }
         Ok(clients.into_iter().map(|(client, _)| client).collect())
@@ -429,7 +434,11 @@ where
         self.create_client_with_capture(registration, false, |_, _| Ok(()))
     }
 
-    async fn update_client(&self, client: Client) -> RepoResult<Client> {
+    async fn update_client(
+        &self,
+        mut client: Client,
+        new_secret_hash: Option<String>,
+    ) -> RepoResult<Client> {
         self.ensure_clear(client.id).await?;
         let updated_at = Utc::now()
             .with_nanosecond(0)
@@ -445,7 +454,6 @@ where
                 "conflicted client credential update".into(),
             ));
         }
-        let existing = local_credential(&mut transaction, client.id).await?;
         let current = transaction
             .execute(vec![Statement::Query(select(Some(equals(
                 "id",
@@ -453,67 +461,56 @@ where
             ))))])
             .await
             .map_err(db_error)?;
-        let mut metadata = ClientRow::from(&client);
-        let current_revision = current[0]
+        let current = current[0]
             .rows_as::<ClientRow>()
             .map_err(row_error)?
-            .first()
-            .and_then(|row| row.credential_id);
-        let revision = if let Some(local) = existing.as_ref().filter(|row| {
-            row.values[0] == Value::Text(client.client_secret_hash.clone())
-                && row.values[1] == current_revision.map_or(Value::Null, Value::Uuid)
-        }) {
-            ofdb_sql::decode(&local.values[1], "credential_id").map_err(row_error)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| RepoError::InvalidInput("client not found".into()))?;
+        let mut assignments = ClientRow::from(&client).assignments(updated_at.timestamp());
+        let verifier = if client.client_type == ClientType::Confidential
+            && client.token_endpoint_auth_method.uses_secret_verifier()
+        {
+            let local = local_verifier(&mut transaction, client.id).await?;
+            if let Some(hash) = new_secret_hash {
+                // Only a secret change advances the public revision. A metadata edit must not
+                // rebind a stale local verifier after learning a peer's rotation.
+                let revision = Id::now_v7();
+                assignments.push(assignment("secret_revision", Value::Uuid(revision)));
+                client.client_secret_hash = hash;
+                Some(if local.is_some() {
+                    local_verifier_update(&client, revision)
+                } else {
+                    local_verifier_insert(&client, revision)
+                })
+            } else {
+                client.client_secret_hash = local
+                    .filter(|(_, revision)| Some(*revision) == current.secret_revision)
+                    .map(|(hash, _)| hash)
+                    .ok_or_else(|| {
+                        RepoError::InvalidInput(
+                            "a confidential client requires a current secret verifier".into(),
+                        )
+                    })?;
+                None
+            }
         } else {
-            Id::now_v7()
+            client.client_secret_hash.clear();
+            if current.secret_revision.is_some() {
+                assignments.push(assignment("secret_revision", Value::Null));
+                Some(local_verifier_delete(client.id))
+            } else {
+                None
+            }
         };
-        metadata.credential_id = Some(revision);
-        let credential = if existing.is_none() {
-            local_credential_insert(&client, revision)
-        } else {
-            Query::Update(QueryUpdate {
-                from: QueryFrom {
-                    table: "local_client_credentials".into(),
-                    joins: vec![],
-                },
-                assignments: vec![
-                    QueryUpdateAssignment {
-                        column: QueryColumn::new(
-                            "local_client_credentials".into(),
-                            "secret_hash".into(),
-                        ),
-                        value: QueryExprValue::Value(Value::Text(
-                            client.client_secret_hash.clone(),
-                        )),
-                    },
-                    QueryUpdateAssignment {
-                        column: QueryColumn::new(
-                            "local_client_credentials".into(),
-                            "credential_id".into(),
-                        ),
-                        value: QueryExprValue::Value(Value::Uuid(revision)),
-                    },
-                ],
-                predicate: Some(equals_in(
-                    "local_client_credentials",
-                    "client_id",
-                    Value::Uuid(client.id),
-                )),
-                returning: None,
-            })
-        };
-        transaction
-            .execute(vec![
-                Statement::Query(Query::Update(QueryUpdate {
-                    from: from(),
-                    assignments: metadata.assignments(updated_at.timestamp()),
-                    predicate: Some(equals("id", Value::Uuid(client.id))),
-                    returning: None,
-                })),
-                Statement::Query(credential),
-            ])
-            .await
-            .map_err(db_error)?;
+        let mut statements = vec![Statement::Query(Query::Update(QueryUpdate {
+            from: from(),
+            assignments,
+            predicate: Some(equals("id", Value::Uuid(client.id))),
+            returning: None,
+        }))];
+        statements.extend(verifier.map(Statement::Query));
+        transaction.execute(statements).await.map_err(db_error)?;
         transaction.commit().await.map_err(db_error)?;
         Ok(Client {
             updated_at,
@@ -534,7 +531,7 @@ where
                     predicate: Some(equals("id", Value::Uuid(client.id))),
                     returning: None,
                 })),
-                Statement::Query(local_credential_delete(client.id)),
+                Statement::Query(local_verifier_delete(client.id)),
             ])
             .await
             .map_err(db_error)?;
@@ -561,7 +558,7 @@ struct ClientRow {
     id: Uuid,
     application_id: Uuid,
     client_id: String,
-    credential_id: Option<Uuid>,
+    secret_revision: Option<Uuid>,
     client_id_issued_at: Option<i64>,
     client_secret_expires_at: Option<i64>,
     client_name: String,
@@ -594,9 +591,9 @@ impl FromRow for ClientRow {
                 "application_id",
             )?,
             client_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "client_id")?, "client_id")?,
-            credential_id: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "credential_id")?,
-                "credential_id",
+            secret_revision: ofdb_sql::decode(
+                ofdb_sql::value(row, columns, "secret_revision")?,
+                "secret_revision",
             )?,
             client_id_issued_at: ofdb_sql::decode(
                 ofdb_sql::value(row, columns, "client_id_issued_at")?,
@@ -717,7 +714,7 @@ impl From<&Client> for ClientRow {
             id: client.id,
             application_id: client.application_id,
             client_id: client.client_id.clone(),
-            credential_id: None,
+            secret_revision: None,
             client_id_issued_at: client.client_id_issued_at.map(|value| value.timestamp()),
             client_secret_expires_at: client
                 .client_secret_expires_at
@@ -749,10 +746,6 @@ impl ClientRow {
     fn assignments(self, updated_at: i64) -> Vec<QueryUpdateAssignment> {
         vec![
             assignment("application_id", Value::Uuid(self.application_id)),
-            assignment(
-                "credential_id",
-                self.credential_id.map_or(Value::Null, Value::Uuid),
-            ),
             assignment(
                 "client_id_issued_at",
                 self.client_id_issued_at.map_or(Value::Null, Value::Integer),
@@ -808,7 +801,7 @@ impl From<ClientRow> for Row {
             Value::Uuid(row.id),
             Value::Uuid(row.application_id),
             Value::Text(row.client_id),
-            row.credential_id.map_or(Value::Null, Value::Uuid),
+            row.secret_revision.map_or(Value::Null, Value::Uuid),
             row.client_id_issued_at.map_or(Value::Null, Value::Integer),
             row.client_secret_expires_at
                 .map_or(Value::Null, Value::Integer),
@@ -836,9 +829,9 @@ impl From<ClientRow> for Row {
     }
 }
 
-fn local_credential_insert(client: &Client, revision: Uuid) -> Query {
+fn local_verifier_insert(client: &Client, revision: Uuid) -> Query {
     Query::Insert(QueryInsert {
-        table: "local_client_credentials".into(),
+        table: VERIFIERS.into(),
         row: Row::new(vec![
             Value::Uuid(client.id),
             Value::Uuid(revision),
@@ -848,75 +841,90 @@ fn local_credential_insert(client: &Client, revision: Uuid) -> Query {
     })
 }
 
-async fn local_credential(transaction: &mut Transaction, client_id: Id) -> RepoResult<Option<Row>> {
-    let mut result = transaction
-        .execute(vec![Statement::Query(local_credential_select(client_id))])
+async fn local_verifier(
+    transaction: &mut Transaction,
+    client_id: Id,
+) -> RepoResult<Option<(String, Uuid)>> {
+    let result = transaction
+        .execute(vec![Statement::Query(Query::Select(QuerySelect {
+            from: verifier_from(),
+            projection: ["secret_hash", "secret_revision", "id"]
+                .into_iter()
+                .map(|name| QueryColumn::new(VERIFIERS.into(), name.into()))
+                .collect(),
+            distinct: false,
+            predicate: Some(verifier_key(client_id)),
+            aggregates: vec![],
+            text_concats: vec![],
+            group_by: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+            having: None,
+        }))])
         .await
         .map_err(db_error)?;
-    let rows = &mut result[0].rows;
-    match rows.len() {
-        0 => Ok(None),
-        1 => {
-            let row = rows.remove(0);
-            if transaction
-                .row_conflicts(
-                    "local_client_credentials",
-                    &Row::new(vec![row.values[2].clone()]),
-                )
-                .await
-                .map_err(db_error)?
-                .is_empty()
-            {
-                Ok(Some(row))
-            } else {
-                Err(RepoError::InvalidInput(
-                    "conflicted local client credential".into(),
-                ))
-            }
+    let row = match result[0].rows.as_slice() {
+        [] => return Ok(None),
+        [row] => row,
+        _ => {
+            return Err(RepoError::InvalidInput(
+                "ambiguous local client secret verifier".into(),
+            ));
         }
-        _ => Err(RepoError::InvalidInput(
-            "ambiguous local client credential".into(),
-        )),
+    };
+    if !transaction
+        .row_conflicts(VERIFIERS, &Row::new(vec![row.values[2].clone()]))
+        .await
+        .map_err(db_error)?
+        .is_empty()
+    {
+        return Err(RepoError::InvalidInput(
+            "conflicted local client secret verifier".into(),
+        ));
+    }
+    Ok(Some((
+        ofdb_sql::decode(&row.values[0], "secret_hash").map_err(row_error)?,
+        ofdb_sql::decode(&row.values[1], "secret_revision").map_err(row_error)?,
+    )))
+}
+
+fn verifier_from() -> QueryFrom {
+    QueryFrom {
+        table: VERIFIERS.into(),
+        joins: vec![],
     }
 }
 
-fn local_credential_select(id: Id) -> Query {
-    Query::Select(QuerySelect {
-        from: QueryFrom {
-            table: "local_client_credentials".into(),
-            joins: vec![],
-        },
-        projection: ["secret_hash", "credential_id", "id"]
-            .into_iter()
-            .map(|name| QueryColumn::new("local_client_credentials".into(), name.into()))
-            .collect(),
-        distinct: false,
-        predicate: Some(equals_in(
-            "local_client_credentials",
-            "client_id",
-            Value::Uuid(id),
-        )),
-        aggregates: vec![],
-        text_concats: vec![],
-        group_by: vec![],
-        order_by: vec![],
-        limit: None,
-        offset: None,
-        having: None,
+fn verifier_key(id: Id) -> QueryExpr {
+    equals_in(VERIFIERS, "client_id", Value::Uuid(id))
+}
+
+fn local_verifier_update(client: &Client, revision: Uuid) -> Query {
+    Query::Update(QueryUpdate {
+        from: verifier_from(),
+        assignments: [
+            (
+                "secret_hash",
+                Value::Text(client.client_secret_hash.clone()),
+            ),
+            ("secret_revision", Value::Uuid(revision)),
+        ]
+        .into_iter()
+        .map(|(name, value)| QueryUpdateAssignment {
+            column: QueryColumn::new(VERIFIERS.into(), name.into()),
+            value: QueryExprValue::Value(value),
+        })
+        .collect(),
+        predicate: Some(verifier_key(client.id)),
+        returning: None,
     })
 }
 
-fn local_credential_delete(id: Id) -> Query {
+fn local_verifier_delete(id: Id) -> Query {
     Query::Delete(QueryDelete {
-        from: QueryFrom {
-            table: "local_client_credentials".into(),
-            joins: vec![],
-        },
-        predicate: Some(equals_in(
-            "local_client_credentials",
-            "client_id",
-            Value::Uuid(id),
-        )),
+        from: verifier_from(),
+        predicate: Some(verifier_key(id)),
         returning: None,
     })
 }
@@ -1150,7 +1158,7 @@ mod tests {
                 .client()
                 .translate_and_execute(
                     &format!(
-                        "UPDATE clients SET credential_id = CAST('{}' AS UUID)",
+                        "UPDATE clients SET secret_revision = CAST('{}' AS UUID)",
                         Id::now_v7()
                     ),
                     &ofdb_sql::SqlTranslator,
@@ -1169,7 +1177,7 @@ mod tests {
             database
                 .client()
                 .translate_and_execute(
-                    "DELETE FROM local_client_credentials",
+                    "DELETE FROM local_client_secret_verifiers",
                     &ofdb_sql::SqlTranslator,
                 )
                 .await
@@ -1197,7 +1205,7 @@ mod tests {
         database
             .client()
             .translate_and_execute(
-                "DROP TABLE local_client_credentials",
+                "DROP TABLE local_client_secret_verifiers",
                 &ofdb_sql::SqlTranslator,
             )
             .await

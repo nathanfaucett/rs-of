@@ -36,24 +36,12 @@ pub mod validators {
     use ofdb_sql::Uuid;
     use ofdb_sql::Value;
 
-    /// Validates that the credential history tables exist and are readable.
-    pub async fn validate_credential_history(client: &Client) -> Result<(), QueryError> {
-        for sql in [
-            "SELECT 1 FROM clients LIMIT 1",
-            "SELECT 1 FROM credentials LIMIT 1",
-        ] {
-            client.execute_sql(sql, None).await?;
-        }
-        Ok(())
-    }
-
     /// Validates that all IDP security tables exist and are readable.
     pub async fn validate_identity(client: &Client) -> Result<(), QueryError> {
         for table in [
             SecurityTable::User,
             SecurityTable::Application,
             SecurityTable::Client,
-            SecurityTable::Credential,
             SecurityTable::Device,
             SecurityTable::Key,
             SecurityTable::OAuthAuthorizationCode,
@@ -82,7 +70,6 @@ pub mod validators {
         User,
         Application,
         Client,
-        Credential,
         Device,
         Key,
         OAuthAuthorizationCode,
@@ -103,7 +90,6 @@ pub mod validators {
                 Self::User => "users",
                 Self::Application => "applications",
                 Self::Client => "clients",
-                Self::Credential => "credentials",
                 Self::Device => "devices",
                 Self::Key => "keys",
                 Self::OAuthAuthorizationCode => "oauth2_authorization_codes",
@@ -146,24 +132,12 @@ pub mod validators {
         }
     }
 
-    /// Audit record for a conflict resolution.
-    #[derive(Debug, Clone)]
-    pub struct ResolutionAudit {
-        pub id: Uuid,
-        pub administrator_id: Uuid,
-        pub table: SecurityTable,
-        pub row_id: Uuid,
-        pub columns: Vec<String>,
-        pub created_at: i64,
-    }
-
     /// Checks for conflicts across the given security rows.
     async fn clear(engine: &Client, rows: &[SecurityRow]) -> Result<bool, QueryError> {
         for group in rows.chunk_by(|left, right| left.table == right.table) {
             let table = group[0].table;
             let component = match table {
                 SecurityTable::User => "created_at",
-                SecurityTable::Credential => "user_id",
                 _ => {
                     let keys = group.iter().map(SecurityRow::key).collect::<Vec<_>>();
                     if engine
@@ -224,27 +198,6 @@ pub mod validators {
         rows: &[SecurityRow],
     ) -> Result<bool, QueryError> {
         clear(engine, rows).await
-    }
-
-    /// Checks that the given credentials and keys have no conflicts.
-    pub async fn allows_authentication(
-        engine: &Client,
-        credentials: &[Uuid],
-        keys: &[Uuid],
-    ) -> Result<bool, QueryError> {
-        let mut rows = Vec::with_capacity(credentials.len() + keys.len());
-        rows.extend(
-            credentials
-                .iter()
-                .copied()
-                .map(|id| SecurityRow::new(SecurityTable::Credential, id)),
-        );
-        rows.extend(
-            keys.iter()
-                .copied()
-                .map(|id| SecurityRow::new(SecurityTable::Key, id)),
-        );
-        clear(engine, &rows).await
     }
 
     /// Checks that the given token issuance rows have no conflicts.

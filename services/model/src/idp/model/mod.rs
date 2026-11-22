@@ -9,7 +9,6 @@ pub mod role;
 pub mod sql_enum;
 pub mod user;
 pub mod user_email;
-pub mod user_password;
 pub mod user_phone_number;
 
 pub use application::Application;
@@ -22,7 +21,6 @@ pub use permission::Permission;
 pub use role::Role;
 pub use user::User;
 pub use user_email::UserEmail;
-pub use user_password::UserPassword;
 pub use user_phone_number::UserPhoneNumber;
 
 pub use crate::Id;

@@ -133,12 +133,11 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     pub async fn ensure_initial_user(
         &self,
         user_id: Id,
-        credential_id: Id,
         name: &str,
         password: &str,
     ) -> io::Result<Id> {
         self.oauth2
-            .ensure_initial_user(user_id, credential_id, name, password)
+            .ensure_initial_user(user_id, name, password)
             .await
             .map_err(to_io_error)?;
         Ok(user_id)

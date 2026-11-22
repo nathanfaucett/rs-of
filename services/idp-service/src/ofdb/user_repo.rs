@@ -1,11 +1,9 @@
 use super::insert::generated_insert;
 use chrono::{DateTime, Timelike, Utc};
-use db::ofdb::validators::allows_authentication;
 use of_model::id::Id;
 use of_model::idp::contract::sex::Sex;
 use of_model::idp::model::user::User;
 use of_model::idp::model::user_email::UserEmail;
-use of_model::idp::model::user_password::UserPassword;
 use of_model::idp::model::user_phone_number::UserPhoneNumber;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
@@ -16,6 +14,7 @@ use ofdb_sql::QueryExpr;
 use ofdb_sql::QueryExprValue;
 use ofdb_sql::QueryFrom;
 use ofdb_sql::QueryInsert;
+use ofdb_sql::QueryParams;
 use ofdb_sql::QuerySelect;
 use ofdb_sql::QueryUpdate;
 use ofdb_sql::QueryUpdateAssignment;
@@ -36,8 +35,7 @@ use crate::{
 const USERS: &str = "users";
 const EMAILS: &str = "user_emails";
 const PHONES: &str = "user_phone_numbers";
-const CREDENTIALS: &str = "credentials";
-const PASSWORD_KIND: &str = "password";
+const PASSWORDS: &str = "local_user_password_verifiers";
 
 macro_rules! decode {
     ($row:expr, $columns:expr, $column:expr) => {
@@ -89,16 +87,6 @@ const PHONE_COLUMNS: [&str; 7] = [
     "created_at",
     "updated_at",
 ];
-const CREDENTIAL_COLUMNS: [&str; 7] = [
-    "id",
-    "user_id",
-    "kind",
-    "active",
-    "revoked_at",
-    "created_at",
-    "updated_at",
-];
-
 pub struct DbUserRepo {
     engine: ofdb_sql::Client,
     password_config: PasswordConfig,
@@ -182,32 +170,6 @@ impl DbUserRepo {
         .map(UserPhoneNumber::try_from)
         .collect()
     }
-
-    async fn credentials(&self, user_id: Id) -> RepoResult<Vec<CredentialRow>> {
-        self.rows(
-            select(
-                CREDENTIALS,
-                &CREDENTIAL_COLUMNS,
-                Some(and(
-                    equals(CREDENTIALS, "user_id", Value::Uuid(user_id)),
-                    equals(CREDENTIALS, "kind", Value::Text(PASSWORD_KIND.into())),
-                )),
-            ),
-            "missing credential query result",
-        )
-        .await
-    }
-
-    async fn ensure_credential_clear(&self, id: Id) -> RepoResult<()> {
-        if allows_authentication(&self.engine, &[id], &[])
-            .await
-            .map_err(db_error)?
-        {
-            Ok(())
-        } else {
-            Err(RepoError::InvalidInput("conflicted credential".into()))
-        }
-    }
 }
 
 impl UserRepo for DbUserRepo {
@@ -278,61 +240,33 @@ impl UserRepo for DbUserRepo {
         Ok(phones)
     }
 
-    async fn find_user_password_by_user_id(&self, user_id: Id) -> RepoResult<Option<UserPassword>> {
-        let Some(credential) = self
-            .credentials(user_id)
-            .await?
-            .into_iter()
-            .find(|credential| credential.active && credential.revoked_at.is_none())
-        else {
-            return Ok(None);
-        };
-        self.ensure_credential_clear(credential.id).await?;
-        let key = Row::new(vec![Value::Text(credential.id.to_string())]);
-        if !self
-            .engine
-            .row_conflicts("local_credential_secrets", &key)
-            .await
-            .map_err(db_error)?
-            .is_empty()
-        {
-            return Err(RepoError::InvalidInput(
-                "conflicted local password verifier".into(),
-            ));
+    async fn find_user_password_hash(&self, user_id: Id) -> RepoResult<Option<String>> {
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let result = async {
+            check_password_conflicts(&mut transaction, user_id).await?;
+            let results = transaction
+                .execute(vec![Statement::Query(password_select(user_id))])
+                .await
+                .map_err(db_error)?;
+            results[0]
+                .rows
+                .first()
+                .map(|row| ofdb_sql::decode(&row.values[0], "password_hash").map_err(row_error))
+                .transpose()
         }
-        let results = self
-            .engine
-            .translate_and_execute(
-                &format!(
-                    "SELECT secret_hash FROM local_credential_secrets WHERE credential_id = '{}'",
-                    credential.id
-                ),
-                &ofdb_sql::SqlTranslator,
-            )
-            .await
-            .map_err(db_error)?;
-        let Some(row) = results[0].rows.first() else {
-            return Ok(None);
-        };
-        Ok(Some(UserPassword {
-            id: credential.id,
-            user_id: credential.user_id,
-            active: credential.active,
-            password_hash: ofdb_sql::decode(&row.values[0], "secret_hash").map_err(row_error)?,
-            created_at: timestamp(credential.created_at)?,
-            updated_at: timestamp(credential.updated_at)?,
-        }))
+        .await;
+        let rollback = transaction.rollback().await.map_err(db_error);
+        result.and_then(|hash| rollback.map(|()| hash))
     }
 
     async fn create_user_with_password(&self, name: &str, password: &str) -> RepoResult<User> {
-        self.create_user_with_password_and_ids(Id::now_v7(), Id::now_v7(), name, password)
+        self.create_user_with_password_and_id(Id::now_v7(), name, password)
             .await
     }
 
-    async fn create_user_with_password_and_ids(
+    async fn create_user_with_password_and_id(
         &self,
         user_id: Id,
-        credential_id: Id,
         name: &str,
         password: &str,
     ) -> RepoResult<User> {
@@ -364,15 +298,6 @@ impl UserRepo for DbUserRepo {
         };
         let secret_hash = encrypt_password(&self.password_config, password)
             .map_err(|error| RepoError::Other(error.into()))?;
-        let credential = CredentialRow {
-            id: credential_id,
-            user_id: user.id,
-            kind: PASSWORD_KIND.into(),
-            active: true,
-            revoked_at: None,
-            created_at: now.timestamp(),
-            updated_at: now.timestamp(),
-        };
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         transaction
             .execute(vec![
@@ -381,12 +306,7 @@ impl UserRepo for DbUserRepo {
                     row: UserRow::from(&user).into(),
                     returning: None,
                 })),
-                Statement::Query(Query::Insert(QueryInsert {
-                    table: CREDENTIALS.into(),
-                    row: credential.into(),
-                    returning: None,
-                })),
-                Statement::Query(local_password_insert(credential_id, secret_hash)),
+                Statement::Query(password_insert(user_id, secret_hash)),
             ])
             .await
             .map_err(db_error)?;
@@ -538,75 +458,17 @@ impl UserRepo for DbUserRepo {
     }
 
     async fn replace_user_password(&self, user_id: Id, password: &str) -> RepoResult<()> {
-        let password_hash = encrypt_password(&self.password_config, password)
-            .map_err(|error| RepoError::Other(error.into()))?;
-        let now = now().timestamp();
-        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
-        let results = transaction
-            .execute(vec![Statement::Query(select(
-                CREDENTIALS,
-                &CREDENTIAL_COLUMNS,
-                Some(and(
-                    equals(CREDENTIALS, "user_id", Value::Uuid(user_id)),
-                    equals(CREDENTIALS, "kind", Value::Text(PASSWORD_KIND.into())),
-                )),
-            ))])
-            .await
-            .map_err(db_error)?;
-        for credential in results[0]
-            .rows_as::<CredentialRow>()
-            .map_err(row_error)?
-            .into_iter()
-            .filter(|credential| credential.active)
-        {
-            if !transaction
-                .row_conflicts(
-                    CREDENTIALS,
-                    &Row::new(vec![
-                        Value::Uuid(credential.id),
-                        Value::Uuid(credential.user_id),
-                    ]),
-                )
-                .await
-                .map_err(db_error)?
-                .is_empty()
-            {
-                return Err(RepoError::InvalidInput("conflicted credential".into()));
-            }
-            transaction
-                .execute(vec![Statement::Query(Query::Update(QueryUpdate {
-                    from: from(CREDENTIALS),
-                    assignments: vec![
-                        assignment(CREDENTIALS, "active", bool_value(false)),
-                        assignment(CREDENTIALS, "updated_at", Value::Integer(now)),
-                    ],
-                    predicate: Some(equals(CREDENTIALS, "id", Value::Uuid(credential.id))),
-                    returning: None,
-                }))])
-                .await
-                .map_err(db_error)?;
+        if password.trim().is_empty() {
+            return Err(RepoError::InvalidInput("password is required".into()));
         }
-        let credential_id = Id::now_v7();
-        transaction
-            .execute(vec![
-                Statement::Query(Query::Insert(QueryInsert {
-                    table: CREDENTIALS.into(),
-                    row: CredentialRow {
-                        id: credential_id,
-                        user_id,
-                        kind: PASSWORD_KIND.into(),
-                        active: true,
-                        revoked_at: None,
-                        created_at: now,
-                        updated_at: now,
-                    }
-                    .into(),
-                    returning: None,
-                })),
-                Statement::Query(local_password_insert(credential_id, password_hash)),
-            ])
-            .await
-            .map_err(db_error)?;
+        let hash = encrypt_password(&self.password_config, password)
+            .map_err(|error| RepoError::Other(error.into()))?;
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        check_password_conflicts(&mut transaction, user_id).await?;
+        transaction.execute_sql(
+            "INSERT INTO local_user_password_verifiers (user_id, password_hash) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET password_hash = $2",
+            Some(&QueryParams::Positional(vec![Value::Text(user_id.to_string()), Value::Text(hash)])),
+        ).await.map_err(db_error)?;
         transaction.commit().await.map_err(db_error)?;
         Ok(())
     }
@@ -692,14 +554,23 @@ impl UserRepo for DbUserRepo {
     }
 
     async fn delete_user_by_id(&self, user_id: Id) -> RepoResult<()> {
-        self.engine
-            .execute(vec![Statement::Query(Query::Delete(QueryDelete {
-                from: from(USERS),
-                predicate: Some(equals(USERS, "id", Value::Uuid(user_id))),
-                returning: None,
-            }))])
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        transaction
+            .execute(vec![
+                Statement::Query(Query::Delete(QueryDelete {
+                    from: from(USERS),
+                    predicate: Some(equals(USERS, "id", Value::Uuid(user_id))),
+                    returning: None,
+                })),
+                Statement::Query(Query::Delete(QueryDelete {
+                    from: from(PASSWORDS),
+                    predicate: Some(password_key(user_id)),
+                    returning: None,
+                })),
+            ])
             .await
             .map_err(db_error)?;
+        transaction.commit().await.map_err(db_error)?;
         Ok(())
     }
 }
@@ -976,49 +847,38 @@ impl From<PhoneRow> for Row {
     }
 }
 
-#[derive(Debug)]
-struct CredentialRow {
-    id: Uuid,
-    user_id: Uuid,
-    kind: String,
-    active: bool,
-    revoked_at: Option<i64>,
-    created_at: i64,
-    updated_at: i64,
-}
-impl FromRow for CredentialRow {
-    fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
-        Ok(Self {
-            id: decode!(row, columns, "id")?,
-            user_id: decode!(row, columns, "user_id")?,
-            kind: decode!(row, columns, "kind")?,
-            active: decode!(i64, row, columns, "active")? != 0,
-            revoked_at: decode!(row, columns, "revoked_at")?,
-            created_at: decode!(row, columns, "created_at")?,
-            updated_at: decode!(row, columns, "updated_at")?,
-        })
-    }
-}
-impl From<CredentialRow> for Row {
-    fn from(row: CredentialRow) -> Self {
-        Self::new(vec![
-            Value::Uuid(row.id),
-            Value::Uuid(row.user_id),
-            Value::Text(row.kind),
-            bool_value(row.active),
-            row.revoked_at.map_or(Value::Null, Value::Integer),
-            Value::Integer(row.created_at),
-            Value::Integer(row.updated_at),
-        ])
-    }
+fn password_key(user_id: Id) -> QueryExpr {
+    equals(PASSWORDS, "user_id", Value::Text(user_id.to_string()))
 }
 
-fn local_password_insert(id: Id, hash: String) -> Query {
+fn password_select(user_id: Id) -> Query {
+    select(PASSWORDS, &["password_hash"], Some(password_key(user_id)))
+}
+
+fn password_insert(user_id: Id, hash: String) -> Query {
     Query::Insert(QueryInsert {
-        table: "local_credential_secrets".into(),
-        row: Row::new(vec![Value::Text(id.to_string()), Value::Text(hash)]),
+        table: PASSWORDS.into(),
+        row: Row::new(vec![Value::Text(user_id.to_string()), Value::Text(hash)]),
         returning: None,
     })
+}
+
+async fn check_password_conflicts(
+    transaction: &mut ofdb_sql::Transaction,
+    user_id: Id,
+) -> RepoResult<()> {
+    if transaction
+        .row_conflicts(PASSWORDS, &Row::new(vec![Value::Text(user_id.to_string())]))
+        .await
+        .map_err(db_error)?
+        .is_empty()
+    {
+        Ok(())
+    } else {
+        Err(RepoError::InvalidInput(
+            "conflicted local password verifier".into(),
+        ))
+    }
 }
 
 fn now() -> DateTime<Utc> {
@@ -1076,9 +936,6 @@ fn equals(table: &str, column_name: &str, value: Value) -> QueryExpr {
     )
 }
 
-fn and(left: QueryExpr, right: QueryExpr) -> QueryExpr {
-    QueryExpr::And(Box::new(left), Box::new(right))
-}
 fn assignment(table: &str, column_name: &str, value: Value) -> QueryUpdateAssignment {
     QueryUpdateAssignment {
         column: column(table, column_name),
@@ -1128,18 +985,6 @@ mod tests {
                 .await
                 .expect("create local credential")
                 .id;
-            let metadata = database
-                .client()
-                .translate_and_execute("SELECT * FROM credentials", &ofdb_sql::SqlTranslator)
-                .await
-                .expect("query public credential metadata")
-                .remove(0);
-            assert!(
-                metadata
-                    .columns
-                    .iter()
-                    .all(|column| column.name != "secret_hash")
-            );
             repo.replace_user_password(id, "second-password")
                 .await
                 .expect("replace password atomically");
@@ -1148,28 +993,28 @@ mod tests {
             let database = Arc::new(Database::open(&path).expect("reopen identity offline"));
             let repo = DbUserRepo::new(database.client(), PasswordConfig::default());
             let credential = repo
-                .find_user_password_by_user_id(id)
+                .find_user_password_hash(id)
                 .await
                 .expect("read local password")
                 .expect("local verifier persisted");
             assert!(
-                crate::util::verify_password("second-password", &credential.password_hash)
+                crate::util::verify_password("second-password", &credential)
                     .expect("valid verifier")
             );
             assert!(
-                !crate::util::verify_password("first-password", &credential.password_hash)
+                !crate::util::verify_password("first-password", &credential)
                     .expect("valid verifier")
             );
             database
                 .client()
                 .translate_and_execute(
-                    "DELETE FROM local_credential_secrets",
+                    "DELETE FROM local_user_password_verifiers",
                     &ofdb_sql::SqlTranslator,
                 )
                 .await
                 .expect("simulate metadata without local secret");
             assert!(
-                repo.find_user_password_by_user_id(id)
+                repo.find_user_password_hash(id)
                     .await
                     .expect("missing local verifier denies")
                     .is_none()
@@ -1193,7 +1038,7 @@ mod tests {
             Some(user.clone())
         );
         assert!(
-            repo.find_user_password_by_user_id(user.id)
+            repo.find_user_password_hash(user.id)
                 .await
                 .unwrap()
                 .is_some()
@@ -1221,7 +1066,7 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            repo.find_user_password_by_user_id(user.id)
+            repo.find_user_password_hash(user.id)
                 .await
                 .unwrap()
                 .is_some()

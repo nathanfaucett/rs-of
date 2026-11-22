@@ -28,6 +28,14 @@ pub enum TokenEndpointAuthMethod {
     None,
 }
 
+impl TokenEndpointAuthMethod {
+    /// Whether the implemented token endpoint authenticates with a Client secret verifier.
+    #[must_use]
+    pub const fn uses_secret_verifier(self) -> bool {
+        matches!(self, Self::ClientSecretBasic | Self::ClientSecretPost)
+    }
+}
+
 impl fmt::Display for TokenEndpointAuthMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

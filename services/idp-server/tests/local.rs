@@ -65,14 +65,11 @@ async fn local_constructor_seeds_frontends_and_admin_without_setup_and_is_repeat
         .expect("admin lookup")
         .expect("seeded admin");
     let password = users
-        .find_user_password_by_user_id(admin.id)
+        .find_user_password_hash(admin.id)
         .await
         .expect("password lookup")
-        .expect("password credential");
-    assert!(
-        argon2::verify_encoded(&password.password_hash, b"password")
-            .expect("verify seeded password")
-    );
+        .expect("password verifier");
+    assert!(argon2::verify_encoded(&password, b"password").expect("verify seeded password"));
     let clients = adapter
         .client()
         .execute_sql(

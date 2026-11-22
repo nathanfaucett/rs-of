@@ -47,21 +47,9 @@ CREATE TABLE IF NOT EXISTS user_phone_numbers (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS user_phone_numbers_user_phone ON user_phone_numbers (user_id, phone_number);
 
-CREATE TABLE IF NOT EXISTS credentials (
-    id UUID NOT NULL,
-    user_id UUID NOT NULL,
-    kind TEXT,
-    active INTEGER,
-    revoked_at INTEGER,
-    created_at INTEGER,
-    updated_at INTEGER,
-    PRIMARY KEY (id, user_id)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS credentials_id ON credentials (id);
-
-CREATE TABLE IF NOT EXISTS local_credential_secrets (
-    credential_id TEXT PRIMARY KEY,
-    secret_hash TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS local_user_password_verifiers (
+    user_id TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS keys (
@@ -96,7 +84,7 @@ CREATE TABLE IF NOT EXISTS clients (
     id UUID PRIMARY KEY,
     application_id UUID,
     client_id TEXT,
-    credential_id UUID,
+    secret_revision UUID,
     client_id_issued_at INTEGER,
     client_secret_expires_at INTEGER,
     client_name TEXT,
@@ -122,13 +110,13 @@ CREATE TABLE IF NOT EXISTS clients (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS clients_client_id ON clients (client_id);
 
-CREATE TABLE IF NOT EXISTS local_client_credentials (
+CREATE TABLE IF NOT EXISTS local_client_secret_verifiers (
     id UUID PRIMARY KEY,
     client_id UUID NOT NULL,
-    credential_id UUID NOT NULL,
+    secret_revision UUID NOT NULL,
     secret_hash TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS local_client_credentials_client_id ON local_client_credentials (client_id);
+CREATE UNIQUE INDEX IF NOT EXISTS local_client_secret_verifiers_client_id ON local_client_secret_verifiers (client_id);
 
 CREATE TABLE IF NOT EXISTS oauth2_authorization_codes (
     id UUID PRIMARY KEY,
@@ -178,15 +166,6 @@ CREATE TABLE IF NOT EXISTS oauth2_refresh_tokens (
     updated_at INTEGER
 );
 CREATE UNIQUE INDEX IF NOT EXISTS oauth2_refresh_tokens_token_hash ON oauth2_refresh_tokens (token_hash);
-
-CREATE TABLE IF NOT EXISTS idp_conflict_resolutions (
-    id UUID PRIMARY KEY,
-    administrator_id UUID,
-    table_name TEXT,
-    row_id UUID,
-    columns TEXT,
-    created_at INTEGER
-);
 
 CREATE TABLE IF NOT EXISTS idp_replica_members (
     id UUID PRIMARY KEY,

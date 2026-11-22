@@ -6,8 +6,6 @@ use of_model::idp::model::user::User;
 
 use of_model::idp::model::user_email::UserEmail;
 
-use of_model::idp::model::user_password::UserPassword;
-
 use of_model::idp::model::user_phone_number::UserPhoneNumber;
 
 use super::error::RepoResult;
@@ -31,10 +29,10 @@ pub trait UserRepo {
         user_id: Id,
     ) -> impl Future<Output = RepoResult<Vec<UserPhoneNumber>>>;
 
-    fn find_user_password_by_user_id(
+    fn find_user_password_hash(
         &self,
         user_id: Id,
-    ) -> impl Future<Output = RepoResult<Option<UserPassword>>>;
+    ) -> impl Future<Output = RepoResult<Option<String>>>;
 
     fn create_user_with_password(
         &self,
@@ -42,10 +40,9 @@ pub trait UserRepo {
         password: &str,
     ) -> impl Future<Output = RepoResult<User>>;
 
-    fn create_user_with_password_and_ids(
+    fn create_user_with_password_and_id(
         &self,
         user_id: Id,
-        credential_id: Id,
         name: &str,
         password: &str,
     ) -> impl Future<Output = RepoResult<User>>;
