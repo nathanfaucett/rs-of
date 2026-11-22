@@ -85,3 +85,12 @@ Remaining qualification limits:
 - The test harness has no reliable caller-future cancellation seam for the legacy event stream. Issued-commit completion is owned by the existing IndexedDB completion task, but no separate cancellation/completion qualification is claimed. Rejected commits are covered directly.
 - Full workspace Clippy/CRAP and GitHub Actions were not run. Full sync-sdk and password-manager `biome lint .` remain blocked by pre-existing nested root configurations; changed files were linted directly.
 - An unrestricted SQL feature-powerset attempt retains the pre-existing PostgreSQL-only `crate::database` import failure and the engine no-default-feature test target's missing `vec!` import. Relevant facade and library-only feature checks passed instead.
+
+### 2026-11-21 — Dist packaging and initialization race fixes
+
+- Added `dist/sql-sync-lifecycle.js`, `dist/sql-sync-lifecycle.d.ts`, and `dist/sql-sync-lifecycle.d.ts.map` to the tracked dist convention. The ignore rule requires an explicit force-add for these generated files.
+- `pnpm --filter @ofsdk/sync-sdk exec vitest run tests/dist-entrypoints.test.ts` — **2 passed**, importing the actual `dist/browser.js` and `dist/node.js` entry points and their relative lifecycle artifact. Hiding the lifecycle file first reproduced both missing-module failures before regeneration.
+- Lifecycle/client construction is now synchronous. Immediate close cannot attach after close, and concurrent sync calls share one lifecycle/session. New tests pass for both implementations.
+- The SQL close-lifetime tests now also prove IndexedDB deletion is incomplete while receive is pending and succeeds after operation settlement and handle release. Both history and legacy paths pass.
+- Full affected validation: SQL browser **54 passed**; sync SDK **13 passed** across **3 files**, including 8 lifecycle tests and 2 dist import smoke tests; real-backend Vitest **9 passed** and Playwright **11 passed**. Direct changed-file Biome lint, `cargo fmt --all -- --check`, `just docs-check`, and `git diff --check` passed.
+- This pass changes only TypeScript/tests/generated dist output, so no additional Rust test run was required beyond the focused Rust evidence above. Existing harness, full-workspace, nested-Biome, and caller-future-cancellation qualification limits remain unchanged.

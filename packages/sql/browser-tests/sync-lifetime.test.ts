@@ -52,16 +52,41 @@ for (const operationKind of ["history", "legacy"] as const) {
       } catch (error) {
         closeError = String(error);
       }
+      let deleted = false;
+      let deletionError: string | undefined;
+      const deletion = indexedDB.deleteDatabase(`ofdb:sql:close-during-${kind}`);
+      const deletionSettled = new Promise<void>((resolve, reject) => {
+        deletion.onsuccess = () => {
+          deleted = true;
+          resolve();
+        };
+        deletion.onerror = () => {
+          deletionError = String(deletion.error);
+          reject(deletion.error);
+        };
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const deletedBeforeSettlement = deleted;
       closed = true;
       closeFailure = new Error("deferred-close");
       rejectReceive(closeFailure);
       const syncError = await settled;
+      await deletionSettled;
       database.close();
-      return { closeError, syncError };
+      return {
+        closeError,
+        syncError,
+        deletedBeforeSettlement,
+        deleted,
+        deletionError,
+      };
     }, operationKind);
 
     expect(result.closeError).toBeUndefined();
     expect(result.syncError).toContain("deferred-close");
+    expect(result.deletedBeforeSettlement).toBe(false);
+    expect(result.deleted).toBe(true);
+    expect(result.deletionError).toBeUndefined();
   });
 }
 

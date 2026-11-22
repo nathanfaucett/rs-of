@@ -281,10 +281,9 @@ class NodeDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
     return this._state$.asObservable();
   }
 
-  async sync(_options?: SyncOptions): Promise<void> {
-    if (!this.sqlDatabase || this.closed) return;
-    const lifecycle = await this.getSyncLifecycle();
-    await lifecycle.sync();
+  sync(_options?: SyncOptions): Promise<void> {
+    if (!this.sqlDatabase || this.closed) return Promise.resolve();
+    return this.getSyncLifecycle().sync();
   }
 
   async close(): Promise<void> {
@@ -294,9 +293,9 @@ class NodeDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
     this._state$.complete();
   }
 
-  private async getSyncLifecycle(): Promise<SqlSyncLifecycle> {
+  private getSyncLifecycle(): SqlSyncLifecycle {
     if (this.lifecycle) return this.lifecycle;
-    const client = await this.getSyncClient();
+    const client = this.getSyncClient();
     this.lifecycle = new SqlSyncLifecycle(
       this.sqlDatabase as Database,
       client,
@@ -317,7 +316,7 @@ class NodeDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
     return this.lifecycle;
   }
 
-  private async getSyncClient(): Promise<SyncClient> {
+  private getSyncClient(): SyncClient {
     if (this.syncClient) return this.syncClient;
     this.syncClient = new SyncClient({
       storageApiUrl: this.config.apiUrl,
