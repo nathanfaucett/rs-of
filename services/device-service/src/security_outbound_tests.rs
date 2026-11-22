@@ -74,18 +74,14 @@ impl Fixture {
             enroll(idp.clone(), member, source.endpoint().id(), key).await;
             let peer_member = insert_device(&management, &actor.to_string(), peer.endpoint().id(), "node").await;
             enroll(idp.clone(), peer_member, peer.endpoint().id(), Id::now_v7()).await;
-            ManagementService::new(
-                DbPermissionRepo::new(idp.client()),
-                DbRoleRepo::new(idp.client()),
-            )
-            .provision_initial_administrator(
+            management_service::provision_initial_administrator(
+                &idp.client(),
                 actor,
-                Id::now_v7(),
                 &[
-                    (Id::now_v7(), IdentityAction::DevicePairingRead),
-                    (Id::now_v7(), IdentityAction::DevicePairingUpdate),
-                    (Id::now_v7(), IdentityAction::IdpSecuritySync),
-                    (Id::now_v7(), IdentityAction::ManagementSecuritySync),
+                    IdentityAction::DevicePairingRead,
+                    IdentityAction::DevicePairingUpdate,
+                    IdentityAction::IdpSecuritySync,
+                    IdentityAction::ManagementSecuritySync,
                 ],
             )
             .await
@@ -106,9 +102,11 @@ impl Fixture {
         let peer_idp = Arc::new(Database::open(root.join("peer-idp.redb")).expect("peer IdP"));
         let peer_management =
             Arc::new(Database::open(root.join("peer-management.redb")).expect("peer Management"));
-        let payload = Id::now_v7();
+        let application = Id::now_v7();
+        let result = sql(&idp, &format!("INSERT INTO roles (application_id, name, created_at, updated_at) VALUES (CAST('{application}' AS UUID), 'outbound-payload', 1, 1) RETURNING id")).await;
+        let payload: Id =
+            ofdb_sql::decode(&result[0].rows[0].values[0], "id").expect("generated policy ID");
         sql(&idp, &format!("INSERT INTO users (id, handle, name, created_at, updated_at) VALUES (CAST('{payload}' AS UUID), 'outbound-payload', 'Outbound Payload', 1, 1)")).await;
-        sql(&idp, &format!("INSERT INTO roles (id, application_id, name, created_at, updated_at) VALUES (CAST('{payload}' AS UUID), CAST('{payload}' AS UUID), 'outbound-payload', 1, 1)")).await;
         let source = SecurityProtocol::new(
             source,
             idp.clone(),
@@ -648,12 +646,31 @@ async fn admitted_security_write_finishes_then_next_write_denies() {
 }
 
 #[tokio::test]
-async fn identity_policy_history_grant_and_revocation_reach_an_existing_peer() {
+async fn identity_policy_history_grant_and_policy_deletion_reach_an_existing_peer() {
     let fixture = Fixture::new().await;
     let service = ManagementService::new(
         DbPermissionRepo::new(fixture.source.idp.client()),
         DbRoleRepo::new(fixture.source.idp.client()),
     );
+    let session_role = service
+        .list_user_roles(Id::nil(), fixture.actor)
+        .await
+        .expect("fixture administrator role")
+        .into_iter()
+        .next()
+        .expect("explicit sync grant role");
+    let local_member = fixture
+        .source
+        .binding
+        .as_ref()
+        .expect("local signer")
+        .member_id;
+    for subject in [local_member, fixture.peer_member] {
+        service
+            .add_role_to_user(Id::nil(), subject, session_role.id)
+            .await
+            .expect("authorize the handshake principal for policy history");
+    }
     let role = service
         .create_role(Id::nil(), "history-administrator", None)
         .await
@@ -703,9 +720,9 @@ async fn identity_policy_history_grant_and_revocation_reach_an_existing_peer() {
             .expect("learned grant permits administration")
     );
     service
-        .remove_permission_from_role(Id::nil(), role.id, permission.id)
+        .delete_permission_by_id(Id::nil(), permission.id)
         .await
-        .expect("revoke permission");
+        .expect("delete permission");
     let (result, _, _) = peer_exchange(
         &fixture,
         SecurityContext::Device,

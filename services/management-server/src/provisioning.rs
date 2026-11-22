@@ -1,62 +1,8 @@
 use std::{io, sync::Arc};
 
-use management_service::{
-    replica::{DbPermissionRepo, DbRoleRepo},
-    service::{INITIAL_ADMINISTRATOR_ACTIONS, ManagementService},
-};
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
-use of_model::idp::model::role::Role;
 use ofdb_sql::Database;
-
-#[derive(serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct InitialAdministratorGrant {
-    role: Id,
-    permissions: Vec<Id>,
-}
-
-impl InitialAdministratorGrant {
-    pub fn fresh() -> Self {
-        Self {
-            role: Id::now_v7(),
-            permissions: INITIAL_ADMINISTRATOR_ACTIONS
-                .iter()
-                .map(|_| Id::now_v7())
-                .collect(),
-        }
-    }
-
-    pub fn identities(&self) -> impl Iterator<Item = Id> + '_ {
-        core::iter::once(self.role).chain(self.permissions.iter().copied())
-    }
-
-    pub fn validate(&self) -> io::Result<()> {
-        let mut identities = self.identities().collect::<Vec<_>>();
-        identities.sort();
-        identities.dedup();
-        if self.permissions.len() != INITIAL_ADMINISTRATOR_ACTIONS.len()
-            || identities.len() != self.permissions.len() + 1
-            || identities.iter().any(Id::is_nil)
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "invalid retained administrator permission inventory",
-            ));
-        }
-        Ok(())
-    }
-
-    pub async fn provision(&self, engine: Arc<Database>, user: Id) -> io::Result<Role> {
-        self.validate()?;
-        let permissions = self
-            .permissions
-            .iter()
-            .copied()
-            .zip(INITIAL_ADMINISTRATOR_ACTIONS)
-            .collect::<Vec<_>>();
-        provision_initial_administrator(engine, user, self.role, &permissions).await
-    }
-}
 
 pub async fn identity_client(
     config: &crate::config::app_config::AppConfig,
@@ -107,62 +53,15 @@ pub async fn identity_client(
 pub async fn provision_initial_administrator(
     engine: Arc<Database>,
     user_id: Id,
-    role_id: Id,
-    permissions: &[(Id, IdentityAction)],
-) -> io::Result<Role> {
-    let service = ManagementService::new(
-        DbPermissionRepo::new(engine.client()),
-        DbRoleRepo::new(engine.client()),
-    );
-    service
-        .provision_initial_administrator(user_id, role_id, permissions)
+    actions: &[IdentityAction],
+) -> io::Result<()> {
+    management_service::provision_initial_administrator(&engine.client(), user_id, actions)
         .await
         .map_err(io::Error::other)
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn administrator_inventory_reopens_current_seeds_and_rejects_old_seeds_without_mutation() {
-        let fresh = crate::provisioning::InitialAdministratorGrant::fresh();
-        let retained = serde_json::to_value(&fresh).expect("retain current inventory");
-        assert_eq!(
-            retained["permissions"]
-                .as_array()
-                .expect("permission IDs")
-                .len(),
-            management_service::service::INITIAL_ADMINISTRATOR_ACTIONS.len()
-        );
-        let reopened: crate::provisioning::InitialAdministratorGrant =
-            serde_json::from_value(retained.clone()).expect("reopen current inventory");
-        reopened
-            .validate()
-            .expect("fresh reset/Create inventory survives restart");
-        assert_eq!(
-            serde_json::to_value(&reopened).expect("unchanged inventory"),
-            retained
-        );
-        let mut old = retained;
-        old["permissions"]
-            .as_array_mut()
-            .expect("old permission IDs")
-            .pop()
-            .expect("remove newly added permission");
-        let rejected: crate::provisioning::InitialAdministratorGrant =
-            serde_json::from_value(old.clone()).expect("decode old inventory");
-        assert_eq!(
-            rejected
-                .validate()
-                .expect_err("old inventory is not migrated")
-                .kind(),
-            std::io::ErrorKind::InvalidData
-        );
-        assert_eq!(
-            serde_json::to_value(&rejected).expect("preserve old evidence"),
-            old
-        );
-    }
-
     #[cfg(unix)]
     #[tokio::test]
     async fn standalone_identity_uses_explicit_socket_without_opening_files() {
@@ -354,14 +253,13 @@ mod initial_administrator_tests {
     use of_model::idp::contract::permission_evaluation::PermissionTarget;
     use ofdb_sql::Database;
 
-    use crate::provisioning::InitialAdministratorGrant;
+    use crate::provisioning::provision_initial_administrator;
 
     #[tokio::test]
-    async fn retained_grant_retries_exactly_and_reopens_offline() {
+    async fn initial_administrator_setup_retries_after_reopen_without_changing_grants() {
         let path = std::env::temp_dir().join(format!("administrator-grant-{}.redb", Id::now_v7()));
         let user = Id::now_v7();
-        let grant = InitialAdministratorGrant::fresh();
-        let retained = serde_json::to_value(&grant).expect("retained grant");
+        let actions = management_service::INITIAL_ADMINISTRATOR_ACTIONS;
         let request = PermissionEvaluationRequest {
             request_id: Id::now_v7(),
             subject: PermissionSubject::User { id: user },
@@ -375,34 +273,31 @@ mod initial_administrator_tests {
             db::ofdb::up(&engine.client())
                 .await
                 .expect("identity schema");
-            grant
-                .provision(Arc::clone(&engine), user)
+            provision_initial_administrator(engine, user, &actions)
                 .await
-                .expect("grant administrator");
-            grant
-                .provision(Arc::clone(&engine), user)
-                .await
-                .expect("exact retry");
-            assert!(
-                LocalPermissions::new(engine.client())
-                    .evaluate(&request)
-                    .await
-                    .expect("explicit pairing grant")
-            );
-            let mut changed = retained.clone();
-            changed["permissions"][0] = serde_json::json!(Id::now_v7());
-            let changed: InitialAdministratorGrant =
-                serde_json::from_value(changed).expect("conflicting grant");
-            assert!(changed.provision(Arc::clone(&engine), user).await.is_err());
+                .expect("setup grants");
         }
         {
             let engine = Arc::new(Database::open(&path).expect("offline reopen"));
-            let grant: InitialAdministratorGrant =
-                serde_json::from_value(retained.clone()).expect("retained grant");
-            grant.validate().expect("retained inventory");
-            assert_eq!(
-                serde_json::to_value(&grant).expect("unchanged grant"),
-                retained
+            provision_initial_administrator(Arc::clone(&engine), user, &actions)
+                .await
+                .expect("exact retry");
+            assert!(
+                provision_initial_administrator(Arc::clone(&engine), Id::now_v7(), &actions)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                provision_initial_administrator(
+                    Arc::clone(&engine),
+                    user,
+                    &[
+                        IdentityAction::DevicePairingRead,
+                        IdentityAction::DevicePairingUpdate
+                    ]
+                )
+                .await
+                .is_err()
             );
             assert!(
                 LocalPermissions::new(engine.client())
@@ -410,13 +305,6 @@ mod initial_administrator_tests {
                     .await
                     .expect("offline permission")
             );
-        }
-        for permissions in [serde_json::json!([]), serde_json::json!([Id::nil()])] {
-            let mut malformed = retained.clone();
-            malformed["permissions"] = permissions;
-            let malformed: InitialAdministratorGrant =
-                serde_json::from_value(malformed).expect("decode malformed inventory");
-            assert!(malformed.validate().is_err());
         }
         std::fs::remove_file(path).expect("remove database");
     }

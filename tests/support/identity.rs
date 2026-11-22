@@ -1384,13 +1384,13 @@ pub(crate) async fn run_permission_http_checks(
     expect_status(
         client
             .delete(format!(
-                "{management_base}/management/applications/{}/users/{}/roles/{}",
-                fixture.application_id, fixture.app_administrator, fixture.application_role
+                "{management_base}/management/applications/{}/roles/{}",
+                fixture.application_id, fixture.application_role
             ))
             .bearer_auth(&management_user)
             .send()
             .await
-            .expect("revoke role through normal API"),
+            .expect("delete role through the Management API"),
         http::StatusCode::OK,
     )
     .await;
@@ -1400,7 +1400,7 @@ pub(crate) async fn run_permission_http_checks(
             .bearer_auth(&app_admin)
             .send()
             .await
-            .expect("immediate role revocation"),
+            .expect("deleted role no longer authorizes IdP access"),
         http::StatusCode::FORBIDDEN,
     )
     .await;

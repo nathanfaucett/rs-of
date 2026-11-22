@@ -15,8 +15,6 @@ use idp_service::{
 };
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::ofdb::{DbPermissionRepo, DbRoleRepo};
-use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 use ofdb_sql::Value;
@@ -85,18 +83,14 @@ async fn exchange_history() {
         enroll(idp.clone(), member_a, server_a.endpoint().id(), key_a).await;
         let member_b = insert_device(&management, &actor.to_string(), server_b.endpoint().id(), "node").await;
         enroll(idp.clone(), member_b, server_b.endpoint().id(), key_b).await;
-        ManagementService::new(
-            DbPermissionRepo::new(idp.client()),
-            DbRoleRepo::new(idp.client()),
-        )
-        .provision_initial_administrator(
+        management_service::provision_initial_administrator(
+            &idp.client(),
             actor,
-            Id::now_v7(),
             &[
-                (Id::now_v7(), IdentityAction::DevicePairingRead),
-                (Id::now_v7(), IdentityAction::DevicePairingUpdate),
-                (Id::now_v7(), IdentityAction::IdpSecuritySync),
-                (Id::now_v7(), IdentityAction::ManagementSecuritySync),
+                IdentityAction::DevicePairingRead,
+                IdentityAction::DevicePairingUpdate,
+                IdentityAction::IdpSecuritySync,
+                IdentityAction::ManagementSecuritySync,
             ],
         )
         .await
@@ -406,8 +400,9 @@ async fn exchange_history() {
             .await
             .expect("public unselected policy");
     }
-    let policy = Id::now_v7();
-    sql(&idp_a, &format!("INSERT INTO roles (id, application_id, name, created_at, updated_at) VALUES (CAST('{policy}' AS UUID), CAST('{actor}' AS UUID), 'shared-policy', 1, 1)")).await;
+    let result = sql(&idp_a, &format!("INSERT INTO roles (application_id, name, created_at, updated_at) VALUES (CAST('{actor}' AS UUID), 'shared-policy', 1, 1) RETURNING id")).await;
+    let policy: Id =
+        ofdb_sql::decode(&result[0].rows[0].values[0], "id").expect("generated policy ID");
     protocol_a
         .synchronize(&connection, SecurityContext::Device)
         .await

@@ -1,8 +1,7 @@
 use std::io;
 
 use idp_service::repo::{ClientRepo, KeyRepo, UserRepo};
-use management_service::replica::{DbPermissionRepo, DbRoleRepo};
-use management_service::service::{INITIAL_ADMINISTRATOR_ACTIONS, ManagementService};
+use management_service::{INITIAL_ADMINISTRATOR_ACTIONS, provision_initial_administrator};
 use of_model::id::Id;
 use of_model::idp::contract::application_registration::ApplicationRegistration;
 use of_model::idp::contract::client_profile::ClientProfile;
@@ -101,18 +100,14 @@ pub async fn seed(
         .await
         .map_err(io::Error::other)?;
 
-    ManagementService::new(
-        DbPermissionRepo::new(state.engine.clone()),
-        DbRoleRepo::new(state.engine.clone()),
-    )
-    .provision_initial_administrator(
+    provision_initial_administrator(
+        &state.engine,
         user,
-        Id::new_v5(&user, b"administrator"),
-        &INITIAL_ADMINISTRATOR_ACTIONS
-            .iter()
-            .chain([IdentityAction::DevicesEnroll].iter())
-            .map(|action| (Id::new_v5(&user, format!("{action:?}").as_bytes()), *action))
-            .collect::<Vec<_>>(),
+        &[
+            INITIAL_ADMINISTRATOR_ACTIONS.as_slice(),
+            &[IdentityAction::DevicesEnroll],
+        ]
+        .concat(),
     )
     .await
     .map_err(io::Error::other)?;

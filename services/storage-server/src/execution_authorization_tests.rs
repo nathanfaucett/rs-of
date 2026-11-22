@@ -16,10 +16,6 @@ use idp_service::{
     password_config::PasswordConfig, replica::DbUserRepo, repo::user_repo::UserRepo,
 };
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
-use management_service::LocalPermissions;
-use management_service::ofdb::permission_repo::DbPermissionRepo;
-use management_service::ofdb::role_repo::DbRoleRepo;
-use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 use of_model::idp::contract::permission_evaluation::IdentityResource;
@@ -64,9 +60,7 @@ async fn queued_write_fixture(in_flight: bool) {
         db::ofdb::up(&management.client()).await.expect("Management policy schema");
         let actor = insert_owner(&idp).await;
         insert_device(&management, actor, incoming.remote_id()).await;
-        let role = Id::now_v7();
-        let service = ManagementService::new(DbPermissionRepo::new(management.client()), DbRoleRepo::new(management.client()));
-        service.provision_initial_administrator(actor, role, &[(Id::now_v7(), IdentityAction::DevicePairingRead), (Id::now_v7(), IdentityAction::DevicePairingUpdate), (Id::now_v7(), IdentityAction::IdpSecuritySync)]).await.expect("explicit actor grant");
+        management_service::provision_initial_administrator(&management.client(), actor, &[IdentityAction::DevicePairingRead, IdentityAction::DevicePairingUpdate, IdentityAction::IdpSecuritySync]).await.expect("explicit actor grant");
         let request = PermissionEvaluationRequest { request_id: Id::now_v7(), subject: PermissionSubject::User { id: actor }, action: IdentityAction::IdpSecuritySync, target: PermissionTarget::Installation { resource: IdentityResource::IdpSecurity } };
         for forged in [
             PermissionEvaluationRequest { subject: PermissionSubject::User { id: Id::now_v7() }, ..request.clone() },

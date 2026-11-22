@@ -38,16 +38,10 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
         IdentityAction::DevicesEnroll,
         IdentityAction::DevicesRevoke,
         IdentityAction::DeviceRestrictionsUpdate,
-    ]
-    .map(|action| (Id::now_v7(), action));
-    management_server::provision_initial_administrator(
-        identity.clone(),
-        owner,
-        Id::now_v7(),
-        &permissions,
-    )
-    .await
-    .expect("explicit Device administrator grants");
+    ];
+    management_server::provision_initial_administrator(identity.clone(), owner, &permissions)
+        .await
+        .expect("explicit Device administrator grants");
     let control = Arc::new(
         HostedControlPlane::new_with_issuer("https://node.example", "https://installation.example")
             .expect("owner interface")

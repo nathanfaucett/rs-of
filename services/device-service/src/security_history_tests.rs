@@ -23,8 +23,6 @@ use iroh::{
     protocol::Router,
 };
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
-use management_service::ofdb::{DbPermissionRepo, DbRoleRepo};
-use management_service::service::ManagementService;
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 use ofdb_sql::Value;
@@ -218,20 +216,24 @@ impl Pair {
             enroll(idp.clone(), member_a, a.endpoint().id(), key_a).await;
             let member_b = insert_device(&management, &actor.to_string(), b.endpoint().id(), "node").await;
             enroll(idp.clone(), member_b, b.endpoint().id(), key_b).await;
-            let inserted = sql(&idp, &format!("INSERT INTO keys (derivation_index, public_jwk) VALUES (0, '{}') RETURNING id", public_jwk("baseline"))).await;
-            let row: Id = ofdb_sql::decode(&inserted[0].rows[0].values[0], "id").expect("generated key ID");
-            ManagementService::new(
-                DbPermissionRepo::new(idp.client()),
-                DbRoleRepo::new(idp.client()),
+            let inserted = sql(
+                &idp,
+                &format!(
+                    "INSERT INTO keys (derivation_index, public_jwk) VALUES (0, '{}') RETURNING id",
+                    public_jwk("baseline")
+                ),
             )
-            .provision_initial_administrator(
+            .await;
+            let row: Id =
+                ofdb_sql::decode(&inserted[0].rows[0].values[0], "id").expect("generated key ID");
+            management_service::provision_initial_administrator(
+                &idp.client(),
                 actor,
-                Id::now_v7(),
                 &[
-                    (Id::now_v7(), IdentityAction::DevicePairingRead),
-                    (Id::now_v7(), IdentityAction::DevicePairingUpdate),
-                    (Id::now_v7(), IdentityAction::IdpSecuritySync),
-                    (Id::now_v7(), IdentityAction::ManagementSecuritySync),
+                    IdentityAction::DevicePairingRead,
+                    IdentityAction::DevicePairingUpdate,
+                    IdentityAction::IdpSecuritySync,
+                    IdentityAction::ManagementSecuritySync,
                 ],
             )
             .await

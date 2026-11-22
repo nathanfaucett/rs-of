@@ -59,7 +59,10 @@ pub mod validators {
                 .await?;
         }
         client
-            .execute_sql("SELECT policy_kind, application_id, policy_id, incarnation FROM rbac_revocations LIMIT 0", None)
+            .execute_sql(
+                "SELECT name, user_id, actions FROM administrator_provisioning LIMIT 0",
+                None,
+            )
             .await?;
         Ok(())
     }
