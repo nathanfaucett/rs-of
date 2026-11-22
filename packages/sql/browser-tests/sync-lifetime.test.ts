@@ -10,83 +10,81 @@ for (const operationKind of ["history", "legacy"] as const) {
     page,
   }) => {
     const result = await page.evaluate(async (kind) => {
-      const {
-        Database,
-        JsPushSyncTransport,
-        JsSqlSyncTransport,
-        PushSynchronizeConfig,
-      } = (window as any).sql;
-      const database = await Database.open(`close-during-${kind}`);
-      let started!: () => void;
-      const receiveStarted = new Promise<void>((resolve) => {
-        started = resolve;
-      });
-      let rejectReceive!: (error: Error) => void;
-      let closed = false;
-      let closeFailure: Error | undefined;
-      const transport = {
-        send: async () => undefined,
-        receive: () => {
-          started();
-          if (closed) return Promise.reject(closeFailure);
-          return new Promise<Uint8Array>((_, reject) => {
-            rejectReceive = reject;
-          });
-        },
-      };
-      const operation =
-        kind === "history"
-          ? database.synchronizeHistory(new JsSqlSyncTransport(transport))
-          : database.synchronize(
-              new JsPushSyncTransport(transport),
-              new PushSynchronizeConfig(),
-            );
-      const settled = operation.then(
-        () => "unexpected success",
-        (error: unknown) => String(error),
-      );
-      await receiveStarted;
-      let closeError;
+      const wasm = await import("/pkg/ofdb_wasm.js");
+      const originalFree = wasm.SqlDatabase.prototype.free;
+      let freeCalls = 0;
+      let closeError: string | undefined;
       try {
+        wasm.SqlDatabase.prototype.free = function (this: any) {
+          freeCalls++;
+          return originalFree.call(this);
+        };
+        const {
+          Database,
+          JsPushSyncTransport,
+          JsSqlSyncTransport,
+          PushSynchronizeConfig,
+        } = (window as any).sql;
+        const database = await Database.open(`close-during-${kind}`);
+        let started!: () => void;
+        const receiveStarted = new Promise<void>((resolve) => {
+          started = resolve;
+        });
+        let rejectReceive!: (error: Error) => void;
+        let closed = false;
+        let closeFailure: Error | undefined;
+        const transport = {
+          send: async () => undefined,
+          receive: () => {
+            started();
+            if (closed) return Promise.reject(closeFailure);
+            return new Promise<Uint8Array>((_, reject) => {
+              rejectReceive = reject;
+            });
+          },
+        };
+        const operation =
+          kind === "history"
+            ? database.synchronizeHistory(new JsSqlSyncTransport(transport))
+            : database.synchronize(
+                new JsPushSyncTransport(transport),
+                new PushSynchronizeConfig(),
+              );
+        const settled = operation.then(
+          () => "unexpected success",
+          (error: unknown) => String(error),
+        );
+        await receiveStarted;
+        try {
+          database.close();
+        } catch (error) {
+          closeError = String(error);
+        }
+        const freeBeforeSettlement = freeCalls;
+        closed = true;
+        closeFailure = new Error("deferred-close");
+        rejectReceive(closeFailure);
+        const syncError = await settled;
+        const freeAfterSettlement = freeCalls;
         database.close();
-      } catch (error) {
-        closeError = String(error);
+        const freeAfterSecondClose = freeCalls;
+        return {
+          closeError,
+          syncError,
+          freeBeforeSettlement,
+          freeAfterSettlement,
+          freeAfterSecondClose,
+        };
+      } finally {
+        wasm.SqlDatabase.prototype.free = originalFree;
       }
-      let deleted = false;
-      let deletionError: string | undefined;
-      const deletion = indexedDB.deleteDatabase(`ofdb:sql:close-during-${kind}`);
-      const deletionSettled = new Promise<void>((resolve, reject) => {
-        deletion.onsuccess = () => {
-          deleted = true;
-          resolve();
-        };
-        deletion.onerror = () => {
-          deletionError = String(deletion.error);
-          reject(deletion.error);
-        };
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      const deletedBeforeSettlement = deleted;
-      closed = true;
-      closeFailure = new Error("deferred-close");
-      rejectReceive(closeFailure);
-      const syncError = await settled;
-      await deletionSettled;
-      database.close();
-      return {
-        closeError,
-        syncError,
-        deletedBeforeSettlement,
-        deleted,
-        deletionError,
-      };
     }, operationKind);
 
     expect(result.closeError).toBeUndefined();
     expect(result.syncError).toContain("deferred-close");
-    expect(result.deletedBeforeSettlement).toBe(false);
-    expect(result.deleted).toBe(true);
-    expect(result.deletionError).toBeUndefined();
+    expect(result.freeBeforeSettlement).toBe(0);
+    expect(result.freeAfterSettlement).toBe(1);
+    expect(result.freeAfterSecondClose).toBe(1);
   });
 }
 

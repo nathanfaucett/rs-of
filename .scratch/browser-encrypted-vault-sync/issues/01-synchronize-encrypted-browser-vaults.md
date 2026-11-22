@@ -94,3 +94,9 @@ Remaining qualification limits:
 - The SQL close-lifetime tests now also prove IndexedDB deletion is incomplete while receive is pending and succeeds after operation settlement and handle release. Both history and legacy paths pass.
 - Full affected validation: SQL browser **54 passed**; sync SDK **13 passed** across **3 files**, including 8 lifecycle tests and 2 dist import smoke tests; real-backend Vitest **9 passed** and Playwright **11 passed**. Direct changed-file Biome lint, `cargo fmt --all -- --check`, `just docs-check`, and `git diff --check` passed.
 - This pass changes only TypeScript/tests/generated dist output, so no additional Rust test run was required beyond the focused Rust evidence above. Existing harness, full-workspace, nested-Biome, and caller-future-cancellation qualification limits remain unchanged.
+
+### 2026-11-21 — Test-only lifetime spy and package-resolution limit
+
+- Replaced the IndexedDB deletion heuristic with a public generated-WASM `SqlDatabase.free()` spy for both history and legacy operations. The test proves zero free calls after `Database.close()` while receive is pending, exactly one after settlement, and no duplicate after a second close. Temporarily restoring `handle.get()` reproduced both failures; restoring `handle.run()` passes all **3 focused tests**.
+- This pass changes tests and tracker evidence only, so the prior **9 Vitest and 11 Playwright real-backend results remain valid** with no new production-code qualification claim.
+- The dist smoke tests import built entry points through Vitest/workspace module resolution. They do not qualify native Node clean-package ESM loading. The missing `dist/sql.js` and extensionless relative-import concerns are baseline package-resolution debt, not introduced by this specification. Native Node/clean-package ESM qualification is explicitly out of scope.
