@@ -10,6 +10,8 @@ The native Storage runtime reacts to trusted policy, catalog, and peer-inventory
 
 Policy invalidation fences both directions. Execution checks protect later reads, sends, receives, and applies on existing connections. See [native replication lifecycle](../../storage-server/REPLICATION.md).
 
+The Device API manages Selection for an approved Device and an exact owner, Application, Resource kind, and Resource ID. Management supplies the Application permission, not a separate list of Selections. Native replication checks both Devices against current Device and Selection state. Learned deselection denies later replication for that Device without deleting the Resource.
+
 ### WebSocket SQL synchronization
 
 The `sync` feature mounts a binary WebSocket route for Storage SQL synchronization. Its v1 framing carries a Hello/Attach handshake and opaque SQL v7 messages with Postcard encoding and CRC32 integrity checks.

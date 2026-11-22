@@ -59,7 +59,6 @@ export interface VaultHandleLike {
   sync?(options?: { direction?: "bidirectional" | "push" | "pull"; conflictStrategy?: "local-wins" | "remote-wins" | "merge" | "manual" }): Promise<void>;
 
   /** Sync vault to another device (if available) */
-  syncToDevice?(targetDeviceId: string): Promise<void>;
 
   /** Close the vault */
   close(): void;

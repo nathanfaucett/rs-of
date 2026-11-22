@@ -4895,7 +4895,6 @@ dependencies = [
  "serde_repr",
  "serde_with",
  "url",
- "uuid",
 ]
 
 [[package]]
@@ -8624,6 +8623,7 @@ dependencies = [
  "env_logger 0.10.2",
  "idp-server",
  "management-server",
+ "management-service",
  "of-db",
  "of-model",
  "reqwest 0.12.28",

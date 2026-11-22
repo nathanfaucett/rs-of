@@ -44,10 +44,6 @@ export interface IndependentJoinRequest {
   /**
    *
    */
-  requestId: string;
-  /**
-   *
-   */
   endpointId: string;
   /**
    *
@@ -64,6 +60,10 @@ export interface IndependentJoinRequest {
   /**
    *
    */
+  requestId: string;
+  /**
+   *
+   */
   source: IndependentPeer;
 }
 
@@ -71,13 +71,6 @@ export interface IndependentJoinRequest {
  * Check if a given object implements the IndependentJoinRequest interface.
  */
 export function instanceOfIndependentJoinRequest(value: object): value is IndependentJoinRequest {
-  if (
-    (!("requestId" in (value as Record<string, any>)) &&
-      !("request_id" in (value as Record<string, any>))) ||
-    ((value as Record<string, any>)["requestId"] === undefined &&
-      (value as Record<string, any>)["request_id"] === undefined)
-  )
-    return false;
   if (
     (!("endpointId" in (value as Record<string, any>)) &&
       !("endpoint_id" in (value as Record<string, any>))) ||
@@ -100,6 +93,13 @@ export function instanceOfIndependentJoinRequest(value: object): value is Indepe
       (value as Record<string, any>)["public_signer"] === undefined)
   )
     return false;
+  if (
+    (!("requestId" in (value as Record<string, any>)) &&
+      !("request_id" in (value as Record<string, any>))) ||
+    ((value as Record<string, any>)["requestId"] === undefined &&
+      (value as Record<string, any>)["request_id"] === undefined)
+  )
+    return false;
   if (!("source" in value) || value["source"] === undefined) return false;
   return true;
 }
@@ -117,9 +117,14 @@ export function IndependentJoinRequestFromJSONTyped(
     typeof json === "object" &&
     Object.keys(json).some(
       (key) =>
-        !["request_id", "endpoint_id", "member_id", "operation", "public_signer", "source"].includes(
-          key
-        )
+        ![
+          "endpoint_id",
+          "member_id",
+          "operation",
+          "public_signer",
+          "request_id",
+          "source",
+        ].includes(key)
     )
   )
     throw new Error("Unexpected IndependentJoinRequest field");
@@ -127,11 +132,11 @@ export function IndependentJoinRequestFromJSONTyped(
     return json;
   }
   return {
-    requestId: json["request_id"],
     endpointId: json["endpoint_id"],
     memberId: json["member_id"],
     operation: IndependentCreateIntentFromJSON(json["operation"]),
     publicSigner: JwkPublicFromJSON(json["public_signer"]),
+    requestId: json["request_id"],
     source: IndependentPeerFromJSON(json["source"]),
   };
 }
@@ -149,11 +154,11 @@ export function IndependentJoinRequestToJSONTyped(
   }
 
   return {
-    request_id: value["requestId"],
     endpoint_id: value["endpointId"],
     member_id: value["memberId"],
     operation: IndependentCreateIntentToJSON(value["operation"]),
     public_signer: JwkPublicToJSON(value["publicSigner"]),
+    request_id: value["requestId"],
     source: IndependentPeerToJSON(value["source"]),
   };
 }

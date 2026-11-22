@@ -16,7 +16,11 @@ use idp_service::{
     password_config::PasswordConfig, replica::DbUserRepo, repo::user_repo::UserRepo,
 };
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
+use management_service::ofdb::permission_repo::DbPermissionRepo;
+use management_service::ofdb::role_repo::DbRoleRepo;
+use management_service::{LocalPermissions, ManagementService};
 use of_model::id::Id;
+use of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 use of_model::idp::contract::permission_evaluation::IdentityResource;
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
@@ -61,6 +65,9 @@ async fn queued_write_fixture(in_flight: bool) {
         let actor = insert_owner(&idp).await;
         insert_device(&management, actor, incoming.remote_id()).await;
         management_service::provision_initial_administrator(&management.client(), actor, &[IdentityAction::DevicePairingRead, IdentityAction::DevicePairingUpdate, IdentityAction::IdpSecuritySync]).await.expect("explicit actor grant");
+        let service = ManagementService::new(DbPermissionRepo::new(management.client()), DbRoleRepo::new(management.client()));
+        let roles = service.list_user_roles(INSTALLATION_POLICY_ID, actor).await.expect("read provisioned role");
+        let [role] = roles.as_slice() else { panic!("expected one provisioned role"); };
         let request = PermissionEvaluationRequest { request_id: Id::now_v7(), subject: PermissionSubject::User { id: actor }, action: IdentityAction::IdpSecuritySync, target: PermissionTarget::Installation { resource: IdentityResource::IdpSecurity } };
         for forged in [
             PermissionEvaluationRequest { subject: PermissionSubject::User { id: Id::now_v7() }, ..request.clone() },
@@ -117,7 +124,7 @@ async fn queued_write_fixture(in_flight: bool) {
                 write_loop(inner.clone(), send, received, inner.shutdown.subscribe()).await;
             })
         };
-        service.remove_role_from_user(of_model::idp::contract::permission_evaluation::INSTALLATION_POLICY_ID, actor, role).await.expect("learn local denial while queued");
+        service.remove_role_from_user(INSTALLATION_POLICY_ID, actor, role.id).await.expect("learn local denial while queued");
         assert!(!LocalPermissions::new(management.client()).evaluate(&request).await.expect("current local denial"));
         inner.outgoing.lock().expect("queue lock").take();
         resume.notify_one();

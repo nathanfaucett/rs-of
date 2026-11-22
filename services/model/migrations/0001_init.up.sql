@@ -245,18 +245,6 @@ CREATE TABLE IF NOT EXISTS application_user_roles (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS application_user_roles_user_application_role ON application_user_roles (user_id, application_id, role_id);
 
-CREATE TABLE IF NOT EXISTS sync_selections (
-    device_id UUID NOT NULL,
-    resource_id UUID NOT NULL,
-    application_id UUID NOT NULL,
-    owner_subject TEXT NOT NULL,
-    selected_at INTEGER NOT NULL,
-    revoked_at INTEGER,
-    PRIMARY KEY (device_id, resource_id)
-);
-CREATE INDEX IF NOT EXISTS sync_selections_resource ON sync_selections (resource_id);
-CREATE INDEX IF NOT EXISTS sync_selections_device ON sync_selections (device_id);
-
 CREATE TABLE IF NOT EXISTS local_device_copy_cleanup (device_id TEXT PRIMARY KEY, cleanup_id UUID NOT NULL, completed BOOLEAN NOT NULL);
 CREATE TABLE IF NOT EXISTS devices (id UUID PRIMARY KEY, owner_subject TEXT NOT NULL, name TEXT, public_key TEXT, address TEXT, state INTEGER, approved_at INTEGER, revoked_at INTEGER, created_at INTEGER, updated_at INTEGER);
 CREATE UNIQUE INDEX IF NOT EXISTS devices_public_key ON devices (public_key);

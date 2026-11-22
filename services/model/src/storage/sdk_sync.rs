@@ -1,29 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::sdk::ResourceId;
-
 use super::sync::SyncStatus;
-
-/// Represents an active sync session between two devices.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyncSession {
-    pub session_id: Uuid,
-    pub resource_id: ResourceId,
-    pub source_device: DeviceId,
-    pub target_device: DeviceId,
-    pub status: SyncStatus,
-    pub bytes_sent: u64,
-    pub bytes_received: u64,
-}
-
-/// Configuration for sync to device.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyncToDeviceConfig {
-    pub resource_id: ResourceId,
-    pub target_device: DeviceId,
-    // Direction removed - all transport is bidirectional
-}
 
 /// Device identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

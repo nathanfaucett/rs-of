@@ -552,16 +552,17 @@ mod tests {
                     "mfa_totp_secret" | "mfa_webauthn_credentials"
                 ) {
                     serde_json::Value::Null
-                } else if matches!(column.name.as_str(), "id" | "blocked_by" | "secret_revision")
-                    || column.name.ends_with("_id")
-                        && !["installation_id", "endpoint_id", "software_id"]
-                            .contains(&column.name.as_str())
-                        && !(column.name == "client_id" && table == PublicSecurityTable::Clients)
+                } else if matches!(
+                    column.name.as_str(),
+                    "id" | "blocked_by" | "secret_revision"
+                ) || column.name.ends_with("_id")
+                    && !["installation_id", "endpoint_id", "software_id"]
+                        .contains(&column.name.as_str())
+                    && !(column.name == "client_id" && table == PublicSecurityTable::Clients)
                 {
                     serde_json::json!(of_model::id::Id::now_v7())
                 } else if column.name.ends_with("_at")
                     || [
-
                         "blocked",
                         "sex",
                         "entity_type",

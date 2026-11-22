@@ -13,9 +13,8 @@ use super::routes::device_restriction::{
     put_device_restriction,
 };
 use super::routes::device_selection::{
-    __path_delete_device_resource_selection, __path_delete_device_selection,
-    __path_put_device_selection, delete_device_resource_selection, delete_device_selection,
-    put_device_selection,
+    __path_delete_device_resource_selection, __path_put_device_selection,
+    delete_device_resource_selection, put_device_selection,
 };
 use super::routes::device_self_revocation::{__path_revoke_self, revoke_self};
 use super::routes::devices::{
@@ -69,7 +68,6 @@ fn routes() -> OpenApiRouter<RouterState> {
         .routes(routes!(get_device_restriction))
         .routes(routes!(put_device_restriction))
         .routes(routes!(put_device_selection))
-        .routes(routes!(delete_device_selection))
         .routes(routes!(delete_device_resource_selection))
         .routes(routes!(selected_resources))
         .routes(routes!(replication_admission))
@@ -181,10 +179,10 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(
                 operations.len(),
-                31,
+                30,
                 "complete Management operation inventory"
             );
-            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 31);
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 30);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");

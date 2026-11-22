@@ -142,15 +142,6 @@ export class BrowserSyncSDK {
             return resources.map((r) => ({ id: r.id, name: r.name ?? null }));
         },
     };
-    async syncToDevice(resourceId, targetDeviceId) {
-        const session = await this.storageClient.syncToDevice(resourceId, targetDeviceId);
-        return {
-            sessionId: session.sessionId,
-            resourceId: session.resourceId,
-            targetDevice: session.targetDevice,
-            status: session.status.toLowerCase(),
-        };
-    }
     async close() {
         for (const db of this.databases.values()) {
             await db.close();

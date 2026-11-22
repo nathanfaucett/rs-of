@@ -26,7 +26,5 @@ export * from "./PermissionTarget.js";
 export * from "./PermissionTargetOneOf.js";
 export * from "./PermissionTargetOneOf1.js";
 export * from "./RoleResponse.js";
-export * from "./SyncSelectionRequest.js";
-export * from "./SyncSelectionResponse.js";
 export * from "./UserApplicationRoleResponse.js";
 export * from "./VersionResponse.js";

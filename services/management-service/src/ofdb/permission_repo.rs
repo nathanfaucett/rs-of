@@ -26,12 +26,9 @@ use of_model::management_error::ManagementResult;
 use super::insert::{insert_policy_record, returned_id};
 use crate::PermissionRepo;
 
-use of_model::management::SyncSelection;
-
 const PERMISSIONS: &str = "permissions";
 const ROLES: &str = "roles";
 const ROLE_PERMISSIONS: &str = "role_permissions";
-const SYNC_SELECTIONS: &str = "sync_selections";
 const PERMISSION_COLUMNS: [&str; 6] = [
     "id",
     "application_id",
@@ -42,13 +39,6 @@ const PERMISSION_COLUMNS: [&str; 6] = [
 ];
 const ROLE_COLUMNS: [&str; 2] = ["id", "application_id"];
 const ROLE_PERMISSION_COLUMNS: [&str; 4] = ["id", "role_id", "permission_id", "revoked_at"];
-const SYNC_SELECTION_COLUMNS: [&str; 5] = [
-    "device_id",
-    "resource_id",
-    "application_id",
-    "owner_subject",
-    "selected_at",
-];
 
 pub struct DbPermissionRepo {
     engine: ofdb_sql::Client,
@@ -333,139 +323,6 @@ impl PermissionRepo for DbPermissionRepo {
         result.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(result)
     }
-
-    fn select_resource(
-        &self,
-        device_id: Id,
-        resource_id: Id,
-        application_id: Id,
-        owner_subject: &str,
-    ) -> impl Future<Output = ManagementResult<()>> {
-        let query = format!(
-            "INSERT INTO {SYNC_SELECTIONS} (device_id, resource_id, application_id, owner_subject, selected_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (device_id, resource_id) DO UPDATE SET revoked_at = NULL, selected_at = $5, application_id = $3, owner_subject = $4"
-        );
-        let params = QueryParams::Positional(vec![
-            Value::Uuid(device_id),
-            Value::Uuid(resource_id),
-            Value::Uuid(application_id),
-            Value::Text(owner_subject.into()),
-            Value::Integer(now().timestamp()),
-        ]);
-        async move {
-            self.engine
-                .execute_sql(&query, Some(&params))
-                .await
-                .map_err(db_error)?;
-            Ok(())
-        }
-    }
-
-    fn deselect_resource(
-        &self,
-        device_id: Id,
-        resource_id: Id,
-    ) -> impl Future<Output = ManagementResult<()>> {
-        let now = now().timestamp();
-        let query = format!(
-            "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = $1 AND resource_id = $2 AND revoked_at IS NULL"
-        );
-        let params =
-            QueryParams::Positional(vec![Value::Uuid(device_id), Value::Uuid(resource_id)]);
-        async move {
-            self.engine
-                .execute_sql(&query, Some(&params))
-                .await
-                .map_err(db_error)?;
-            Ok(())
-        }
-    }
-
-    fn list_device_selections(
-        &self,
-        device_id: Id,
-    ) -> impl Future<Output = ManagementResult<Vec<SyncSelection>>> {
-        let query = format!(
-            "SELECT {} FROM {SYNC_SELECTIONS} WHERE device_id = $1 AND revoked_at IS NULL",
-            SYNC_SELECTION_COLUMNS.join(", ")
-        );
-        let params = QueryParams::Positional(vec![Value::Uuid(device_id)]);
-        async move {
-            let results = self
-                .engine
-                .execute_sql(&query, Some(&params))
-                .await
-                .map_err(db_error)?;
-            let result = results
-                .into_iter()
-                .next()
-                .ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
-            let rows = result.rows_as::<SyncSelectionRow>().map_err(row_error)?;
-            Ok(rows.into_iter().map(std::convert::Into::into).collect())
-        }
-    }
-
-    fn list_resource_sync_targets(
-        &self,
-        resource_id: Id,
-    ) -> impl Future<Output = ManagementResult<Vec<SyncSelection>>> {
-        let query = format!(
-            "SELECT {} FROM {SYNC_SELECTIONS} WHERE resource_id = $1 AND revoked_at IS NULL",
-            SYNC_SELECTION_COLUMNS.join(", ")
-        );
-        let params = QueryParams::Positional(vec![Value::Uuid(resource_id)]);
-        async move {
-            let results = self
-                .engine
-                .execute_sql(&query, Some(&params))
-                .await
-                .map_err(db_error)?;
-            let result = results
-                .into_iter()
-                .next()
-                .ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
-            let rows = result.rows_as::<SyncSelectionRow>().map_err(row_error)?;
-            Ok(rows.into_iter().map(std::convert::Into::into).collect())
-        }
-    }
-
-    fn has_selection(
-        &self,
-        device_id: Id,
-        resource_id: Id,
-    ) -> impl Future<Output = ManagementResult<bool>> {
-        let query = format!(
-            "SELECT device_id FROM {SYNC_SELECTIONS} WHERE device_id = $1 AND resource_id = $2 AND revoked_at IS NULL LIMIT 1"
-        );
-        let params =
-            QueryParams::Positional(vec![Value::Uuid(device_id), Value::Uuid(resource_id)]);
-        async move {
-            let results = self
-                .engine
-                .execute_sql(&query, Some(&params))
-                .await
-                .map_err(db_error)?;
-            let result = results
-                .into_iter()
-                .next()
-                .ok_or_else(|| ManagementError::InvalidInput("missing query result".into()))?;
-            Ok(!result.rows.is_empty())
-        }
-    }
-
-    fn clear_device_selections(&self, device_id: Id) -> impl Future<Output = ManagementResult<()>> {
-        let now = now().timestamp();
-        let query = format!(
-            "UPDATE {SYNC_SELECTIONS} SET revoked_at = {now} WHERE device_id = $1 AND revoked_at IS NULL"
-        );
-        let params = QueryParams::Positional(vec![Value::Uuid(device_id)]);
-        async move {
-            self.engine
-                .execute_sql(&query, Some(&params))
-                .await
-                .map_err(db_error)?;
-            Ok(())
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -554,51 +411,6 @@ impl FromRow for RolePermissionRow {
         })
     }
 }
-#[derive(Clone, Debug)]
-struct SyncSelectionRow {
-    device_id: Id,
-    resource_id: Id,
-    application_id: Id,
-    owner_subject: String,
-    selected_at: i64,
-}
-
-impl FromRow for SyncSelectionRow {
-    fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
-        Ok(Self {
-            device_id: ofdb_sql::decode(ofdb_sql::value(row, columns, "device_id")?, "device_id")?,
-            resource_id: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "resource_id")?,
-                "resource_id",
-            )?,
-            application_id: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "application_id")?,
-                "application_id",
-            )?,
-            owner_subject: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "owner_subject")?,
-                "owner_subject",
-            )?,
-            selected_at: ofdb_sql::decode(
-                ofdb_sql::value(row, columns, "selected_at")?,
-                "selected_at",
-            )?,
-        })
-    }
-}
-
-impl From<SyncSelectionRow> for SyncSelection {
-    fn from(row: SyncSelectionRow) -> Self {
-        Self {
-            device_id: row.device_id,
-            resource_id: row.resource_id,
-            application_id: row.application_id,
-            owner_subject: row.owner_subject,
-            selected_at: row.selected_at,
-        }
-    }
-}
-
 fn now() -> DateTime<Utc> {
     Utc::now()
         .with_nanosecond(0)

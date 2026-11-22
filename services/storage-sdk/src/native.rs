@@ -8,18 +8,15 @@ use {
             DatabaseId, DatabaseInfo, FilesystemId, FilesystemInfo, KvStoreId, KvStoreInfo,
             ResourceId,
         },
-        sdk_sync::{DeviceId, SyncResult, SyncSession, SyncToDeviceConfig},
-        sync::{SyncDirection as ClientSyncDirection, SyncStatus},
+        sdk_sync::{DeviceId, SyncResult},
+        sync::SyncDirection as ClientSyncDirection,
     },
     of_storage_api_client::apis::configuration::Configuration,
     of_storage_api_client::apis::resources_api::{
         GetDatabaseParams, GetFileSystemParams, create_database, create_file_system,
         delete_database, get_database, get_file_system, list_databases, list_file_systems,
     },
-    of_storage_api_client::apis::sync_api::sync_connect,
-    of_storage_api_client::models::{
-        CreateResourceRequest, Status, SyncConnectRequest, SyncSessionResponse,
-    },
+    of_storage_api_client::models::CreateResourceRequest,
     ofdb_sql::{
         Client as SqlClient, Database as SqlDatabase, QueryParams, QueryResult, SessionConfig,
         SyncResult as OfdbSyncResult, SyncRole, SyncTransport, Transaction as SqlTransaction,
@@ -268,47 +265,6 @@ impl StorageSdk {
             .collect())
     }
 
-    /// Start a sync session to another device.
-    pub async fn sync_to_device(
-        &self,
-        config: SyncToDeviceConfig,
-    ) -> StorageSdkResult<SyncSession> {
-        let token = (self.token_provider)().await?;
-        self.with_config(|config| config.bearer_access_token = Some(token.into()))
-            .await;
-
-        let request = SyncConnectRequest {
-            resource_id: config.resource_id.into(),
-            target_device: config.target_device.into(),
-        };
-
-        let session = sync_connect(
-            &self.http_config.lock().unwrap(),
-            of_storage_api_client::apis::sync_api::SyncConnectParams {
-                sync_connect_request: request,
-            },
-        )
-        .await?;
-
-        let status = match session.status {
-            Status::Connecting => SyncStatus::Connecting,
-            Status::Syncing => SyncStatus::Syncing,
-            Status::Completed => SyncStatus::Completed,
-            Status::Failed => SyncStatus::Failed,
-            Status::Cancelled => SyncStatus::Cancelled,
-        };
-
-        Ok(SyncSession {
-            session_id: session.session_id,
-            resource_id: ResourceId::from_uuid(session.resource_id),
-            source_device: DeviceId::from_uuid(session.source_device),
-            target_device: DeviceId::from_uuid(session.target_device),
-            status,
-            bytes_sent: session.bytes_sent as u64,
-            bytes_received: session.bytes_received as u64,
-        })
-    }
-
     async fn open_local_database(&self, id: &DatabaseId) -> StorageSdkResult<SqlDatabase> {
         let path = format!("./data/databases/{}.redb", id);
         std::fs::create_dir_all("./data/databases").ok();
@@ -435,16 +391,6 @@ impl SqlDatabaseHandle {
 
         Ok(result)
     }
-
-    /// Start a sync session to another device via the storage service.
-    pub async fn sync_to_device(&self, target_device: DeviceId) -> StorageSdkResult<SyncSession> {
-        self.sdk
-            .sync_to_device(SyncToDeviceConfig {
-                resource_id: self.info.id.into(),
-                target_device,
-            })
-            .await
-    }
 }
 
 /// Handle for a KV store with built-in sync transport.
@@ -508,15 +454,6 @@ impl KvStoreHandle {
             .await
             .map_err(|e| StorageSdkError::kv_store(e.to_string()))
     }
-
-    pub async fn sync_to_device(&self, target_device: DeviceId) -> StorageSdkResult<SyncSession> {
-        self.sdk
-            .sync_to_device(SyncToDeviceConfig {
-                resource_id: self.info.id.into(),
-                target_device,
-            })
-            .await
-    }
 }
 
 /// Handle for a filesystem with built-in sync transport.
@@ -547,15 +484,6 @@ impl FilesystemHandle {
             .as_ref()
             .cloned()
             .ok_or_else(|| StorageSdkError::filesystem("Filesystem not initialized"))
-    }
-
-    pub async fn sync_to_device(&self, target_device: DeviceId) -> StorageSdkResult<SyncSession> {
-        self.sdk
-            .sync_to_device(SyncToDeviceConfig {
-                resource_id: self.info.id.into(),
-                target_device,
-            })
-            .await
     }
 }
 

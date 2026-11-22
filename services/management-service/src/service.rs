@@ -16,8 +16,6 @@ use crate::PermissionRepo;
 
 use crate::RoleRepo;
 
-use of_model::management::SyncSelection;
-
 pub const MANAGEMENT_APPLICATION_URI: &str = "idp-management";
 
 pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 26] = [
@@ -252,109 +250,6 @@ where
             .remove_permission_from_role(application_id, role_id, permission_id)
             .await
     }
-
-    // ManagementSyncSelection implementation
-    pub async fn select_resource_for_sync(
-        &self,
-        device_id: Id,
-        resource_id: Id,
-        application_id: Id,
-        owner_subject: &str,
-    ) -> Result<(), ManagementError> {
-        // Check admin permission
-        // TODO: Add proper authorization check
-        self.select_resource(device_id, resource_id, application_id, owner_subject)
-            .await
-    }
-
-    pub async fn deselect_resource_for_sync(
-        &self,
-        device_id: Id,
-        resource_id: Id,
-    ) -> Result<(), ManagementError> {
-        // TODO: Add proper authorization check
-        self.deselect_resource(device_id, resource_id).await
-    }
-
-    pub async fn list_sync_selections_for_device(
-        &self,
-        device_id: Id,
-    ) -> Result<Vec<SyncSelection>, ManagementError> {
-        self.list_device_selections(device_id).await
-    }
-
-    pub async fn list_sync_targets_for_resource(
-        &self,
-        resource_id: Id,
-    ) -> Result<Vec<SyncSelection>, ManagementError> {
-        self.list_resource_sync_targets(resource_id).await
-    }
-
-    pub async fn get_sync_target(
-        &self,
-        resource_id: Id,
-        source_device_id: Id,
-    ) -> Result<Option<SyncSelection>, ManagementError> {
-        let targets: Vec<SyncSelection> = self.list_resource_sync_targets(resource_id).await?;
-        Ok(targets
-            .into_iter()
-            .find(|s| s.device_id != source_device_id))
-    }
-
-    // Sync selection methods (delegated to permission_repo)
-    pub async fn select_resource(
-        &self,
-        device_id: Id,
-        resource_id: Id,
-        application_id: Id,
-        owner_subject: &str,
-    ) -> Result<(), ManagementError> {
-        self.permission_repo
-            .select_resource(device_id, resource_id, application_id, owner_subject)
-            .await
-    }
-
-    pub async fn deselect_resource(
-        &self,
-        device_id: Id,
-        resource_id: Id,
-    ) -> Result<(), ManagementError> {
-        self.permission_repo
-            .deselect_resource(device_id, resource_id)
-            .await
-    }
-
-    pub async fn list_device_selections(
-        &self,
-        device_id: Id,
-    ) -> Result<Vec<SyncSelection>, ManagementError> {
-        self.permission_repo.list_device_selections(device_id).await
-    }
-
-    pub async fn list_resource_sync_targets(
-        &self,
-        resource_id: Id,
-    ) -> Result<Vec<SyncSelection>, ManagementError> {
-        self.permission_repo
-            .list_resource_sync_targets(resource_id)
-            .await
-    }
-
-    pub async fn has_selection(
-        &self,
-        device_id: Id,
-        resource_id: Id,
-    ) -> Result<bool, ManagementError> {
-        self.permission_repo
-            .has_selection(device_id, resource_id)
-            .await
-    }
-
-    pub async fn clear_device_selections(&self, device_id: Id) -> Result<(), ManagementError> {
-        self.permission_repo
-            .clear_device_selections(device_id)
-            .await
-    }
 }
 
 #[cfg(all(test, feature = "ofdb"))]
@@ -368,50 +263,6 @@ mod tests {
     use crate::ofdb::DbRoleRepo;
 
     use db::ofdb::up;
-
-    #[tokio::test]
-    async fn reselecting_a_revoked_resource_restores_one_selection() {
-        let engine = ofdb_sql::Database::in_memory();
-        up(&engine.client())
-            .await
-            .expect("initialize policy schema");
-        let service = ManagementService::new(
-            DbPermissionRepo::new(engine.client()),
-            DbRoleRepo::new(engine.client()),
-        );
-        let (device, resource, application) = (Id::now_v7(), Id::now_v7(), Id::now_v7());
-        service
-            .select_resource(device, resource, application, "user's subject")
-            .await
-            .expect("select the Resource");
-        service
-            .deselect_resource(device, resource)
-            .await
-            .expect("revoke the Selection");
-        assert!(
-            !service
-                .has_selection(device, resource)
-                .await
-                .expect("lookup")
-        );
-        service
-            .select_resource(device, resource, application, "user's subject")
-            .await
-            .expect("restore the Selection");
-        let selections = service
-            .list_device_selections(device)
-            .await
-            .expect("list Selections");
-        assert_eq!(selections.len(), 1);
-        assert_eq!(selections[0].owner_subject, "user's subject");
-        assert_eq!(
-            selections,
-            service
-                .list_resource_sync_targets(resource)
-                .await
-                .expect("list targets")
-        );
-    }
 
     #[tokio::test]
     async fn initial_administrator_has_explicit_client_registration_permission() {

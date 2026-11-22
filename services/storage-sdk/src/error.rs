@@ -96,20 +96,6 @@ impl StorageSdkError {
 // Implement From for various HTTP error types
 impl
     From<
-        of_storage_api_client::apis::Error<of_storage_api_client::apis::sync_api::SyncConnectError>,
-    > for StorageSdkError
-{
-    fn from(
-        e: of_storage_api_client::apis::Error<
-            of_storage_api_client::apis::sync_api::SyncConnectError,
-        >,
-    ) -> Self {
-        Self::Http(Box::new(e))
-    }
-}
-
-impl
-    From<
         of_storage_api_client::apis::Error<
             of_storage_api_client::apis::resources_api::CreateDatabaseError,
         >,

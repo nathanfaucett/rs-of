@@ -6,7 +6,6 @@ pub mod contract;
 pub mod device;
 pub mod idp;
 pub mod json_vec;
-pub mod management;
 pub mod ofdb;
 pub mod space_delimited;
 pub mod storage;
@@ -16,8 +15,6 @@ pub mod http;
 pub mod management_error;
 
 pub mod device_error;
-
-pub mod sync_selection;
 
 pub mod server;
 

@@ -54,9 +54,18 @@ impl Fixture {
             kind: "database".into(),
             resource_id: catalog.id.to_string(),
         };
-        for node in &nodes {
-            node.select(&resource).await;
-        }
+        nodes[0].select(&resource).await;
+        nodes[1]
+            .management
+            .import_history(
+                nodes[0]
+                    .management
+                    .export_history()
+                    .await
+                    .expect("Selection history"),
+            )
+            .await
+            .expect("peer learns both Selections");
         Self {
             peers,
             nodes,
@@ -509,9 +518,21 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
             }
             for device in 0..2 {
                 let node = &fixture.nodes[receiver];
-                assert!(device_service::ofdb::selection_policy::DbSelectionPolicyRepo::new(node.management.clone().client()).deselect_resource_owned(node.devices[device], &fixture.resource.owner_subject, fixture.resource.application_id.parse().expect("Application"), "database", fixture.resource.resource_id.parse().expect("database ID")).await.expect("real local deselection"));
-                assert!(production_session_claim(&fixture, source, &fixture.resource).await.is_err(), "allowlisted authenticated peer requires BOTH current selections");
+                let peer = &fixture.nodes[source];
+                let application_id = fixture.resource.application_id.parse().expect("Application ID");
+                let resource_id: Id = fixture.resource.resource_id.parse().expect("database ID");
+                let owner = &fixture.resource.owner_subject;
+                let policies = device_service::ofdb::DbSelectionPolicyRepo::new(peer.management.client());
+                assert!(policies.deselect_resource_owned(peer.devices[device], owner, application_id, "database", resource_id).await.expect("exact Device deselection"));
+                assert!(fixture.authorize(receiver)().await, "receiver has not learned deselection yet");
+                node.management.import_history(peer.management.export_history().await.expect("deselection history")).await.expect("learn deselection on receiver");
+                assert!(!fixture.authorize(receiver)().await, "receiver denies the learned deselection");
+                assert!(production_session_claim(&fixture, source, &fixture.resource).await.is_err(), "both Devices need a current Selection");
+                let scope = Namespace { owner_subject: owner.clone(), application_id };
+                assert!(fixture.runtimes[0].get(&scope, resource_id).expect("read source catalog").is_some());
+                assert!(!fixture.runtimes[receiver].is_tombstoned(&scope, resource_id).expect("read receiver catalog"));
                 node.select(&fixture.resource).await;
+                peer.management.import_history(node.management.export_history().await.expect("reselection history")).await.expect("learn reselection on peer");
                 node.restrict(device, false).await;
                 assert!(production_session_claim(&fixture, source, &fixture.resource).await.is_err(), "both independently learned Device restrictions deny");
                 node.restrict(device, true).await;
@@ -524,6 +545,12 @@ async fn real_production_database_admission_checks_identity_both_selections_and_
             sql(&fixture.nodes[receiver].management, &format!("UPDATE devices SET public_key = '{}' WHERE id = CAST('{device}' AS UUID)", fixture.peers.ids()[source])).await;
             production_session_claim(&fixture, source, &fixture.resource).await.expect("restored exact local binding permits existing-connection retry");
             eprintln!("admission receiver {receiver}: identity restoration {:?}", started.elapsed());
+            for device in 0..2 {
+                fixture.nodes[receiver].revoke(device).await;
+                assert!(production_session_claim(&fixture, source, &fixture.resource).await.is_err(), "both Devices need approval even when both are selected");
+                sql(&fixture.nodes[receiver].management, &format!("UPDATE devices SET state = 1, revoked_at = NULL WHERE id = CAST('{}' AS UUID)", fixture.nodes[receiver].devices[device])).await;
+                production_session_claim(&fixture, source, &fixture.resource).await.expect("restored approval permits retry");
+            }
             sql(&fixture.nodes[receiver].management, "DROP TABLE device_resource_selections").await;
             assert!(production_session_claim(&fixture, source, &fixture.resource).await.is_err(), "failed LOCAL evaluation denies instead of falling back to unreachable HTTP");
             assert_eq!(values(&fixture.databases[receiver]).await, [ofdb_sql::Value::Text("retained".into())]);

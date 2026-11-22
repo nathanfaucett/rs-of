@@ -1,36 +1,8 @@
 <script lang="ts">
-import { Alert, Card, Field } from "$lib/ui";
+import { Alert, Card } from "$lib/ui";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 import { syncStateModule } from "$lib/shared/state/sync.svelte";
 import { authState } from "$lib/auth/auth.svelte";
-import type { SyncVaultHandle } from "$lib/vault/sync-vault";
-
-let targetDeviceId = $state("");
-let isSyncing = $state(false);
-let syncError = $state("");
-let syncSuccess = $state("");
-
-async function handleSyncToDevice() {
-  if (!targetDeviceId.trim() || isSyncing) return;
-  const vaultData = vaultStateModule.vaultData;
-  if (!vaultData?.isSynced) return;
-
-  const vault = vaultData.vault as SyncVaultHandle;
-
-  isSyncing = true;
-  syncError = "";
-  syncSuccess = "";
-
-  try {
-    await vault.syncToDevice(targetDeviceId.trim());
-    syncSuccess = `Sync initiated to device ${targetDeviceId.trim()}`;
-  } catch (e) {
-    syncError = e instanceof Error ? e.message : "Sync failed";
-  } finally {
-    isSyncing = false;
-  }
-}
-
 </script>
 
 <Card class="w-full">
@@ -56,36 +28,7 @@ async function handleSyncToDevice() {
     </div>
 
     {#if vaultStateModule.vaultData?.isSynced}
-      <div class="border-t pt-4">
-        <h4 class="font-medium mb-2">Sync to another device</h4>
-        <p class="text-sm text-muted-foreground mb-3">
-          Enter the target device ID to sync this vault to another approved device.
-        </p>
-        <Field id="target-device" label="Target Device ID">
-          {#snippet children(control)}
-            <div class="flex gap-2">
-              <input
-                {...control}
-                bind:value={targetDeviceId}
-                type="text"
-                placeholder="device-uuid"
-                class="flex-1"
-                disabled={isSyncing}
-              />
-              <button class="btn btn-primary" type="button" disabled={isSyncing || !targetDeviceId.trim()} onclick={handleSyncToDevice}>
-                {isSyncing ? "Syncing…" : "Sync to Device"}
-              </button>
-            </div>
-          {/snippet}
-        </Field>
-
-        {#if syncError}
-          <Alert tone="danger">{syncError}</Alert>
-        {/if}
-        {#if syncSuccess}
-          <Alert tone="success">{syncSuccess}</Alert>
-        {/if}
-      </div>
+      <p class="text-sm text-muted-foreground">Select this vault through the Device service to replicate it to an approved Device.</p>
     {:else if !authState.isAuthenticated}
       <p class="text-sm text-muted-foreground">
         Your vault is stored on this device. Sign in to your Sync Server to enable synchronization.

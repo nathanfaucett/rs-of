@@ -30,17 +30,26 @@ async fn embedded_adapter_initializes_all_owner_tables() {
     for table in [
         "users",
         "clients",
-        "sync_selections",
         "devices",
-        "namespaces",
-        "resources",
+        "local_user_password_verifiers",
+        "local_client_secret_verifiers",
+        "administrator_provisioning",
         "databases",
-        "filesystems",
+        "device_resource_selections",
     ] {
         client
             .execute_sql(&format!("SELECT * FROM {table} LIMIT 0"), None)
             .await
-            .expect("owner table exists");
+            .unwrap_or_else(|error| panic!("owner table {table} is unreadable: {error}"));
+    }
+    for table in ["namespaces", "resources", "filesystems", "sync_selections"] {
+        assert!(
+            client
+                .execute_sql(&format!("SELECT * FROM {table} LIMIT 0"), None)
+                .await
+                .is_err(),
+            "obsolete table {table} must not exist"
+        );
     }
 }
 

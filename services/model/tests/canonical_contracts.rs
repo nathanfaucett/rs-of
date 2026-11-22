@@ -1,7 +1,6 @@
 use of_model::http;
 use of_model::node_join::NodeJoinRequest;
 use of_model::setup::IndependentCreateIntent;
-use of_model::storage::sync::SyncStatus;
 
 #[test]
 fn all_owners_use_one_setup_wire_type() {
@@ -29,56 +28,10 @@ fn join_request_keeps_the_signed_field_order() {
 }
 
 #[test]
-fn sync_session_status_has_one_identity_and_camel_case_wire_values() {
-    for (status, expected) in [
-        (SyncStatus::Connecting, "\"connecting\""),
-        (SyncStatus::Syncing, "\"syncing\""),
-        (SyncStatus::Completed, "\"completed\""),
-        (SyncStatus::Failed, "\"failed\""),
-        (SyncStatus::Cancelled, "\"cancelled\""),
-    ] {
-        let server: of_model::storage::sync::SyncStatus = status;
-        let client: http::storage::sync_session_response::Status = server;
-        let _: http::storage_api::sync_session_response::Status = client;
-        assert_eq!(
-            serde_json::to_string(&status).expect("sync status"),
-            expected
-        );
-        assert_eq!(
-            serde_json::from_str::<SyncStatus>(expected).expect("sync status"),
-            status
-        );
-    }
-}
-
-#[test]
-fn sdk_sync_payloads_preserve_their_wire_shape_with_alloc_only() {
-    use of_model::storage::sdk::ResourceId;
-    use of_model::storage::sdk_sync::DeviceId;
+fn sdk_sync_result_preserves_its_wire_shape_with_alloc_only() {
     use of_model::storage::sdk_sync::SyncResult;
-    use of_model::storage::sdk_sync::SyncSession;
-    use of_model::storage::sync::SyncStatus;
-
-    let id =
-        of_model::id::Id::parse_str("00000000-0000-7000-8000-000000000001").expect("fixture ID");
-    let session = SyncSession {
-        session_id: id,
-        resource_id: ResourceId::from_uuid(id),
-        source_device: DeviceId::from_uuid(id),
-        target_device: DeviceId::from(id),
-        status: SyncStatus::Completed,
-        bytes_sent: u64::MAX,
-        bytes_received: 0,
-    };
-    let wire = serde_json::to_value(session).expect("SDK session");
+    let wire = serde_json::to_value(SyncResult::default()).expect("SDK result");
     assert_eq!(wire["status"], "completed");
-    assert_eq!(wire["bytes_sent"], u64::MAX);
-    assert_eq!(wire["resource_id"], "00000000-0000-7000-8000-000000000001");
-    let decoded: SyncSession = serde_json::from_value(wire).expect("SDK session round trip");
-    assert_eq!(decoded.resource_id.as_uuid(), id);
-    assert_eq!(decoded.source_device.as_uuid(), id);
-    assert_eq!(of_model::id::Id::from(decoded.target_device), id);
-    assert_eq!(SyncResult::default().status, SyncStatus::Completed);
 }
 
 #[cfg(feature = "std")]

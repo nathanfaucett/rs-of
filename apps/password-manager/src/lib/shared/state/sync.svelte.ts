@@ -1,5 +1,5 @@
 import { createSync } from "@ofsdk/sync-sdk/browser";
-import type { SyncSDK, SyncConfig, DatabaseHandle, SyncSession } from "@ofsdk/sync-sdk";
+import type { SyncSDK, SyncConfig, DatabaseHandle } from "@ofsdk/sync-sdk";
 import { StorageClient } from "../../../../../../packages/storage-client/src/index";
 import { authState } from "$lib/auth/auth.svelte";
 import { env } from "$env/dynamic/public";
@@ -59,10 +59,6 @@ async function closeSync(): Promise<void> {
   }
 }
 
-function getSyncSDK(): SyncSDK | null {
-  return syncSDK;
-}
-
 async function createDatabase(name: string): Promise<DatabaseHandle | null> {
   if (!syncSDK) return null;
   return syncSDK.sql.create(name);
@@ -78,11 +74,6 @@ async function listDatabases(): Promise<{ id: string; name: string | null }[]> {
   return syncSDK.sql.list();
 }
 
-async function syncToDevice(resourceId: string, targetDeviceId: string): Promise<SyncSession | null> {
-  if (!syncSDK) return null;
-  return syncSDK.syncToDevice(resourceId, targetDeviceId);
-}
-
 export const syncStateModule = {
   get sdk() {
     return syncSDK;
@@ -95,9 +86,7 @@ export const syncStateModule = {
   },
   initializeSync,
   closeSync,
-  getSyncSDK,
   createDatabase,
   openDatabase,
   listDatabases,
-  syncToDevice,
 };

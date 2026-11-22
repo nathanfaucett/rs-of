@@ -1,5 +1,5 @@
 import { type Observable } from "rxjs";
-import type { SyncConfig, SyncSDK, DatabaseHandle, KvStoreHandle, FilesystemHandle, SyncState, SyncSession } from "./core";
+import type { SyncConfig, SyncSDK, DatabaseHandle, KvStoreHandle, FilesystemHandle, SyncState } from "./core";
 /** Browser sync SDK implementation */
 export declare class BrowserSyncSDK implements SyncSDK {
     private storageClient;
@@ -37,7 +37,6 @@ export declare class BrowserSyncSDK implements SyncSDK {
             name: string | null;
         }[]>;
     };
-    syncToDevice(resourceId: string, targetDeviceId: string): Promise<SyncSession>;
     close(): Promise<void>;
 }
 /** Create sync SDK instance for browser */

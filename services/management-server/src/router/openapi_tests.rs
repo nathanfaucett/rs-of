@@ -16,6 +16,37 @@ async fn management_serves_only_permission_contract() {
     )
     .await
     .expect("router");
+    for (method, path) in [
+        (
+            "GET",
+            "/management/devices/01890f4e-7c00-7000-8000-000000000001/sync-selections",
+        ),
+        (
+            "POST",
+            "/management/devices/01890f4e-7c00-7000-8000-000000000001/sync-selections",
+        ),
+        (
+            "GET",
+            "/management/resources/01890f4e-7c00-7000-8000-000000000001/sync-targets",
+        ),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(
+            response.status(),
+            http::StatusCode::NOT_FOUND,
+            "{method} {path}"
+        );
+    }
     let response = router
         .oneshot(
             Request::get("/management/openapi.json")
@@ -34,9 +65,9 @@ async fn management_serves_only_permission_contract() {
             .as_object()
             .expect("paths")
             .keys()
-            .all(|path| path == "/devices/{device_id}/sync-selections"
-                || (!path.starts_with("/device")
-                    && !path.starts_with("/replication")
-                    && !path.starts_with("/node-joins")))
+            .all(|path| !path.starts_with("/device")
+                && !path.starts_with("/replication")
+                && !path.starts_with("/node-joins")
+                && !path.starts_with("/resources"))
     );
 }

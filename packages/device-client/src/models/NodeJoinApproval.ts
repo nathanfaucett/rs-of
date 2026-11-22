@@ -79,7 +79,9 @@ export function NodeJoinApprovalFromJSONTyped(
   if (
     json &&
     typeof json === "object" &&
-    Object.keys(json).some((key) => !["device_id", "owner_subject", "request", "signature"].includes(key))
+    Object.keys(json).some(
+      (key) => !["device_id", "owner_subject", "request", "signature"].includes(key)
+    )
   )
     throw new Error("Unexpected NodeJoinApproval field");
   if (json == null) {

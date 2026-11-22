@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { type Observable } from "rxjs";
-import type { SyncConfig, SyncSDK, DatabaseHandle, KvStoreHandle, FilesystemHandle, SyncState, SyncSession } from "./core";
+import type { SyncConfig, SyncSDK, DatabaseHandle, KvStoreHandle, FilesystemHandle, SyncState } from "./core";
 /** Node.js sync SDK implementation */
 export declare class NodeSyncSDK extends EventEmitter implements SyncSDK {
     private storageClient;
@@ -38,7 +38,6 @@ export declare class NodeSyncSDK extends EventEmitter implements SyncSDK {
             name: string | null;
         }[]>;
     };
-    syncToDevice(resourceId: string, targetDeviceId: string): Promise<SyncSession>;
     close(): Promise<void>;
 }
 /** Create sync SDK instance for Node.js */

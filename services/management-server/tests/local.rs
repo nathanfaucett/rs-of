@@ -48,15 +48,15 @@ async fn local_constructor_accepts_shared_and_owner_databases_without_setup() {
 }
 
 #[tokio::test]
-async fn synchronized_management_history_preserves_policy_and_selections() {
+async fn synchronized_management_history_preserves_policy_and_learns_deletion() {
     use management_service::{
         ManagementService,
         replica::{DbPermissionRepo, DbRoleRepo},
     };
     use of_model::id::Id;
     use of_model::idp::contract::permission_evaluation::{
-        IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
-        PermissionTarget,
+        INSTALLATION_POLICY_ID, IdentityAction, IdentityResource, PermissionEvaluationRequest,
+        PermissionSubject, PermissionTarget,
     };
 
     let root = std::env::temp_dir().join(format!("management-history-{}", Id::now_v7()));
@@ -66,10 +66,7 @@ async fn synchronized_management_history_preserves_policy_and_selections() {
     db::ofdb::up(&source.client())
         .await
         .expect("initialize owner schema");
-    let service = ManagementService::new(
-        DbPermissionRepo::new(source.client()),
-        DbRoleRepo::new(source.client()),
-    );
+
     let administrator = Id::now_v7();
     management_service::provision_initial_administrator(
         &source.client(),
@@ -78,12 +75,7 @@ async fn synchronized_management_history_preserves_policy_and_selections() {
     )
     .await
     .expect("provision policy on owner");
-    let (device, resource, application) = (Id::now_v7(), Id::now_v7(), Id::now_v7());
-    service
-        .select_resource(device, resource, application, "owner")
-        .await
-        .expect("select resource");
-    drop(service);
+
     drop(source);
 
     let source = SqlDatabase::open_existing(&path).expect("restart owner");
@@ -95,29 +87,31 @@ async fn synchronized_management_history_preserves_policy_and_selections() {
         DbPermissionRepo::new(peer.client()),
         DbRoleRepo::new(peer.client()),
     );
+    let request = PermissionEvaluationRequest {
+        request_id: Id::now_v7(),
+        subject: PermissionSubject::User { id: administrator },
+        action: IdentityAction::ClientsRegister,
+        target: PermissionTarget::Installation {
+            resource: IdentityResource::Client { client_id: None },
+        },
+    };
     assert!(
         replica
-            .evaluate_permission(&PermissionEvaluationRequest {
-                request_id: Id::now_v7(),
-                subject: PermissionSubject::User { id: administrator },
-                action: IdentityAction::ClientsRegister,
-                target: PermissionTarget::Installation {
-                    resource: IdentityResource::Client { client_id: None }
-                },
-            })
+            .evaluate_permission(&request)
             .await
             .expect("evaluate peer policy")
     );
-    assert!(
-        replica
-            .has_selection(device, resource)
-            .await
-            .expect("read peer Selection")
-    );
-    replica
-        .deselect_resource(device, resource)
+    let roles = replica
+        .list_user_roles(INSTALLATION_POLICY_ID, administrator)
         .await
-        .expect("revoke peer Selection");
+        .expect("read provisioned role on peer");
+    let [role] = roles.as_slice() else {
+        panic!("expected one provisioned role");
+    };
+    replica
+        .delete_role_by_id(INSTALLATION_POLICY_ID, role.id)
+        .await
+        .expect("delete policy on peer");
     source
         .import_history(peer.export_history().await.expect("export peer history"))
         .await
@@ -128,9 +122,9 @@ async fn synchronized_management_history_preserves_policy_and_selections() {
     );
     assert!(
         !reopened
-            .has_selection(device, resource)
+            .evaluate_permission(&request)
             .await
-            .expect("observe peer revocation")
+            .expect("observe peer policy deletion")
     );
     drop(reopened);
     drop(source);

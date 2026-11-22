@@ -58,7 +58,7 @@
             });
             restriction = await deviceApi.getDeviceRestriction({ deviceId });
             statusMessage =
-                "Management acknowledged the restriction. Local-copy retirement may still be pending; no resource is reported ready.";
+                "Device service acknowledged the restriction. Local-copy retirement may still be pending; no resource is reported ready.";
         } catch (cause) {
             error = String(cause);
         } finally {
@@ -100,7 +100,7 @@
                     resourceId,
                 });
             }
-            statusMessage = `Management acknowledged ${select ? "selection" : "deselection"}. This is policy state only, not Storage authorization, local-copy cleanup completion, or Residency readiness.`;
+            statusMessage = `Device service acknowledged ${select ? "selection" : "deselection"}. This is policy state only, not Storage authorization, local-copy cleanup completion, or Residency readiness.`;
         } catch (cause) {
             error = String(cause);
         } finally {
@@ -113,7 +113,7 @@
 <Card title="Device selections and restrictions">
     <div class="flex flex-col gap-3">
         <p>
-            These operations use current Management owner APIs. Each request
+            These operations use the Device API. Each request
             independently enforces its exact User permission and Device/resource
             owner binding; signing in or joining does not grant access.
         </p>

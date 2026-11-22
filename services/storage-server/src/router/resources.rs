@@ -3,8 +3,6 @@ use of_model::server::storage::resources::DatabaseDetailResponse;
 use of_model::server::storage::resources::EnsureDatabaseRequest;
 use of_model::server::storage::resources::FileSystemDetailResponse;
 use of_model::server::storage::resources::FileSystemResourceResponse;
-use of_model::server::storage::resources::SyncConnectRequest;
-use of_model::server::storage::resources::SyncSessionResponse;
 use std::sync::Arc;
 
 use axum::{
@@ -20,7 +18,6 @@ use of_model::id::Id;
 use of_model::storage::database_resource::DatabaseId;
 use of_model::storage::database_resource::DatabaseResource;
 use storage_service::scoped_file_system::ScopedFileSystemRuntime;
-use uuid::Uuid;
 
 use crate::router::{
     state::RouterState,
@@ -138,7 +135,6 @@ pub fn resource_router(
             get(super::residency::get_file_system_residency)
                 .put(super::residency::put_file_system_residency),
         )
-        .route("/sync/connect", post(sync_connect))
         .with_state(state.clone());
     if let (Some(idp_client), Some(file_systems)) = (state.router.idp_client, state.file_systems) {
         router = router.merge(scoped_file_system_socket_router(idp_client, file_systems));
@@ -586,86 +582,6 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
-}
-
-#[utoipa::path(
-    post,
-    path = "/sync/connect",
-    request_body = SyncConnectRequest,
-    responses(
-        (status = 200, description = "Sync session started", body = SyncSessionResponse),
-        (status = 401, description = "Invalid authorization"),
-        (status = 403, description = "Token does not permit sync"),
-        (status = 404, description = "Resource or target device not found"),
-        (status = 503, description = "Service unavailable")
-    ),
-    security(("authorization" = [])),
-    tag = "sync"
-)]
-pub async fn sync_connect(
-    State(state): State<ResourceState>,
-    headers: HeaderMap,
-    Json(request): Json<SyncConnectRequest>,
-) -> Result<Json<SyncSessionResponse>, StatusCode> {
-    let (scope, can_read, can_write) =
-        namespace(authorization(&state, &headers).await?, "storage:databases")?;
-    if !(can_read || can_write) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    // Verify the resource exists and user has access
-    let databases = state
-        .databases
-        .as_ref()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let resource = databases
-        .get(&scope, request.resource_id)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if resource.is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    // Verify target device has this resource selected for sync via Management Service
-    let source_device_id =
-        Id::parse_str(&state.router.endpoint_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let target_device_id = Id::from(request.target_device);
-    let resource_id = request.resource_id;
-
-    let management_client = state
-        .router
-        .management_client
-        .as_ref()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-
-    let has_selection = management_client
-        .has_selection(target_device_id, resource_id)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !has_selection {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    // Also verify source device has selection (should be true if they're calling this)
-    let source_has_selection = management_client
-        .has_selection(source_device_id, resource_id)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !source_has_selection {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    let session_id = Uuid::new_v4();
-    let response = SyncSessionResponse {
-        session_id,
-        resource_id: request.resource_id,
-        source_device: scope.application_id,
-        target_device: request.target_device,
-        status: of_model::storage::sync::SyncStatus::Connecting,
-        bytes_sent: 0,
-        bytes_received: 0,
-    };
-
-    Ok(Json(response))
 }
 
 fn file_system_response(resource: FileSystemResource) -> FileSystemResourceResponse {
