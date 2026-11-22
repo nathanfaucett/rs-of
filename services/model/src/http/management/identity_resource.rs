@@ -24,7 +24,6 @@ pub enum IdentityResource {
     IdentityResourceOneOf6(Box<models::IdentityResourceOneOf6>),
     IdentityResourceOneOf7(Box<models::IdentityResourceOneOf7>),
     IdentityResourceOneOf8(Box<models::IdentityResourceOneOf8>),
-    IdentityResourceOneOf9(Box<models::IdentityResourceOneOf9>),
 }
 
 impl Default for IdentityResource {
@@ -53,8 +52,6 @@ pub enum Type {
     IdpSecurity,
     #[serde(rename = "managementSecurity")]
     ManagementSecurity,
-    #[serde(rename = "replicaSigner")]
-    ReplicaSigner,
 }
 
 impl Default for Type {

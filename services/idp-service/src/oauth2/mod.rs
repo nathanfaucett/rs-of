@@ -19,7 +19,7 @@ pub use pkce::verify_code_challenge;
 pub use principal::{ClientPrincipal, Principal, UserPrincipal};
 pub use scope::{intersect_scopes, parse_scopes, scopes_to_string, validate_scopes};
 pub use service::OAuth2Service;
-pub use token::validate_authorization_code_grant;
+pub use token::{AccessClaims, validate_authorization_code_grant, verify_access_jwt};
 
 pub use node_signer::NodeSignerBinding;
 pub use of_model::idp::contract::authorization_server_metadata::AuthorizationServerMetadata;

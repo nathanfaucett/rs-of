@@ -286,7 +286,7 @@ impl ExistingSource {
         let permissions = [
             IdentityAction::DevicePairingRead,
             IdentityAction::DevicePairingUpdate,
-            IdentityAction::ReplicaSignersEnroll,
+            IdentityAction::DevicesEnroll,
             IdentityAction::IdpSecuritySync,
             IdentityAction::ManagementSecuritySync,
             IdentityAction::DevicesRead,

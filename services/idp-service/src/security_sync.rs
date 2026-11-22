@@ -6,8 +6,6 @@ pub enum PublicSecurityTable {
     Applications,
     Clients,
     Keys,
-    Members,
-    Signers,
     Consents,
     AuthorizationCodes,
     RefreshTokens,
@@ -26,8 +24,6 @@ impl PublicSecurityTable {
             Self::Applications => "applications",
             Self::Clients => "clients",
             Self::Keys => "keys",
-            Self::Members => "idp_replica_members",
-            Self::Signers => "idp_replica_signers",
             Self::Consents => "oauth2_user_consents",
             Self::AuthorizationCodes => "oauth2_authorization_codes",
             Self::RefreshTokens => "oauth2_refresh_tokens",
@@ -143,26 +139,6 @@ impl PublicSecurityTable {
                 "updated_at",
                 "public_jwk",
             ],
-            Self::Members => &[
-                "id",
-                "installation_id",
-                "member_id",
-                "endpoint_id",
-                "issuer",
-                "approved_at",
-                "revoked_at",
-            ],
-            Self::Signers => &[
-                "id",
-                "member_id",
-                "active_member_id",
-                "key_id",
-                "issuer",
-                "public_jwk",
-                "approved_at",
-                "revoked_at",
-                "expires_at",
-            ],
             Self::Consents => &[
                 "id",
                 "user_id",
@@ -219,8 +195,6 @@ impl PublicSecurityTable {
         }
         match self {
             Self::Keys => column != "derivation_index",
-            Self::Members => column == "revoked_at",
-            Self::Signers => matches!(column, "active_member_id" | "revoked_at" | "expires_at"),
             _ => true,
         }
     }
@@ -248,8 +222,6 @@ impl PublicSecurityTable {
                 | "entity_id"
                 | "application_id"
                 | "user_id"
-                | "member_id"
-                | "active_member_id"
                 | "key_id"
                 | "role_id"
                 | "permission_id"
@@ -354,8 +326,6 @@ pub fn public_security_tables() -> Vec<PublicSecurityTable> {
         T::Applications,
         T::Clients,
         T::Keys,
-        T::Members,
-        T::Signers,
         T::Consents,
         T::AuthorizationCodes,
         T::RefreshTokens
@@ -403,7 +373,7 @@ mod tests {
     fn historical_values_reject_private_jwks_and_raw_grants() {
         let public = serde_json::json!({"kid": "node-key", "use": "sig", "alg": "ES256K", "kty": "Ec", "crv": "secp256k1",
             "x": "eb5mfvncu6xVoGKVzocLBwKb/NstzijZWfKBWxb4F5g", "y": "SDradyajxGVdpPv8DhEIqP0XtEimhVQZnEfQj/sQ1Lg"});
-        for table in [PublicSecurityTable::Keys, PublicSecurityTable::Signers] {
+        for table in [PublicSecurityTable::Keys] {
             assert!(table.permits_historical_value(
                 "public_jwk",
                 &ofdb_sql::Value::Text(public.to_string())
@@ -441,11 +411,6 @@ mod tests {
         assert!(
             PublicSecurityTable::Keys
                 .permits_historical_value("public_jwk", &ofdb_sql::Value::Null)
-        );
-        assert!(
-            PublicSecurityTable::Signers
-                .permits_historical_value("public_jwk", &ofdb_sql::Value::Null),
-            "a null schema default carries no confidential value; complete record validation still rejects it"
         );
         for (table, column) in [
             (PublicSecurityTable::AuthorizationCodes, "code_hash"),

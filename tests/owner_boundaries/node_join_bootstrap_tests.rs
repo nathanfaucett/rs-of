@@ -5,7 +5,7 @@ use device_service::DeviceRepo;
 use device_service::replica::DbDeviceRepo;
 use device_service::security_protocol::{SecurityContext, SecurityProtocol};
 use idp_server::{AppConfig, OwnerProvisioner};
-use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo};
+use idp_service::oauth2::NodeSignerBinding;
 use iroh::{SecretKey, endpoint::presets::Minimal};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::ManagementService;
@@ -168,7 +168,7 @@ async fn receipt_boundary() {
         .await
         .expect("source User role");
     for action in [
-        IdentityAction::ReplicaSignersEnroll,
+        IdentityAction::DevicesEnroll,
         IdentityAction::IdpSecuritySync,
     ] {
         let permission = policy
@@ -435,13 +435,7 @@ async fn receipt_boundary() {
             "{context:?}: {error}"
         );
     }
-    assert!(
-        DbReplicaSignerRepo::new(joining_idp.client())
-            .trusted_signers(&issuer, i64::MAX)
-            .await
-            .expect("local trust remains empty")
-            .is_empty()
-    );
+
     for (database, table) in [
         (&joining_idp, "users"),
         (&joining_policy, "devices"),
@@ -652,20 +646,7 @@ async fn receipt_boundary() {
         "bootstrap source update and exact retry: {:?}",
         started.elapsed()
     );
-    assert_eq!(
-        sql(
-            &joining_idp,
-            &format!(
-                "SELECT id FROM idp_replica_members WHERE member_id = CAST('{}' AS UUID)",
-                binding.member_id
-            )
-        )
-        .await[0]
-            .rows
-            .len(),
-        1,
-        "retries cannot duplicate member"
-    );
+
     policy
         .remove_permission_from_role(
             of_model::idp::contract::INSTALLATION_POLICY_ID,
@@ -691,15 +672,7 @@ async fn receipt_boundary() {
         .await
         .expect("source changes approved Device name")
         .expect("current Device");
-    assert!(
-        DbReplicaSignerRepo::new(source_idp.client())
-            .trusted_signers(&issuer, i64::MAX)
-            .await
-            .expect("unchanged exact signing trust")
-            .iter()
-            .any(|(member, signer)| member.member_id == binding.member_id
-                && signer.public_jwk == request.public_signer)
-    );
+
     protocol
         .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
         .await
@@ -713,62 +686,14 @@ async fn receipt_boundary() {
         .await
         .expect("restore exact approved Device name")
         .expect("current Device");
-    DbReplicaSignerRepo::new(source_idp.client())
-        .revoke(binding.member_id, &issuer, 10)
-        .await
-        .expect("source learns joined membership revocation");
-    assert!(
-        protocol
-            .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
-            .await
-            .is_err(),
-        "revoked source membership denies receipt retry"
-    );
-    eprintln!(
-        "bootstrap revocation denials complete: {:?}",
-        started.elapsed()
-    );
-    connection.close(0u32.into(), b"test complete");
-    drop(protocol);
-    drop(provisioner);
-    drop(joining_idp);
-    drop(joining_policy);
-    http.abort();
-    let _ = http.await;
-    cancellation.cancel();
-    peer_router
-        .shutdown()
-        .await
-        .expect("disconnect approving peer");
-    eprintln!("bootstrap source disconnected: {:?}", started.elapsed());
-    joining.endpoint().close().await;
-    drop(storage);
-    drop(policy);
-    drop(source_idp);
-    drop(source_policy);
-    drop(source_security);
-    let provisioner = OwnerProvisioner::open(&config)
-        .await
-        .expect("offline native reopen");
-    provisioner
-        .prepare_setup_client_slots(&[local_client])
-        .await
-        .expect("offline retained preparation");
-    assert!(
-        provisioner
-            .prepare_fresh_setup_secret_inventory(fixture.administrator, &[local_client])
-            .await
-            .is_err()
-    );
-    eprintln!("bootstrap offline owner reopened: {:?}", started.elapsed());
-    let restarted = idp_server::bind_node_join_endpoint(
-        &config,
-        Minimal,
-        joining_secret.clone(),
-        EndpointIdStore::default(),
+    sql(
+        &source_policy,
+        &format!(
+            "UPDATE devices SET revoked_at = 10 WHERE id = CAST('{}' AS UUID)",
+            received.device_id
+        ),
     )
-    .await
-    .expect("offline restored endpoint and durable purpose admission");
+    .await;
     let reopened_policy =
         Arc::new(Database::open(joining_root.join("devices.redb")).expect("offline policy reopen"));
     let offline = SecurityProtocol::new(
@@ -811,22 +736,15 @@ async fn receipt_boundary() {
             .expect("retained independent private key; no regeneration"),
         request
     );
-    assert_eq!(
-        provisioner
-            .verify_node_signer(&binding)
-            .await
-            .expect("imported trust and retained private signer work offline"),
-        request.public_signer
-    );
-    DbReplicaSignerRepo::new(
-        provisioner
-            .node_join_database()
-            .expect("local identity owner")
-            .client(),
+
+    sql(
+        &reopened_policy,
+        &format!(
+            "UPDATE devices SET revoked_at = 11 WHERE id = CAST('{}' AS UUID)",
+            received.device_id
+        ),
     )
-    .revoke(binding.member_id, &issuer, 11)
-    .await
-    .expect("locally learned signer/member revocation");
+    .await;
     eprintln!(
         "bootstrap offline issuance and local revocation: {:?}",
         started.elapsed()

@@ -81,12 +81,6 @@ pub enum IdentityAction {
     DevicePairingRead,
     #[serde(rename = "device_pairing_update")]
     DevicePairingUpdate,
-    #[serde(rename = "replica_signers_enroll")]
-    ReplicaSignersEnroll,
-    #[serde(rename = "replica_signers_rotate")]
-    ReplicaSignersRotate,
-    #[serde(rename = "replica_signers_revoke")]
-    ReplicaSignersRevoke,
     #[serde(rename = "idp_security_sync")]
     IdpSecuritySync,
     #[serde(rename = "management_security_sync")]
@@ -130,9 +124,6 @@ impl core::fmt::Display for IdentityAction {
             Self::DeviceRestrictionsUpdate => write!(f, "device_restrictions_update"),
             Self::DevicePairingRead => write!(f, "device_pairing_read"),
             Self::DevicePairingUpdate => write!(f, "device_pairing_update"),
-            Self::ReplicaSignersEnroll => write!(f, "replica_signers_enroll"),
-            Self::ReplicaSignersRotate => write!(f, "replica_signers_rotate"),
-            Self::ReplicaSignersRevoke => write!(f, "replica_signers_revoke"),
             Self::IdpSecuritySync => write!(f, "idp_security_sync"),
             Self::ManagementSecuritySync => write!(f, "management_security_sync"),
         }

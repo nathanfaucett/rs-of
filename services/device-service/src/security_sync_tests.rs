@@ -10,7 +10,7 @@ use ofdb_sql::Database;
 use idp_service::{
     oauth2::node_signer::NodeSignerBinding,
     password_config::PasswordConfig,
-    replica::{DbReplicaSignerRepo, DbUserRepo},
+    replica::DbUserRepo,
     repo::user_repo::UserRepo,
 };
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
@@ -26,7 +26,7 @@ use crate::{
     security_policy::SecurityContext,
     security_protocol::{
         SecurityProtocol,
-        test_fixtures::{enroll, insert_device, native_handler, sql},
+        test_fixtures::{insert_device, native_handler, sql},
     },
 };
 
@@ -80,9 +80,8 @@ async fn exchange_history() {
             .await
             .expect("Management schemas");
         let member_a = insert_device(&management, &actor.to_string(), server_a.endpoint().id(), "node").await;
-        enroll(idp.clone(), member_a, server_a.endpoint().id(), key_a).await;
+
         let member_b = insert_device(&management, &actor.to_string(), server_b.endpoint().id(), "node").await;
-        enroll(idp.clone(), member_b, server_b.endpoint().id(), key_b).await;
         management_service::provision_initial_administrator(
             &idp.client(),
             actor,
@@ -113,13 +112,7 @@ async fn exchange_history() {
         Arc::new(Database::open(root.join("b-management.redb")).expect("open B Management"));
     let learned_endpoint = iroh::SecretKey::generate().public();
     let learned_member = insert_device(&management_a, &actor.to_string(), learned_endpoint, "new-approved-peer").await;
-    enroll(
-        idp_a.clone(),
-        learned_member,
-        learned_endpoint,
-        Id::now_v7(),
-    )
-    .await;
+
     let users_a = DbUserRepo::new(idp_a.client(), PasswordConfig::default());
     let users_b = DbUserRepo::new(idp_b.client(), PasswordConfig::default());
     let user_a = users_a
@@ -316,10 +309,6 @@ async fn exchange_history() {
         root.join("unsigned-stage"),
         cancellation.clone(),
     );
-    DbReplicaSignerRepo::new(idp_a.client())
-        .revoke(member_a, INSTALLATION, 2)
-        .await
-        .expect("learned token-signer revocation is not Device revocation");
     unsigned
         .synchronize(&connection, SecurityContext::Idp)
         .await

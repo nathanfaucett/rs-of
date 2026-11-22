@@ -83,6 +83,7 @@ import {
   IsAllowedForUserResponseFromJSON,
   IsAllowedForUserResponseToJSON,
 } from "../models/IsAllowedForUserResponse.js";
+import { type JwkPublic, JwkPublicFromJSON, JwkPublicToJSON } from "../models/JwkPublic.js";
 import { type Jwks, JwksFromJSON, JwksToJSON } from "../models/Jwks.js";
 import {
   type ResetPassword,
@@ -1414,6 +1415,27 @@ export interface DefaultApiInterface {
     requestParameters: RotateClientSecretRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<string>;
+
+  /**
+   * Creates request options for rotateIssuerKey without sending the request
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  rotateIssuerKeyRequestOpts(): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  rotateIssuerKeyRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<JwkPublic>>;
+
+  /**
+   */
+  rotateIssuerKey(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<JwkPublic>;
 
   /**
    * Creates request options for sessionsLogout without sending the request
@@ -3525,6 +3547,53 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<string> {
     const response = await this.rotateClientSecretRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for rotateIssuerKey without sending the request
+   */
+  async rotateIssuerKeyRequestOpts(): Promise<runtime.RequestOpts> {
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/issuer-keys/rotate`;
+
+    return {
+      path: urlPath,
+      method: "POST",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async rotateIssuerKeyRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<JwkPublic>> {
+    const requestOptions = await this.rotateIssuerKeyRequestOpts();
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) => JwkPublicFromJSON(jsonValue));
+  }
+
+  /**
+   */
+  async rotateIssuerKey(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<JwkPublic> {
+    const response = await this.rotateIssuerKeyRaw(initOverrides);
     return await response.value();
   }
 

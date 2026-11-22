@@ -25,6 +25,7 @@ pub const DEFAULT_DEVICE_POLL_INTERVAL_SECS: i64 = 5;
 #[serde(default, deny_unknown_fields)]
 pub struct OAuth2Config {
     pub issuer: String,
+    pub trusted_issuer_jwks: Option<of_model::idp::contract::jwks::Jwks>,
     pub local_signer: Option<crate::oauth2::node_signer::NodeSignerBinding>,
     pub require_pkce: bool,
     pub token_ttl_secs: u64,
@@ -39,6 +40,7 @@ impl Default for OAuth2Config {
         Self {
             issuer: DEFAULT_ISSUER.to_string(),
             local_signer: None,
+            trusted_issuer_jwks: None,
             require_pkce: DEFAULT_REQUIRE_PKCE,
             token_ttl_secs: DEFAULT_TOKEN_TTL_SECS,
             refresh_token_ttl_secs: DEFAULT_REFRESH_TOKEN_TTL_SECS,

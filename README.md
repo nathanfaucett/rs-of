@@ -17,7 +17,7 @@ The repository is migrating to the [accepted target architecture](docs/architect
 | Two-Device offline convergence         | Not qualified                                                                                                                                                                   |
 | Browser synchronization                | Single-Node encrypted-vault sync passes real-backend Chromium tests; broader browser support remains incomplete                                                                 |
 | Linux FUSE mounts                      | Full Residency only; local file/directory operations and one authorized native two-Full sync/reopen scenario pass real mounts; broader multi-Device support remains unqualified |
-| Independent and desktop deployments    | Retain implementation paths, but current end-to-end qualification is not established                                                                                            |
+| Independent and desktop deployments    | Retain implementation paths; automatic independent Join does not provision service Clients at the issuing IdP                                                                                            |
 
 GitHub Actions records current and historical check results.
 

@@ -14,7 +14,7 @@ use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
 use ofdb_sql_history::SyncMessage;
 use tokio_util::sync::CancellationToken;
 
-use super::test_fixtures::{enroll, insert_device, sql};
+use super::test_fixtures::{insert_device, sql};
 use super::{
     AuthorizedSecurityTransport, Handshake, Response, SECURITY_STREAM_KIND, SecurityContext,
     SecurityProtocol,
@@ -71,9 +71,8 @@ impl Fixture {
                 .await
                 .expect("Management schema");
             let member = insert_device(&management, &actor.to_string(), source.endpoint().id(), "node").await;
-            enroll(idp.clone(), member, source.endpoint().id(), key).await;
+
             let peer_member = insert_device(&management, &actor.to_string(), peer.endpoint().id(), "node").await;
-            enroll(idp.clone(), peer_member, peer.endpoint().id(), Id::now_v7()).await;
             management_service::provision_initial_administrator(
                 &idp.client(),
                 actor,

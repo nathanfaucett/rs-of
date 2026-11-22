@@ -30,8 +30,6 @@ pub mod identity_resource_one_of_7;
 pub use self::identity_resource_one_of_7::IdentityResourceOneOf7;
 pub mod identity_resource_one_of_8;
 pub use self::identity_resource_one_of_8::IdentityResourceOneOf8;
-pub mod identity_resource_one_of_9;
-pub use self::identity_resource_one_of_9::IdentityResourceOneOf9;
 pub mod permission_audit_identity;
 pub use self::permission_audit_identity::PermissionAuditIdentity;
 pub mod permission_evaluation_request;

@@ -13,13 +13,13 @@ fn all_owners_use_one_setup_wire_type() {
 
 #[test]
 fn join_request_keeps_the_signed_field_order() {
-    let fixture = r#"{"purpose":"of.equal-node-join.v1","installation":"https://issuer.test","member_id":"00000000-0000-7000-8000-000000000001","endpoint_id":"endpoint","name":"node","public_signer":{"use":"sig","alg":"EdDSA","kty":"Opk","crv":"Ed25519","x":"key","kid":"00000000-0000-7000-8000-000000000002"},"approving_peer":"peer"}"#;
+    let fixture = r#"{"purpose":"of.equal-node-join.v1","installation":"https://issuer.test","member_id":"00000000-0000-7000-8000-000000000001","endpoint_id":"endpoint","name":"node","approving_peer":"peer"}"#;
     let request: NodeJoinRequest = serde_json::from_str(fixture).expect("signed join request");
     let client: http::device::NodeJoinRequest = request;
     let wire = serde_json::to_string(&client).expect("serialize join request");
     assert_eq!(
         wire,
-        r#"{"purpose":"of.equal-node-join.v1","installation":"https://issuer.test","member_id":"00000000-0000-7000-8000-000000000001","endpoint_id":"endpoint","name":"node","public_signer":{"use":"sig","kid":"00000000-0000-7000-8000-000000000002","alg":"EdDSA","kty":"Opk","crv":"Ed25519","x":"key"},"approving_peer":"peer"}"#
+        r#"{"purpose":"of.equal-node-join.v1","installation":"https://issuer.test","member_id":"00000000-0000-7000-8000-000000000001","endpoint_id":"endpoint","name":"node","approving_peer":"peer"}"#
     );
     serde_json::from_str::<NodeJoinRequest>(
         &fixture.replace("\"name\":\"node\"", "\"name\":\"node\",\"untrusted\":true"),

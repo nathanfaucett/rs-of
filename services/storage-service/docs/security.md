@@ -4,7 +4,7 @@ These are required protections for current review and target implementation. The
 
 ## Identity and Resource access
 
-Derive the `(User subject, Application)` namespace from validated IdP evidence. Check token signature, issuer, audience, use, lifetime, Principal state, and exact `read`/`write` action. Never accept a caller-supplied owner, actor header, or Application override as identity evidence.
+Derive the `(User subject, Application)` namespace from verified access JWT claims. Check token signature, issuer, audience, purpose, validity interval, and exact `read`/`write` action. A Client registration change does not move an existing token to another namespace. Never accept a caller-supplied owner, actor header, or Application override as identity evidence.
 
 Endpoint keys identify transport peers, not Users or Resources. Device approval, endpoint allowlisting, pairing, catalog discovery, and Resource Selection are separate from Resource access. Management authorizes administration but does not own Device records.
 

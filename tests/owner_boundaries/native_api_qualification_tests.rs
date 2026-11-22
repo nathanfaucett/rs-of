@@ -12,7 +12,7 @@ use of_model::storage::contract::{StorageRequest, StorageResponse};
 use super::{Fixture, Gate, registration};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn bundled_storage_direct_idp_checks_current_bearer_registration_and_signer_offline() {
+async fn bundled_storage_direct_idp_checks_signed_bearer_and_retained_issuer_key_offline() {
     tokio::time::timeout(Duration::from_secs(240), async {
         let mut fixture = Fixture::new(Gate::default()).await;
         let token = fixture
@@ -65,8 +65,7 @@ async fn bundled_storage_direct_idp_checks_current_bearer_registration_and_signe
             Err(storage_server::IdpIntrospectionError::InvalidToken)
         ));
         for (field, value) in [
-            ("sub", serde_json::json!(Id::now_v7().to_string())),
-            ("principal_type", serde_json::json!("client")),
+            ("sub", serde_json::json!("invalid-subject")),
             ("aud", serde_json::json!("idp-services")),
             ("aud", serde_json::json!("storage:unknown")),
             ("exp", serde_json::json!(0)),
@@ -89,32 +88,18 @@ async fn bundled_storage_direct_idp_checks_current_bearer_registration_and_signe
             .await
             .expect("current registration")
             .expect("human Client");
-        let scopes = human.allowed_scopes.clone();
         human.allowed_scopes.clear();
-        fixture
-            .clients
-            .update_client(human.clone())
-            .await
-            .expect("learn scope withdrawal");
-        assert!(
-            fixture.client.introspect(&token).await.is_err(),
-            "registration is rechecked"
-        );
-        human.allowed_scopes = scopes;
         fixture
             .clients
             .update_client(human)
             .await
-            .expect("restore valid registration");
+            .expect("learn scope withdrawal");
         fixture
             .client
             .introspect(&token)
             .await
-            .expect("current registration restored");
-        idp_service::replica::DbReplicaSignerRepo::new(fixture.idp.client())
-            .revoke(fixture.binding.member_id, &fixture.issuer, now)
-            .await
-            .expect("learn signer revocation");
+            .expect("access scopes are signed");
+        fixture.withdraw_issuer_key().await;
         assert!(
             fixture.client.introspect(&token).await.is_err(),
             "signer trust is never cached"
@@ -179,10 +164,10 @@ async fn bundled_storage_direct_idp_preserves_real_local_owner_gate() {
             ),
             "local Device policy is still enforced"
         );
-        fixture.revoke_user().await;
+        fixture.withdraw_issuer_key().await;
         assert!(
             fixture.client.introspect(&token).await.is_err(),
-            "current principal deletion denies"
+            "issuer key withdrawal denies"
         );
         fixture.stop().await;
     })
@@ -226,7 +211,7 @@ async fn reassign_application(fixture: &Fixture) -> Id {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_catalog_response_denies_learned_application_reassignment_without_rollback() {
+async fn native_catalog_response_keeps_the_signed_namespace_after_application_reassignment() {
     tokio::time::timeout(Duration::from_secs(240), async {
         for kind in ["databases", "filesystems"] {
         let gate = Gate::default();
@@ -244,11 +229,10 @@ async fn native_catalog_response_denies_learned_application_reassignment_without
         gate.release();
         let response = request.await;
 
-        assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED, "old namespace result cannot be disclosed under current Application");
-        assert!(response.bytes().await.expect("denial body").is_empty());
-        let current = storage_server::authorize_storage_token(&fixture.client, &token).await.expect("same bearer remains valid in current namespace");
+        assert_eq!(response.status(), reqwest::StatusCode::CREATED);
+        let current = storage_server::authorize_storage_token(&fixture.client, &token).await.expect("bearer retains signed namespace");
         assert_eq!(current.subject, fixture.scope.user_sub);
-        assert_eq!(current.application_id, other.to_string());
+        assert_eq!(current.application_id, fixture.scope.application_id.to_string());
         assert_eq!(catalog_count(&fixture, kind, &fixture.scope).await, expected);
         assert_eq!(catalog_count(&fixture, kind, &super::StorageNamespace { user_sub: fixture.scope.user_sub.clone(), application_id: other }).await, 0);
         fixture.stop().await;
@@ -269,7 +253,7 @@ async fn native_catalog_paused_local_owner_rechecks_before_response_without_roll
             () = gate.reached() => {}
         }
         assert_eq!(catalog_count(&fixture, "filesystems", &fixture.scope).await, 2, "authorized mutation completed before the paused local evaluation");
-        fixture.revoke_user().await;
+        fixture.withdraw_issuer_key().await;
         gate.release();
         let response = request.await;
         assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
@@ -488,7 +472,7 @@ async fn native_socket_device_restriction_preserves_bearer_response_and_next_ope
             super::response(&mut socket).await,
             StorageResponse::Written { .. }
         ));
-        fixture.revoke_user().await;
+        fixture.withdraw_issuer_key().await;
         super::send(
             &mut socket,
             StorageRequest::Write {
@@ -562,28 +546,33 @@ async fn native_socket_response_binds_namespace_even_when_resource_id_exists_in_
             .expect("distinct namespace content");
         let current = storage_server::authorize_storage_token(&fixture.client, &token)
             .await
-            .expect("same signed bearer is valid in new Application");
-        assert_eq!(current.application_id, other.to_string());
-        gate.release();
-        super::assert_no_response(&mut socket).await;
+            .expect("a signed bearer keeps its original Application");
         assert_eq!(
-            original
-                .read("retained.txt")
-                .await
-                .expect("source retained"),
-            b"original namespace secret"
+            current.application_id,
+            fixture.scope.application_id.to_string()
+        );
+        gate.release();
+        assert_eq!(
+            super::response(&mut socket).await,
+            StorageResponse::Read {
+                content: b"original namespace secret".to_vec(),
+            }
         );
         super::send(
             &mut idle,
-            StorageRequest::Write {
-                path: "must-not-rebind.txt".into(),
-                content: b"denied".to_vec(),
+            StorageRequest::Read {
+                path: "retained.txt".into(),
             },
         )
         .await;
-        super::assert_no_response(&mut idle).await;
-        assert!(current_file.read("must-not-rebind.txt").await.is_err());
-        assert!(original.read("must-not-rebind.txt").await.is_err());
+        gate.reached().await;
+        gate.release();
+        assert_eq!(
+            super::response(&mut idle).await,
+            StorageResponse::Read {
+                content: b"original namespace secret".to_vec(),
+            }
+        );
         drop(idle);
         let mut fresh = fixture.socket(&token, false).await;
         super::send(
@@ -593,40 +582,28 @@ async fn native_socket_response_binds_namespace_even_when_resource_id_exists_in_
             },
         )
         .await;
+        gate.reached().await;
+        gate.release();
         assert_eq!(
             super::response(&mut fresh).await,
             StorageResponse::Read {
-                content: b"new namespace content".to_vec()
+                content: b"original namespace secret".to_vec(),
             }
         );
         drop(fresh);
         drop(socket);
+        let new_token = fixture
+            .token(
+                "storage:filesystems",
+                vec![StorageAuthorizationAction::Read],
+            )
+            .await;
+        let new_access = storage_server::authorize_storage_token(&fixture.client, &new_token)
+            .await
+            .expect("validate newly issued bearer");
+        assert_eq!(new_access.application_id, other.to_string());
         fixture.stop().await;
     })
     .await
     .expect("native overlapping-ID namespace boundary completes");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_socket_response_denies_application_reassignment_and_retains_completed_write() {
-    tokio::time::timeout(Duration::from_secs(240), async {
-        let gate = Gate::default();
-        let fixture = Fixture::new(gate.clone()).await;
-        let token = fixture.token("storage:filesystems", vec![StorageAuthorizationAction::Read, StorageAuthorizationAction::Write]).await;
-        let file = fixture.file().await;
-        let mut socket = fixture.socket(&token, true).await;
-        super::send(&mut socket, StorageRequest::Write { path: "committed.txt".into(), content: b"old namespace write".to_vec() }).await;
-        gate.reached().await;
-        assert_eq!(file.read("committed.txt").await.expect("write completed before reassignment"), b"old namespace write");
-        let other = reassign_application(&fixture).await;
-        gate.release();
-        super::assert_no_response(&mut socket).await;
-        let current = storage_server::authorize_storage_token(&fixture.client, &token).await.expect("bearer remains valid after namespace change");
-        assert_eq!(current.application_id, other.to_string());
-        assert_eq!(current.subject, fixture.scope.user_sub);
-        assert!(matches!(tokio_tungstenite::connect_async(fixture.socket_url(&token, false)).await, Err(tokio_tungstenite::tungstenite::Error::Http(ref response)) if response.status() == reqwest::StatusCode::UNAUTHORIZED), "current Application cannot reopen old namespace resource");
-        assert_eq!(file.read("committed.txt").await.expect("completed old namespace write retained"), b"old namespace write");
-        drop(socket);
-        fixture.stop().await;
-    }).await.expect("native socket namespace interleaving completes");
 }

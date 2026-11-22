@@ -1,13 +1,10 @@
 use std::{path::PathBuf, sync::Arc};
 
-use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use device_service::device_repo::DeviceRepo;
 use device_service::ofdb::device_repo::DbDeviceRepo;
 use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
 use idp_service::{
-    password_config::PasswordConfig,
-    replica::{DbReplicaSignerRepo, DbUserRepo},
-    repo::user_repo::UserRepo,
+    password_config::PasswordConfig, replica::DbUserRepo, repo::user_repo::UserRepo,
 };
 use iroh::{
     Endpoint, EndpointId,
@@ -17,12 +14,6 @@ use iroh::{
 use of_model::contract::replication::SelectedResource;
 use of_model::device::selection_policy::SelectionPolicy;
 use of_model::id::Id;
-use of_model::idp::contract::idp_signer::IdpSignerRecord;
-use of_model::idp::contract::idp_signer::ReplicaMembership;
-use of_model::idp::contract::jwk_public::JwkPublic;
-use of_model::idp::contract::jwk_public_parameters::JwkPublicParameters;
-use of_model::idp::contract::jws_algorithm::JwsAlgorithm;
-use of_model::idp::contract::key_use::KeyUse;
 use ofdb_sql::Database;
 use ofdb_sql::SqlTranslator;
 use tokio::sync::Notify;
@@ -150,38 +141,6 @@ impl Gate {
 
 const INSTALLATION: &str = "https://of03-installation.example";
 
-fn approved_signers(devices: [Id; 2]) -> [IdpSignerRecord; 2] {
-    devices.map(|member_id| {
-        let entropy = key::master_key::MasterKey::entropy().expect("independent signer entropy");
-        let master = key::master_key::MasterKey::from_entropy(entropy.as_ref())
-            .expect("independent private signer");
-        let (x, y) = master
-            .derive_from_index_and_hardened(0, false)
-            .expect("signer derivation")
-            .to_xy()
-            .expect("public signer point");
-        let key_id = Id::now_v7();
-        IdpSignerRecord {
-            member_id,
-            key_id,
-            issuer: INSTALLATION.into(),
-            public_jwk: JwkPublic {
-                kid: key_id.to_string(),
-                r#use: KeyUse::Signature,
-                alg: JwsAlgorithm::ES256K,
-                params: JwkPublicParameters::Ec {
-                    crv: "secp256k1".into(),
-                    x: STANDARD_NO_PAD.encode(x),
-                    y: STANDARD_NO_PAD.encode(y),
-                },
-            },
-            approved_at: Some(1),
-            revoked_at: None,
-            expires_at: None,
-        }
-    })
-}
-
 pub struct DomainNode {
     pub idp: Arc<Database>,
     pub management: Arc<Database>,
@@ -203,23 +162,6 @@ impl DomainNode {
             insert_device(&management, owner, endpoints[0]).await,
             insert_device(&management, owner, endpoints[1]).await,
         ];
-        let signers = approved_signers(devices);
-        for ((device, endpoint), signer) in devices.into_iter().zip(endpoints).zip(signers) {
-            DbReplicaSignerRepo::new(idp.client())
-                .enroll(
-                    &ReplicaMembership {
-                        installation_id: INSTALLATION.into(),
-                        member_id: device,
-                        endpoint_id: endpoint.to_string(),
-                        issuer: INSTALLATION.into(),
-                        approved_at: 1,
-                        revoked_at: None,
-                    },
-                    &signer,
-                )
-                .await
-                .expect("owner-approved Installation/Device/signer binding");
-        }
         let (peer_idp, peer_management) = Self::open_stores(&right);
         for (source, peer) in [(&idp, &peer_idp), (&management, &peer_management)] {
             peer.import_history(source.export_history().await.expect("bootstrap history"))
@@ -285,14 +227,6 @@ impl DomainNode {
                 .revoke(&self.owner.to_string(), self.devices[device], "")
                 .await
                 .expect("learn Device revocation")
-        );
-    }
-    pub async fn revoke_signer(&self, device: usize) {
-        assert!(
-            DbReplicaSignerRepo::new(self.idp.client())
-                .revoke(self.devices[device], INSTALLATION, 2)
-                .await
-                .expect("persist signer/member revocation")
         );
     }
     pub fn authorizer(&self) -> LocalReplicationAuthorizer {

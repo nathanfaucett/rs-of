@@ -18,18 +18,6 @@ import {
   HistoryRequestFromJSON,
   HistoryRequestToJSON,
 } from "../models/HistoryRequest.js";
-import {
-  type IndependentJoinApproval,
-  IndependentJoinApprovalFromJSON,
-  IndependentJoinApprovalToJSON,
-} from "../models/IndependentJoinApproval.js";
-
-export interface IndependentJoinEnrollNodeJoinRequest {
-  /**
-   *
-   */
-  independentJoinApproval: IndependentJoinApproval;
-}
 
 export interface IndependentJoinHistoryStreamRequest {
   /**
@@ -68,35 +56,6 @@ export interface IndependentJoinRequestHistoryRequest {
  * @interface IndependentJoinApiInterface
  */
 export interface IndependentJoinApiInterface {
-  /**
-   * Creates request options for independentJoinEnrollNodeJoin without sending the request
-   * @param {IndependentJoinApproval} independentJoinApproval
-   * @throws {RequiredError}
-   * @memberof IndependentJoinApiInterface
-   */
-  independentJoinEnrollNodeJoinRequestOpts(
-    requestParameters: IndependentJoinEnrollNodeJoinRequest
-  ): Promise<runtime.RequestOpts>;
-
-  /**
-   *
-   * @param {IndependentJoinApproval} independentJoinApproval
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof IndependentJoinApiInterface
-   */
-  independentJoinEnrollNodeJoinRaw(
-    requestParameters: IndependentJoinEnrollNodeJoinRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<void>>;
-
-  /**
-   */
-  independentJoinEnrollNodeJoin(
-    requestParameters: IndependentJoinEnrollNodeJoinRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<void>;
-
   /**
    * Creates request options for independentJoinHistoryStream without sending the request
    * @param {string} authorization History &lt;single-use operation-bound capability&gt;
@@ -170,66 +129,6 @@ export interface IndependentJoinApiInterface {
  *
  */
 export class IndependentJoinApi extends runtime.BaseAPI implements IndependentJoinApiInterface {
-  /**
-   * Creates request options for independentJoinEnrollNodeJoin without sending the request
-   */
-  async independentJoinEnrollNodeJoinRequestOpts(
-    requestParameters: IndependentJoinEnrollNodeJoinRequest
-  ): Promise<runtime.RequestOpts> {
-    if (requestParameters["independentJoinApproval"] == null) {
-      throw new runtime.RequiredError(
-        "independentJoinApproval",
-        'Required parameter "independentJoinApproval" was null or undefined when calling independentJoinEnrollNodeJoin().'
-      );
-    }
-
-    const queryParameters: any = {};
-
-    const headerParameters: runtime.HTTPHeaders = {};
-
-    headerParameters["Content-Type"] = "application/json";
-
-    if (this.configuration && this.configuration.accessToken) {
-      const token = this.configuration.accessToken;
-      const tokenString = await token("authorization", []);
-
-      if (tokenString) {
-        headerParameters["Authorization"] = `Bearer ${tokenString}`;
-      }
-    }
-
-    let urlPath = `/independent/node-joins/enroll`;
-
-    return {
-      path: urlPath,
-      method: "POST",
-      headers: headerParameters,
-      query: queryParameters,
-      body: IndependentJoinApprovalToJSON(requestParameters["independentJoinApproval"]),
-    };
-  }
-
-  /**
-   */
-  async independentJoinEnrollNodeJoinRaw(
-    requestParameters: IndependentJoinEnrollNodeJoinRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<void>> {
-    const requestOptions = await this.independentJoinEnrollNodeJoinRequestOpts(requestParameters);
-    const response = await this.request(requestOptions, initOverrides);
-
-    return new runtime.VoidApiResponse(response);
-  }
-
-  /**
-   */
-  async independentJoinEnrollNodeJoin(
-    requestParameters: IndependentJoinEnrollNodeJoinRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<void> {
-    await this.independentJoinEnrollNodeJoinRaw(requestParameters, initOverrides);
-  }
-
   /**
    * Creates request options for independentJoinHistoryStream without sending the request
    */

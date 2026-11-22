@@ -27,13 +27,6 @@ import {
   IndependentPeerToJSON,
   IndependentPeerToJSONTyped,
 } from "./IndependentPeer.js";
-import type { JwkPublic } from "./JwkPublic.js";
-import {
-  JwkPublicFromJSON,
-  JwkPublicFromJSONTyped,
-  JwkPublicToJSON,
-  JwkPublicToJSONTyped,
-} from "./JwkPublic.js";
 
 /**
  *
@@ -53,10 +46,6 @@ export interface IndependentJoinRequest {
    *
    */
   operation: IndependentCreateIntent;
-  /**
-   *
-   */
-  publicSigner: JwkPublic;
   /**
    *
    */
@@ -87,13 +76,6 @@ export function instanceOfIndependentJoinRequest(value: object): value is Indepe
     return false;
   if (!("operation" in value) || value["operation"] === undefined) return false;
   if (
-    (!("publicSigner" in (value as Record<string, any>)) &&
-      !("public_signer" in (value as Record<string, any>))) ||
-    ((value as Record<string, any>)["publicSigner"] === undefined &&
-      (value as Record<string, any>)["public_signer"] === undefined)
-  )
-    return false;
-  if (
     (!("requestId" in (value as Record<string, any>)) &&
       !("request_id" in (value as Record<string, any>))) ||
     ((value as Record<string, any>)["requestId"] === undefined &&
@@ -116,15 +98,7 @@ export function IndependentJoinRequestFromJSONTyped(
     json &&
     typeof json === "object" &&
     Object.keys(json).some(
-      (key) =>
-        ![
-          "endpoint_id",
-          "member_id",
-          "operation",
-          "public_signer",
-          "request_id",
-          "source",
-        ].includes(key)
+      (key) => !["endpoint_id", "member_id", "operation", "request_id", "source"].includes(key)
     )
   )
     throw new Error("Unexpected IndependentJoinRequest field");
@@ -135,7 +109,6 @@ export function IndependentJoinRequestFromJSONTyped(
     endpointId: json["endpoint_id"],
     memberId: json["member_id"],
     operation: IndependentCreateIntentFromJSON(json["operation"]),
-    publicSigner: JwkPublicFromJSON(json["public_signer"]),
     requestId: json["request_id"],
     source: IndependentPeerFromJSON(json["source"]),
   };
@@ -157,7 +130,6 @@ export function IndependentJoinRequestToJSONTyped(
     endpoint_id: value["endpointId"],
     member_id: value["memberId"],
     operation: IndependentCreateIntentToJSON(value["operation"]),
-    public_signer: JwkPublicToJSON(value["publicSigner"]),
     request_id: value["requestId"],
     source: IndependentPeerToJSON(value["source"]),
   };

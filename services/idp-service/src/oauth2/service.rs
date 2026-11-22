@@ -494,36 +494,6 @@ where
             .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))
     }
 
-    /// Checks live client registration for already verified access-token claims.
-    pub async fn validate_bearer_client(&self, claims: &StandardClaims) -> ErrorResponseResult<Id> {
-        let client = self
-            .client_repo
-            .find_client_registration(&claims.client_id)
-            .await
-            .map_err(ErrorResponse::from)?
-            .ok_or_else(|| ErrorResponse::new(ErrorCode::NotAuthorized))?;
-        Self::validate_bearer_registration(claims, &client)
-    }
-
-    async fn validate_bearer_principal_client(
-        &self,
-        claims: &StandardClaims,
-        principal: &dyn Principal,
-    ) -> ErrorResponseResult<Id> {
-        if claims.principal_type == PrincipalType::Client {
-            let client = principal
-                .get_entity_as_any()
-                .downcast_ref::<Client>()
-                .ok_or_else(|| ErrorResponse::new(ErrorCode::NotAuthorized))?;
-            if client.client_id != claims.client_id {
-                return Err(ErrorResponse::new(ErrorCode::NotAuthorized));
-            }
-            Self::validate_bearer_registration(claims, client)
-        } else {
-            self.validate_bearer_client(claims).await
-        }
-    }
-
     fn validate_bearer_registration(
         claims: &StandardClaims,
         client: &Client,
@@ -824,6 +794,13 @@ where
         request: TokenRequest,
         client_auth: Option<OAuth2ClientAuth>,
     ) -> ErrorResponseResult<TokenResponse> {
+        if self.oauth_config.trusted_issuer_jwks.is_some() {
+            return Err(
+                ErrorResponse::new(ErrorCode::AccessDenied).with_description(
+                    "this Node verifies tokens; request issuance at the canonical issuer",
+                ),
+            );
+        }
         match request {
             TokenRequest::Password(request) => self.password(request, client_auth.as_ref()).await,
             TokenRequest::AuthorizationCode(request) => {
@@ -1194,22 +1171,11 @@ where
                 .with_description("subject_token_type must be access_token"));
         }
 
-        let (subject_token, principal) =
-            self.verify_token_principal(&request.subject_token).await?;
-        let now = Utc::now().timestamp();
-        if subject_token.r#type != TokenType::Bearer
-            || subject_token.r#use != TokenUse::Access
-            || subject_token.iss != self.oauth_config.issuer
-            || subject_token.exp <= now
-            || subject_token.nbf > now
-            || subject_token.iat > now
-            || subject_token.aud.is_empty()
-        {
-            return Err(ErrorResponse::new(ErrorCode::InvalidGrant)
-                .with_description("invalid subject access token"));
-        }
-
-        self.validate_bearer_client(&subject_token).await?;
+        let access = self
+            .verify_access_token_claims(&request.subject_token)
+            .await?;
+        let subject_token = access.standard_claims;
+        let principal = self.principal_for_claims(&subject_token).await?;
 
         let client = self
             .client_repo
@@ -1219,6 +1185,9 @@ where
             .ok_or_else(|| {
                 ErrorResponse::new(ErrorCode::InvalidClient).with_description("client not found")
             })?;
+        if Self::validate_bearer_registration(&subject_token, &client)? != access.application_id {
+            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
+        }
         self.validate_grant_type(&client, GrantType::TokenExchange)?;
         self.authenticate_client_for_token_endpoint(&client, client_auth)?;
 
@@ -1366,17 +1335,45 @@ where
     }
 
     pub async fn list_jwks(&self) -> ErrorResponseResult<Jwks> {
-        let records = self
+        if let Some(jwks) = &self.oauth_config.trusted_issuer_jwks {
+            return Ok(jwks.clone());
+        }
+        let keys = self
             .key_service
             .key_repo()
-            .trusted_node_signers(&self.oauth_config.issuer, Utc::now().timestamp())
+            .issuer_keys(&self.oauth_config.issuer, Utc::now().timestamp())
             .await?;
         Ok(Jwks {
-            keys: records
-                .into_iter()
-                .map(|(_, signer)| signer.public_jwk)
-                .collect(),
+            keys: keys.into_iter().map(|(key, _)| key).collect(),
         })
+    }
+
+    pub async fn rotate_issuer_key(&self) -> ErrorResponseResult<JwkPublic> {
+        let previous = self.local_signing_jwk().await?;
+        let mut binding = self
+            .oauth_config
+            .local_signer
+            .clone()
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::AccessDenied))?;
+        binding.key_id = Id::now_v7();
+        let replacement = self.key_service.prepare_node_signer(&binding)?;
+        let ttl = self
+            .oauth_config
+            .refresh_token_ttl_secs
+            .max(self.oauth_config.token_ttl_secs);
+        let expires = Utc::now()
+            .timestamp()
+            .saturating_add(i64::try_from(ttl).unwrap_or(i64::MAX));
+        self.key_service
+            .key_repo()
+            .rotate_issuer_key(
+                &self.oauth_config.issuer,
+                &replacement,
+                &previous.kid,
+                expires,
+            )
+            .await?;
+        Ok(replacement)
     }
 
     pub async fn rotate_client_secret(&self, client_id: &str) -> ErrorResponseResult<String> {
@@ -1461,26 +1458,16 @@ where
     }
 
     pub async fn find_public_jwk(&self, key_id: Id) -> ErrorResponseResult<JwkPublic> {
-        let records = self
-            .key_service
-            .key_repo()
-            .trusted_node_signers(&self.oauth_config.issuer, Utc::now().timestamp())
-            .await?;
-        let mut matching = records
-            .into_iter()
-            .filter(|(_, signer)| signer.key_id == key_id);
-        let signer = matching
+        let jwks = self.list_jwks().await?;
+        let key_id = key_id.to_string();
+        let mut matching = jwks.keys.into_iter().filter(|key| key.kid == key_id);
+        let key = matching
             .next()
-            .ok_or_else(|| {
-                ErrorResponse::new(ErrorCode::InvalidGrant)
-                    .with_description("approved active node signer not found")
-            })?
-            .1;
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidGrant))?;
         if matching.next().is_some() {
-            return Err(ErrorResponse::new(ErrorCode::InvalidGrant)
-                .with_description("ambiguous node signer"));
+            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
         }
-        Ok(signer.public_jwk)
+        Ok(key)
     }
 
     async fn validate_issuance_inputs(
@@ -1584,25 +1571,21 @@ where
         Ok((claims, principal))
     }
 
-    pub async fn verify_access_token_principal(
+    /// Verify the token before routing it to the operation that enforces its audience.
+    pub async fn verify_access_token_claims(
         &self,
         token: &str,
-    ) -> ErrorResponseResult<(StandardClaims, Box<dyn Principal>, Id)> {
-        let (claims, principal) = self.verify_token_principal(token).await?;
-        let now = Utc::now().timestamp();
-        if claims.r#type != TokenType::Bearer
-            || claims.r#use != TokenUse::Access
-            || claims.exp <= now
-            || claims.nbf > now
-            || claims.iat > now
-            || claims.aud.is_empty()
-        {
-            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
-        }
-        let application_id = self
-            .validate_bearer_principal_client(&claims, principal.as_ref())
-            .await?;
-        Ok((claims, principal, application_id))
+    ) -> ErrorResponseResult<super::token::AccessClaims> {
+        let (header, _) = decode_jwt::<serde::de::IgnoredAny>(token)?;
+        let key_id =
+            Id::parse_str(&header.kid).map_err(|_| ErrorResponse::new(ErrorCode::InvalidGrant))?;
+        let public = self.find_public_jwk(key_id).await?;
+        super::token::verify_access_claims(
+            &public,
+            &self.oauth_config.issuer,
+            token,
+            Utc::now().timestamp(),
+        )
     }
 
     pub async fn validate_access_token(
@@ -1610,24 +1593,32 @@ where
         token: &str,
         audience: &str,
     ) -> ErrorResponseResult<StandardClaims> {
-        let (claims, _, _) = self.verify_access_token_principal(token).await?;
-        let now = Utc::now().timestamp();
-        if audience.is_empty()
-            || claims.aud != audience
-            || claims.iss != self.oauth_config.issuer
-            || claims.r#type != TokenType::Bearer
-            || claims.r#use != TokenUse::Access
-            || claims.exp <= now
-            || claims.nbf > now
-            || claims.iat > now
-        {
-            return Err(ErrorResponse::new(ErrorCode::InvalidGrant)
-                .with_description("invalid access token claims"));
+        let access = self.verify_access_token_claims(token).await?;
+        if access.standard_claims.aud != audience {
+            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
         }
-        Ok(claims)
+        Ok(access.standard_claims)
+    }
+
+    pub async fn active_user_principal(
+        &self,
+        subject: Id,
+    ) -> ErrorResponseResult<Box<dyn Principal>> {
+        let key = self
+            .key_service
+            .key_repo()
+            .find_active_entity_root_key(EntityType::User, subject)
+            .await?
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::AccessDenied))?;
+        self.principal_for_active_key(key)
+            .await?
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::AccessDenied))
     }
 
     pub fn metadata(&self, endpoint_base: &str) -> AuthorizationServerMetadata {
+        if self.oauth_config.trusted_issuer_jwks.is_some() {
+            return self.oauth_config.to_metadata(&self.oauth_config.issuer);
+        }
         self.oauth_config.to_metadata(endpoint_base)
     }
 
@@ -1723,9 +1714,10 @@ where
 
         let access_token_value = encode_jwt(
             &signing_jwk,
-            &super::token::PrincipalBoundClaims {
+            &super::token::AccessClaims {
                 standard_claims: access_claims.clone(),
-                principal_key_id: principal.get_key().id,
+                application_id: client.application_id,
+                introspection_audiences: Vec::new(),
             },
         )?;
 
@@ -1836,9 +1828,10 @@ where
         };
         let access_token = AccessToken(encode_jwt(
             &signing_jwk,
-            &super::token::PrincipalBoundClaims {
+            &super::token::AccessClaims {
                 standard_claims: claims,
-                principal_key_id: principal.get_key().id,
+                application_id: client.application_id,
+                introspection_audiences: client.allowed_audiences.clone(),
             },
         )?);
 
@@ -2218,6 +2211,9 @@ where
                     return Ok(None);
                 };
 
+                if user.blocked {
+                    return Ok(None);
+                }
                 Box::new(UserPrincipal { user, key }) as Box<dyn Principal>
             }
             EntityType::Client => {

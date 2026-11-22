@@ -4,7 +4,6 @@ use std::io;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use iroh::{EndpointId, Signature};
 use of_model::id::Id;
-use of_model::idp::contract::jwk_public::JwkPublic;
 use serde::{Deserialize, Serialize};
 use setup::{IndependentCreateIntent, IndependentPeer};
 
@@ -20,15 +19,12 @@ pub struct IndependentJoinRequest {
     #[cfg_attr(feature = "utoipa", schema(value_type = String, format = "uuid"))]
     pub member_id: Id,
     pub endpoint_id: String,
-    pub public_signer: JwkPublic,
     pub source: IndependentPeer,
 }
 
 impl IndependentJoinRequest {
     pub fn validate(&self) -> io::Result<()> {
         self.operation.canonical()?;
-        idp_service::replica::DbReplicaSignerRepo::validate_public_key(&self.public_signer)
-            .map_err(io::Error::other)?;
         if self.operation.purpose != "join" {
             return Err(io::Error::other("Join purpose required"));
         }
@@ -40,16 +36,12 @@ impl IndependentJoinRequest {
             &self.source.nonce,
         )?;
         let endpoint: EndpointId = self.endpoint_id.parse().map_err(io::Error::other)?;
-        let key: Id = self.public_signer.kid.parse().map_err(io::Error::other)?;
         if self.operation.issuer != self.source.issuer
             || self.endpoint_id == self.source.endpoint
             || endpoint.to_string() != self.endpoint_id
             || self.request_id.get_version_num() != 7
             || self.member_id.get_version_num() != 7
-            || key.get_version_num() != 7
             || self.request_id == self.member_id
-            || self.request_id == key
-            || self.member_id == key
         {
             return Err(io::Error::other("invalid independent Join binding"));
         }

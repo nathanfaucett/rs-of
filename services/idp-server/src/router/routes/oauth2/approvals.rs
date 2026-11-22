@@ -18,9 +18,14 @@ use crate::router::{middleware::authorization::StandardAuthorization, state::Rou
 )]
 pub(crate) async fn is_allowed_for_user(
     State(state): State<RouterState>,
-    StandardAuthorization { principal, .. }: StandardAuthorization,
+    actor: StandardAuthorization,
     Json(request): Json<IsAllowedForUserRequest>,
 ) -> Result<Json<IsAllowedForUserResponse>, ErrorResponse> {
+    actor.require_oidc_audience(&state.service_audience)?;
+    let principal = state
+        .oauth2_service
+        .active_user_principal(actor.subject)
+        .await?;
     let response = state
         .oauth2_service
         .is_allowed_for_user(request, principal.as_ref())
@@ -39,9 +44,14 @@ pub(crate) async fn is_allowed_for_user(
 )]
 pub(crate) async fn approve_for_user(
     State(state): State<RouterState>,
-    StandardAuthorization { principal, .. }: StandardAuthorization,
+    actor: StandardAuthorization,
     Json(request): Json<ApproveForUserRequest>,
 ) -> Result<Json<IsAllowedForUserResponse>, ErrorResponse> {
+    actor.require_oidc_audience(&state.service_audience)?;
+    let principal = state
+        .oauth2_service
+        .active_user_principal(actor.subject)
+        .await?;
     let response = state
         .oauth2_service
         .approve_for_user(request, principal.as_ref())

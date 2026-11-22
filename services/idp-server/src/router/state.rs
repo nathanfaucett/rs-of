@@ -7,7 +7,7 @@ use idp_service::{
     oauth2::service::OAuth2Service,
     replica::{
         DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
-        DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbReplicaSignerRepo, DbUserRepo,
+        DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
     },
     repo::PrivateKeyKeyringRepo,
 };
@@ -27,7 +27,6 @@ pub(super) type NativeOAuth2Service = OAuth2Service<
 >;
 
 pub type NativeDeviceRepo = DbDeviceRepo;
-pub type NativeReplicaSignerRepo = DbReplicaSignerRepo;
 
 #[derive(Clone)]
 pub struct RouterState {
@@ -37,7 +36,6 @@ pub struct RouterState {
     pub engine: ofdb_sql::Client,
     pub oauth2_service: Arc<NativeOAuth2Service>,
     pub devices: Option<Arc<NativeDeviceRepo>>,
-    pub replica_signers: Arc<NativeReplicaSignerRepo>,
     pub(crate) device_identity: Option<Arc<DeviceIdentity>>,
     pub pairing_acceptance: Arc<PairingAcceptanceControllerSlot>,
     pub hosted_control_plane: Option<Arc<HostedControlPlane>>,
@@ -70,14 +68,12 @@ impl RouterState {
         oauth2_service: Arc<NativeOAuth2Service>,
     ) -> Self {
         let api_base_uri = api_base_uri.into();
-        let replica_signers = Arc::new(DbReplicaSignerRepo::new(engine.clone()));
         Self {
             ui_base_uri: ui_base_uri.into(),
             service_audience: api_base_uri.clone(),
             api_base_uri,
             engine,
             oauth2_service,
-            replica_signers,
             devices: None,
             device_identity: None,
             pairing_acceptance: Arc::new(PairingAcceptanceControllerSlot::new()),

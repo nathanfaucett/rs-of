@@ -1,12 +1,8 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use chrono::Utc;
-use k256::ecdsa::SigningKey;
 use of_model::id::Id;
 use of_model::idp::contract::entity_type::EntityType;
-use of_model::idp::contract::idp_signer::IdpSignerRecord;
-use of_model::idp::contract::idp_signer::ReplicaMembership;
 use of_model::idp::contract::jwk_public::JwkPublic;
 use of_model::idp::contract::jwk_public_parameters::JwkPublicParameters;
 use of_model::idp::contract::jws_algorithm::JwsAlgorithm;
@@ -20,8 +16,6 @@ use tokio::{sync::oneshot, task::JoinHandle};
 use crate::repo::KeyRepo;
 
 use crate::ofdb::key_repo::DbKeyRepo;
-
-use crate::ofdb::replica_signer_repo::DbReplicaSignerRepo;
 
 use super::observation_test_kernel::CatalogReads;
 
@@ -52,11 +46,11 @@ impl Fixture {
         };
         let engine = Engine::new(kernel.clone(), AutomergeRowCodec::new());
         let migration = include_str!("../../../model/migrations/0001_init.up.sql");
-        for statement in migration.split(';').map(str::trim).filter(|statement| {
-            statement.starts_with("CREATE TABLE IF NOT EXISTS keys (")
-                || statement.starts_with("CREATE TABLE IF NOT EXISTS idp_replica_members (")
-                || statement.starts_with("CREATE TABLE IF NOT EXISTS idp_replica_signers (")
-        }) {
+        for statement in migration
+            .split(';')
+            .map(str::trim)
+            .filter(|statement| statement.starts_with("CREATE TABLE IF NOT EXISTS keys ("))
+        {
             engine
                 .translate_and_execute(statement, &ofdb_sql::SqlTranslator)
                 .await
@@ -187,57 +181,6 @@ impl Fixture {
         .expect("explicit conflict resolution");
     }
 
-    async fn trust_row_id(&self, table: &str, member: Id) -> Id {
-        let results = self
-            .engine
-            .translate_and_execute(
-                &format!("SELECT id FROM {table} WHERE member_id = CAST('{member}' AS UUID)"),
-                &ofdb_sql::SqlTranslator,
-            )
-            .await
-            .expect("locate fixture row");
-        ofdb_sql::decode(&results[0].rows[0].values[0], "id").expect("fixture row UUID")
-    }
-
-    async fn trust(&self) -> (ReplicaMembership, IdpSignerRecord) {
-        let member_id = Id::now_v7();
-        let key_id = Id::now_v7();
-        let issuer = "https://installation.example".to_owned();
-        let signing_key = SigningKey::from_slice(&[1_u8; 32]).expect("fixed valid scalar");
-        let point = signing_key.verifying_key().to_encoded_point(false);
-        let member = ReplicaMembership {
-            installation_id: issuer.clone(),
-            member_id,
-            endpoint_id: member_id.to_string(),
-            issuer: issuer.clone(),
-            approved_at: 10,
-            revoked_at: None,
-        };
-        let signer = IdpSignerRecord {
-            member_id,
-            key_id,
-            issuer,
-            public_jwk: JwkPublic {
-                kid: key_id.to_string(),
-                r#use: KeyUse::Signature,
-                alg: JwsAlgorithm::ES256K,
-                params: JwkPublicParameters::Ec {
-                    crv: "secp256k1".into(),
-                    x: STANDARD_NO_PAD.encode(point.x().expect("public x")),
-                    y: STANDARD_NO_PAD.encode(point.y().expect("public y")),
-                },
-            },
-            approved_at: Some(10),
-            revoked_at: None,
-            expires_at: None,
-        };
-        DbReplicaSignerRepo::new(self.remote.clone())
-            .enroll(&member, &signer)
-            .await
-            .expect("public enrollment");
-        (member, signer)
-    }
-
     async fn finish(mut self) {
         let _ = self.stop.take().expect("server shutdown sender").send(());
         (&mut self.server).await.expect("SQL server shutdown");
@@ -257,9 +200,10 @@ async fn key_read_preserves_every_decoded_field() {
     let parent = Id::now_v7();
     let entity = Id::now_v7();
     let id = fixture.key(entity, Some(parent), 10).await;
-    let (_, signer) = fixture.trust().await;
-    let mut public = signer.public_jwk;
-    public.kid = id.to_string();
+    let public: of_model::idp::contract::jwk_public::JwkPublic = serde_json::from_value(serde_json::json!({
+        "kid": id.to_string(), "use": "sig", "alg": "ES256K", "kty": "Ec", "crv": "secp256k1",
+        "x": "eb5mfvncu6xVoGKVzocLBwKb/NstzijZWfKBWxb4F5g", "y": "SDradyajxGVdpPv8DhEIqP0XtEimhVQZnEfQj/sQ1Lg",
+    })).expect("public key fixture");
     let encoded = serde_json::to_string(&public).expect("public JWK JSON");
     let future = Utc::now().timestamp() + 3600;
     fixture.sql(&format!("UPDATE keys SET derivation_path = 'm/7/42', derivation_index = 42, hardened = 0, name = 'Decoded key', public_jwk = '{encoded}', revoked_at = {future}, expires_at = {future}, updated_at = 20 WHERE id = CAST('{id}' AS UUID)")).await;
@@ -307,25 +251,6 @@ async fn singleton_key_read_reuses_one_native_catalog() {
         scans,
         [1, 1],
         "one complete table/field catalog per singleton key read"
-    );
-}
-
-#[tokio::test]
-async fn singleton_trust_read_reuses_one_native_catalog() {
-    let fixture = Fixture::new().await;
-    let pair = fixture.trust().await;
-    fixture.reads.reset();
-    let trusted = DbReplicaSignerRepo::new(fixture.remote.clone())
-        .trusted_signers(&pair.0.issuer, 20)
-        .await
-        .expect("current trust observation");
-    assert_eq!(trusted, vec![pair]);
-    let scans = fixture.reads.totals();
-    fixture.finish().await;
-    assert_eq!(
-        scans,
-        [1, 1],
-        "one complete table/field catalog for SELECTs and both conflict tables"
     );
 }
 
@@ -626,215 +551,5 @@ async fn empty_and_deleted_keys_are_fresh_on_the_next_call() {
             .expect("deleted root")
             .is_none()
     );
-    fixture.finish().await;
-}
-
-#[tokio::test]
-async fn native_trust_reads_retain_exact_bindings_and_malformed_time_refusals() {
-    use ofdb_sql::Value::{Integer, Null, Text, Uuid};
-    for (table, column, value) in [
-        (
-            "idp_replica_members",
-            1,
-            Text("https://other.example".into()),
-        ),
-        ("idp_replica_members", 2, Uuid(Id::now_v7())),
-        ("idp_replica_members", 3, Text(String::new())),
-        ("idp_replica_members", 3, Text(" endpoint".into())),
-        (
-            "idp_replica_members",
-            4,
-            Text("https://other.example".into()),
-        ),
-        ("idp_replica_members", 5, Integer(-1)),
-        ("idp_replica_members", 5, Integer(21)),
-        ("idp_replica_members", 5, Null),
-        ("idp_replica_members", 5, Text("malformed".into())),
-        ("idp_replica_members", 6, Integer(21)),
-        ("idp_replica_signers", 1, Uuid(Id::now_v7())),
-        ("idp_replica_signers", 2, Null),
-        ("idp_replica_signers", 2, Uuid(Id::now_v7())),
-        ("idp_replica_signers", 3, Uuid(Id::now_v7())),
-        (
-            "idp_replica_signers",
-            4,
-            Text("https://other.example".into()),
-        ),
-        ("idp_replica_signers", 5, Text("malformed".into())),
-        ("idp_replica_signers", 6, Integer(-1)),
-        ("idp_replica_signers", 6, Integer(21)),
-        ("idp_replica_signers", 6, Null),
-        ("idp_replica_signers", 6, Text("malformed".into())),
-        ("idp_replica_signers", 7, Integer(21)),
-        ("idp_replica_signers", 8, Integer(-1)),
-        ("idp_replica_signers", 8, Integer(20)),
-        ("idp_replica_signers", 8, Text("malformed".into())),
-    ] {
-        let fixture = Fixture::new().await;
-        let pair = fixture.trust().await;
-        let id = fixture.trust_row_id(table, pair.0.member_id).await;
-        fixture
-            .replace_value(table, id, column, value.clone())
-            .await;
-        let result = DbReplicaSignerRepo::new(fixture.remote.clone())
-            .trusted_signers(&pair.0.issuer, 20)
-            .await;
-        assert!(
-            result.is_err() || result.expect("decoded trust").is_empty(),
-            "accepted {table} column {column}: {value:?}"
-        );
-        fixture
-            .sql("DELETE FROM idp_replica_signers; DELETE FROM idp_replica_members")
-            .await;
-        fixture.finish().await;
-    }
-}
-
-#[tokio::test]
-async fn trust_conflicts_preserve_pairs_inspect_both_tables_and_refresh() {
-    let fixture = Fixture::new().await;
-    let pairs = [
-        fixture.trust().await,
-        fixture.trust().await,
-        fixture.trust().await,
-    ];
-    let repo = DbReplicaSignerRepo::new(fixture.remote.clone());
-    let signer_row = fixture
-        .trust_row_id("idp_replica_signers", pairs[0].0.member_id)
-        .await;
-    let member_row = fixture
-        .trust_row_id("idp_replica_members", pairs[2].0.member_id)
-        .await;
-    fixture
-        .conflict(
-            "idp_replica_signers",
-            signer_row,
-            6,
-            [ofdb_sql::Value::Integer(11), ofdb_sql::Value::Integer(12)],
-        )
-        .await;
-    fixture
-        .conflict(
-            "idp_replica_members",
-            member_row,
-            3,
-            [
-                ofdb_sql::Value::from("left"),
-                ofdb_sql::Value::from("right"),
-            ],
-        )
-        .await;
-    fixture.reads.reset();
-    assert_eq!(
-        repo.trusted_signers(&pairs[0].0.issuer, 20)
-            .await
-            .expect("independent conflict decisions"),
-        vec![pairs[1].clone()]
-    );
-    assert_eq!(fixture.reads.totals(), [1, 1]);
-    assert_eq!(
-        fixture.reads.trust_documents(),
-        [3, 3],
-        "all selected signers and memberships inspected despite conflicts"
-    );
-    fixture
-        .resolve(
-            "idp_replica_signers",
-            signer_row,
-            "approved_at",
-            ofdb_sql::Value::Integer(10),
-        )
-        .await;
-    fixture
-        .resolve(
-            "idp_replica_members",
-            member_row,
-            "endpoint_id",
-            ofdb_sql::Value::from(pairs[2].0.endpoint_id.as_str()),
-        )
-        .await;
-    fixture.reads.reset();
-    let trusted = repo
-        .trusted_signers(&pairs[0].0.issuer, 20)
-        .await
-        .expect("fresh conflict resolution");
-    assert_eq!(trusted.len(), 3);
-    for pair in &pairs {
-        assert!(trusted.contains(pair));
-    }
-    assert_eq!(fixture.reads.totals(), [1, 1]);
-    repo.revoke(pairs[0].0.member_id, &pairs[0].0.issuer, 21)
-        .await
-        .expect("public revoke");
-    assert_eq!(
-        repo.trusted_signers(&pairs[0].0.issuer, 21)
-            .await
-            .expect("next call sees revocation")
-            .len(),
-        2
-    );
-    fixture.finish().await;
-}
-
-#[tokio::test]
-async fn trust_reads_observe_empty_deleted_rotated_expired_and_malformed_state() {
-    let fixture = Fixture::new().await;
-    let repo = DbReplicaSignerRepo::new(fixture.remote.clone());
-    assert!(
-        repo.trusted_signers("https://installation.example", 20)
-            .await
-            .expect("empty trust")
-            .is_empty()
-    );
-    let (member, mut signer) = fixture.trust().await;
-    assert_eq!(
-        repo.trusted_signers(&member.issuer, 20)
-            .await
-            .expect("new enrollment"),
-        vec![(member.clone(), signer.clone())]
-    );
-    let old_key = signer.key_id;
-    signer.key_id = Id::now_v7();
-    signer.public_jwk.kid = signer.key_id.to_string();
-    signer.approved_at = Some(21);
-    signer.expires_at = Some(30);
-    repo.rotate(member.member_id, &member.issuer, &signer)
-        .await
-        .expect("existing public rotation");
-    assert_ne!(old_key, signer.key_id);
-    fixture.reads.reset();
-    assert_eq!(
-        DbKeyRepo::new(fixture.remote.clone())
-            .trusted_node_signers(&member.issuer, 21)
-            .await
-            .expect("fresh KeyRepo trust delegation"),
-        vec![(member.clone(), signer.clone())]
-    );
-    assert_eq!(fixture.reads.totals(), [1, 1]);
-    assert!(
-        repo.trusted_signers(&member.issuer, 30)
-            .await
-            .expect("expiry boundary")
-            .is_empty()
-    );
-    assert!(
-        repo.trusted_signers("https://installation.example/", 21)
-            .await
-            .expect("exact issuer")
-            .is_empty()
-    );
-    fixture
-        .sql("UPDATE idp_replica_signers SET public_jwk = 'malformed' WHERE revoked_at IS NULL")
-        .await;
-    assert!(repo.trusted_signers(&member.issuer, 21).await.is_err());
-    fixture.sql("DELETE FROM idp_replica_signers").await;
-    fixture.reads.reset();
-    assert!(
-        repo.trusted_signers(&member.issuer, 21)
-            .await
-            .expect("fresh deletion after failed read")
-            .is_empty()
-    );
-    assert_eq!(fixture.reads.totals(), [1, 1]);
     fixture.finish().await;
 }

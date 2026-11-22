@@ -44,6 +44,7 @@ struct Record {
     approval: Option<device_service::independent_join::IndependentJoinApproval>,
     #[serde(default)]
     imported: bool,
+    jwks: Option<of_model::idp::contract::jwks::Jwks>,
     complete: bool,
 }
 
@@ -51,7 +52,11 @@ impl Record {
     fn validate_operation(&self, intent: &IndependentCreateIntent) -> io::Result<()> {
         self.validate()?;
         if intent.purpose == "create" {
-            if self.request.is_some() || self.approval.is_some() || self.imported {
+            if self.request.is_some()
+                || self.approval.is_some()
+                || self.imported
+                || self.jwks.is_some()
+            {
                 return Err(io::Error::other("Create contains Join evidence"));
             }
             return Ok(());
@@ -60,10 +65,9 @@ impl Record {
             request.validate()?;
             if request.operation != *intent
                 || request.member_id != self.member
-                || request.public_signer.kid != self.key.to_string()
                 || Some(request.endpoint_id.as_str()) != self.endpoint.as_deref()
             {
-                return Err(io::Error::other("retained Join signer binding changed"));
+                return Err(io::Error::other("retained Join endpoint binding changed"));
             }
         }
         if let Some(approval) = &self.approval {
@@ -81,6 +85,7 @@ impl Record {
         }
         if ((self.complete || self.imported) && (self.request.is_none() || self.approval.is_none()))
             || (self.complete && !self.imported)
+            || self.imported != self.jwks.is_some()
         {
             return Err(io::Error::other(
                 "completed Join lacks exact public import evidence",
@@ -104,6 +109,7 @@ impl Record {
             request: None,
             approval: None,
             imported: false,
+            jwks: None,
             complete: false,
         }
     }
@@ -186,7 +192,9 @@ async fn run(
             open(&config, &intent, &record, &mut owner).await?;
             owners.send_replace(owner.as_ref().expect("opened owner").database.clone());
             let opened = owner.as_ref().expect("opened IdP");
-            opened.verify_node_signer(&binding(&record)?).await?;
+            if intent.purpose == "create" {
+                opened.verify_node_signer(&binding(&record)?).await?;
+            }
             opened
                 .verify_public_login_client(login(&intent, record.login))
                 .await?;
@@ -212,6 +220,7 @@ async fn run(
                     opened.engine.clone(),
                     opened.database.clone(),
                     control.shutdown_token(),
+                    binding(&record)?.endpoint_id,
                 )
                 .await?,
             );
@@ -266,7 +275,12 @@ fn runtime_config(
     let mut config = config.clone();
     config.api_public_uri = intent.idp.clone();
     config.oauth2.issuer = intent.issuer.clone();
-    config.oauth2.local_signer = Some(binding(record)?);
+    config.oauth2.local_signer = if intent.purpose == "create" {
+        Some(binding(record)?)
+    } else {
+        None
+    };
+    config.oauth2.trusted_issuer_jwks.clone_from(&record.jwks);
     config.service_audience = Some(intent.idp.clone());
     config.management_data_dir = None;
     config.control_plane_uri = Some(intent.device.clone());
@@ -335,7 +349,9 @@ fn observe(
                 return Err(io::Error::other("retained IdP setup evidence changed"));
             }
             observe("signer");
-            owner.verify_node_signer(&binding(&record)?).await?;
+            if intent.purpose == "create" {
+                owner.verify_node_signer(&binding(&record)?).await?;
+            }
             observe("login_client");
             owner
                 .verify_public_login_client(login(&intent, record.login))
@@ -617,6 +633,7 @@ async fn provision(
                 owner.engine.clone(),
                 owner.database.clone(),
                 control.shutdown_token(),
+                binding(&record)?.endpoint_id,
             )
             .await?,
         );

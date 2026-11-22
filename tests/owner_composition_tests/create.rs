@@ -994,8 +994,8 @@ async fn independent_create_child() {
         StatusCode::SERVICE_UNAVAILABLE
     );
     current_status(&http, &intent.device, true).await;
-    revoke_current_signer(&root, &http, &intent, &management_token).await;
-    current_status(&http, &intent.idp, false).await;
+    rotate_current_issuer(&http, &intent, &management_token).await;
+    current_status(&http, &intent.idp, true).await;
     assert_eq!(
         http.get(format!("{}/databases", intent.storage))
             .send()
@@ -1338,12 +1338,7 @@ async fn exercise_endpoint_negatives(
     }
 }
 
-async fn revoke_current_signer(
-    root: &Path,
-    http: &Client,
-    intent: &IndependentCreateIntent,
-    device: &str,
-) {
+async fn rotate_current_issuer(http: &Client, intent: &IndependentCreateIntent, device: &str) {
     let public = wait_public(http, &intent.idp).await;
     let response = http
         .post(format!("{}/oauth2/token", intent.idp))
@@ -1370,23 +1365,25 @@ async fn revoke_current_signer(
         .expect("ordinary IdP owner audience exchange");
     assert_eq!(response.status(), StatusCode::OK);
     let token: of_model::contract::TokenResponse = response.json().await.expect("IdP User token");
-    let record: serde_json::Value = serde_json::from_slice(
-        &fs::read(root.join("idp.setup-host/worker.json")).expect("retained exact signer identity"),
-    )
-    .expect("record");
-    assert_eq!(
-        http.delete(format!(
-            "{}/replica-signers/{}",
-            intent.idp,
-            record["member"].as_str().expect("local signer member")
-        ))
+    let rotated = http
+        .post(format!("{}/issuer-keys/rotate", intent.idp))
         .bearer_auth(token.access_token.0)
         .send()
         .await
-        .expect("ordinary authorized signer revocation")
-        .status(),
-        StatusCode::OK
-    );
+        .expect("rotate issuer key");
+    assert_eq!(rotated.status(), StatusCode::OK);
+    let key: of_model::idp::contract::jwk_public::JwkPublic =
+        rotated.json().await.expect("public issuer key");
+    let jwks: of_model::idp::contract::jwks::Jwks = http
+        .get(format!("{}/.well-known/jwks.json", intent.idp))
+        .send()
+        .await
+        .expect("published JWKS")
+        .json()
+        .await
+        .expect("public keys");
+    assert!(jwks.keys.contains(&key));
+    assert_eq!(jwks.keys.len(), 2, "previous key stays during overlap");
 }
 
 pub(super) async fn current_status(http: &Client, base: &str, ready: bool) {

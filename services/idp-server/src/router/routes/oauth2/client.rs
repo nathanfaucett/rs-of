@@ -15,8 +15,9 @@ use crate::router::{middleware::authorization::StandardAuthorization, state::Rou
 pub(crate) async fn get_client(
     State(state): State<RouterState>,
     Path(client_id): Path<String>,
-    _actor: StandardAuthorization,
+    actor: StandardAuthorization,
 ) -> Result<Json<ClientConsentMetadata>, ErrorResponse> {
+    actor.require_oidc_audience(&state.service_audience)?;
     state
         .oauth2_service
         .get_client_consent_metadata(&client_id)

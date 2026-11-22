@@ -10,16 +10,13 @@ use std::{
 
 use db::{Database, SqlTranslator};
 use idp_server::{AppConfig, NodeJoinStage, OwnerProvisioner};
-use idp_service::{oauth2::NodeSignerBinding, replica::DbReplicaSignerRepo};
+use idp_service::oauth2::NodeSignerBinding;
 use iroh::{SecretKey, endpoint::presets::Minimal};
 use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 use management_service::ManagementService;
 use management_service::replica::DbPermissionRepo;
 use management_service::replica::DbRoleRepo;
-use of_model::idp::{
-    contract::{IdentityAction, JwkPublic},
-    model::Id,
-};
+use of_model::idp::{contract::IdentityAction, model::Id};
 use tokio_util::sync::CancellationToken;
 
 use crate::support::identity::{seed_idp, seed_permissions, user_token};
@@ -133,7 +130,7 @@ async fn interruption_boundary(
         .await
         .expect("source User role");
     for action in [
-        IdentityAction::ReplicaSignersEnroll,
+        IdentityAction::DevicesEnroll,
         IdentityAction::IdpSecuritySync,
     ]
     .into_iter()
@@ -534,13 +531,7 @@ async fn interruption_boundary(
                     .await
                     .expect("actual imported trust survives without its journal");
             }
-            assert_eq!(
-                provisioner
-                    .verify_node_signer(&binding)
-                    .await
-                    .expect("retained private signer"),
-                request.public_signer
-            );
+
             assert_eq!(
                 protocol
                     .node_join_public_ready(&provisioner)
@@ -713,15 +704,14 @@ async fn interruption_boundary(
             approved
         );
         diagnostic_stage(phase, "learned local revocation and readiness denial");
-        DbReplicaSignerRepo::new(
-            provisioner
-                .node_join_database()
-                .expect("local identity owner")
-                .client(),
+        sql(
+            &policy_store,
+            &format!(
+                "UPDATE devices SET revoked_at = 11 WHERE id = CAST('{}' AS UUID)",
+                approved.device_id
+            ),
         )
-        .revoke(binding.member_id, &issuer, 11)
-        .await
-        .expect("learn local revocation");
+        .await;
         assert!(
             !protocol
                 .node_join_public_ready(&provisioner)
@@ -863,14 +853,7 @@ async fn interruption_boundary(
         !retained.is_empty(),
         "already admitted application write finishes despite cancellation"
     );
-    assert_eq!(
-        provisioner
-            .verify_node_signer(&binding)
-            .await
-            .expect("admitted batch may already contain the pinned trust tuple"),
-        request.public_signer,
-        "local signer trust alone does not publish context completion or public readiness"
-    );
+
     assert_eq!(
         sql(&source_idp, "SELECT id FROM users ORDER BY id").await[0].rows,
         source_users,
@@ -965,31 +948,15 @@ async fn interruption_boundary(
             .await
             .expect("IdP alone is not public readiness")
     );
-    assert_eq!(
-        sql(
-            &provisioner
-                .node_join_database()
-                .expect("local identity owner"),
-            &format!(
-                "SELECT id FROM idp_replica_members WHERE member_id = CAST('{}' AS UUID)",
-                binding.member_id
-            )
-        )
-        .await[0]
-            .rows
-            .len(),
-        1,
-        "retry does not duplicate membership"
-    );
-    DbReplicaSignerRepo::new(
-        provisioner
-            .node_join_database()
-            .expect("local identity owner")
-            .client(),
+
+    sql(
+        &joining_policy,
+        &format!(
+            "UPDATE devices SET revoked_at = 11 WHERE public_key = '{}'",
+            binding.endpoint_id
+        ),
     )
-    .revoke(binding.member_id, &issuer, 11)
-    .await
-    .expect("receiver learns membership revocation");
+    .await;
     assert!(
         protocol
             .receive_node_bootstrap(&connection, &provisioner, SecurityContext::Idp)
@@ -1174,13 +1141,5 @@ impl device_service::node_join_owner::NodeJoinOwner for InterruptingOwner<'_> {
     }
     async fn check_node_join_local_binding(&self) -> io::Result<()> {
         self.inner.check_node_join_local_binding().await
-    }
-    fn verify_node_signer(
-        &self,
-        binding: &NodeSignerBinding,
-    ) -> Pin<Box<dyn Future<Output = io::Result<JwkPublic>> + Send>> {
-        let inner = self.inner.clone();
-        let binding = *binding;
-        Box::pin(async move { inner.verify_node_signer(&binding).await })
     }
 }

@@ -72,7 +72,7 @@ async fn native_local_token_read_response_denies_learned_revocation_before_trans
     )
     .await;
     gate.reached().await;
-    fixture.revoke_user().await;
+    fixture.withdraw_issuer_key().await;
     gate.release();
     assert_no_response(&mut socket).await;
     assert_eq!(
@@ -245,7 +245,7 @@ async fn native_local_tokens_bound_api_actions_resource_kind_and_existing_socket
         file.read("shared.txt").await.expect("real API write"),
         b"after"
     );
-    fixture.revoke_user().await;
+    fixture.withdraw_issuer_key().await;
     send(
         &mut reader,
         StorageRequest::Read {
@@ -312,7 +312,7 @@ async fn native_local_token_authorized_write_survives_revoked_response_and_next_
             .expect("actual write completed before learning denial"),
         b"authorized in-flight content"
     );
-    fixture.revoke_user().await;
+    fixture.withdraw_issuer_key().await;
     gate.release();
     assert_no_response(&mut socket).await;
     let next = fixture
@@ -382,7 +382,7 @@ async fn independent_idp_service_loss_denies_response_and_api_without_cached_fal
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_catalog_create_response_denies_learned_user_deletion_without_rollback() {
+async fn native_catalog_create_response_denies_issuer_key_withdrawal_without_rollback() {
     let gate = Gate::default();
     let fixture = Fixture::with_catalog_gate(Gate::default(), Some(gate.clone())).await;
     let token = fixture
@@ -411,7 +411,7 @@ async fn native_catalog_create_response_denies_learned_user_deletion_without_rol
             .len(),
         2
     );
-    fixture.revoke_user().await;
+    fixture.withdraw_issuer_key().await;
     gate.release();
     let response = request.await;
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
@@ -511,7 +511,7 @@ async fn catalog_response_denial(kind: &str, operation: &str) {
             .len()
     };
     assert_eq!(observed, expected,);
-    fixture.revoke_user().await;
+    fixture.withdraw_issuer_key().await;
     gate.release();
     let response = request.await;
     assert_eq!(
@@ -549,37 +549,37 @@ async fn catalog_response_denial(kind: &str, operation: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_catalog_get_response_denies_learned_user_deletion_without_rollback() {
+async fn native_catalog_get_response_denies_issuer_key_withdrawal_without_rollback() {
     catalog_response_denial("filesystems", "get").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_catalog_list_response_denies_learned_user_deletion_without_rollback() {
+async fn native_catalog_list_response_denies_issuer_key_withdrawal_without_rollback() {
     catalog_response_denial("filesystems", "list").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_catalog_delete_response_denies_learned_user_deletion_without_rollback() {
+async fn native_catalog_delete_response_denies_issuer_key_withdrawal_without_rollback() {
     catalog_response_denial("filesystems", "delete").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_database_catalog_create_response_denies_learned_user_deletion_without_rollback() {
+async fn native_database_catalog_create_response_denies_issuer_key_withdrawal_without_rollback() {
     catalog_response_denial("databases", "create").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_database_catalog_get_response_denies_learned_user_deletion_without_rollback() {
+async fn native_database_catalog_get_response_denies_issuer_key_withdrawal_without_rollback() {
     catalog_response_denial("databases", "get").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_database_catalog_list_response_denies_learned_user_deletion_without_rollback() {
+async fn native_database_catalog_list_response_denies_issuer_key_withdrawal_without_rollback() {
     catalog_response_denial("databases", "list").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn native_database_catalog_delete_response_denies_learned_user_deletion_without_rollback() {
+async fn native_database_catalog_delete_response_denies_issuer_key_withdrawal_without_rollback() {
     catalog_response_denial("databases", "delete").await;
 }
 

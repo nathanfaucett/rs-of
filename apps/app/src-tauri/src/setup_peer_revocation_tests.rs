@@ -84,7 +84,6 @@ async fn peer_reset_revocation_pins_issuer_exchanges_each_audience_and_acknowled
     let router = Router::new()
         .route("/idp/.well-known/openid-configuration", get(metadata))
         .route("/idp/oauth2/token", post(exchange))
-        .route("/idp/replica-signers/{id}", delete(revoke))
         .route("/device/devices/{id}", delete(revoke))
         .with_state(state.clone());
     let listener = tokio::net::TcpListener::bind(address)
@@ -100,7 +99,7 @@ async fn peer_reset_revocation_pins_issuer_exchanges_each_audience_and_acknowled
     let data = root.join("reset-profile");
     fs::create_dir(&data).expect("isolated reset profile");
     let member = of_model::idp::model::Id::now_v7();
-    setup_reset::publish(&data, &format!("reset-revocation-{member}.json"), &json!({"version":1, "issuer":"https://installation.test/idp", "member_id":member, "status":"pending"})).expect("retained public target");
+    setup_reset::publish(&data, &format!("reset-revocation-{member}.json"), &json!({"version":1, "issuer":peer_api, "member_id":member, "status":"pending"})).expect("retained public target");
     assert!(
         super::revoke(
             &data,
@@ -117,7 +116,7 @@ async fn peer_reset_revocation_pins_issuer_exchanges_each_audience_and_acknowled
         state.exchanges.lock().expect("records").is_empty(),
         "wrong issuer must receive no User token"
     );
-    *state.issuer.lock().expect("issuer") = "https://installation.test/idp".into();
+    *state.issuer.lock().expect("issuer") = peer_api.clone();
     assert!(
         super::revoke(
             &data,
@@ -137,16 +136,12 @@ async fn peer_reset_revocation_pins_issuer_exchanges_each_audience_and_acknowled
     assert_eq!(
         state.deletions.lock().expect("deletions").as_slice(),
         [
-            format!("/idp/replica-signers/{member}"),
             format!("/device/devices/{member}")
         ]
     );
     let exchanges = state.exchanges.lock().expect("exchange records").clone();
-    assert_eq!(exchanges.len(), 2);
-    for (body, resource) in exchanges.iter().zip([
-        peer_api.as_str(),
-        management_server::MANAGEMENT_APPLICATION_URI,
-    ]) {
+    assert_eq!(exchanges.len(), 1);
+    for (body, resource) in exchanges.iter().zip([management_server::MANAGEMENT_APPLICATION_URI]) {
         let parsed = reqwest::Url::parse(&format!("https://fixture.test/?{body}"))
             .expect("parse submitted form");
         let form = parsed

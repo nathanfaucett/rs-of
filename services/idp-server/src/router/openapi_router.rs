@@ -38,15 +38,13 @@ use super::routes::oauth2::register::{
 use super::routes::oauth2::revoke::{__path_revoke, revoke};
 use super::routes::oauth2::sessions::{__path_sessions_logout, sessions_logout};
 use super::routes::oauth2::token::{__path_token, token};
-use super::routes::replica_signers::{
-    __path_enroll_replica_signer, __path_revoke_replica_signer, __path_rotate_replica_signer,
-    enroll_replica_signer, revoke_replica_signer, rotate_replica_signer,
-};
 use super::routes::userinfo::{__path_userinfo, userinfo};
 use super::routes::version::{__path_version, version};
 use super::routes::well_known::{
     __path_jwks, __path_openid_configuration, jwks, openid_configuration,
 };
+
+use super::routes::issuer_keys::{__path_rotate_issuer_key, rotate_issuer_key};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -59,9 +57,7 @@ fn routes() -> OpenApiRouter<RouterState> {
     OpenApiRouter::new()
         .routes(routes!(health))
         .routes(routes!(active_user))
-        .routes(routes!(enroll_replica_signer))
-        .routes(routes!(rotate_replica_signer))
-        .routes(routes!(revoke_replica_signer))
+        .routes(routes!(rotate_issuer_key))
         .routes(routes!(list_applications))
         .routes(routes!(create_application))
         .routes(routes!(get_application))
@@ -170,8 +166,8 @@ mod tests {
                 .flat_map(|item| item.as_object().expect("path item").values())
                 .filter_map(|operation| operation["operationId"].as_str())
                 .collect::<Vec<_>>();
-            assert_eq!(operations.len(), 44, "complete IdP operation inventory");
-            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 44);
+            assert_eq!(operations.len(), 42, "complete IdP operation inventory");
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 42);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");
@@ -205,18 +201,18 @@ mod tests {
     }
 
     #[test]
-    fn excludes_obsolete_bootstrap_and_keeps_idp_signer_routes() {
+    fn excludes_bootstrap_and_replica_signer_routes_and_keeps_issuer_rotation() {
         let document =
             crate::router::openapi_router::openapi_document("https://idp.example", "/idp");
         for path in document.paths.paths.keys() {
             assert!(
-                !path.starts_with("/bootstrap"),
+                !path.starts_with("/bootstrap") && !path.starts_with("/replica-signers"),
                 "bootstrap routes must not be exposed: {path}"
             );
         }
         assert!(
-            document.paths.paths.contains_key("/replica-signers"),
-            "idp signer routes must remain exposed"
+            document.paths.paths.contains_key("/issuer-keys/rotate"),
+            "the issuing authority can rotate its key"
         );
     }
 }

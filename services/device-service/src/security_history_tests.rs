@@ -34,7 +34,7 @@ use crate::{
     security_policy::{SecurityContext, SecurityHistory},
     security_protocol::{
         SecurityProtocol,
-        test_fixtures::{StreamPanics, enroll, insert_device, native_handler, sql},
+        test_fixtures::{StreamPanics, insert_device, native_handler, sql},
     },
 };
 
@@ -213,9 +213,8 @@ impl Pair {
                 .await
                 .expect("declare Management schema");
             let member_a = insert_device(&management, &actor.to_string(), a.endpoint().id(), "node").await;
-            enroll(idp.clone(), member_a, a.endpoint().id(), key_a).await;
+
             let member_b = insert_device(&management, &actor.to_string(), b.endpoint().id(), "node").await;
-            enroll(idp.clone(), member_b, b.endpoint().id(), key_b).await;
             let inserted = sql(
                 &idp,
                 &format!(

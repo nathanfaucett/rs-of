@@ -53,16 +53,7 @@ async fn node_join_invalid_bearer_cannot_approve_pairing() {
             .await
             .is_err()
     );
-    assert_eq!(
-        fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("trust")
-            .len(),
-        1
-    );
+
     send.abort();
     let _ = send.await;
     router.shutdown().await.expect("stop pairing router");
@@ -70,235 +61,6 @@ async fn node_join_invalid_bearer_cannot_approve_pairing() {
     let root = fixture.root.clone();
     drop(fixture);
     std::fs::remove_dir_all(root).expect("remove native fixture");
-}
-
-#[tokio::test]
-async fn node_join_anchor_verification_is_existing_only_and_does_not_write() {
-    use std::time::SystemTime;
-
-    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-
-    let root = std::env::temp_dir().join(format!("node-join-read-only-{}", Id::now_v7()));
-    let config = AppConfig {
-        data_dir: root.to_string_lossy().into_owned(),
-        ..AppConfig::default()
-    };
-    let secrets = Secrets::default();
-    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
-        .await
-        .expect("isolated owner");
-    let subject = Id::now_v7();
-    owner
-        .prepare_fresh_setup_secret_inventory(subject, &[])
-        .await
-        .expect("fresh secret inventory");
-    owner
-        .prepare_setup_client_slots(&[])
-        .await
-        .expect("ready inventory");
-    let binding = NodeSignerBinding {
-        member_id: Id::now_v7(),
-        key_id: Id::now_v7(),
-        endpoint_id: SecretKey::generate().public().to_string(),
-    };
-    let peer = SecretKey::generate();
-    let request = owner
-        .prepare_node_join(&binding, "Read-only verification", peer.public())
-        .expect("explicit preparation");
-    let device_id = Id::now_v7();
-    let signature = peer.sign(
-        &of_model::node_join::NodeJoinApproval::payload(&request, device_id, subject)
-            .expect("exact approval payload"),
-    );
-    let approval = of_model::node_join::NodeJoinApproval {
-        request,
-        device_id,
-        owner_subject: subject,
-        signature: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
-    };
-    owner
-        .record_node_join_approval(&approval)
-        .expect("retain approval");
-    for file in [
-        "setup-secret-inventory.json",
-        "node-join-request.json",
-        "node-join-approval.json",
-    ] {
-        std::fs::File::open(root.join(file))
-            .expect("retained journal")
-            .set_modified(SystemTime::UNIX_EPOCH)
-            .expect("mark isolated journal for read-only verification");
-    }
-    assert_eq!(
-        owner.node_join_anchor().expect("current exact anchor"),
-        approval
-    );
-    for file in [
-        "setup-secret-inventory.json",
-        "node-join-request.json",
-        "node-join-approval.json",
-    ] {
-        assert_eq!(
-            std::fs::metadata(root.join(file))
-                .expect("retained journal")
-                .modified()
-                .expect("journal modification time"),
-            SystemTime::UNIX_EPOCH,
-            "anchor verification must not rewrite {file}"
-        );
-    }
-    drop(owner);
-    let owner = OwnerProvisioner::open_with_private_keys(&config, Secrets::default())
-        .await
-        .expect("reopen without private signer");
-    assert!(
-        owner.node_join_anchor().is_err(),
-        "missing private signer denies without replacement"
-    );
-    drop(owner);
-    std::fs::remove_dir_all(root).expect("remove isolated owner");
-}
-
-#[tokio::test]
-async fn node_join_failed_private_write_cannot_regenerate_on_retry() {
-    use std::sync::atomic::Ordering;
-
-    use bip32::DerivationPath;
-    use idp_service::repo::private_key_repo::PrivateKeyRepo;
-
-    let root = std::env::temp_dir().join(format!("node-join-attempted-{}", Id::now_v7()));
-    let config = AppConfig {
-        data_dir: root.to_string_lossy().into_owned(),
-        ..AppConfig::default()
-    };
-    let secrets = Secrets::default();
-    let binding = NodeSignerBinding {
-        member_id: Id::now_v7(),
-        key_id: Id::now_v7(),
-        endpoint_id: SecretKey::generate().public().to_string(),
-    };
-    let peer = SecretKey::generate().public();
-    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
-        .await
-        .expect("isolated joining owner");
-    owner
-        .prepare_fresh_setup_secret_inventory(Id::now_v7(), &[])
-        .await
-        .expect("fresh joining secret inventory");
-    owner
-        .prepare_setup_client_slots(&[])
-        .await
-        .expect("ready joining secret inventory");
-    secrets.fail.store(true, Ordering::SeqCst);
-    assert!(
-        owner
-            .prepare_node_join(&binding, "Joining Node", peer)
-            .is_err()
-    );
-    assert!(
-        !root.join("node-join-request.json").exists(),
-        "failed private production must not publish a request"
-    );
-    let attempted = std::fs::read(root.join("setup-secret-inventory.json"))
-        .expect("durable attempted material");
-    secrets.fail.store(false, Ordering::SeqCst);
-    drop(owner);
-    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
-        .await
-        .expect("reopen exact attempted state");
-    assert!(
-        owner
-            .prepare_node_join(&binding, "Joining Node", peer)
-            .is_err(),
-        "an ambiguous failed write is not permission to generate another signer"
-    );
-    let namespace = format!(
-        "{}:node:{}:{}",
-        config.key_namespace, binding.member_id, binding.key_id
-    );
-    assert!(
-        secrets
-            .load(&namespace, &DerivationPath::default())
-            .expect("inspect isolated provider")
-            .is_none(),
-        "retry must leave absent attempted material absent"
-    );
-    assert_eq!(
-        std::fs::read(root.join("setup-secret-inventory.json")).expect("retained inventory"),
-        attempted
-    );
-    assert!(!root.join("node-join-request.json").exists());
-    drop(owner);
-    std::fs::remove_dir_all(root).expect("remove isolated owner");
-}
-
-#[tokio::test]
-async fn node_join_secure_store_loss_and_corrupt_journal_fail_closed() {
-    let root = std::env::temp_dir().join(format!("node-join-failure-{}", Id::now_v7()));
-    let config = AppConfig {
-        data_dir: root.to_string_lossy().into_owned(),
-        ..Default::default()
-    };
-    let secrets = Secrets::default();
-    let binding = NodeSignerBinding {
-        member_id: Id::now_v7(),
-        key_id: Id::now_v7(),
-        endpoint_id: SecretKey::generate().public().to_string(),
-    };
-    let peer = SecretKey::generate().public();
-    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets.clone())
-        .await
-        .expect("native owner");
-    owner
-        .prepare_fresh_setup_secret_inventory(Id::now_v7(), &[])
-        .await
-        .expect("fresh joining secret inventory");
-    owner
-        .prepare_setup_client_slots(&[])
-        .await
-        .expect("ready joining secret inventory");
-    std::fs::write(
-        root.join("node-join-request.interrupted.tmp"),
-        b"partial interrupted temporary write",
-    )
-    .expect("interrupted pre-publish stage");
-    let request = owner
-        .prepare_node_join(&binding, "Joining Node", peer)
-        .expect("prepare after interrupted journal staging");
-    drop(owner);
-    let missing = OwnerProvisioner::open_with_private_keys(&config, Secrets::default())
-        .await
-        .expect("native reopen with missing secrets");
-    assert!(
-        missing
-            .prepare_node_join(&binding, "Joining Node", peer)
-            .is_err(),
-        "missing persisted key cannot be replaced"
-    );
-    assert_eq!(
-        serde_json::from_slice::<of_model::node_join::NodeJoinRequest>(
-            &std::fs::read(root.join("node-join-request.json")).expect("preserved journal")
-        )
-        .expect("request"),
-        request
-    );
-    drop(missing);
-    let owner = OwnerProvisioner::open_with_private_keys(&config, secrets)
-        .await
-        .expect("reopen retained secrets");
-    std::fs::write(root.join("node-join-request.json"), b"corrupt-final")
-        .expect("inject corrupt final journal");
-    assert!(
-        owner
-            .prepare_node_join(&binding, "Joining Node", peer)
-            .is_err()
-    );
-    assert_eq!(
-        std::fs::read(root.join("node-join-request.json")).expect("preserved corrupt final"),
-        b"corrupt-final"
-    );
-    drop(owner);
-    std::fs::remove_dir_all(root).expect("remove isolated owner");
 }
 
 pub(crate) struct ApprovalFixture {
@@ -640,20 +402,20 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
             .approve_node_join(&offer, &bearer)
             .await
             .is_err(),
-        "pairing permission cannot enroll independent signer"
+        "pairing permission cannot enroll a Device"
     );
     let permission = policy
         .create_permission(
             INSTALLATION_POLICY_ID,
-            IdentityAction::ReplicaSignersEnroll.permission(),
+            IdentityAction::DevicesEnroll.permission(),
             None,
         )
         .await
-        .expect("signer grant");
+        .expect("Device enrollment grant");
     policy
         .add_permission_to_role(INSTALLATION_POLICY_ID, role.id, permission.id)
         .await
-        .expect("assign signer grant");
+        .expect("assign Device enrollment grant");
     let idp_audience = user_token(&fixture, "idp-services").await;
     assert!(
         fixture
@@ -725,16 +487,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
             .await
             .is_err()
     );
-    assert_eq!(
-        fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("unchanged trust")
-            .len(),
-        1
-    );
+
     assert!(
         !fixture.server.peers().contains(joining.endpoint().id()),
         "pairing and denied offers cannot add general admission"
@@ -763,16 +516,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         )
         .await
         .expect("Management commit survives interruption before IdP enrollment");
-    assert!(
-        fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("IdP has not enrolled joining signer")
-            .iter()
-            .all(|(member, _)| member.member_id != binding.member_id)
-    );
+
     joining.endpoint().close().await;
     sending.abort();
     let _ = sending.await;
@@ -782,18 +526,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         .await
         .expect_err("disconnected reply fails after durable enrollment");
     eprintln!("disconnected approval: {reply_error}");
-    assert!(
-        fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("durable enrollment despite lost reply")
-            .iter()
-            .any(|(member, signer)| member.member_id == binding.member_id
-                && member.endpoint_id == binding.endpoint_id
-                && signer.public_jwk == request.public_signer)
-    );
+
     let joining = iroh_chain::Server::bind_with_secret_key(
         iroh::endpoint::presets::Minimal,
         joining_secret,
@@ -833,19 +566,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
             .is_err(),
         "persisted approval intent binds exact request"
     );
-    assert!(
-        fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("valid enrollment remains trusted")
-            .iter()
-            .any(|(member, signer)| member.member_id == binding.member_id
-                && member.endpoint_id == binding.endpoint_id
-                && signer.public_jwk == request.public_signer),
-        "rejected mismatched retry must not revoke an existing valid enrollment"
-    );
+
     let mut changed_receipt = received.clone();
     changed_receipt.request.approving_peer = SecretKey::generate().public().to_string();
     assert!(
@@ -853,10 +574,10 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         "receipt cannot change pinned trusted peer"
     );
     changed_receipt = received.clone();
-    changed_receipt.request.public_signer.kid = Id::now_v7().to_string();
+    changed_receipt.request.member_id = Id::now_v7();
     assert!(
         changed_receipt.verify(&request).is_err(),
-        "receipt cannot substitute independent signer"
+        "receipt cannot substitute the enrollment ID"
     );
     assert_eq!(
         fixture
@@ -942,7 +663,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
     assert_eq!(
         provisioner
             .prepare_node_join(&binding, "Joining Node", fixture.server.endpoint().id())
-            .expect("retained independent private signer"),
+            .expect("retained Device request"),
         request
     );
     drop(provisioner);
@@ -951,12 +672,6 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         .verify_node_join_enrollment(&approved)
         .await
         .expect("exact enrollment before timestamp-only revocation");
-    let trusted_before_revocation = fixture
-        .state
-        .replica_signers
-        .trusted_signers(&fixture.issuer, i64::MAX)
-        .await
-        .expect("valid signer enrollment");
     fixture
         .management
         .client()
@@ -986,22 +701,14 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
         .find_user_info(fixture.owner)
         .await
         .expect("owner remains active");
-    assert_eq!(
-        fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("signer enrollment after Device timestamp revocation"),
-        trusted_before_revocation
-    );
+
     assert!(
         fixture
             .state
             .verify_node_join_enrollment(&approved)
             .await
             .is_err(),
-        "timestamp-only joining Device revocation must deny exact enrollment despite valid signer and active owner"
+        "timestamp-only joining Device revocation must deny exact enrollment despite the active owner"
     );
     fixture
         .state
@@ -1040,7 +747,7 @@ async fn node_join_requires_both_permissions_and_retries_after_disconnected_repl
             .verify_node_join_enrollment(&approved)
             .await
             .is_err(),
-        "current Device revocation invalidates enrollment even while signer trust remains separate"
+        "current Device revocation invalidates enrollment after the original approval"
     );
     let root = fixture.root.clone();
     drop(policy);

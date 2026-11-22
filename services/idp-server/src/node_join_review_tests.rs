@@ -5,9 +5,7 @@ use device_service::hosted_join::{NodeJoinApprovalExt, NodeJoinRequestExt};
 use ofdb_sql::Database;
 
 use device_service::device_repo::DeviceRepo;
-use idp_service::{
-    oauth2::node_signer::NodeSignerBinding, replica::DbReplicaSignerRepo, repo::user_repo::UserRepo,
-};
+use idp_service::{oauth2::node_signer::NodeSignerBinding, repo::user_repo::UserRepo};
 use iroh::{SecretKey, endpoint::presets};
 use iroh_chain::{EndpointIdStore, Server};
 use management_service::ofdb::DbPermissionRepo;
@@ -42,7 +40,7 @@ async fn authorize_join(fixture: &ApprovalFixture) -> String {
         .expect("approver User");
     for action in [
         IdentityAction::DevicePairingUpdate,
-        IdentityAction::ReplicaSignersEnroll,
+        IdentityAction::DevicesEnroll,
     ] {
         let permission = service
             .create_permission(INSTALLATION_POLICY_ID, action.permission(), None)
@@ -58,141 +56,6 @@ async fn authorize_join(fixture: &ApprovalFixture) -> String {
         management_service::service::MANAGEMENT_APPLICATION_URI,
     )
     .await
-}
-
-#[tokio::test]
-async fn node_join_oversized_signed_reply_rejects_before_any_enrollment_mutation() {
-    let root = std::env::temp_dir().join(format!("node-join-size-{}", Id::now_v7()));
-    let joining = Server::bind_with_secret_key(
-        presets::Minimal,
-        SecretKey::generate(),
-        EndpointIdStore::default(),
-    )
-    .await
-    .expect("joining endpoint");
-    joining.set_pairing_enabled(true);
-    let config = AppConfig {
-        data_dir: root.to_string_lossy().into_owned(),
-        ..Default::default()
-    };
-    let provisioner = OwnerProvisioner::open_with_private_keys(&config, Secrets::default())
-        .await
-        .expect("independent signer owner");
-    provisioner
-        .prepare_fresh_setup_secret_inventory(Id::now_v7(), &[])
-        .await
-        .expect("fresh joining secret inventory");
-    provisioner
-        .prepare_setup_client_slots(&[])
-        .await
-        .expect("ready joining secret inventory");
-    let mut request = provisioner
-        .prepare_node_join(
-            &NodeSignerBinding {
-                member_id: Id::now_v7(),
-                key_id: Id::now_v7(),
-                endpoint_id: joining.endpoint().id().to_string(),
-            },
-            &"n".repeat(256),
-            SecretKey::generate().public(),
-        )
-        .expect("real independent public signer");
-    request.installation = "https://installation.test/idp/".into();
-    let limit = iroh_chain::MAX_PAIRING_PAYLOAD_LENGTH;
-    let padding = limit - 32 - serde_json::to_vec(&request).expect("request size").len();
-    request.installation.push_str(&"i".repeat(padding));
-    let fixture = approval_fixture_for_issuer(request.installation.clone()).await;
-    request.approving_peer = fixture.server.endpoint().id().to_string();
-    let approval = of_model::node_join::NodeJoinApproval::signed_by(
-        fixture
-            .state
-            .transport_identity()
-            .expect("fixture transport"),
-        request.clone(),
-        Id::now_v7(),
-        fixture.owner,
-    )
-    .expect("prospective signed approval");
-    assert_eq!(
-        serde_json::to_vec(&request)
-            .expect("offer serialization")
-            .len(),
-        limit - 32,
-        "offer fits the existing pairing limit"
-    );
-    assert!(
-        serde_json::to_vec(&approval)
-            .expect("reply serialization")
-            .len()
-            > limit,
-        "signed reply exceeds that same pairing limit"
-    );
-    fixture.state.engine.translate_and_execute(
-        "CREATE TABLE IF NOT EXISTS local_node_join_intents (id TEXT PRIMARY KEY, binding TEXT NOT NULL)", &SqlTranslator,
-    ).await.expect("empty local intent fixture");
-    let bearer = authorize_join(&fixture).await;
-    let router = fixture.server.router(BootstrapProtocolHandler);
-    fixture.server.set_pairing_enabled(true);
-    let mut offers = fixture.server.subscribe_pairing_offers();
-    let sending = tokio::spawn({
-        let joining = joining.clone();
-        let address = fixture.server.endpoint().addr();
-        let request = request.clone();
-        async move { request.send(&joining, address).await }
-    });
-    let offer = tokio::time::timeout(Duration::from_secs(15), offers.recv())
-        .await
-        .expect("bounded fitting offer")
-        .expect("authenticated offer");
-    let error = fixture
-        .state
-        .approve_node_join(&offer, &bearer)
-        .await
-        .expect_err("oversized prospective reply must reject");
-    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-    let results = fixture.state.engine.translate_and_execute(&format!(
-        "SELECT id FROM local_node_join_intents; SELECT id FROM idp_replica_members WHERE member_id = CAST('{}' AS UUID); SELECT id FROM idp_replica_signers WHERE key_id = CAST('{}' AS UUID)",
-        request.member_id, request.public_signer.kid,
-    ), &SqlTranslator).await.expect("public owner persistence evidence");
-    assert_eq!(results.len(), 3);
-    for (context, result) in ["intent", "member", "signer"].into_iter().zip(results) {
-        assert!(
-            result.rows.is_empty(),
-            "oversized reply must not create {context}"
-        );
-    }
-    assert!(
-        fixture
-            .state
-            .devices
-            .as_ref()
-            .expect("injected Management Device owner")
-            .find_approved_by_public_key(&request.endpoint_id)
-            .await
-            .expect("Device lookup")
-            .is_none()
-    );
-    assert!(
-        !fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("no new trust")
-            .iter()
-            .any(|(member, signer)| member.member_id == request.member_id
-                || member.endpoint_id == request.endpoint_id
-                || signer.public_jwk == request.public_signer)
-    );
-    sending.abort();
-    let _ = sending.await;
-    joining.endpoint().close().await;
-    router.shutdown().await.expect("stop peer");
-    let fixture_root = fixture.root.clone();
-    drop(fixture);
-    drop(provisioner);
-    std::fs::remove_dir_all(fixture_root).expect("remove isolated approving owner");
-    std::fs::remove_dir_all(root).expect("remove isolated signing owner");
 }
 
 #[tokio::test]
@@ -298,19 +161,7 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
         .expect("bounded approval")
         .expect("approval task")
         .expect_err("changed Device binding rejects approval");
-    assert!(
-        !fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("current trust")
-            .iter()
-            .any(|(member, signer)| member.member_id == request.member_id
-                || member.endpoint_id == request.endpoint_id
-                || signer.public_jwk == request.public_signer),
-        "rejected approval must not activate signer/member trust for the changed Device"
-    );
+
     let current = fixture
         .state
         .devices
@@ -332,17 +183,7 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
     drop(fixture);
     let engine =
         Arc::new(Database::open(root.join("idp.redb")).expect("offline native owner reopen"));
-    assert!(
-        !DbReplicaSignerRepo::new(engine.client())
-            .trusted_signers(&issuer, i64::MAX)
-            .await
-            .expect("persisted trust")
-            .iter()
-            .any(|(member, signer)| member.member_id == request.member_id
-                || member.endpoint_id == request.endpoint_id
-                || signer.public_jwk == request.public_signer),
-        "restart must not restore trust from rejected approval"
-    );
+
     let management = Arc::new(
         Database::open(root.join("management/management.redb"))
             .expect("offline Management owner reopen"),
@@ -362,7 +203,7 @@ async fn node_join_owner_interleaving_rejection_has_no_active_trust_after_reopen
 }
 
 #[tokio::test]
-async fn node_join_rechecks_approving_device_revocation_separately_from_exact_signer_enrollment() {
+async fn node_join_rechecks_approving_device_revocation_after_device_enrollment() {
     let fixture = approval_fixture().await;
     let bearer = authorize_join(&fixture).await;
     let joining = Server::bind_with_secret_key(
@@ -426,12 +267,6 @@ async fn node_join_rechecks_approving_device_revocation_separately_from_exact_si
         .verify_node_join_enrollment(&approval)
         .await
         .expect("current enrollment");
-    let trusted_before_revocation = fixture
-        .state
-        .replica_signers
-        .trusted_signers(&fixture.issuer, i64::MAX)
-        .await
-        .expect("valid signer enrollment");
     let approving_device = fixture
         .state
         .devices
@@ -470,22 +305,14 @@ async fn node_join_rechecks_approving_device_revocation_separately_from_exact_si
         .find_user_info(fixture.owner)
         .await
         .expect("owner remains active");
-    assert_eq!(
-        fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("signers after Device timestamp revocation"),
-        trusted_before_revocation
-    );
+
     assert!(
         fixture
             .state
             .verify_node_join_enrollment(&approval)
             .await
             .is_err(),
-        "timestamp-only approving Device revocation must deny exact enrollment despite valid signer and active owner"
+        "timestamp-only approving Device revocation must deny exact enrollment despite the active owner"
     );
     assert!(
         fixture
@@ -513,25 +340,14 @@ async fn node_join_rechecks_approving_device_revocation_separately_from_exact_si
             .await
             .expect("revoke approving Device")
     );
-    assert!(
-        fixture
-            .state
-            .replica_signers
-            .trusted_signers(&fixture.issuer, i64::MAX)
-            .await
-            .expect("independent joining signer trust")
-            .iter()
-            .any(|(member, signer)| member.member_id == request.member_id
-                && member.endpoint_id == request.endpoint_id
-                && signer.public_jwk == request.public_signer)
-    );
+
     assert!(
         fixture
             .state
             .verify_node_join_enrollment(&approval)
             .await
             .is_err(),
-        "approving endpoint revocation must deny even with exact joining signer enrollment"
+        "approving endpoint revocation must deny after Device enrollment"
     );
     assert!(
         fixture

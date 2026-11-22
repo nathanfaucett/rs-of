@@ -125,27 +125,10 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         .prepare_node_signer(&binding)
         .expect("prepare independent local signer");
 
-    let member = of_model::idp::contract::idp_signer::ReplicaMembership {
-        installation_id: service.oauth_config.issuer.clone(),
-        issuer: service.oauth_config.issuer.clone(),
-        member_id: binding.member_id,
-        endpoint_id: binding.endpoint_id.clone(),
-        approved_at: 1,
-        revoked_at: None,
-    };
-    let signer = of_model::idp::contract::idp_signer::IdpSignerRecord {
-        member_id: binding.member_id,
-        key_id: binding.key_id,
-        issuer: member.issuer.clone(),
-        public_jwk,
-        approved_at: Some(1),
-        revoked_at: None,
-        expires_at: None,
-    };
-    crate::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
-        .enroll(&member, &signer)
+    crate::replica::DbIssuerKeyRepo::new(engine.client())
+        .install_initial(&service.oauth_config.issuer, &public_jwk)
         .await
-        .expect("approve local node signer");
+        .expect("install issuer key");
     service.oauth_config.local_signer = Some(binding);
     let client = service
         .client_repo
@@ -574,6 +557,65 @@ async fn issue(service: &TestService, client: &Client, principal: &UserPrincipal
         .await
         .expect("issue persisted tokens")
 }
+#[tokio::test]
+async fn blocked_user_or_disabled_client_cannot_issue_or_refresh_but_access_survives() {
+    use of_model::idp::contract::password_grant_request::PasswordGrantRequest;
+
+    for block_user in [true, false] {
+        let (_, service, mut client, principal) = setup().await;
+        client.allowed_grant_types.push(GrantType::Password);
+        let client = service
+            .client_repo
+            .update_client(client)
+            .await
+            .expect("enable password grant");
+        let password = || {
+            TokenRequest::Password(PasswordGrantRequest {
+                client_id: client.client_id.clone(),
+                username: "refresh-user".into(),
+                password: "test-password".into(),
+                scope: Some("openid".into()),
+                resource: None,
+            })
+        };
+        let issued = service
+            .token(password(), Some(auth(&client)))
+            .await
+            .expect("initial issuance");
+        let refresh = issued.refresh_token.expect("initial refresh grant");
+        if block_user {
+            service
+                .user_repo
+                .set_user_blocked(principal.user.id, true, None)
+                .await
+                .expect("block User");
+        } else {
+            service
+                .delete_client(&client.client_id)
+                .await
+                .expect("disable Client");
+        }
+        assert!(
+            service
+                .token(password(), Some(auth(&client)))
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .token(grant(&refresh.0, None), Some(auth(&client)))
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .validate_access_token(&issued.access_token.0, &client.client_id)
+                .await
+                .is_ok()
+        );
+    }
+}
+
 async fn states(engine: &TestEngine) -> Vec<ofdb_sql::Row> {
     engine
         .client()
@@ -1004,14 +1046,6 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             .as_ref()
             .expect("binding survives reopen");
         assert_eq!(binding.key_id, expected_signer);
-        let peers = crate::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(engine.client());
-        let signers = peers
-            .trusted_signers(&config.issuer, chrono::Utc::now().timestamp())
-            .await
-            .expect("persisted token-signing trust");
-        assert!(signers.iter().any(|(member, signer)| {
-            member.member_id == binding.member_id && signer.key_id == binding.key_id
-        }));
         let keys = Arc::new(KeyService::new(
             DbKeyRepo::new(engine.client()),
             private_store.clone(),
@@ -1038,18 +1072,6 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
                 .await
                 .is_err(),
             "persisted public binding does not restore private capability"
-        );
-        let mut wrong_endpoint = binding.clone();
-        wrong_endpoint.endpoint_id = "forged-endpoint".into();
-        assert!(
-            keys.load_node_signer(
-                &wrong_endpoint,
-                &config.issuer,
-                chrono::Utc::now().timestamp()
-            )
-            .await
-            .is_err(),
-            "persisted endpoint binding is still enforced"
         );
         let reopened = OAuth2Service::new(
             DbApplicationRepo::new(engine.client()),

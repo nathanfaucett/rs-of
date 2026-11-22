@@ -52,14 +52,8 @@ pub async fn introspect(
     {
         return Err(ErrorResponse::new(ErrorCode::AccessDenied));
     }
-    let client = caller
-        .principal
-        .get_entity_as_any()
-        .downcast_ref::<of_model::idp::model::client::Client>()
-        .ok_or_else(not_authorized)?;
-
     let inspected = authorize_bearer_any_principal(&state, &request.token).await?;
-    if !allows_audience(&client.allowed_audiences, &inspected.claims.aud) {
+    if !allows_audience(&caller.introspection_audiences, &inspected.claims.aud) {
         return Err(not_authorized());
     }
 

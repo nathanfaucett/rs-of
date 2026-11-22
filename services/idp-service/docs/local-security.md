@@ -12,17 +12,19 @@ Client registration and Application creation require their exact Installation pe
 
 ## Signers and tokens
 
-Node Signer preparation, public signer approval, Device approval, and endpoint approval are separate operations. Public approval never supplies private capability. Loading private material must prove that it matches the currently approved public signer; missing material never triggers implicit replacement during issuance.
+Only the issuing authority installs or rotates issuer keys. The private key must match the active public key. Missing private material fails closed. Device approval and endpoint approval are separate. Rotation keeps the previous public key for the longest configured token lifetime.
 
-JWKS contains approved public Node Signers only. Keep private signers, entity master keys, derived private keys, password verifiers, Client secret verifiers, and raw grant credentials out of public responses and synchronization.
+JWKS contains public issuer keys only. Keep private signers, entity master keys, derived private keys, password verifiers, Client secret verifiers, and raw grant credentials out of public responses and synchronization.
 
-Access, ID, and refresh tokens have different uses. Validate the required use together with signature, issuer, audience, lifetime, Client, Principal, scope, and current authentication-root state. ID tokens are not access tokens. Revocation at an unaware offline relying party is not guaranteed.
+Access, ID, and refresh tokens have different uses. Validate access JWTs against trusted issuer keys. Require the expected algorithm, issuer, audience, purpose, and validity interval. Take the subject, Application, and scopes from signed claims. The API owner still checks current Resource, Device, and Management authorization as applicable.
+
+Issuance and refresh check current User, Client, and grant state. Blocking a User, disabling a Client, or changing its Application does not change an unexpired access JWT. Learning that an issuer key was withdrawn can deny a token before expiry. A verifier with an older JWKS does not know about the withdrawal. ID and refresh tokens are not access tokens.
 
 ## Grants and reconnect
 
 Store grant hashes rather than raw authorization codes or refresh tokens. Consume and rotate them in durable local transactions. Recheck Client, redirect/PKCE, scope, Principal, signer, and signature evidence before issuance or consumption.
 
-Local atomic consumption does not provide global single use during partitions. Reconnect cannot revoke tokens already issued by another partitioned Node. Unresolved security-record conflicts deny authentication, authorization, or issuance; last-writer-wins ordering must not erase consumption or revocation evidence.
+Unresolved security-record conflicts deny authentication, authorization, or issuance; last-writer-wins ordering must not erase consumption or revocation evidence.
 
 ## Local sign-in verifiers
 
@@ -34,7 +36,7 @@ Only confidential OAuth Clients that use `client_secret_basic` or `client_secret
 
 Synchronize only explicit public projections. Do not export opaque whole rows whose private fields or history could escape validation. Reject unknown fields, private JWK parameters, malformed identities, and raw credentials presented as hashes.
 
-Allowlisted data may include public Users, Applications, Client metadata, public authentication keys, approved signers, consent state, and hashed grant lifecycle state. Public Client data does not provide confidential-client authentication capability. Each Node provisions its own required secrets.
+Allowlisted data may include public Users, Applications, Client metadata, public authentication keys, consent state, and hashed grant lifecycle state. Public Client data does not provide confidential-client authentication capability. Each Node provisions its own required secrets.
 
 Transport authorization uses the authenticated connection peer and current Device policy, not a wire-supplied actor, endpoint, signer, or pairing claim. Repeat permission checks at the actual import or apply boundary.
 

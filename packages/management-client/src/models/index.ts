@@ -16,7 +16,6 @@ export * from "./IdentityResourceOneOf5.js";
 export * from "./IdentityResourceOneOf6.js";
 export * from "./IdentityResourceOneOf7.js";
 export * from "./IdentityResourceOneOf8.js";
-export * from "./IdentityResourceOneOf9.js";
 export * from "./PermissionAuditIdentity.js";
 export * from "./PermissionEvaluationRequest.js";
 export * from "./PermissionEvaluationResponse.js";

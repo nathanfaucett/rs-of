@@ -33,11 +33,9 @@ impl NodeJoinRequestExt for NodeJoinRequest {
     fn validate(&self) -> io::Result<()> {
         let endpoint: EndpointId = self.endpoint_id.parse().map_err(io::Error::other)?;
         let peer: EndpointId = self.approving_peer.parse().map_err(io::Error::other)?;
-        let key_id: Id = self.public_signer.kid.parse().map_err(io::Error::other)?;
         if self.purpose != PURPOSE
             || self.installation.trim().is_empty()
             || self.member_id.get_version_num() != 7
-            || key_id.get_version_num() != 7
             || self.name.trim().is_empty()
             || self.name.len() > 256
             || endpoint.to_string() != self.endpoint_id

@@ -99,18 +99,21 @@ impl DbKeyRepo {
 }
 
 impl KeyRepo for DbKeyRepo {
-    async fn trusted_node_signers(
+    async fn issuer_keys(&self, issuer: &str, now: i64) -> RepoResult<Vec<(JwkPublic, bool)>> {
+        super::issuer_key_repo::DbIssuerKeyRepo::new(self.engine.clone())
+            .keys(issuer, now)
+            .await
+    }
+
+    async fn rotate_issuer_key(
         &self,
         issuer: &str,
-        now: i64,
-    ) -> RepoResult<
-        Vec<(
-            of_model::idp::contract::idp_signer::ReplicaMembership,
-            of_model::idp::contract::idp_signer::IdpSignerRecord,
-        )>,
-    > {
-        crate::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(self.engine.clone())
-            .trusted_signers(issuer, now)
+        key: &JwkPublic,
+        previous: &str,
+        expires: i64,
+    ) -> RepoResult<()> {
+        super::issuer_key_repo::DbIssuerKeyRepo::new(self.engine.clone())
+            .rotate(issuer, key, previous, expires)
             .await
     }
 

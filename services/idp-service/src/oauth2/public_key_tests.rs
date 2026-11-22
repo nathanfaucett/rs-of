@@ -4,21 +4,11 @@ use super::{
     OAuth2Service, PasswordConfig, TestPrivateKeyRepo, TestService, auth, grant, issue, setup, up,
 };
 type TestEngine = ofdb_sql::Database;
-use crate::{
-    oauth2::{
-        jwt::{decode_jwt, encode_jwt, verify_jwt},
-        node_signer::NodeSignerBinding,
-    },
-    repo::{
-        client_repo::ClientRepo, key_repo::KeyRepo,
-        oauth2_authorization_code_repo::OAuth2AuthorizationCodeRepo, user_repo::UserRepo,
-    },
-};
+use crate::oauth2::jwt::{decode_jwt, encode_jwt, verify_jwt};
+use crate::repo::{KeyRepo, UserRepo};
 use of_model::contract::standard_claims::StandardClaims;
 use of_model::id::Id;
 use of_model::idp::contract::entity_type::EntityType;
-use of_model::idp::contract::idp_signer::IdpSignerRecord;
-use of_model::idp::contract::idp_signer::ReplicaMembership;
 use ofdb_sql::Query;
 use ofdb_sql::QueryColumn;
 use ofdb_sql::QueryExpr;
@@ -31,14 +21,26 @@ use ofdb_sql::Statement;
 use ofdb_sql::Value;
 use std::sync::Arc;
 
-async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) {
+async fn public_verifier(
+    source: &TestEngine,
+    authority: &TestService,
+) -> (Arc<TestEngine>, TestService) {
     let engine = Arc::new(ofdb_sql::Database::in_memory());
+    let jwks = authority
+        .list_jwks()
+        .await
+        .expect("snapshot of issuer JWKS");
+    assert!(
+        !crate::security_sync::public_security_tables()
+            .iter()
+            .any(|table| table.name() == "issuer_keys")
+    );
     let mut history = source.export_history().await.expect("read fixture history");
     history.retain(|unit| {
         let ofdb_sql::SyncKey::Row { table, .. } = &unit.key;
         !matches!(
             table.as_str(),
-            "local_client_secret_verifiers" | "local_user_password_verifiers"
+            "issuer_keys" | "local_client_secret_verifiers" | "local_user_password_verifiers"
         )
     });
     engine
@@ -58,34 +60,12 @@ async fn public_verifier(source: &TestEngine) -> (Arc<TestEngine>, TestService) 
         DbUserRepo::new(engine.client(), PasswordConfig::default()),
         DbOAuth2UserConsentRepo::new(engine.client()),
         keys,
-        OAuth2Config::default(),
+        OAuth2Config {
+            trusted_issuer_jwks: Some(jwks),
+            ..OAuth2Config::default()
+        },
     );
     (engine, service)
-}
-
-async fn provision_fixture_client_secret(engine: &TestEngine, client_id: Id, secret: &str) {
-    let hash = crate::util::encrypt_password(&PasswordConfig::default(), secret)
-        .expect("hash independently provisioned local secret");
-    let metadata = engine
-        .client()
-        .translate_and_execute(
-            &format!("SELECT secret_revision FROM clients WHERE id = CAST('{client_id}' AS UUID)"),
-            &SqlTranslator,
-        )
-        .await
-        .expect("public credential revision");
-    let revision = metadata[0].rows[0].values[0].clone();
-    engine
-        .client()
-        .execute(vec![Statement::Query(Query::Insert(
-            ofdb_sql::QueryInsert {
-                table: "local_client_secret_verifiers".into(),
-                row: ofdb_sql::Row::new(vec![Value::Uuid(client_id), revision, Value::Text(hash)]),
-                returning: None,
-            },
-        ))])
-        .await
-        .expect("explicit local fixture credential provisioning, not sync");
 }
 
 async fn set(engine: &TestEngine, table: &str, id: Id, name: &str, value: Value) {
@@ -111,58 +91,40 @@ async fn set(engine: &TestEngine, table: &str, id: Id, name: &str, value: Value)
         .expect("change security fixture");
 }
 
-async fn approve_independent_signer(engine: &Arc<TestEngine>, service: &mut TestService) {
-    let binding = NodeSignerBinding {
-        member_id: Id::now_v7(),
-        key_id: Id::now_v7(),
-        endpoint_id: "independent-endpoint".into(),
-    };
-    let public_jwk = service
-        .key_service
-        .prepare_node_signer(&binding)
-        .expect("prepare independent private signer");
-    let member = ReplicaMembership {
-        installation_id: service.oauth_config.issuer.clone(),
-        issuer: service.oauth_config.issuer.clone(),
-        member_id: binding.member_id,
-        endpoint_id: binding.endpoint_id.clone(),
-        approved_at: 1,
-        revoked_at: None,
-    };
-    let signer = IdpSignerRecord {
-        member_id: binding.member_id,
-        key_id: binding.key_id,
-        issuer: member.issuer.clone(),
-        public_jwk,
-        approved_at: Some(1),
-        revoked_at: None,
-        expires_at: None,
-    };
-    crate::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
-        .enroll(&member, &signer)
-        .await
-        .expect("approve public signer fixture");
-    service.oauth_config.local_signer = Some(binding);
-}
-
 #[tokio::test]
-async fn public_node_signers_verify_without_private_material_or_principal_impersonation() {
+async fn access_jwts_verify_with_retained_issuer_keys_without_identity_or_private_material() {
     let (engine, service, client, principal) = setup().await;
     let token = issue(&service, &client, &principal).await.access_token.0;
-    let (_, verifier) = public_verifier(&engine).await;
+    let (verifier_engine, verifier) = public_verifier(&engine, &service).await;
+    verifier_engine
+        .client()
+        .translate_and_execute(
+            "DROP TABLE users; DROP TABLE clients; DROP TABLE keys",
+            &SqlTranslator,
+        )
+        .await
+        .expect("remove live identity tables from verifier");
     let claims = verifier
         .validate_access_token(&token, &client.client_id)
         .await
         .expect("verify offline with public trust");
     assert_eq!(claims.sub, principal.user.id.to_string());
-    let (_, _, application_id) = verifier
-        .verify_access_token_principal(&token)
+    let access = verifier
+        .verify_access_token_claims(&token)
         .await
-        .expect("verified bearer registration");
-    assert_eq!(
-        application_id, client.application_id,
-        "introspection reuses the currently validated Client's Application"
-    );
+        .expect("verified access claims");
+    assert_eq!(access.application_id, client.application_id);
+    let retained_jwks = service.list_jwks().await.expect("issuer JWKS");
+    let now = chrono::Utc::now().timestamp();
+    let access = crate::oauth2::verify_access_jwt(
+        &retained_jwks,
+        &service.oauth_config.issuer,
+        &client.client_id,
+        &token,
+        now,
+    )
+    .expect("retained JWKS needs no repositories");
+    assert_eq!(access.application_id, client.application_id);
     assert!(
         verifier
             .key_service
@@ -232,74 +194,105 @@ async fn public_node_signers_verify_without_private_material_or_principal_impers
         "a different local private signer cannot impersonate an approved signer"
     );
 
-    let approved = service
-        .find_public_jwk(binding.key_id)
-        .await
-        .expect("approved signer");
-    let mut public_record = serde_json::json!({
-        "id": binding.key_id, "member_id": binding.member_id, "active_member_id": binding.member_id,
-        "key_id": binding.key_id, "issuer": service.oauth_config.issuer,
-        "public_jwk": serde_json::to_string(&approved).expect("SQL public JWK"),
-        "approved_at": 1, "revoked_at": null, "expires_at": null,
-    });
-    assert!(
-        crate::security_sync::PublicSecurityTable::Signers
-            .permits_record(public_record.as_object().expect("public record"))
-    );
-    public_record["public_jwk"] = serde_json::to_value(&approved).expect("public JWK object");
-    public_record["public_jwk"]["d"] = "private-scalar-must-not-synchronize".into();
-    assert!(
-        !crate::security_sync::PublicSecurityTable::Signers
-            .permits_record(public_record.as_object().expect("private injection record"))
-    );
-    public_record["public_jwk"] =
-        serde_json::Value::String(public_record["public_jwk"].to_string());
-    assert!(
-        !crate::security_sync::PublicSecurityTable::Signers.permits_record(
-            public_record
-                .as_object()
-                .expect("serialized private injection record")
-        )
-    );
     let (_, original) = decode_jwt::<StandardClaims>(&token).expect("claims");
     for field in [
-        "subject", "type", "issuer", "use", "scope", "lifetime", "client",
+        "issuer",
+        "audience",
+        "purpose",
+        "expired",
+        "not yet valid",
+        "future issuance",
     ] {
         let mut claims = original.clone();
         match field {
-            "subject" => claims.sub = Id::now_v7().to_string(),
-            "type" => {
-                claims.principal_type = of_model::contract::principal_type::PrincipalType::Client
-            }
             "issuer" => claims.iss = "https://other-installation.example".into(),
-            "use" => claims.r#use = of_model::contract::token_use::TokenUse::Id,
-            "scope" => claims.scope.push("ungranted".into()),
-            "lifetime" => claims.exp = 0,
-            _ => claims.client_id = "other-client".into(),
+            "audience" => claims.aud = "another-api".into(),
+            "purpose" => claims.r#use = of_model::contract::token_use::TokenUse::Id,
+            "expired" => claims.exp = now,
+            "not yet valid" => claims.nbf = now + 300,
+            "future issuance" => claims.iat = now + 300,
+            _ => unreachable!(),
         }
         let invalid = encode_jwt(
             &service.local_signing_jwk().await.expect("local signer"),
-            &crate::oauth2::token::PrincipalBoundClaims {
+            &crate::oauth2::token::AccessClaims {
                 standard_claims: claims,
-                principal_key_id: principal.key.id,
+                application_id: client.application_id,
+                introspection_audiences: vec![],
             },
         )
         .expect("sign invalid claims");
         assert!(
-            verifier
-                .validate_access_token(&invalid, &client.client_id)
-                .await
-                .is_err(),
+            crate::oauth2::verify_access_jwt(
+                &retained_jwks,
+                &service.oauth_config.issuer,
+                &client.client_id,
+                &invalid,
+                now,
+            )
+            .is_err(),
             "accepted {field}"
         );
     }
+    let (signing_input, _) = token.rsplit_once('.').expect("JWT signature separator");
+    let invalid = format!("{signing_input}.{}", "A".repeat(86));
+    assert!(
+        crate::oauth2::verify_access_jwt(
+            &retained_jwks,
+            &service.oauth_config.issuer,
+            &client.client_id,
+            &invalid,
+            now,
+        )
+        .is_err()
+    );
+
+    use base64::{
+        Engine,
+        engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
+    };
+    use k256::ecdsa::{Signature, SigningKey, signature::Signer};
+    use of_model::idp::contract::jwk_private_parameters::JwkPrivateParameters;
+
+    let signer = service.local_signing_jwk().await.expect("local signer");
+    let JwkPrivateParameters::Ec { d, .. } = signer.params else {
+        panic!("EC issuer key")
+    };
+    let key = SigningKey::from_slice(&STANDARD_NO_PAD.decode(d).expect("EC scalar"))
+        .expect("issuer signing key");
+    let (_, payload) = signing_input
+        .split_once('.')
+        .expect("JWT payload separator");
+    let header = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&serde_json::json!({
+            "kid": signer.kid, "typ": "JWT", "alg": "ES256",
+        }))
+        .expect("wrong algorithm header"),
+    );
+    let wrong_input = format!("{header}.{payload}");
+    let signature: Signature = key.sign(wrong_input.as_bytes());
+    let invalid = format!(
+        "{wrong_input}.{}",
+        URL_SAFE_NO_PAD.encode(signature.to_bytes())
+    );
+    assert!(
+        crate::oauth2::verify_access_jwt(
+            &retained_jwks,
+            &service.oauth_config.issuer,
+            &client.client_id,
+            &invalid,
+            now,
+        )
+        .is_err(),
+        "reject a wrong algorithm even with a correct signature"
+    );
 }
 
 #[tokio::test]
 async fn token_verification_requires_no_management_device_tables() {
     let (source, service, client, principal) = setup().await;
     let token = issue(&service, &client, &principal).await.access_token.0;
-    let (engine, verifier) = public_verifier(&source).await;
+    let (engine, verifier) = public_verifier(&source, &service).await;
     engine
         .client()
         .execute_sql("DROP TABLE devices", None)
@@ -321,11 +314,11 @@ async fn token_verification_requires_no_management_device_tables() {
 }
 
 #[tokio::test]
-async fn learned_member_signer_client_and_principal_revocations_deny_locally() {
+async fn only_issuer_trust_changes_invalidate_existing_access_tokens() {
     let (source, service, client, principal) = setup().await;
     let token = issue(&service, &client, &principal).await.access_token.0;
-    for kind in ["member", "signer", "client", "principal", "corrupt-key"] {
-        let (engine, verifier) = public_verifier(&source).await;
+    for kind in ["withdraw issuer key", "client", "principal", "corrupt-key"] {
+        let (engine, mut verifier) = public_verifier(&source, &service).await;
         assert!(
             verifier
                 .validate_access_token(&token, &client.client_id)
@@ -333,25 +326,13 @@ async fn learned_member_signer_client_and_principal_revocations_deny_locally() {
                 .is_ok()
         );
         match kind {
-            "member" | "signer" => {
-                let table = if kind == "member" {
-                    "idp_replica_members"
-                } else {
-                    "idp_replica_signers"
-                };
-                let row = engine
-                    .client()
-                    .translate_and_execute(&format!("SELECT id FROM {table}"), &SqlTranslator)
-                    .await
-                    .expect("IdP trust rows")
-                    .remove(0)
-                    .rows
-                    .remove(0);
-                let Value::Uuid(id) = row.values[0] else {
-                    panic!("IdP trust row ID")
-                };
-                set(&engine, table, id, "revoked_at", Value::Integer(1)).await;
-            }
+            "withdraw issuer key" => verifier
+                .oauth_config
+                .trusted_issuer_jwks
+                .as_mut()
+                .expect("retained keys")
+                .keys
+                .clear(),
             "client" => {
                 set(
                     &engine,
@@ -380,50 +361,15 @@ async fn learned_member_signer_client_and_principal_revocations_deny_locally() {
                 .await
             }
         }
-        assert!(
+        assert_eq!(
             verifier
                 .validate_access_token(&token, &client.client_id)
                 .await
                 .is_err(),
-            "accepted {kind}"
+            kind == "withdraw issuer key",
+            "unexpected access result for {kind}"
         );
     }
-}
-
-#[tokio::test]
-async fn partitioned_nodes_rotate_same_grant_independently_without_global_single_use() {
-    let (source, first, client, principal) = setup().await;
-    let refresh = issue(&first, &client, &principal)
-        .await
-        .refresh_token
-        .expect("refresh grant")
-        .0;
-    let (second_engine, mut second) = public_verifier(&source).await;
-    provision_fixture_client_secret(&second_engine, client.id, "test-secret").await;
-    approve_independent_signer(&second_engine, &mut second).await;
-    let (left, right) = tokio::join!(
-        first.token(grant(&refresh, None), Some(auth(&client))),
-        second.token(grant(&refresh, None), Some(auth(&client)))
-    );
-    let left = left.expect("first local winner");
-    let right = right.expect("independent partition local winner");
-    let (a, ac) = decode_jwt::<StandardClaims>(&left.access_token.0).expect("first claims");
-    let (b, bc) = decode_jwt::<StandardClaims>(&right.access_token.0).expect("second claims");
-    assert_ne!(a.kid, b.kid);
-    assert_eq!(ac.sub, bc.sub);
-    assert_eq!(ac.iss, bc.iss);
-    assert!(
-        first
-            .token(grant(&refresh, None), Some(auth(&client)))
-            .await
-            .is_err()
-    );
-    assert!(
-        second
-            .token(grant(&refresh, None), Some(auth(&client)))
-            .await
-            .is_err()
-    );
 }
 
 #[tokio::test]
@@ -503,7 +449,7 @@ async fn id_tokens_bind_the_principal_root_for_owner_local_verification() {
         serde_json::to_value(&typed).expect("roundtrip profile"),
         claims
     );
-    let (verifier_engine, verifier) = public_verifier(&engine).await;
+    let (verifier_engine, verifier) = public_verifier(&engine, &service).await;
     let (verified, _) = verifier
         .verify_token_principal(&token)
         .await
@@ -570,194 +516,68 @@ async fn id_tokens_bind_the_principal_root_for_owner_local_verification() {
 }
 
 #[tokio::test]
-async fn partitioned_nodes_consume_same_code_once_per_local_store() {
-    use of_model::idp::contract::{
-        authorization_code_grant_request::AuthorizationCodeGrantRequest,
-        token_request::TokenRequest,
-    };
-    let (source, first, client, principal) = setup().await;
-    let code = first
-        .authorization_code_repo
-        .create_authorization_code(
-            client.client_id.clone(),
-            principal.key.id,
-            client.redirect_uris[0].clone(),
-            vec!["openid".into()],
-            None,
-            None,
-            None,
-            None,
-            chrono::Utc::now() + chrono::Duration::minutes(5),
-        )
+async fn issuer_rotation_publishes_new_key_without_enabling_verifier_issuance() {
+    let (source, authority, client, principal) = setup().await;
+    let old = issue(&authority, &client, &principal).await;
+    let old_kid = decode_jwt::<StandardClaims>(&old.access_token.0)
+        .expect("original claims")
+        .0
+        .kid;
+    let refresh = old.refresh_token.expect("original refresh").0;
+    let (_, verifier) = public_verifier(&source, &authority).await;
+    assert!(
+        verifier.rotate_issuer_key().await.is_err(),
+        "a relying Node cannot rotate keys"
+    );
+    assert_eq!(
+        verifier
+            .token(grant(&refresh, None), Some(auth(&client)))
+            .await
+            .expect_err("a relying Node cannot refresh an issuer grant")
+            .error,
+        of_model::idp::contract::error_code::ErrorCode::AccessDenied
+    );
+
+    let replacement = authority
+        .rotate_issuer_key()
         .await
-        .expect("create local code");
-    let (engine, mut second) = public_verifier(&source).await;
-    provision_fixture_client_secret(&engine, client.id, "test-secret").await;
-    approve_independent_signer(&engine, &mut second).await;
-    let request = TokenRequest::AuthorizationCode(AuthorizationCodeGrantRequest {
-        code: code.code,
-        client_id: Some(client.client_id.clone()),
-        redirect_uri: Some(client.redirect_uris[0].clone()),
-        code_verifier: "fixture-verifier".into(),
-    });
+        .expect("rotate at the authority");
+    assert_ne!(replacement.kid, old_kid);
+    let renewed = authority
+        .token(grant(&refresh, None), Some(auth(&client)))
+        .await
+        .expect("old refresh works during verification overlap");
+    let new_kid = decode_jwt::<StandardClaims>(&renewed.access_token.0)
+        .expect("new claims")
+        .0
+        .kid;
+    assert_eq!(new_kid, replacement.kid);
+    let keys = authority.list_jwks().await.expect("current JWKS");
+    assert_eq!(keys.keys.len(), 2);
+    assert!(keys.keys.contains(&replacement));
     assert!(
-        first
-            .token(request.clone(), Some(auth(&client)))
+        authority
+            .validate_access_token(&old.access_token.0, &client.client_id)
             .await
             .is_ok()
     );
     assert!(
-        second
-            .token(request.clone(), Some(auth(&client)))
+        verifier
+            .validate_access_token(&old.access_token.0, &client.client_id)
             .await
             .is_ok()
     );
     assert!(
-        first
-            .token(request.clone(), Some(auth(&client)))
+        verifier
+            .validate_access_token(&renewed.access_token.0, &client.client_id)
             .await
             .is_err()
     );
-    assert!(second.token(request, Some(auth(&client))).await.is_err());
-}
-
-#[tokio::test]
-async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
-    use of_model::idp::contract::{
-        client_credentials_grant_request::ClientCredentialsGrantRequest,
-        token_request::TokenRequest,
-    };
-    let (source, first, _, _) = setup().await;
-    let mut registration = super::infrastructure_client_registration();
-    registration.allowed_audiences = vec!["https://service.example".into()];
-    registration.allowed_scopes = vec!["idp.token.validate".into()];
-    first
-        .ensure_infrastructure_client(registration)
-        .await
-        .expect("provision local client credentials");
-    let client = first
-        .client_repo
-        .find_client_by_client_id("storage-service")
-        .await
-        .expect("local client lookup")
-        .expect("active client");
-    let (engine, mut second) = public_verifier(&source).await;
-    approve_independent_signer(&engine, &mut second).await;
-    let request = TokenRequest::ClientCredentials(ClientCredentialsGrantRequest {
-        client_id: client.client_id.clone(),
-        client_secret: String::new(),
-        scope: Some("idp.token.validate".into()),
-        audience: Some("https://service.example".into()),
-        resource: None,
-    });
-    let mut client_auth = auth(&client);
-    client_auth.client_secret = Some("stable-secret".into());
-    assert_eq!(
-        second
-            .token(request.clone(), Some(client_auth.clone()))
-            .await
-            .expect_err("public metadata alone cannot authenticate a confidential client")
-            .error,
-        of_model::idp::contract::error_code::ErrorCode::InvalidClient
-    );
-    provision_fixture_client_secret(&engine, client.id, "stable-secret").await;
-    let left = first
-        .token(request.clone(), Some(client_auth.clone()))
-        .await
-        .expect("first offline client issuance");
-    let right = second
-        .token(request, Some(client_auth))
-        .await
-        .expect("second offline client issuance");
-    let (a, ac) = decode_jwt::<StandardClaims>(&left.access_token.0).expect("first client claims");
-    let (b, bc) =
-        decode_jwt::<StandardClaims>(&right.access_token.0).expect("second client claims");
-    assert_ne!(a.kid, b.kid);
-    assert_eq!(ac.sub, client.id.to_string());
-    assert_eq!(bc.sub, ac.sub);
-    assert_eq!(
-        ac.principal_type,
-        of_model::contract::principal_type::PrincipalType::Client
-    );
+    let (_, refreshed_verifier) = public_verifier(&source, &authority).await;
     assert!(
-        first
-            .validate_access_token(&left.access_token.0, "https://service.example")
+        refreshed_verifier
+            .validate_access_token(&renewed.access_token.0, &client.client_id)
             .await
             .is_ok()
-    );
-    assert!(
-        second
-            .validate_access_token(&right.access_token.0, "https://service.example")
-            .await
-            .is_ok()
-    );
-    let before = first
-        .key_service
-        .private_key_repo()
-        .0
-        .lock()
-        .expect("private store")
-        .iter()
-        .map(|(slot, key)| (slot.clone(), key.to_xprv_string().to_string()))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let root = first
-        .rotate_client_key(&client.client_id)
-        .await
-        .expect("rotate local Client authentication root without an entity master");
-    assert!(root.public_jwk.is_none());
-    let renewed = first
-        .token(
-            TokenRequest::ClientCredentials(ClientCredentialsGrantRequest {
-                client_id: client.client_id.clone(),
-                client_secret: String::new(),
-                scope: Some("idp.token.validate".into()),
-                audience: Some("https://service.example".into()),
-                resource: None,
-            }),
-            Some(
-                of_model::idp::contract::oauth2_client_auth::OAuth2ClientAuth {
-                    client_id: client.client_id.clone(),
-                    client_secret: Some("stable-secret".into()),
-                    method: client.token_endpoint_auth_method,
-                },
-            ),
-        )
-        .await
-        .expect("issue against rotated metadata root");
-    let (header, bound) =
-        decode_jwt::<serde_json::Value>(&renewed.access_token.0).expect("rotated binding");
-    assert_eq!(bound["principal_key_id"], root.id.to_string());
-    assert_eq!(bound["sub"], client.id.to_string());
-    assert_eq!(header.kid, a.kid);
-    first
-        .validate_access_token(&renewed.access_token.0, "https://service.example")
-        .await
-        .expect("new root token is valid");
-    let after = first
-        .key_service
-        .private_key_repo()
-        .0
-        .lock()
-        .expect("private store")
-        .iter()
-        .map(|(slot, key)| (slot.clone(), key.to_xprv_string().to_string()))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    assert!(
-        after == before,
-        "metadata rotation/issuance cannot create or replace private material"
-    );
-    assert!(
-        first
-            .validate_access_token(&left.access_token.0, "https://service.example")
-            .await
-            .is_err(),
-        "locally learned Principal root rotation invalidates the old binding"
-    );
-    assert!(
-        second
-            .validate_access_token(&left.access_token.0, "https://service.example")
-            .await
-            .is_ok(),
-        "partitioned Node retains its earlier trusted Principal view"
     );
 }

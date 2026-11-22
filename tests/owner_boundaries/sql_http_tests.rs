@@ -447,7 +447,7 @@ async fn canonical_application_shares_clients_but_isolates_other_users_and_appli
             .expect("other User resource")["id"],
         resource["id"]
     );
-    f.revoke_user().await;
+    f.withdraw_issuer_key().await;
     assert_eq!(
         sql(
             &f,
@@ -823,7 +823,7 @@ async fn response_revalidation_runs_after_commit_without_holding_the_sql_owner()
             result[0].rows[0].values[0],
             ofdb_sql::Value::Text("admitted".into())
         );
-        f.revoke_user().await;
+        f.withdraw_issuer_key().await;
         gate.release();
         assert_eq!(
             request.await.status(),

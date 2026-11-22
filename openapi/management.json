@@ -103,9 +103,6 @@
           "device_restrictions_update",
           "device_pairing_read",
           "device_pairing_update",
-          "replica_signers_enroll",
-          "replica_signers_rotate",
-          "replica_signers_revoke",
           "idp_security_sync",
           "management_security_sync"
         ],
@@ -268,26 +265,6 @@
               "type": {
                 "enum": [
                   "managementSecurity"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "type"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "member_id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "type": {
-                "enum": [
-                  "replicaSigner"
                 ],
                 "type": "string"
               }

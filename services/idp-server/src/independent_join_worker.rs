@@ -129,7 +129,6 @@ pub(super) async fn provision(
             request_id,
             member_id: record.member,
             endpoint_id: endpoint,
-            public_signer: opened.prepare_node_signer(&binding(record)?)?,
             source,
         };
         request.validate()?;
@@ -145,12 +144,11 @@ pub(super) async fn provision(
     if request.operation != *intent
         || request.member_id != record.member
         || request.endpoint_id != record.endpoint.as_deref().expect("endpoint")
-        || opened.verify_prepared_node_signer(&binding(record)?)? != request.public_signer
     {
-        return Err(io::Error::other("protected Join signer changed"));
+        return Err(io::Error::other("retained Join endpoint binding changed"));
     }
     log::debug!(
-        "Independent setup owner=idp purpose=join phase=protected-signer elapsed_ms={}",
+        "Independent setup owner=idp purpose=join phase=protected-join elapsed_ms={}",
         protected_at.elapsed().as_millis()
     );
     public(config, control, intent, record).await?;
@@ -222,26 +220,36 @@ pub(super) async fn provision(
             );
             imported?;
         }
-        log::debug!("Join history owner=idp phase=import_signer_start");
-        let verified = opened.verify_node_signer(&binding(record)?).await;
-        log::debug!(
-            "Join history owner=idp phase=import_signer_end elapsed_ms={} error_kind={:?}",
-            import_at.elapsed().as_millis(),
-            verified.as_ref().err().map(io::Error::kind)
-        );
-        verified?;
+        let authority = intent.issuer.trim_end_matches('/');
+        let client = config
+            .setup_http_client
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(setup::LocalTls::verification_client)?;
+        let key_set = client
+            .get(format!("{authority}/.well-known/jwks.json"))
+            .send()
+            .await
+            .map_err(io::Error::other)?
+            .error_for_status()
+            .map_err(io::Error::other)?;
+        let mut key_set = key_set;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = key_set.chunk().await.map_err(io::Error::other)? {
+            if bytes.len() + chunk.len() > 64 * 1024 {
+                return Err(io::Error::other("issuer JWKS too large"));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let jwks: of_model::idp::contract::jwks::Jwks = serde_json::from_slice(&bytes)?;
+        if jwks.keys.is_empty() {
+            return Err(io::Error::other("issuer has no trusted public key"));
+        }
+        record.jwks = Some(jwks);
         record.imported = true;
         record.user = approval.owner_subject;
         control.write_record(record)?;
     }
-    log::debug!("Join history owner=idp phase=retained_signer_start");
-    let verified = opened.verify_node_signer(&binding(record)?).await;
-    log::debug!(
-        "Join history owner=idp phase=retained_signer_end elapsed_ms={} error_kind={:?}",
-        import_at.elapsed().as_millis(),
-        verified.as_ref().err().map(io::Error::kind)
-    );
-    verified?;
     log::debug!(
         "Independent setup owner=idp purpose=join phase=public-import elapsed_ms={}",
         import_at.elapsed().as_millis()
@@ -289,6 +297,7 @@ pub(super) async fn provision(
                 opened.engine.clone(),
                 opened.database.clone(),
                 control.shutdown_token(),
+                binding(record)?.endpoint_id,
             )
             .await?,
         );

@@ -699,11 +699,6 @@ async fn real_selected_identity_namespace_and_local_evaluation_failures_deny() {
                 .await,
             "unapproved/pairing-only endpoint has no selected resource access"
         );
-        fixture.nodes[1].revoke_signer(0).await;
-        assert!(
-            authorizer.authorize(local, remote, &fixture.resource).await,
-            "token signer revocation does not revoke an approved endpoint's exact policy"
-        );
         fixture.nodes[1].revoke(0).await;
         assert!(
             !authorizer.authorize(local, remote, &fixture.resource).await,
