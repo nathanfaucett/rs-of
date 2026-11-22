@@ -1,7 +1,7 @@
 # Simplify IdP, Management, and Storage persistence
 
 Status: ready-for-agent
-Work: open
+Work: in progress
 Milestone: [M3 — Two-Device offline use and administration](../../docs/goal.md#milestones)
 Dependencies: Use the existing generated Logical Row identities and public Database and Client interfaces. No external dependencies identified.
 
@@ -61,3 +61,7 @@ Validate access JWTs with trusted issuer keys and signed claims. Keep sign-in, t
 ## Further Notes
 
 This spec records the result of source review, not shipped behavior. The single-authority issuer is the proposed baseline for this scope. If disconnected issuance is a product requirement, resolve that before removing Node signing trust; it does not change the JWT verification seam. The catalog lifecycle representation is an implementation choice, subject to the reconciliation checks above. The review inspected existing tests but did not run them.
+
+## Comments
+
+All five implementation branches are merged into `integration/simplify-service-persistence`. Tickets 02–05 have focused validation; see their evidence for limits. Ticket 01 stays open: the issuer cutover does not yet provision OAuth Clients for joined independent services at the issuing authority, and the broader owner suite did not compile. No change was pushed to `main`.

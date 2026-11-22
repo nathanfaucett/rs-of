@@ -1,7 +1,7 @@
 # 04: Use one scoped database catalog entry
 
 Status: ready-for-agent
-Work: open
+Work: resolved
 **Blocked by:** None (can start immediately).
 Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 
@@ -12,4 +12,4 @@ Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 - [ ] Verify scoped creation retries, User and Application isolation, and deletion across restart and authorized native synchronization. Keep deletion distinct from deselection and local copy cleanup.
 - [ ] Update the initial schema and affected contracts, callers, and docs in place. No migration, compatibility code, or version bump.
 
-Evidence: Existing tests cover independent database registration, deletion before registration, and restart. Tests were inspected, not run.
+Evidence: All 33 Storage service tests passed after review, including independent registration, deletion before registration, restart, and refusal to initialize over uncataloged data. Focused native Storage checks passed before the issuer merge; the final native rerun timed out during build.

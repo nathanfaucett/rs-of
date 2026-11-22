@@ -1,7 +1,7 @@
 # 05: Use one scoped Resource Selection path
 
 Status: ready-for-agent
-Work: open
+Work: resolved
 **Blocked by:** None (can start immediately).
 Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 
@@ -12,4 +12,4 @@ Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 - [ ] Use real owner routes and native synchronization to verify both Devices need approval and Selection, and that learned deselection stops later synchronization without deleting the Resource. Verify the removed routes are unavailable.
 - [ ] Update the initial schema, OpenAPI, generated clients, and affected consumers together. Run the real-backend browser vault regression. No migration, legacy path, or version bump.
 
-Evidence: Legacy Management queries omit scope predicates. Native Storage already checks the newer scoped Selection path. Tests were inspected, not run.
+Evidence: The ticket's owner HTTP tests rejected cross-scope Selection and confirmed removed routes return 404. Native tests passed for approval, Selection, and learned deselection; the Chromium vault tests passed before the issuer merge. Generated-client and Chromium sign-in checks passed after that merge. Final native and vault reruns timed out.

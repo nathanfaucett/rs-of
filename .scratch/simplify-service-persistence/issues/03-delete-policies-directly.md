@@ -1,7 +1,7 @@
 # 03: Delete roles and permissions directly
 
 Status: ready-for-agent
-Work: open
+Work: resolved
 **Blocked by:** None (can start immediately).
 Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 
@@ -12,4 +12,4 @@ Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 - [ ] Through Management and real ofdb reconciliation, prove that a disconnected peer cannot restore a deleted policy or its authority after reconnecting. Prove that a replacement needs new grants.
 - [ ] Verify initial administrator setup still works. Update the initial schema and affected history filters, docs, and tests in place. No migration, legacy path, or version bump.
 
-Evidence: Current Management tests cover deletion when separate rows share a policy identity. The replacement test must cover the new single-row contract. No tests were run for this review.
+Evidence: Management reconciliation and administrator setup reopen tests passed. The focused native history test also passed: repeated exchange did not restore a deleted policy, and removing a permission denied a later exchange.

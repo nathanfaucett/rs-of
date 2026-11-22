@@ -1,7 +1,7 @@
 # 02: Simplify password and Client secret storage
 
 Status: ready-for-agent
-Work: open
+Work: resolved
 **Blocked by:** None (can start immediately).
 Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 
@@ -12,4 +12,4 @@ Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 - [ ] Keep verifiers out of peer exchange. Remove `idp_conflict_resolutions` and its unused model. Use the existing ofdb conflict interface if resolution is needed.
 - [ ] Verify sign-in, reset, and Client authentication through the existing IdP interface, and confirm that peer exchange excludes verifier data. Update the initial schema in place; no migration, compatibility code, or version bump.
 
-Evidence: Source review found password and Client verifier tables excluded from scoped exchange, and no callers of the audit model. Tests were inspected, not run.
+Evidence: IdP service and local owner sign-in tests passed. The focused two-Node test passed after integration: public history exchanged, neither local verifier table crossed peers, and local password verifiers survived restart.

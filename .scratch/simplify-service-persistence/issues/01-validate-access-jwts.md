@@ -1,7 +1,7 @@
 # 01: Validate access JWTs with one issuing authority
 
 Status: ready-for-agent
-Work: open
+Work: in progress
 **Blocked by:** None (can start immediately).
 Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 
@@ -12,4 +12,4 @@ Spec: [Simplify IdP, Management, and Storage persistence](../spec.md)
 - [ ] Remove `idp_replica_members`, `idp_replica_signers`, and the enrollment and exchange paths used only for independent Node issuance. Do not share private signing keys. Preserve Device enrollment and approval.
 - [ ] Verify issuance, JWKS, validation, and rotation through existing owner interfaces. Update affected contracts, generated clients, and docs. Fresh stores only; no migration, legacy path, or version bump.
 
-Evidence: Source review found live principal and Client lookups and per-Node signer trust. Tests were inspected, not run. Disconnected issuance is out of scope.
+Evidence: The issuer cutover is integrated. The IdP service, generated-client checks, and Chromium sign-in passed. The broad owner test target did not compile. Independent Join approves the Device and retains JWKS, but does not provision the joined services' OAuth Clients at the issuer. Keep this ticket open until the affected owner workflow is qualified. Disconnected issuance remains out of scope.
