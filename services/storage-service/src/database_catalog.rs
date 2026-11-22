@@ -40,10 +40,16 @@ impl DatabaseCatalog {
     /// # Errors
     ///
     /// Returns an error if the catalog cannot be opened or initialized.
-    pub fn new(mut root: PathBuf) -> io::Result<Self> {
+    pub fn new(root: PathBuf) -> io::Result<Self> {
         fs::create_dir_all(&root)?;
-        root.push("catalog.redb");
-        let client = Database::open(root).map_err(error)?.client();
+        let catalog = root.join("catalog.redb");
+        if !catalog.try_exists()? && fs::read_dir(&root)?.next().transpose()?.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "database catalog is missing from a nonempty data directory",
+            ));
+        }
+        let client = Database::open(catalog).map_err(error)?.client();
         run(async {
             client
                 .execute_sql(STORAGE_CATALOG_SCHEMA, None)
@@ -356,6 +362,19 @@ mod tests {
         fn application_id(&self) -> of_model::id::Id {
             self.application
         }
+    }
+
+    #[test]
+    fn refuses_to_initialize_over_existing_data_without_a_catalog() {
+        let root = std::env::temp_dir().join(format!(
+            "database-catalog-existing-{}",
+            of_model::id::Id::now_v7()
+        ));
+        fs::create_dir_all(&root).expect("existing data directory");
+        fs::write(root.join("existing-data"), b"data").expect("existing data");
+        assert!(DatabaseCatalog::new(root.clone()).is_err());
+        assert!(!root.join("catalog.redb").exists());
+        fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[tokio::test]

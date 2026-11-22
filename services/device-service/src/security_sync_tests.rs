@@ -520,7 +520,7 @@ async fn exchange_history() {
     );
     sql(
         &idp_b,
-        "UPDATE permissions SET revoked_at = 2 WHERE name = 'idp.security.sync'",
+        "DELETE FROM permissions WHERE name = 'idp.security.sync'",
     )
     .await;
     let before = security_manifests(&idp_a, &idp_b, &management_a, &management_b).await;

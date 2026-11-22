@@ -15,6 +15,7 @@ use ofdb_sql::Value;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    device_repo::DeviceRepo,
     ofdb::DbDeviceRepo,
     security_candidates::{self, JoinCandidate, PeerBinding},
     security_sync::{PUBLIC_DEVICE_TABLES, public_device_columns},
@@ -162,11 +163,39 @@ impl SecurityHistory {
 
     pub async fn validate_schema(
         self,
-        idp: &LocalIdentity,
-        permissions: &LocalPermissions,
-        candidate: &DbDeviceRepo,
+        client: &ofdb_sql::Client,
+        tables: &[&str],
     ) -> Result<(), io::Error> {
-        let _ = (idp, permissions, candidate);
+        let public = public_security_tables();
+        for table in tables {
+            let expected = match self {
+                Self::Idp | Self::IdentityPolicy => public
+                    .iter()
+                    .find(|entry| entry.name() == *table)
+                    .map(|entry| entry.columns()),
+                Self::Devices => public_device_columns(table),
+            };
+            let result = client
+                .execute_sql(&format!("SELECT * FROM {table} LIMIT 0"), None)
+                .await;
+            if !result
+                .ok()
+                .and_then(|mut results| results.pop())
+                .zip(expected)
+                .is_some_and(|(result, columns)| {
+                    result.columns.len() == columns.len()
+                        && result
+                            .columns
+                            .iter()
+                            .all(|column| columns.contains(&column.name.as_str()))
+                })
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("unreviewed security schema: {table}"),
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -262,17 +291,37 @@ impl<'a> SecuritySync<'a> {
     pub async fn check_permission(
         &self,
         request: &PermissionEvaluationRequest,
-    ) -> Result<bool, io::Error> {
-        self.policy.evaluate(request).await.map_err(|_| denied())
+    ) -> Result<(), io::Error> {
+        if !self.policy.evaluate(request).await.map_err(|_| denied())? {
+            return Err(denied());
+        }
+        Ok(())
     }
 
-    /// Get the peer binding for a given endpoint and member.
-    pub async fn peer_binding(&self, endpoint: &str, member: Id) -> Result<PeerBinding, io::Error> {
+    pub async fn endpoint_binding(&self, endpoint: &str) -> Result<PeerBinding, io::Error> {
+        let device = self
+            .devices
+            .find_approved_by_public_key(endpoint)
+            .await
+            .map_err(|_| denied())?
+            .ok_or_else(denied)?;
+        let owner = device.owner_subject.parse().map_err(|_| denied())?;
+        if !self.idp.is_active_user(owner).await? {
+            return Err(denied());
+        }
         Ok(PeerBinding {
-            member,
+            member: device.id,
             endpoint: endpoint.to_owned(),
-            owner: member,
+            owner,
         })
+    }
+
+    pub async fn peer_binding(&self, endpoint: &str, member: Id) -> Result<PeerBinding, io::Error> {
+        let binding = self.endpoint_binding(endpoint).await?;
+        if binding.member != member {
+            return Err(denied());
+        }
+        Ok(binding)
     }
 }
 

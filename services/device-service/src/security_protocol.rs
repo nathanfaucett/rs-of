@@ -127,15 +127,17 @@ impl SecurityProtocol {
         self.validate_local_schema(context).await?;
         let handshake = self.local_handshake(context).await?;
 
-        let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
-        self.authorize(connection, handshake.member, context)
+        let remote = self
+            .owner()
+            .endpoint_binding(&connection.remote_id().to_string())
             .await?;
+        self.authorize(connection, remote.member, context).await?;
+        let (mut send, recv) = connection.open_bi().await.map_err(io::Error::other)?;
         send.write_all(&[SECURITY_STREAM_KIND])
             .await
             .map_err(io::Error::other)?;
         let mut transport = DatabaseTransport::new(send, recv);
-        self.authorize(connection, handshake.member, context)
-            .await?;
+        self.authorize(connection, remote.member, context).await?;
         transport
             .send(serde_json::to_vec(&handshake).map_err(io::Error::other)?)
             .await?;
@@ -210,14 +212,8 @@ impl SecurityProtocol {
     }
 
     pub async fn validate_local_schema(&self, context: SecurityContext) -> io::Result<()> {
-        let idp = LocalIdentity::new(self.idp.client());
-        let permissions = LocalPermissions::new(self.policy.client());
-        let candidate = DbDeviceRepo::new(self.management.client());
-
-        for (_, history, _) in self.sessions(context) {
-            history
-                .validate_schema(&idp, &permissions, &candidate)
-                .await?;
+        for (database, history, tables) in self.sessions(context) {
+            history.validate_schema(&database.client(), &tables).await?;
         }
         Ok(())
     }
@@ -239,11 +235,12 @@ impl SecurityProtocol {
         if self.cancellation.is_cancelled() {
             return Err(denied("security synchronization is shutting down"));
         }
-        let member = self
-            .binding
-            .as_ref()
-            .map(|b| b.member_id)
-            .ok_or_else(|| denied("local node signer binding is missing"))?;
+        let local = self
+            .owner()
+            .endpoint_binding(&self.server.endpoint().id().to_string())
+            .await?;
+        self.authorize_owner(local.owner, context).await?;
+        let member = local.member;
         Ok(Handshake {
             version: 1,
             installation: self.installation.clone(),
@@ -316,16 +313,24 @@ impl SecurityProtocol {
 
     async fn authorize(
         &self,
-        _connection: &Connection,
+        connection: &Connection,
         member: Id,
         context: SecurityContext,
     ) -> io::Result<()> {
         if self.cancellation.is_cancelled() {
             return Err(denied("security synchronization is shutting down"));
         }
+        let remote = self
+            .owner()
+            .peer_binding(&connection.remote_id().to_string(), member)
+            .await?;
+        self.authorize_owner(remote.owner, context).await
+    }
+
+    async fn authorize_owner(&self, owner: Id, context: SecurityContext) -> io::Result<()> {
         let request = PermissionEvaluationRequest {
             request_id: Id::now_v7(),
-            subject: PermissionSubject::User { id: member },
+            subject: PermissionSubject::User { id: owner },
             action: context.permission().0,
             target: PermissionTarget::Installation {
                 resource: context.permission().1,
