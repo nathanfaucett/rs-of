@@ -296,12 +296,10 @@ impl ExistingSource {
             IdentityAction::ManagementSecuritySync,
             IdentityAction::DevicesRead,
             IdentityAction::ApplicationsRead,
-        ]
-        .map(|action| (Id::now_v7(), action));
+        ];
         management_server::provision_initial_administrator(
             owner.node_join_database().expect("identity owner"),
             user,
-            Id::now_v7(),
             &permissions,
         )
         .await

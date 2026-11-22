@@ -33,9 +33,6 @@ impl LocalPermissions {
 #[cfg(test)]
 mod tests {
     use crate::local_permissions::LocalPermissions;
-    use crate::ofdb::DbPermissionRepo;
-    use crate::ofdb::DbRoleRepo;
-    use crate::service::ManagementService;
     use db::ofdb::up;
     use of_model::id::Id;
     use of_model::idp::contract::permission_evaluation::IdentityAction;
@@ -63,16 +60,12 @@ mod tests {
             up(&engine.client()).await.expect("initialize policy only");
             let local = LocalPermissions::new(engine.client());
             assert!(!local.evaluate(&request).await.expect("missing grants deny"));
-            ManagementService::new(
-                DbPermissionRepo::new(engine.client()),
-                DbRoleRepo::new(engine.client()),
-            )
-            .provision_initial_administrator(
+            crate::provision_initial_administrator(
+                &engine.client(),
                 user,
-                Id::now_v7(),
                 &[
-                    (Id::now_v7(), IdentityAction::DevicePairingRead),
-                    (Id::now_v7(), IdentityAction::DevicePairingUpdate),
+                    IdentityAction::DevicePairingRead,
+                    IdentityAction::DevicePairingUpdate,
                 ],
             )
             .await

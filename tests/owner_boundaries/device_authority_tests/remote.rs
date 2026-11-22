@@ -328,19 +328,14 @@ async fn remote_device_child() {
         of_model::idp::replica::up(&identity)
             .await
             .expect("identity schema");
-        management_service::ManagementService::new(
-            management_service::replica::DbPermissionRepo::new(identity.client()),
-            management_service::replica::DbRoleRepo::new(identity.client()),
-        )
-        .provision_initial_administrator(
+        management_service::provision_initial_administrator(
+            &identity.client(),
             owner,
-            Id::now_v7(),
             &[
                 IdentityAction::DevicePairingRead,
                 IdentityAction::DevicePairingUpdate,
                 IdentityAction::DevicesRevoke,
-            ]
-            .map(|action| (Id::now_v7(), action)),
+            ],
         )
         .await
         .expect("administrator permission");

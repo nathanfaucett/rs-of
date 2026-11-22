@@ -220,39 +220,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS idp_replica_signers_active_member
     ON idp_replica_signers (active_member_id);
 
 CREATE TABLE IF NOT EXISTS roles (
-    row_id UUID PRIMARY KEY,
-    id UUID,
-    incarnation INTEGER NOT NULL DEFAULT 0,
-    application_id UUID,
-    name TEXT,
+    id UUID PRIMARY KEY,
+    application_id UUID NOT NULL,
+    name TEXT NOT NULL,
     description TEXT,
-    revoked_at INTEGER,
-    created_at INTEGER,
-    updated_at INTEGER
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS roles_domain_id ON roles (id, incarnation);
-CREATE UNIQUE INDEX IF NOT EXISTS roles_application_name ON roles (application_id, name, incarnation);
+CREATE UNIQUE INDEX IF NOT EXISTS roles_application_name ON roles (application_id, name);
 
 CREATE TABLE IF NOT EXISTS permissions (
-    row_id UUID PRIMARY KEY,
-    id UUID,
-    incarnation INTEGER NOT NULL DEFAULT 0,
-    application_id UUID,
-    name TEXT,
-    description TEXT,
-    revoked_at INTEGER,
-    created_at INTEGER,
-    updated_at INTEGER
-);
-CREATE UNIQUE INDEX IF NOT EXISTS permissions_domain_id ON permissions (id, incarnation);
-CREATE UNIQUE INDEX IF NOT EXISTS permissions_application_name ON permissions (application_id, name, incarnation);
-
-CREATE TABLE IF NOT EXISTS rbac_revocations (
-    policy_kind TEXT NOT NULL,
+    id UUID PRIMARY KEY,
     application_id UUID NOT NULL,
-    policy_id UUID NOT NULL,
-    incarnation INTEGER NOT NULL,
-    PRIMARY KEY (policy_kind, application_id, policy_id, incarnation)
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS permissions_application_name ON permissions (application_id, name);
+
+CREATE TABLE IF NOT EXISTS administrator_provisioning (
+    name TEXT PRIMARY KEY,
+    user_id UUID NOT NULL,
+    actions TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS role_permissions (

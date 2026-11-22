@@ -24,10 +24,7 @@ pub mod join;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CreateSeed {
-    role: Id,
-    permissions: Vec<Id>,
-}
+struct Create {}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -36,7 +33,7 @@ struct Record {
     client: Id,
     device: Id,
     #[serde(skip_serializing_if = "Option::is_none")]
-    create: Option<CreateSeed>,
+    create: Option<Create>,
     user: Option<Id>,
     evaluator: Option<Id>,
     secret_attempted: bool,
@@ -117,13 +114,7 @@ impl Record {
             } else {
                 Id::now_v7()
             },
-            create: (purpose == "create").then(|| CreateSeed {
-                role: Id::now_v7(),
-                permissions: INITIAL_ADMINISTRATOR_ACTIONS
-                    .iter()
-                    .map(|_| Id::now_v7())
-                    .collect(),
-            }),
+            create: (purpose == "create").then_some(Create {}),
             user: None,
             evaluator: None,
             secret_attempted: false,
@@ -140,13 +131,6 @@ impl Record {
         let mut ids = vec![self.client];
         if self.create.is_none() || self.complete || !self.device.is_nil() {
             ids.push(self.device);
-        }
-        if let Some(seed) = &self.create {
-            if seed.permissions.len() != INITIAL_ADMINISTRATOR_ACTIONS.len() {
-                return Err(io::Error::other("invalid retained administrator seed"));
-            }
-            ids.push(seed.role);
-            ids.extend(&seed.permissions);
         }
         if self.version != 2
             || ids.iter().any(Id::is_nil)
@@ -585,19 +569,12 @@ async fn provision(
     }
     let opened = engine.as_ref().expect("opened Management");
     let seeded_at = Instant::now();
-    let seed = record.create.as_ref().expect("validated Create seed");
-    let permissions = seed
-        .permissions
-        .iter()
-        .copied()
-        .zip(INITIAL_ADMINISTRATOR_ACTIONS)
-        .collect::<Vec<_>>();
     let identity_client = identity_client(config, control, &command.intent).await?;
-    management_service::ManagementService::new(
-        management_service::ofdb::DbPermissionRepo::new(identity_client.clone()),
-        management_service::ofdb::DbRoleRepo::new(identity_client),
+    management_service::provision_initial_administrator(
+        &identity_client,
+        user,
+        &INITIAL_ADMINISTRATOR_ACTIONS,
     )
-    .provision_initial_administrator(user, seed.role, &permissions)
     .await
     .map_err(io::Error::other)?;
     record.device = crate::provisioning::provision_initial_device(

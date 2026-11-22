@@ -21,14 +21,6 @@ pub trait PermissionRepo {
         description: Option<&str>,
     ) -> impl Future<Output = ManagementResult<Permission>>;
 
-    fn create_permission_with_id(
-        &self,
-        id: Id,
-        application_id: Id,
-        name: &str,
-        description: Option<&str>,
-    ) -> impl Future<Output = ManagementResult<Permission>>;
-
     fn find_permission_by_id(
         &self,
         application_id: Id,

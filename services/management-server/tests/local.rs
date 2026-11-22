@@ -71,15 +71,13 @@ async fn synchronized_management_history_preserves_policy_and_selections() {
         DbRoleRepo::new(source.client()),
     );
     let administrator = Id::now_v7();
-    let role_id = Id::now_v7();
-    let permissions = management_service::INITIAL_ADMINISTRATOR_ACTIONS
-        .iter()
-        .map(|action| (Id::now_v7(), *action))
-        .collect::<Vec<_>>();
-    let role = service
-        .provision_initial_administrator(administrator, role_id, &permissions)
-        .await
-        .expect("provision retained IDs");
+    management_service::provision_initial_administrator(
+        &source.client(),
+        administrator,
+        &management_service::INITIAL_ADMINISTRATOR_ACTIONS,
+    )
+    .await
+    .expect("provision policy on owner");
     let (device, resource, application) = (Id::now_v7(), Id::now_v7(), Id::now_v7());
     service
         .select_resource(device, resource, application, "owner")
@@ -96,13 +94,6 @@ async fn synchronized_management_history_preserves_policy_and_selections() {
     let replica = ManagementService::new(
         DbPermissionRepo::new(peer.client()),
         DbRoleRepo::new(peer.client()),
-    );
-    assert_eq!(
-        replica
-            .provision_initial_administrator(administrator, role_id, &permissions)
-            .await
-            .expect("retry provisioning on peer"),
-        role
     );
     assert!(
         replica

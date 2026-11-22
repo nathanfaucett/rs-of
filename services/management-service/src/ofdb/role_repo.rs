@@ -24,32 +24,26 @@ use of_model::management_error::ManagementError;
 
 use of_model::management_error::ManagementResult;
 
-use super::insert::{active_rows, grant_ref, insert_policy_record, returned_id, revoke_policy};
+use super::insert::{insert_policy_record, returned_id};
 use crate::RoleRepo;
 
 const ROLES: &str = "roles";
 const PERMISSIONS: &str = "permissions";
 const ROLE_PERMISSIONS: &str = "role_permissions";
 const USER_ROLES: &str = "application_user_roles";
-const ROLE_COLUMNS: [&str; 9] = [
-    "row_id",
-    "incarnation",
+const ROLE_COLUMNS: [&str; 6] = [
     "id",
     "application_id",
     "name",
     "description",
-    "revoked_at",
     "created_at",
     "updated_at",
 ];
-const PERMISSION_COLUMNS: [&str; 9] = [
-    "row_id",
-    "incarnation",
+const PERMISSION_COLUMNS: [&str; 6] = [
     "id",
     "application_id",
     "name",
     "description",
-    "revoked_at",
     "created_at",
     "updated_at",
 ];
@@ -80,11 +74,11 @@ impl DbRoleRepo {
     }
 
     async fn roles(&self) -> ManagementResult<Vec<RoleRow>> {
-        active_rows(&self.engine, ROLES, &ROLE_COLUMNS).await
+        self.rows(ROLES, &ROLE_COLUMNS).await
     }
 
     async fn permissions(&self) -> ManagementResult<Vec<PermissionRow>> {
-        active_rows(&self.engine, PERMISSIONS, &PERMISSION_COLUMNS).await
+        self.rows(PERMISSIONS, &PERMISSION_COLUMNS).await
     }
 
     async fn role_permissions(&self) -> ManagementResult<Vec<RolePermissionRow>> {
@@ -97,16 +91,14 @@ impl DbRoleRepo {
 
     async fn insert_role(
         &self,
-        domain_id: Option<Id>,
         application_id: Id,
         name: &str,
         description: Option<&str>,
     ) -> ManagementResult<Role> {
         let now = now();
-        let (id, _) = insert_policy_record(
+        let id = insert_policy_record(
             &self.engine,
             ROLES,
-            domain_id,
             application_id,
             name,
             description,
@@ -142,11 +134,13 @@ impl DbRoleRepo {
     }
 
     async fn role(&self, application_id: Id, role_id: Id) -> ManagementResult<Option<RoleRow>> {
-        let role = self.roles().await?.into_iter().find(|role| {
-            role.id == role_id && role.application_id == application_id && role.revoked_at.is_none()
-        });
+        let role = self
+            .roles()
+            .await?
+            .into_iter()
+            .find(|role| role.id == role_id && role.application_id == application_id);
         if let Some(role) = &role {
-            self.ensure_role_clear(role.row_id).await?;
+            self.ensure_role_clear(role.id).await?;
         }
         Ok(role)
     }
@@ -156,14 +150,17 @@ impl DbRoleRepo {
         user_id: Id,
         application_id: Option<Id>,
     ) -> ManagementResult<Vec<RoleRow>> {
-        let assignments = self
-            .user_roles()
-            .await?
+        let assignments = self.user_roles().await?;
+        let available_roles = self.roles().await?;
+        let assignments = assignments
             .into_iter()
             .filter(|row| {
                 row.user_id == user_id
                     && row.revoked_at.is_none()
                     && application_id.is_none_or(|id| row.application_id == id)
+                    && available_roles.iter().any(|role| {
+                        role.id == row.role_id && role.application_id == row.application_id
+                    })
             })
             .collect::<Vec<_>>();
         self.ensure_clear(
@@ -173,21 +170,18 @@ impl DbRoleRepo {
                 .collect::<Vec<_>>(),
         )
         .await?;
-        let mut roles = self
-            .roles()
-            .await?
+        let mut roles = available_roles
             .into_iter()
             .filter(|role| {
-                role.revoked_at.is_none()
-                    && assignments.iter().any(|row| {
-                        row.role_id == role.grant_ref() && row.application_id == role.application_id
-                    })
+                assignments
+                    .iter()
+                    .any(|row| row.role_id == role.id && row.application_id == role.application_id)
             })
             .collect::<Vec<_>>();
         self.ensure_clear(
             &roles
                 .iter()
-                .map(|row| SecurityRow::new(SecurityTable::Role, row.row_id))
+                .map(|row| SecurityRow::new(SecurityTable::Role, row.id))
                 .collect::<Vec<_>>(),
         )
         .await?;
@@ -228,7 +222,7 @@ impl RoleRepo for DbRoleRepo {
             .roles()
             .await?
             .into_iter()
-            .filter(|role| role.application_id == application_id && role.revoked_at.is_none())
+            .filter(|role| role.application_id == application_id)
             .collect::<Vec<_>>();
         roles.sort_by_key(|role| role.name.clone());
         let roles = roles
@@ -237,7 +231,7 @@ impl RoleRepo for DbRoleRepo {
             .take(limit as usize)
             .collect::<Vec<_>>();
         for role in &roles {
-            self.ensure_role_clear(role.row_id).await?;
+            self.ensure_role_clear(role.id).await?;
         }
         roles.into_iter().map(Role::try_from).collect()
     }
@@ -248,24 +242,7 @@ impl RoleRepo for DbRoleRepo {
         name: &str,
         description: Option<&str>,
     ) -> ManagementResult<Role> {
-        self.insert_role(None, application_id, name, description)
-            .await
-    }
-
-    async fn create_role_with_id(
-        &self,
-        id: Id,
-        application_id: Id,
-        name: &str,
-        description: Option<&str>,
-    ) -> ManagementResult<Role> {
-        if id.is_nil() {
-            return Err(ManagementError::InvalidInput(
-                "role ID must not be nil".into(),
-            ));
-        }
-        self.insert_role(Some(id), application_id, name, description)
-            .await
+        self.insert_role(application_id, name, description).await
     }
 
     async fn find_role_by_id(
@@ -284,36 +261,15 @@ impl RoleRepo for DbRoleRepo {
             .role(application_id, role_id)
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("role not found".into()))?;
-        let mut relationships = self
-            .role_permissions()
-            .await?
-            .into_iter()
-            .filter(|role_permission| {
-                role_permission.role_id == role.grant_ref() && role_permission.revoked_at.is_none()
-            })
-            .map(|role_permission| {
-                SecurityRow::new(SecurityTable::RolePermission, role_permission.id)
-            })
-            .collect::<Vec<_>>();
-        relationships.extend(
-            self.user_roles()
-                .await?
-                .into_iter()
-                .filter(|user_role| {
-                    user_role.role_id == role.grant_ref() && user_role.revoked_at.is_none()
-                })
-                .map(|user_role| SecurityRow::new(SecurityTable::UserRole, user_role.id)),
-        );
-        self.ensure_clear(&relationships).await?;
-        revoke_policy(
-            &self.engine,
-            ROLES,
-            application_id,
-            role.id,
-            role.incarnation,
-            role.row_id,
-        )
-        .await
+        self.engine
+            .execute(vec![Statement::Query(Query::Delete(QueryDelete {
+                from: from(ROLES),
+                predicate: Some(equals(ROLES, "id", Value::Uuid(role.id))),
+                returning: None,
+            }))])
+            .await
+            .map_err(db_error)?;
+        Ok(())
     }
 
     async fn add_role_to_user(
@@ -327,7 +283,7 @@ impl RoleRepo for DbRoleRepo {
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("role not found".into()))?;
         if self
-            .active_user_role(application_id, user_id, role.grant_ref())
+            .active_user_role(application_id, user_id, role.id)
             .await?
             .is_some()
         {
@@ -336,7 +292,7 @@ impl RoleRepo for DbRoleRepo {
         let params = QueryParams::Positional(vec![
             Value::Uuid(user_id),
             Value::Uuid(application_id),
-            Value::Uuid(role.grant_ref()),
+            Value::Uuid(role.id),
             Value::Integer(now().timestamp()),
         ]);
         let results = self.engine.execute_sql(
@@ -361,7 +317,7 @@ impl RoleRepo for DbRoleRepo {
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("role not found".into()))?;
         let user_role = self
-            .active_user_role(application_id, user_id, role.grant_ref())
+            .active_user_role(application_id, user_id, role.id)
             .await?
             .ok_or_else(|| ManagementError::InvalidInput("user role not found".into()))?;
         self.engine
@@ -404,12 +360,19 @@ impl RoleRepo for DbRoleRepo {
         user_id: Id,
     ) -> ManagementResult<Vec<Permission>> {
         let roles = self.assigned_roles(user_id, Some(application_id)).await?;
-        let role_ids = roles.iter().map(RoleRow::grant_ref).collect::<Vec<_>>();
-        let role_permissions = self
-            .role_permissions()
-            .await?
+        let role_ids = roles.iter().map(|role| role.id).collect::<Vec<_>>();
+        let role_permissions = self.role_permissions().await?;
+        let available_permissions = self.permissions().await?;
+        let role_permissions = role_permissions
             .into_iter()
-            .filter(|row| role_ids.contains(&row.role_id) && row.revoked_at.is_none())
+            .filter(|row| {
+                role_ids.contains(&row.role_id)
+                    && row.revoked_at.is_none()
+                    && available_permissions.iter().any(|permission| {
+                        permission.id == row.permission_id
+                            && permission.application_id == application_id
+                    })
+            })
             .collect::<Vec<_>>();
         self.ensure_clear(
             &role_permissions
@@ -422,21 +385,18 @@ impl RoleRepo for DbRoleRepo {
             .iter()
             .map(|row| row.permission_id)
             .collect::<Vec<_>>();
-        let mut permissions = self
-            .permissions()
-            .await?
+        let mut permissions = available_permissions
             .into_iter()
             .filter(|permission| {
                 permission.application_id == application_id
-                    && permission_ids.contains(&permission.grant_ref())
-                    && permission.revoked_at.is_none()
+                    && permission_ids.contains(&permission.id)
             })
             .collect::<Vec<_>>();
         permissions.sort_by_key(|permission| permission.name.clone());
         self.ensure_clear(
             &permissions
                 .iter()
-                .map(|permission| SecurityRow::new(SecurityTable::Permission, permission.row_id))
+                .map(|permission| SecurityRow::new(SecurityTable::Permission, permission.id))
                 .collect::<Vec<_>>(),
         )
         .await?;
@@ -458,33 +418,21 @@ impl RoleRepo for DbRoleRepo {
 
 #[derive(Debug)]
 struct RoleRow {
-    row_id: Uuid,
-    incarnation: i64,
     id: Uuid,
     application_id: Uuid,
     name: String,
     description: Option<String>,
-    revoked_at: Option<i64>,
     created_at: i64,
     updated_at: i64,
-}
-
-impl RoleRow {
-    fn grant_ref(&self) -> Id {
-        grant_ref(self.application_id, self.id, self.incarnation)
-    }
 }
 
 impl FromRow for RoleRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            row_id: decode(row, columns, "row_id")?,
-            incarnation: decode(row, columns, "incarnation")?,
             id: decode(row, columns, "id")?,
             application_id: decode(row, columns, "application_id")?,
             name: decode(row, columns, "name")?,
             description: decode(row, columns, "description")?,
-            revoked_at: decode(row, columns, "revoked_at")?,
             created_at: decode(row, columns, "created_at")?,
             updated_at: decode(row, columns, "updated_at")?,
         })
@@ -508,33 +456,21 @@ impl TryFrom<RoleRow> for Role {
 
 #[derive(Debug)]
 struct PermissionRow {
-    row_id: Uuid,
-    incarnation: i64,
     id: Uuid,
     application_id: Uuid,
     name: String,
     description: Option<String>,
-    revoked_at: Option<i64>,
     created_at: i64,
     updated_at: i64,
-}
-
-impl PermissionRow {
-    fn grant_ref(&self) -> Id {
-        grant_ref(self.application_id, self.id, self.incarnation)
-    }
 }
 
 impl FromRow for PermissionRow {
     fn from_row(row: &Row, columns: &[&str]) -> Result<Self, FromRowError> {
         Ok(Self {
-            row_id: decode(row, columns, "row_id")?,
-            incarnation: decode(row, columns, "incarnation")?,
             id: decode(row, columns, "id")?,
             application_id: decode(row, columns, "application_id")?,
             name: decode(row, columns, "name")?,
             description: decode(row, columns, "description")?,
-            revoked_at: decode(row, columns, "revoked_at")?,
             created_at: decode(row, columns, "created_at")?,
             updated_at: decode(row, columns, "updated_at")?,
         })

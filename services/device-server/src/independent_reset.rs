@@ -5,7 +5,6 @@ use setup::IndependentPeer;
 
 use device_service::independent_join::IndependentJoinApproval;
 use idp_service::setup_credentials::delete_setup_secrets;
-use management_service::INITIAL_ADMINISTRATOR_ACTIONS;
 use of_model::id::Id;
 use serde::Deserialize;
 use setup::IndependentReset;
@@ -14,10 +13,7 @@ use crate::AppConfig;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CreateSeed {
-    role: Id,
-    permissions: Vec<Id>,
-}
+struct Create {}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,7 +21,7 @@ struct References {
     version: u8,
     client: Id,
     device: Id,
-    create: Option<CreateSeed>,
+    create: Option<Create>,
 
     user: Option<Id>,
     evaluator: Option<Id>,
@@ -76,20 +72,9 @@ pub async fn reset_independent(
             let intent = reset
                 .intent()
                 .ok_or_else(|| io::Error::other("worker intent missing"))?;
-            let mut ids = vec![references.client, references.device];
+            let ids = [references.client, references.device];
             if references.version != 2 {
                 return Err(io::Error::other("unsupported Device reset record"));
-            }
-            let seed = references
-                .create
-                .as_ref()
-                .map(|seed| (seed.role, seed.permissions.as_slice()));
-            if let Some((role, permissions)) = seed {
-                if permissions.len() != INITIAL_ADMINISTRATOR_ACTIONS.len() {
-                    return Err(io::Error::other("invalid retained administrator seed"));
-                }
-                ids.push(role);
-                ids.extend(permissions);
             }
             if ids.iter().any(Id::is_nil)
                 || ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id))
@@ -100,7 +85,7 @@ pub async fn reset_independent(
                     .as_ref()
                     .is_some_and(|endpoint| endpoint.parse::<iroh::EndpointId>().is_err())
                 || (intent.purpose == "create"
-                    && (seed.is_none()
+                    && (references.create.is_none()
                         || references.source.is_some()
                         || references.approval.is_some()
                         || references.imported))
