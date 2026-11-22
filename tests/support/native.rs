@@ -232,7 +232,7 @@ impl Fixture {
             .expect("complete inventory before private production");
         assert!(provisioner.prepare_setup_client_slots(&[]).await.is_err());
         provisioner
-            .ensure_initial_user(owner, Id::now_v7(), "administrator", "valid-password")
+            .ensure_initial_user(owner, "administrator", "valid-password")
             .await
             .expect("real local User");
         provisioner

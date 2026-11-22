@@ -31,8 +31,6 @@ pub mod join;
 struct Record {
     version: u8,
     user: Id,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    credential: Option<Id>,
     login: Id,
     member: Id,
     key: Id,
@@ -53,19 +51,10 @@ impl Record {
     fn validate_operation(&self, intent: &IndependentCreateIntent) -> io::Result<()> {
         self.validate()?;
         if intent.purpose == "create" {
-            if self.credential.is_none()
-                || self.request.is_some()
-                || self.approval.is_some()
-                || self.imported
-            {
+            if self.request.is_some() || self.approval.is_some() || self.imported {
                 return Err(io::Error::other("Create contains Join evidence"));
             }
             return Ok(());
-        }
-        if self.credential.is_some() {
-            return Err(io::Error::other(
-                "Join contains a fresh credential identity",
-            ));
         }
         if let Some(request) = &self.request {
             request.validate()?;
@@ -99,11 +88,10 @@ impl Record {
         }
         Ok(())
     }
-    fn new(purpose: &str) -> Self {
+    fn new() -> Self {
         Self {
             version: 2,
             user: Id::now_v7(),
-            credential: (purpose == "create").then(Id::now_v7),
             login: Id::now_v7(),
             member: Id::now_v7(),
             key: Id::now_v7(),
@@ -120,8 +108,7 @@ impl Record {
         }
     }
     fn validate(&self) -> io::Result<()> {
-        let mut ids = vec![self.user, self.login, self.member, self.key, self.client];
-        ids.extend(self.credential);
+        let ids = [self.user, self.login, self.member, self.key, self.client];
         if self.version != 2
             || ids.iter().any(Id::is_nil)
             || ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id))
@@ -418,7 +405,7 @@ async fn provision(
     let mut record = match control.read_record::<Record>()? {
         Some(record) => record,
         None => {
-            let record = Record::new(&command.intent.purpose);
+            let record = Record::new();
             control.write_record(&record)?;
             record
         }
@@ -568,7 +555,6 @@ async fn provision(
     owner
         .ensure_initial_user(
             record.user,
-            record.credential.expect("validated Create credential"),
             &intent.administrator,
             command
                 .password
@@ -577,7 +563,7 @@ async fn provision(
         )
         .await?;
     log::debug!(
-        "Independent setup owner=idp purpose=create phase=password-credential elapsed_ms={}",
+        "Independent setup owner=idp purpose=create phase=password-verifier elapsed_ms={}",
         password_at.elapsed().as_millis()
     );
     let signing_at = Instant::now();

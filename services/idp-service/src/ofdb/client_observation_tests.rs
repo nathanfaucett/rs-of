@@ -22,7 +22,7 @@ use super::super::insert::{generated_id, generated_insert};
 use super::super::observation_test_kernel::{CatalogReads, CountingKernel};
 
 use super::{
-    ClientRow, DbClientRepo, Row, Statement, Value, local_credential_insert,
+    ClientRow, DbClientRepo, Row, Statement, Value, local_verifier_insert,
     tests::TestPrivateKeyRepo,
 };
 
@@ -53,9 +53,10 @@ impl Fixture {
         let migration = include_str!("../../../model/migrations/0001_init.up.sql");
         for statement in migration.split(';').map(str::trim).filter(|statement| {
             statement.starts_with("CREATE TABLE IF NOT EXISTS clients (")
-                || statement.starts_with("CREATE TABLE IF NOT EXISTS local_client_credentials (")
+                || statement
+                    .starts_with("CREATE TABLE IF NOT EXISTS local_client_secret_verifiers (")
                 || statement.starts_with(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS local_client_credentials_client_id ",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS local_client_secret_verifiers_client_id ",
                 )
         }) {
             engine
@@ -147,7 +148,7 @@ impl Fixture {
         if table == "clients" {
             return client;
         }
-        let results = self.engine.translate_and_execute(&format!("SELECT id FROM local_client_credentials WHERE client_id = CAST('{client}' AS UUID)"), &ofdb_sql::SqlTranslator).await.expect("look up local fixture key");
+        let results = self.engine.translate_and_execute(&format!("SELECT id FROM local_client_secret_verifiers WHERE client_id = CAST('{client}' AS UUID)"), &ofdb_sql::SqlTranslator).await.expect("look up local fixture key");
         generated_id(&results).expect("local fixture key")
     }
 
@@ -190,7 +191,7 @@ impl Fixture {
 async fn insert(engine: &Engine<CountingKernel, AutomergeRowCodec>, client: Client) -> Client {
     let revision = Id::now_v7();
     let mut metadata = ClientRow::from(&client);
-    metadata.credential_id = Some(revision);
+    metadata.secret_revision = Some(revision);
     let results = engine
         .execute(vec![Statement::Query(generated_insert(
             "clients",
@@ -204,7 +205,7 @@ async fn insert(engine: &Engine<CountingKernel, AutomergeRowCodec>, client: Clie
         ..client
     };
     engine
-        .execute(vec![Statement::Query(local_credential_insert(
+        .execute(vec![Statement::Query(local_verifier_insert(
             &client, revision,
         ))])
         .await
@@ -273,7 +274,7 @@ async fn each_lookup_observes_current_matching_missing_and_rotated_credentials()
     let revision = Id::now_v7();
     fixture
         .sql(&format!(
-            "UPDATE clients SET credential_id = CAST('{revision}' AS UUID)"
+            "UPDATE clients SET secret_revision = CAST('{revision}' AS UUID)"
         ))
         .await;
     let mismatched = fixture
@@ -285,7 +286,7 @@ async fn each_lookup_observes_current_matching_missing_and_rotated_credentials()
     assert!(mismatched.client_secret_hash.is_empty());
     fixture
         .sql(&format!(
-            "UPDATE local_client_credentials SET credential_id = CAST('{revision}' AS UUID), secret_hash = 'new-local-verifier'"
+            "UPDATE local_client_secret_verifiers SET secret_revision = CAST('{revision}' AS UUID), secret_hash = 'new-local-verifier'"
         ))
         .await;
     let matching = fixture
@@ -295,7 +296,9 @@ async fn each_lookup_observes_current_matching_missing_and_rotated_credentials()
         .expect("new matching local revision")
         .expect("client");
     assert_eq!(matching.client_secret_hash, "new-local-verifier");
-    fixture.sql("DELETE FROM local_client_credentials").await;
+    fixture
+        .sql("DELETE FROM local_client_secret_verifiers")
+        .await;
     let missing = fixture
         .repo
         .find_client_by_id(fixture.client.id)
@@ -309,7 +312,9 @@ async fn each_lookup_observes_current_matching_missing_and_rotated_credentials()
 #[tokio::test]
 async fn metadata_lookup_needs_no_local_credential_storage() {
     let fixture = Fixture::new().await;
-    fixture.sql("DROP TABLE local_client_credentials").await;
+    fixture
+        .sql("DROP TABLE local_client_secret_verifiers")
+        .await;
     let metadata = fixture
         .repo
         .find_client_registration(&fixture.client.client_id)
@@ -364,7 +369,7 @@ async fn next_lookup_observes_client_revocation() {
 #[tokio::test]
 async fn both_conflict_checks_deny_and_next_lookup_observes_resolution() {
     for (table, column, name) in [
-        ("local_client_credentials", 3, "secret_hash"),
+        ("local_client_secret_verifiers", 3, "secret_hash"),
         ("clients", 6, "client_name"),
     ] {
         let fixture = Fixture::new().await;
@@ -458,7 +463,7 @@ async fn pagination_hydrates_before_skipping_but_clears_only_selected_metadata()
     assert_eq!(page[0].client_secret_hash, "first-local-verifier");
     assert!(fixture.repo.list_clients(0, 1).await.is_err());
     fixture
-        .conflict("local_client_credentials", skipped, 3)
+        .conflict("local_client_secret_verifiers", skipped, 3)
         .await;
     assert!(
         fixture.repo.list_clients(1, 1).await.is_err(),

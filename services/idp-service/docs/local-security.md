@@ -24,6 +24,12 @@ Store grant hashes rather than raw authorization codes or refresh tokens. Consum
 
 Local atomic consumption does not provide global single use during partitions. Reconnect cannot revoke tokens already issued by another partitioned Node. Unresolved security-record conflicts deny authentication, authorization, or issuance; last-writer-wins ordering must not erase consumption or revocation evidence.
 
+## Local sign-in verifiers
+
+Each User has at most one local password verifier. Reset replaces that verifier in the current row. It does not erase the local database history. User identity sync does not include password verifier data.
+
+Only confidential OAuth Clients that use `client_secret_basic` or `client_secret_post` have a local secret verifier. Public registration shares a non-secret revision for shared-secret Clients. The local verifier must match that revision. A peer that learns of a rotation cannot authenticate with its old verifier.
+
 ## Public synchronization projections
 
 Synchronize only explicit public projections. Do not export opaque whole rows whose private fields or history could escape validation. Reject unknown fields, private JWK parameters, malformed identities, and raw credentials presented as hashes.
@@ -36,7 +42,7 @@ Transport authorization uses the authenticated connection peer and current Devic
 
 Persist the bindings required for offline restart. Missing or contradictory retained evidence fails closed. Do not delete journals, append random permission identities, replace signers, or infer missing setup modes during startup.
 
-The SQL Database generates UUIDv7 Logical Row identities. A predetermined User subject or Credential ID remains a public domain identifier, separate from the generated row identity. Replicas retain the generated row identity. This schema requires a fresh store; it does not upgrade existing IdP stores.
+The SQL Database generates UUIDv7 Logical Row identities. A predetermined User subject remains a public domain identifier, separate from the generated row identity. Replicas retain the generated row identity. This schema requires a fresh store; it does not upgrade existing IdP stores.
 
 Unsupported retained state requires an explicit supported recovery or a deliberate fresh root. A restart is not a migration, and a permission-schema change is not proof that older Installations were upgraded safely.
 

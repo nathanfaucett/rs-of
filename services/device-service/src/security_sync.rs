@@ -81,7 +81,7 @@ mod tests {
             );
         }
         assert_eq!(
-            crate::security_sync::public_device_columns("local_client_credentials"),
+            crate::security_sync::public_device_columns("local_client_secret_verifiers"),
             None
         );
         assert!(crate::security_sync::public_device_columns("devices").is_some());
@@ -148,12 +148,11 @@ mod tests {
             "permissions",
             "application_user_roles",
             "users",
-            "credentials",
             "clients",
             "keys",
             "oauth2_refresh_tokens",
-            "local_client_credentials",
-            "local_credential_secrets",
+            "local_client_secret_verifiers",
+            "local_user_password_verifiers",
             "local_device_enrollments",
             "local_device_join_bindings",
             "unknown",

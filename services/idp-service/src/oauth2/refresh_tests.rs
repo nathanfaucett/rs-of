@@ -168,7 +168,11 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
             client_type: ClientType::Confidential,
             profile: ClientProfile::Web,
             redirect_uris: vec!["https://refresh.example/callback".into()],
-            allowed_grant_types: vec![GrantType::AuthorizationCode, GrantType::RefreshToken],
+            allowed_grant_types: vec![
+                GrantType::AuthorizationCode,
+                GrantType::RefreshToken,
+                GrantType::Password,
+            ],
             response_types: vec![ResponseType::Code],
             allowed_scopes: vec!["openid".into(), "profile".into()],
             allowed_audiences: vec![],
@@ -184,6 +188,11 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         .create_user_with_password("refresh-user", "test-password")
         .await
         .expect("create user");
+    service
+        .user_repo
+        .upsert_primary_user_email(user.id, "refresh-user@example.test", true)
+        .await
+        .expect("add sign-in email");
     let key = service
         .key_service
         .create_initial_root_with_capture(
@@ -210,16 +219,53 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
 }
 
 #[tokio::test]
+async fn password_reset_replaces_the_sign_in_password() {
+    use of_model::idp::contract::password_grant_request::PasswordGrantRequest;
+
+    let (_, service, client, principal) = setup().await;
+    let sign_in = |password: &str| {
+        service.token(
+            TokenRequest::Password(PasswordGrantRequest {
+                client_id: client.client_id.clone(),
+                username: "refresh-user@example.test".into(),
+                password: password.into(),
+                scope: Some("openid".into()),
+                resource: None,
+            }),
+            Some(auth(&client)),
+        )
+    };
+    sign_in("test-password").await.expect("initial sign-in");
+    assert!(
+        service
+            .reset_user_password(principal.user.id, " ")
+            .await
+            .is_err()
+    );
+    service
+        .reset_user_password(principal.user.id, "new-password")
+        .await
+        .expect("reset password");
+    assert_eq!(
+        sign_in("test-password")
+            .await
+            .expect_err("old password")
+            .error,
+        ErrorCode::InvalidGrant
+    );
+    sign_in("new-password").await.expect("sign in after reset");
+}
+
+#[tokio::test]
 async fn initial_user_provisioning_is_stable_and_conflict_safe() {
     let (engine, authority, _, _) = setup().await;
     let user_id = Id::now_v7();
-    let credential_id = Id::now_v7();
     let created = authority
-        .ensure_initial_user(user_id, credential_id, "administrator", "strong-password")
+        .ensure_initial_user(user_id, "administrator", "strong-password")
         .await
         .expect("provision initial user");
     let retried = authority
-        .ensure_initial_user(user_id, credential_id, "administrator", "strong-password")
+        .ensure_initial_user(user_id, "administrator", "strong-password")
         .await
         .expect("retry initial user");
     assert_eq!(created, retried);
@@ -227,25 +273,20 @@ async fn initial_user_provisioning_is_stable_and_conflict_safe() {
 
     assert!(
         authority
-            .ensure_initial_user(user_id, credential_id, "other-name", "strong-password")
+            .ensure_initial_user(user_id, "other-name", "strong-password")
             .await
             .is_err()
     );
     assert!(
         authority
-            .ensure_initial_user(
-                user_id,
-                credential_id,
-                "administrator",
-                "different-password"
-            )
+            .ensure_initial_user(user_id, "administrator", "different-password")
             .await
             .is_err()
     );
 
     let replica = reopened_service(&engine, &authority);
     replica
-        .ensure_initial_user(Id::now_v7(), Id::now_v7(), "local-user", "password")
+        .ensure_initial_user(Id::now_v7(), "local-user", "password")
         .await
         .expect("local provisioning needs no peer");
 }
@@ -309,6 +350,75 @@ async fn infrastructure_client_provisioning_is_retry_safe_on_each_node() {
         .ensure_infrastructure_client(infrastructure_client_registration())
         .await
         .expect("local retry");
+}
+
+#[tokio::test]
+async fn public_registration_does_not_require_a_secret_store() {
+    let (engine, service, _, _) = setup().await;
+    engine
+        .client()
+        .translate_and_execute(
+            "DROP TABLE local_client_secret_verifiers",
+            &ofdb_sql::SqlTranslator,
+        )
+        .await
+        .expect("make the local secret store unavailable");
+    let registered = service
+        .register_public_client(public_registration(), true)
+        .await
+        .expect("register a public Client without a verifier");
+    assert!(registered.client_secret.is_none());
+    service
+        .get_client(registered.client_id.as_deref().expect("Client ID"))
+        .await
+        .expect("read a public Client without a verifier");
+}
+
+#[tokio::test]
+async fn client_authentication_rejects_rotated_and_stale_secrets() {
+    let (engine, service, client, principal) = setup().await;
+    let issued = issue(&service, &client, &principal).await;
+    let refresh = issued.refresh_token.expect("refresh grant");
+    let replacement = service
+        .rotate_client_secret(&client.client_id)
+        .await
+        .expect("rotate secret");
+    let request = || grant(&refresh.0, None);
+    assert_eq!(
+        service
+            .token(request(), Some(auth(&client)))
+            .await
+            .expect_err("old secret after rotation")
+            .error,
+        ErrorCode::InvalidClient
+    );
+    let mut current = auth(&client);
+    current.client_secret = Some(replacement);
+    let refreshed = service
+        .token(request(), Some(current.clone()))
+        .await
+        .expect("authenticate with replacement");
+
+    engine
+        .client()
+        .execute_sql(
+            "UPDATE clients SET secret_revision = $1 WHERE id = $2",
+            Some(&ofdb_sql::QueryParams::Positional(vec![
+                Value::Uuid(Id::now_v7()),
+                Value::Uuid(client.id),
+            ])),
+        )
+        .await
+        .expect("simulate learning a peer's newer registration revision");
+    let refresh = refreshed.refresh_token.expect("replacement grant");
+    assert_eq!(
+        service
+            .token(grant(&refresh.0, None), Some(current))
+            .await
+            .expect_err("local verifier does not match the learned revision")
+            .error,
+        ErrorCode::InvalidClient
+    );
 }
 
 fn public_registration() -> ClientRegistration {

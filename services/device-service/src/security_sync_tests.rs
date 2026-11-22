@@ -142,7 +142,7 @@ async fn exchange_history() {
         (&*idp_a, &*management_a, local_client_a, member_a, "a"),
         (&*idp_b, &*management_b, local_client_b, member_b, "b"),
     ] {
-        sql(database, &format!("INSERT INTO local_client_credentials (client_id, credential_id, secret_hash) VALUES (CAST('{client}' AS UUID), CAST('{}' AS UUID), 'private-client-{label}')", Id::now_v7())).await;
+        sql(database, &format!("INSERT INTO local_client_secret_verifiers (client_id, secret_revision, secret_hash) VALUES (CAST('{client}' AS UUID), CAST('{}' AS UUID), 'private-client-{label}')", Id::now_v7())).await;
         sql(management, &format!("INSERT INTO local_device_enrollments (device_id, pairing_accepting_public_key) VALUES ('{device}', 'private-enrollment-{label}')")).await;
     }
     let grant_client = Id::now_v7();
@@ -240,28 +240,28 @@ async fn exchange_history() {
     );
     assert!(
         users_b
-            .find_user_password_by_user_id(user_a.id)
+            .find_user_password_hash(user_a.id)
             .await
             .expect("no remote verifier")
             .is_none()
     );
     assert!(
         users_a
-            .find_user_password_by_user_id(user_b.id)
+            .find_user_password_hash(user_b.id)
             .await
             .expect("no remote verifier")
             .is_none()
     );
     assert!(
         users_a
-            .find_user_password_by_user_id(user_a.id)
+            .find_user_password_hash(user_a.id)
             .await
             .expect("own verifier retained")
             .is_some()
     );
     assert!(
         users_b
-            .find_user_password_by_user_id(user_b.id)
+            .find_user_password_hash(user_b.id)
             .await
             .expect("own verifier retained")
             .is_some()
@@ -307,8 +307,8 @@ async fn exchange_history() {
             "b",
         ),
     ] {
-        assert_eq!(sql(database, &format!("SELECT secret_hash FROM local_client_credentials WHERE client_id = CAST('{own_client}' AS UUID)")).await[0].rows[0].values, vec![Value::Text(format!("private-client-{label}"))]);
-        assert!(sql(database, &format!("SELECT secret_hash FROM local_client_credentials WHERE client_id = CAST('{other_client}' AS UUID)")).await[0].rows.is_empty());
+        assert_eq!(sql(database, &format!("SELECT secret_hash FROM local_client_secret_verifiers WHERE client_id = CAST('{own_client}' AS UUID)")).await[0].rows[0].values, vec![Value::Text(format!("private-client-{label}"))]);
+        assert!(sql(database, &format!("SELECT secret_hash FROM local_client_secret_verifiers WHERE client_id = CAST('{other_client}' AS UUID)")).await[0].rows.is_empty());
         assert_eq!(sql(management, &format!("SELECT pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = '{own_device}'")).await[0].rows[0].values, vec![Value::Text(format!("private-enrollment-{label}"))]);
         assert!(sql(management, &format!("SELECT device_id FROM local_device_enrollments WHERE device_id = '{other_device}'")).await[0].rows.is_empty());
     }
@@ -604,14 +604,14 @@ async fn exchange_history() {
     );
     assert!(
         reopened_users
-            .find_user_password_by_user_id(user_a.id)
+            .find_user_password_hash(user_a.id)
             .await
             .expect("still no remote secret after restart")
             .is_none()
     );
     assert!(
         reopened_users
-            .find_user_password_by_user_id(user_b.id)
+            .find_user_password_hash(user_b.id)
             .await
             .expect("own verifier durable")
             .is_some()

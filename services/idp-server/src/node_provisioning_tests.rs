@@ -188,7 +188,7 @@ async fn node_preparation_missing_attempted_secret_never_writes_replacement() {
         .await
         .expect("complete inventory");
     owner
-        .ensure_initial_user(user, Id::now_v7(), "preparation-user", "valid-password")
+        .ensure_initial_user(user, "preparation-user", "valid-password")
         .await
         .expect("initial User");
     let public = owner
@@ -275,7 +275,7 @@ async fn node_preparation_stored_interruption_reopens_exactly_without_enrolled_t
         .await
         .expect("complete inventory");
     owner
-        .ensure_initial_user(user, Id::now_v7(), "retained-user", "valid-password")
+        .ensure_initial_user(user, "retained-user", "valid-password")
         .await
         .expect("User");
     owner
@@ -708,7 +708,7 @@ async fn inventory_concurrent_public_operations_preserve_capture() {
         .await
         .expect("slots");
     owner
-        .ensure_initial_user(user, Id::now_v7(), "concurrent-user", "valid-password")
+        .ensure_initial_user(user, "concurrent-user", "valid-password")
         .await
         .expect("User");
     owner
@@ -1024,7 +1024,7 @@ async fn metadata_root_retries_reject_corrupt_capture_and_missing_actual_root() 
         .await
         .expect("slots");
     owner
-        .ensure_initial_user(user, Id::now_v7(), "metadata-admin", "valid-password")
+        .ensure_initial_user(user, "metadata-admin", "valid-password")
         .await
         .expect("User");
     owner
@@ -1250,7 +1250,7 @@ async fn metadata_root_retry_validates_rotated_active_root_independently() {
         .await
         .expect("slots");
     owner
-        .ensure_initial_user(user, Id::now_v7(), "rotating-admin", "valid-password")
+        .ensure_initial_user(user, "rotating-admin", "valid-password")
         .await
         .expect("User");
     owner
@@ -1422,7 +1422,7 @@ async fn metadata_only_reset_refuses_uninventoried_cryptographic_material() {
             .expect("fresh");
         owner.prepare_setup_client_slots(&[]).await.expect("slots");
         owner
-            .ensure_initial_user(user, Id::now_v7(), "mixed-admin", "valid-password")
+            .ensure_initial_user(user, "mixed-admin", "valid-password")
             .await
             .expect("User");
         owner
@@ -1633,7 +1633,7 @@ async fn legacy_reset_verifies_inactive_unpublished_paths_before_discarding_meta
             .expect("fresh");
         owner.prepare_setup_client_slots(&[]).await.expect("slots");
         owner
-            .ensure_initial_user(user, Id::now_v7(), "legacy-reset-admin", "valid-password")
+            .ensure_initial_user(user, "legacy-reset-admin", "valid-password")
             .await
             .expect("User");
         owner
@@ -1778,7 +1778,7 @@ async fn legacy_private_attempt_is_unchanged_until_explicit_verified_reset() {
         .expect("fresh fixture");
     owner.prepare_setup_client_slots(&[]).await.expect("slots");
     owner
-        .ensure_initial_user(user, Id::now_v7(), "legacy-admin", "valid-password")
+        .ensure_initial_user(user, "legacy-admin", "valid-password")
         .await
         .expect("User");
     owner
@@ -1950,7 +1950,7 @@ async fn inventory_user_cleanup_survives_lost_key_metadata() {
         .await
         .expect("prepare");
     owner
-        .ensure_initial_user(user, Id::now_v7(), "inventory-user", "valid-password")
+        .ensure_initial_user(user, "inventory-user", "valid-password")
         .await
         .expect("user");
     owner
@@ -2069,7 +2069,7 @@ async fn restricted_desktop_client_enables_local_user_signin_and_exact_retry() {
         .await
         .expect("prepare");
     provisioner
-        .ensure_initial_user(user, Id::now_v7(), "desktop-admin", "valid-password")
+        .ensure_initial_user(user, "desktop-admin", "valid-password")
         .await
         .expect("restricted User setup");
     provisioner
@@ -2504,7 +2504,7 @@ async fn secure_store_interruption_reuses_retained_signer_and_reset_remains_fail
         .await
         .expect("prepare");
     provisioner
-        .ensure_initial_user(owner, Id::now_v7(), "admin", "valid-password")
+        .ensure_initial_user(owner, "admin", "valid-password")
         .await
         .expect("initial User stage");
     secrets.interrupt_after_store.store(true, Ordering::SeqCst);
@@ -2591,7 +2591,6 @@ async fn real_os_initial_node_signer_survives_native_reopen_and_offline_reset() 
     };
     config.oauth2.issuer = format!("https://of04-{}.test/idp", Id::now_v7());
     let owner = Id::now_v7();
-    let credential = Id::now_v7();
     let binding = NodeSignerBinding {
         member_id: Id::now_v7(),
         key_id: Id::now_v7(),
@@ -2610,12 +2609,7 @@ async fn real_os_initial_node_signer_survives_native_reopen_and_offline_reset() 
             .await
             .expect("prepare");
         provisioner
-            .ensure_initial_user(
-                owner,
-                credential,
-                "isolated-of04-admin",
-                "isolated-of04-test-password",
-            )
+            .ensure_initial_user(owner, "isolated-of04-admin", "isolated-of04-test-password")
             .await
             .expect("real OS initial User credentials");
         provisioner
@@ -2780,7 +2774,6 @@ async fn native_initial_node_retries_and_reopens_with_independent_signing_capabi
     config.oauth2.issuer = "https://installation.test/idp".into();
     let secrets = Secrets::default();
     let owner = Id::now_v7();
-    let credential = Id::now_v7();
     let binding = NodeSignerBinding {
         member_id: Id::now_v7(),
         key_id: Id::now_v7(),
@@ -2842,7 +2835,7 @@ async fn native_initial_node_retries_and_reopens_with_independent_signing_capabi
             .await
             .expect("prepare");
         provisioner
-            .ensure_initial_user(owner, credential, "admin", "valid-password")
+            .ensure_initial_user(owner, "admin", "valid-password")
             .await
             .expect("initial owner");
         let public = provisioner
@@ -3100,7 +3093,7 @@ async fn retained_signer_checks_both_host_acknowledgement_and_owner_preparation(
             .is_err()
     );
     owner
-        .ensure_initial_user(user, Id::now_v7(), "admin", "initial-password")
+        .ensure_initial_user(user, "admin", "initial-password")
         .await
         .expect("initial user");
     owner
