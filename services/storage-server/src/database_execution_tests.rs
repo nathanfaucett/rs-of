@@ -277,6 +277,36 @@ async fn real_selected_production_data_handler_uses_injected_local_policy_on_exi
         eprintln!("DATA: restriction denied; retrying");
         production_session(&fixture).await.expect("same connection retries when local policy permits");
         assert_eq!(values(&fixture.databases[0]).await, values(&fixture.databases[1]).await);
+        let scope = Namespace {
+            owner_subject: fixture.resource.owner_subject.clone(),
+            application_id: fixture.resource.application_id.parse().expect("Application"),
+        };
+        let (unregistered, _) = fixture.runtimes[0].create(&scope, None).expect("source Resource");
+        let selected = SelectedResource {
+            resource_id: unregistered.id.to_string(),
+            ..fixture.resource.clone()
+        };
+        for node in &fixture.nodes {
+            node.select(&selected).await;
+        }
+        let receiver = &fixture.runtimes[1];
+        assert!(receiver.get(&scope, unregistered.id).expect("receiver lookup").is_none());
+        assert!(!receiver.is_tombstoned(&scope, unregistered.id).expect("receiver lifecycle"));
+        assert!(fixture.runtimes[0].delete(&scope, unregistered.id).expect("source deletion"));
+        let (mut send, mut recv) = fixture.peers.connections[0].open_bi().await.expect("deletion stream");
+        send.write_all(&[crate::data_protocol::DATABASE_STREAM_KIND]).await.expect("database stream kind");
+        super::write_frame(&mut send, &serde_json::to_vec(&super::DatabaseSyncHandshake {
+            phase: super::DatabasePhase::Sql,
+            resource: super::descriptor(&selected),
+            deleted: true,
+        }).expect("deletion handshake")).await.expect("send deletion");
+        assert_eq!(super::read_frame(&mut recv, 4096).await.expect("deletion acknowledged"), b"OK");
+        assert!(receiver.is_tombstoned(&scope, unregistered.id).expect("learned deletion"));
+        assert!(receiver.open_existing(&scope, unregistered.id).expect("lookup deleted Resource").is_none());
+        assert!(receiver.open_selected(&scope, unregistered.id).expect("deny SQL provisioning").is_none());
+        assert!(receiver.open_kv_selected(&scope, unregistered.id).expect("deny KV provisioning").is_none());
+        drop(send);
+        drop(recv);
         cancellation.cancel(); task.await.expect("DATA handler joins").expect("clean handler shutdown");
         fixture.peers.close().await;
     }).await.expect("production DATA callback integration completes");

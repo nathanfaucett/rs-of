@@ -1,58 +1,66 @@
-use std::{
-    collections::BTreeMap,
-    fs::{self, File},
-    io::{self, Write},
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::{collections::BTreeMap, fs, io, path::PathBuf, sync::Mutex};
 
 #[path = "sql_catalog.rs"]
-pub mod sql_catalog;
+mod sql_catalog;
 
-use of_model::storage::{
-    namespace::StorageNamespace,
-    resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
+use of_model::{
+    id::Id,
+    ofdb::STORAGE_CATALOG_SCHEMA,
+    storage::{
+        namespace::StorageNamespace,
+        resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
+    },
 };
-use serde::{Deserialize, Serialize};
+use ofdb_sql::{Client, Database};
+
+use crate::persistence::{error, run};
 
 pub use of_model::storage::database_resource::{DatabaseId, DatabaseResource};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 struct CatalogRecord {
     resource: DatabaseResource,
     deleted: bool,
-    #[serde(default)]
     initializing: bool,
 }
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Default)]
 struct Catalog {
     records: BTreeMap<DatabaseId, CatalogRecord>,
 }
 
 pub struct DatabaseCatalog {
-    root: PathBuf,
-    client: Option<ofdb_sql::Client>,
+    client: Client,
     lock: Mutex<()>,
 }
 
 impl DatabaseCatalog {
-    pub fn new(root: PathBuf) -> io::Result<Self> {
+    /// Opens the standalone catalog.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the catalog cannot be opened or initialized.
+    pub fn new(mut root: PathBuf) -> io::Result<Self> {
         fs::create_dir_all(&root)?;
-        Ok(Self {
-            root,
-            client: None,
-            lock: Mutex::new(()),
-        })
+        root.push("catalog.redb");
+        let client = Database::open(root).map_err(error)?.client();
+        run(async {
+            client
+                .execute_sql(STORAGE_CATALOG_SCHEMA, None)
+                .await
+                .map_err(error)?;
+            Ok(())
+        })?;
+        Ok(Self::with_client(client))
     }
 
-    /// Uses the migrated shared Storage tables instead of namespace catalog files.
-    pub const fn with_client(root: PathBuf, client: ofdb_sql::Client) -> io::Result<Self> {
-        Ok(Self {
-            root,
-            client: Some(client),
+    /// Uses the initialized catalog in a shared Storage host.
+    #[must_use]
+    pub const fn with_client(client: Client) -> Self {
+        Self {
+            client,
             lock: Mutex::new(()),
-        })
+        }
     }
 
     fn with_catalog<R: Send>(
@@ -61,71 +69,29 @@ impl DatabaseCatalog {
         write: bool,
         edit: impl FnOnce(&mut Catalog) -> io::Result<R> + Send,
     ) -> io::Result<R> {
-        let path = catalog_path(&self.root, scope)?;
+        validate_subject(scope.user_sub())?;
+        if scope.application_id().is_nil() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid storage namespace",
+            ));
+        }
         let _guard = self
             .lock
             .lock()
             .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
-        if let Some(client) = &self.client {
-            return sql_catalog::edit(
-                client.clone(),
-                scope.user_sub().to_owned(),
-                scope.application_id(),
-                write,
-                edit,
-            );
-        }
-        let mut catalog = read_catalog(&path)?;
-        let result = edit(&mut catalog)?;
-        if write {
-            write_catalog(&path, &catalog)?;
-        }
-        Ok(result)
+        sql_catalog::edit(
+            &self.client,
+            scope.user_sub(),
+            scope.application_id(),
+            write,
+            edit,
+        )
     }
 
-    pub(crate) fn owner_resources(
-        &self,
-        owner: &str,
-    ) -> io::Result<Vec<(of_model::id::Id, DatabaseId)>> {
-        catalog_path(
-            &self.root,
-            &crate::local_copy::CopyScope(
-                owner.to_owned(),
-                of_model::storage::database_resource::DatabaseId::now_v7(),
-            ),
-        )?;
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
-        if let Some(client) = &self.client {
-            return sql_catalog::owner_resources(client.clone(), owner.to_owned());
-        }
-        let applications = match fs::read_dir(self.root.join("databases").join(owner)) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => return Err(error),
-        };
-        let mut resources = Vec::new();
-        for application in applications {
-            let application = application?;
-            if !application.file_type()?.is_dir() {
-                continue;
-            }
-            let app = application
-                .file_name()
-                .to_string_lossy()
-                .parse()
-                .map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidData, "invalid catalog Application")
-                })?;
-            let catalog = read_catalog(&catalog_path(
-                &self.root,
-                &crate::local_copy::CopyScope(owner.to_owned(), app),
-            )?)?;
-            resources.extend(catalog.records.into_keys().map(|id| (app, id)));
-        }
-        Ok(resources)
+    pub(crate) fn owner_resources(&self, owner: &str) -> io::Result<Vec<(Id, DatabaseId)>> {
+        validate_subject(owner)?;
+        sql_catalog::owner_resources(&self.client, owner)
     }
 
     pub fn create<S: StorageNamespace>(
@@ -350,52 +316,18 @@ impl StorageNamespace for NamespaceRef<'_> {
     }
 }
 
-fn catalog_path(root: &Path, scope: &impl StorageNamespace) -> io::Result<PathBuf> {
-    let subject = scope.user_sub();
+fn validate_subject(subject: &str) -> io::Result<()> {
     if subject.is_empty()
         || matches!(subject, "." | "..")
         || !subject
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-        || scope.application_id().is_nil()
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "invalid storage namespace",
         ));
     }
-    Ok(root
-        .join("databases")
-        .join(subject)
-        .join(scope.application_id().to_string())
-        .join("catalog.json"))
-}
-
-fn read_catalog(path: &Path) -> io::Result<Catalog> {
-    match fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Catalog::default()),
-        Err(error) => Err(error),
-    }
-}
-
-fn write_catalog(path: &Path, catalog: &Catalog) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::other("catalog path has no parent"))?;
-    fs::create_dir_all(parent)?;
-    let temp_path = path.with_extension(format!(
-        "{}.tmp",
-        of_model::storage::database_resource::DatabaseId::now_v7()
-    ));
-    let bytes = serde_json::to_vec(catalog)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    let mut file = File::create(&temp_path)?;
-    file.write_all(&bytes)?;
-    file.sync_all()?;
-    fs::rename(&temp_path, path)?;
-    File::open(parent)?.sync_all()?;
     Ok(())
 }
 

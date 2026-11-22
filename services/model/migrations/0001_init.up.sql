@@ -299,35 +299,3 @@ CREATE TABLE IF NOT EXISTS device_resource_selections (id UUID NOT NULL, device_
 CREATE UNIQUE INDEX IF NOT EXISTS device_resource_selections_id ON device_resource_selections (id);
 CREATE TABLE IF NOT EXISTS device_selection_denials (id UUID PRIMARY KEY, selection_id UUID NOT NULL);
 CREATE INDEX IF NOT EXISTS device_selection_denials_selection ON device_selection_denials (selection_id);
-
-CREATE TABLE IF NOT EXISTS namespaces (
-    id UUID NOT NULL,
-    owner_subject TEXT NOT NULL,
-    application_id UUID NOT NULL,
-    PRIMARY KEY (owner_subject, application_id)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS namespaces_id ON namespaces (id);
-CREATE TABLE IF NOT EXISTS resources (
-    id UUID NOT NULL,
-    namespace_id UUID NOT NULL,
-    kind TEXT NOT NULL,
-    name TEXT,
-    PRIMARY KEY (namespace_id, id)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS resources_id ON resources (id);
-CREATE TABLE IF NOT EXISTS database_resource_tombstones (
-    namespace_id UUID NOT NULL,
-    resource_id UUID NOT NULL,
-    PRIMARY KEY (namespace_id, resource_id)
-);
-CREATE TABLE IF NOT EXISTS databases (
-    id UUID PRIMARY KEY,
-    resource_id UUID NOT NULL,
-    initializing BOOLEAN NOT NULL DEFAULT FALSE
-);
-CREATE UNIQUE INDEX IF NOT EXISTS databases_resource ON databases (resource_id);
-CREATE TABLE IF NOT EXISTS filesystems (
-    id UUID PRIMARY KEY,
-    resource_id UUID NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS filesystems_resource ON filesystems (resource_id);

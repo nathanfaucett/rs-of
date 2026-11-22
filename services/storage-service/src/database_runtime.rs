@@ -54,7 +54,7 @@ impl DatabaseRuntime {
         let policy = KvDatabase::open_shared(&storage, "storage-database-copy-policy")
             .map_err(crate::persistence::error)?;
         Ok(Self {
-            catalog: DatabaseCatalog::with_client(PathBuf::new(), client)?,
+            catalog: DatabaseCatalog::with_client(client),
             local_copies: crate::local_copy::LocalCopyPolicy::with_store(policy.client()),
             root: PathBuf::new(),
             shared: Some(storage),
@@ -632,27 +632,31 @@ mod tests {
             subject: "owner",
             application: of_model::id::Id::now_v7(),
         };
-        let id = of_model::id::Id::now_v7();
         db::ofdb::up(&left.client()).await.expect("left schema");
-        let left_catalog = DatabaseCatalog::with_client(std::env::temp_dir(), left.client())
-            .expect("left catalog");
-        assert!(
-            left_catalog
-                .register_selected(&scope, id)
-                .expect("register on left")
-        );
+        let left_catalog = DatabaseCatalog::with_client(left.client());
+        let (resource, pending) = left_catalog
+            .reserve(&scope, "same-key", Some("left".into()))
+            .expect("reserve independently on left");
+        assert!(pending);
+        let id = resource.id;
+        left_catalog
+            .finish_creation(&scope, id)
+            .expect("left is ready");
         assert!(left_catalog.delete(&scope, id).expect("delete on left"));
 
         // The later independent creation has the greater Logical Row ID.
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         db::ofdb::up(&right.client()).await.expect("right schema");
-        let right_catalog = DatabaseCatalog::with_client(std::env::temp_dir(), right.client())
-            .expect("right catalog");
-        assert!(
-            right_catalog
-                .register_selected(&scope, id)
-                .expect("register on right")
-        );
+        let right_catalog = DatabaseCatalog::with_client(right.client());
+        let (resource, pending) = right_catalog
+            .reserve(&scope, "same-key", Some("right".into()))
+            .expect("reserve independently on right");
+        assert_eq!(resource.id, id);
+        assert!(pending);
+        right_catalog
+            .finish_creation(&scope, id)
+            .expect("right is ready");
+        assert_eq!(right_catalog.list(&scope).expect("before sync"), [resource]);
 
         right
             .import_history(left.export_history().await.expect("left history"))
@@ -664,10 +668,72 @@ mod tests {
                 .expect("read deletion")
         );
         assert!(right_catalog.list(&scope).expect("list catalog").is_empty());
+        left.import_history(right.export_history().await.expect("merged history"))
+            .await
+            .expect("return late registration to deleting peer");
+        assert!(left_catalog.get(&scope, id).expect("left lookup").is_none());
         assert!(
             !right_catalog
                 .register_selected(&scope, id)
                 .expect("deny re-registration")
+        );
+    }
+
+    #[tokio::test]
+    async fn deletion_learned_before_registration_wins_against_later_history() {
+        use crate::database_catalog::DatabaseCatalog;
+        use ofdb_sql::Database;
+
+        let source = Database::in_memory();
+        let receiver = Database::in_memory();
+        let late = Database::in_memory();
+        let scope = Scope {
+            subject: "owner",
+            application: of_model::id::Id::now_v7(),
+        };
+        let id = of_model::id::Id::now_v7();
+        db::ofdb::up(&source.client()).await.expect("source schema");
+        let source_catalog = DatabaseCatalog::with_client(source.client());
+        source_catalog
+            .apply_tombstone(&scope, id)
+            .expect("learn deletion without registration");
+        receiver
+            .import_history(source.export_history().await.expect("deletion history"))
+            .await
+            .expect("receive deletion before registration");
+        let receiver_catalog = DatabaseCatalog::with_client(receiver.client());
+        assert!(
+            !receiver_catalog
+                .register_selected(&scope, id)
+                .expect("deny local registration")
+        );
+
+        db::ofdb::up(&late.client()).await.expect("late schema");
+        let late_catalog = DatabaseCatalog::with_client(late.client());
+        assert!(
+            late_catalog
+                .register_selected(&scope, id)
+                .expect("offline registration")
+        );
+        receiver
+            .import_history(late.export_history().await.expect("registration history"))
+            .await
+            .expect("receive late registration");
+        assert!(
+            receiver_catalog
+                .is_tombstoned(&scope, id)
+                .expect("retained deletion")
+        );
+        assert!(
+            receiver_catalog
+                .get(&scope, id)
+                .expect("read Resource")
+                .is_none()
+        );
+        assert!(
+            !receiver_catalog
+                .register_selected(&scope, id)
+                .expect("deny later provisioning")
         );
     }
 
@@ -706,16 +772,14 @@ mod tests {
             }
         }
         tables.sort();
-        assert_eq!(tables, ["databases", "namespaces", "resources"]);
+        assert_eq!(tables, ["databases"]);
 
         let peer_root = root.with_extension("peer.redb");
         let peer = ofdb_sql::Database::open(&peer_root).expect("fresh peer catalog");
         peer.import_history(history)
             .await
             .expect("replicate catalog rows");
-        let peer_catalog =
-            crate::database_catalog::DatabaseCatalog::with_client(peer_root.clone(), peer.client())
-                .expect("peer catalog");
+        let peer_catalog = crate::database_catalog::DatabaseCatalog::with_client(peer.client());
         assert_eq!(
             peer_catalog.list(&scope).expect("replicated Resource"),
             [resource.clone()]
@@ -738,6 +802,30 @@ mod tests {
                 .expect("isolated owner")
                 .is_empty()
         );
+        let other_application = Scope {
+            subject: scope.subject,
+            application: of_model::id::Id::now_v7(),
+        };
+        for foreign in [&other_owner, &other_application] {
+            assert!(
+                runtime
+                    .get(foreign, resource.id)
+                    .expect("scoped lookup")
+                    .is_none()
+            );
+            assert!(
+                !runtime
+                    .delete(foreign, resource.id)
+                    .expect("scoped deletion")
+            );
+            assert_ne!(
+                runtime
+                    .ensure(foreign, "create-once", None)
+                    .expect("separate reservation")
+                    .id,
+                resource.id
+            );
+        }
         assert!(
             runtime
                 .delete(&scope, resource.id)
@@ -1045,6 +1133,8 @@ mod tests {
                 .expect("durable creation intent");
             assert!(initializing);
             let path = super::database_path(&root, &scope, resource.id).expect("content path");
+            fs::create_dir_all(path.parent().expect("content directory"))
+                .expect("interrupted initialization creates its content directory");
             let stage = path.with_extension("initializing.redb");
             fs::write(&stage, b"interrupted staging bytes").expect("interrupted staging");
             if content == "published" {
@@ -1233,6 +1323,7 @@ mod tests {
             runtime.create(&scope, None).is_err(),
             "learned old-owner fence denies new catalog admission"
         );
+        drop(runtime);
         let restarted = DatabaseRuntime::new(root.clone()).expect("offline restart");
         assert!(
             restarted.create(&scope, None).is_err(),
@@ -1241,7 +1332,6 @@ mod tests {
         drop(restarted);
         drop(old_handle);
         drop(other_handle);
-        drop(runtime);
         fs::remove_dir_all(root).expect("cleanup fixture");
     }
 
