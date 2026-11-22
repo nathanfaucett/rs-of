@@ -56,6 +56,7 @@ pub mod validators {
             SecurityTable::Credential,
             SecurityTable::Device,
             SecurityTable::Key,
+            SecurityTable::IssuerKey,
             SecurityTable::OAuthAuthorizationCode,
             SecurityTable::OAuthRefreshToken,
             SecurityTable::OAuthUserConsent,
@@ -63,8 +64,6 @@ pub mod validators {
             SecurityTable::Role,
             SecurityTable::RolePermission,
             SecurityTable::UserRole,
-            SecurityTable::ReplicaMember,
-            SecurityTable::ReplicaSigner,
         ] {
             client
                 .execute_sql(&format!("SELECT 1 FROM {} LIMIT 1", table.name()), None)
@@ -85,6 +84,7 @@ pub mod validators {
         Credential,
         Device,
         Key,
+        IssuerKey,
         OAuthAuthorizationCode,
         OAuthRefreshToken,
         OAuthUserConsent,
@@ -92,8 +92,6 @@ pub mod validators {
         Role,
         RolePermission,
         UserRole,
-        ReplicaMember,
-        ReplicaSigner,
     }
 
     impl SecurityTable {
@@ -106,6 +104,7 @@ pub mod validators {
                 Self::Credential => "credentials",
                 Self::Device => "devices",
                 Self::Key => "keys",
+                Self::IssuerKey => "issuer_keys",
                 Self::OAuthAuthorizationCode => "oauth2_authorization_codes",
                 Self::OAuthRefreshToken => "oauth2_refresh_tokens",
                 Self::OAuthUserConsent => "oauth2_user_consents",
@@ -113,8 +112,6 @@ pub mod validators {
                 Self::Role => "roles",
                 Self::RolePermission => "role_permissions",
                 Self::UserRole => "application_user_roles",
-                Self::ReplicaMember => "idp_replica_members",
-                Self::ReplicaSigner => "idp_replica_signers",
             }
         }
 
@@ -253,36 +250,6 @@ pub mod validators {
         rows: &[SecurityRow],
     ) -> Result<bool, QueryError> {
         clear(engine, rows).await
-    }
-
-    /// Inspect candidate (signer row ID, member row ID) pairs without combining their decisions.
-    /// Clearance proves only conflict absence; callers must validate the current trust records.
-    pub async fn allows_signer_trust_batch(
-        engine: &Client,
-        pairs: &[(Uuid, Uuid)],
-    ) -> Result<Vec<bool>, QueryError> {
-        if pairs.is_empty() {
-            return Ok(Vec::new());
-        }
-        let signers = pairs
-            .iter()
-            .map(|(signer, _)| Row::new(vec![Value::Uuid(*signer)]))
-            .collect::<Vec<_>>();
-        let members = pairs
-            .iter()
-            .map(|(_, member)| Row::new(vec![Value::Uuid(*member)]))
-            .collect::<Vec<_>>();
-        let signer_conflicts = engine
-            .row_conflicts_batch("idp_replica_signers", &signers)
-            .await?;
-        let member_conflicts = engine
-            .row_conflicts_batch("idp_replica_members", &members)
-            .await?;
-        Ok(signer_conflicts
-            .into_iter()
-            .zip(member_conflicts)
-            .map(|(s, m)| s.is_empty() && m.is_empty())
-            .collect())
     }
 }
 

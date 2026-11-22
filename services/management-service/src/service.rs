@@ -22,7 +22,7 @@ use of_model::management::SyncSelection;
 
 pub const MANAGEMENT_APPLICATION_URI: &str = "idp-management";
 
-pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 26] = [
+pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 24] = [
     IdentityAction::InfrastructureClientsRead,
     IdentityAction::InfrastructureClientsCreate,
     IdentityAction::InfrastructureClientsUpdate,
@@ -41,11 +41,9 @@ pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 26] = [
     IdentityAction::KeysRotate,
     IdentityAction::KeysRevoke,
     IdentityAction::DevicesRead,
+    IdentityAction::DevicesEnroll,
     IdentityAction::DevicePairingRead,
     IdentityAction::DevicePairingUpdate,
-    IdentityAction::ReplicaSignersEnroll,
-    IdentityAction::ReplicaSignersRotate,
-    IdentityAction::ReplicaSignersRevoke,
     IdentityAction::IdpSecuritySync,
     IdentityAction::ManagementSecuritySync,
     IdentityAction::ClientsRegister,

@@ -35,7 +35,6 @@ export interface PendingNodeJoin {
     endpoint_id: string;
     approving_peer: string;
     name: string;
-    public_signer: Record<string, unknown>;
     operation: IndependentIntent;
     device_id: string;
   };
@@ -93,7 +92,6 @@ const independentJoinRequest = v.object({
   device_id: v.pipe(v.string(), v.uuid()),
   member_id: v.pipe(v.string(), v.uuid()),
   endpoint_id: v.string(),
-  public_signer: v.record(v.string(), v.unknown()),
   source: v.object({
     endpoint: v.string(),
     device: v.string(),

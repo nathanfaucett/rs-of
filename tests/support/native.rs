@@ -554,8 +554,8 @@ impl Fixture {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("valid test clock")
             .as_secs() as i64;
-        idp_service::replica::DbReplicaSignerRepo::new(self.idp.client())
-            .revoke(self.binding.member_id, &self.issuer, now)
+        idp_service::replica::DbIssuerKeyRepo::new(self.idp.client())
+            .withdraw(&self.issuer, self.binding.key_id, now)
             .await
             .expect("learn issuer key withdrawal");
     }

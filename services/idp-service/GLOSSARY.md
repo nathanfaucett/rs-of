@@ -3,8 +3,8 @@
 **Identity Provider (IdP)**:
 The OAuth 2.0 and OpenID Connect authority for Users, credentials, Applications, OAuth Clients, grants, and token-signing trust. Device records belong to the Device context.
 
-**Node Signer**:
-An approved token-signing identity for one Node. Its private signing capability remains local. It is not a User, Device, endpoint, or Resource grant.
+**Issuer key**:
+A key used by the IdP authority to sign tokens for its issuer. Verifiers use only its public material. An issuer key does not grant Device or Resource access.
 
 **Canonical Issuer**:
 The stable public IdP URL that identifies an Installation in OAuth/OIDC metadata and tokens.

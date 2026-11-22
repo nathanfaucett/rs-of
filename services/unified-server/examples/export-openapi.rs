@@ -40,12 +40,6 @@ pub fn canonical_documents() -> BTreeMap<&'static str, OpenApi> {
         );
     }
     merge(
-        documents.get_mut("idp").expect("IdP"),
-        idp_server::independent_join_openapi(),
-        "independent_join",
-        None,
-    );
-    merge(
         documents.get_mut("device").expect("Device"),
         device_server::independent_join_openapi(),
         "independent_join",

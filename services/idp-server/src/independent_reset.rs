@@ -92,7 +92,6 @@ pub async fn reset_independent(
                 request.validate()?;
                 if request.operation != *intent
                     || request.member_id != references.member
-                    || request.public_signer.kid != references.key.to_string()
                     || Some(request.endpoint_id.as_str()) != references.endpoint.as_deref()
                 {
                     return Err(io::Error::other("IdP Join reset request changed"));

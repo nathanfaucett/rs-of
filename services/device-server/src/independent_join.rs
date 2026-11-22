@@ -326,7 +326,7 @@ async fn permission(
     action: IdentityAction,
 ) -> io::Result<()> {
     let resource = match action {
-        IdentityAction::ReplicaSignersEnroll => IdentityResource::ReplicaSigner { member_id: None },
+        IdentityAction::DevicesEnroll => IdentityResource::Device { id: None },
         IdentityAction::IdpSecuritySync => IdentityResource::IdpSecurity,
         IdentityAction::ManagementSecuritySync => IdentityResource::ManagementSecurity,
         _ => IdentityResource::DevicePairing,
@@ -430,7 +430,7 @@ async fn accepting(
             &headers,
             &[
                 IdentityAction::DevicePairingRead,
-                IdentityAction::ReplicaSignersEnroll,
+                IdentityAction::DevicesEnroll,
             ],
         )
         .await
@@ -450,7 +450,7 @@ async fn set_accepting(
             &headers,
             &[
                 IdentityAction::DevicePairingUpdate,
-                IdentityAction::ReplicaSignersEnroll,
+                IdentityAction::DevicesEnroll,
             ],
         )
         .await
@@ -472,7 +472,7 @@ async fn pending(
             &headers,
             &[
                 IdentityAction::DevicePairingRead,
-                IdentityAction::ReplicaSignersEnroll,
+                IdentityAction::DevicesEnroll,
             ],
         )
         .await
@@ -506,7 +506,7 @@ async fn approve(
             &headers,
             &[
                 IdentityAction::DevicePairingUpdate,
-                IdentityAction::ReplicaSignersEnroll,
+                IdentityAction::DevicesEnroll,
             ],
         )
         .await
@@ -541,7 +541,7 @@ async fn approve_work(source: &IndependentJoinSource, job: ApprovalWork) -> Resu
             &headers,
             &[
                 IdentityAction::DevicePairingUpdate,
-                IdentityAction::ReplicaSignersEnroll,
+                IdentityAction::DevicesEnroll,
             ],
         )
         .await
@@ -617,33 +617,12 @@ async fn approve_work(source: &IndependentJoinSource, job: ApprovalWork) -> Resu
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    let configuration = of_idp_client::apis::configuration::Configuration {
-        base_path: source.idp.clone(),
-        client: LocalTls::verification_client().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-        bearer_access_token: Some(
-            bearer(&headers)
-                .map_err(|_| StatusCode::UNAUTHORIZED)?
-                .to_owned(),
-        ),
-        ..Default::default()
-    };
-    of_idp_client::apis::independent_join_api::independent_join_enroll_node_join(
-        &configuration,
-        of_idp_client::apis::independent_join_api::IndependentJoinEnrollNodeJoinParams {
-            independent_join_approval: serde_json::from_value(
-                serde_json::to_value(&approval).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-            )
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-        },
-    )
-    .await
-    .map_err(|_| StatusCode::FORBIDDEN)?;
     if source
         .actor(
             &headers,
             &[
                 IdentityAction::DevicePairingUpdate,
-                IdentityAction::ReplicaSignersEnroll,
+                IdentityAction::DevicesEnroll,
             ],
         )
         .await
@@ -685,7 +664,7 @@ async fn reject(
             &headers,
             &[
                 IdentityAction::DevicePairingUpdate,
-                IdentityAction::ReplicaSignersEnroll,
+                IdentityAction::DevicesEnroll,
             ],
         )
         .await

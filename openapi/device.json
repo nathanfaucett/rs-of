@@ -395,9 +395,6 @@
           "operation": {
             "$ref": "#/components/schemas/IndependentCreateIntent"
           },
-          "public_signer": {
-            "$ref": "#/components/schemas/JwkPublic"
-          },
           "request_id": {
             "format": "uuid",
             "type": "string"
@@ -411,7 +408,6 @@
           "request_id",
           "member_id",
           "endpoint_id",
-          "public_signer",
           "source"
         ],
         "type": "object"
@@ -480,132 +476,6 @@
         ],
         "type": "object"
       },
-      "JwkPublic": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/JwkPublicParameters"
-          },
-          {
-            "properties": {
-              "alg": {
-                "$ref": "#/components/schemas/JwsAlgorithm",
-                "description": "Algorithm intended for use"
-              },
-              "kid": {
-                "description": "Key ID",
-                "type": "string"
-              },
-              "use": {
-                "$ref": "#/components/schemas/KeyUse",
-                "description": "Key use (sig, enc)"
-              }
-            },
-            "required": [
-              "use",
-              "kid",
-              "alg"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "JwkPublicParameters": {
-        "oneOf": [
-          {
-            "properties": {
-              "e": {
-                "type": "string"
-              },
-              "kty": {
-                "enum": [
-                  "Rsa"
-                ],
-                "type": "string"
-              },
-              "n": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "n",
-              "e",
-              "kty"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "crv": {
-                "type": "string"
-              },
-              "kty": {
-                "enum": [
-                  "Ec"
-                ],
-                "type": "string"
-              },
-              "x": {
-                "type": "string"
-              },
-              "y": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "crv",
-              "x",
-              "y",
-              "kty"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "crv": {
-                "type": "string"
-              },
-              "kty": {
-                "enum": [
-                  "Opk"
-                ],
-                "type": "string"
-              },
-              "x": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "crv",
-              "x",
-              "kty"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "JwsAlgorithm": {
-        "enum": [
-          "RS256",
-          "RS384",
-          "RS512",
-          "ES256",
-          "ES256K",
-          "ES384",
-          "ES512",
-          "PS256",
-          "PS384",
-          "PS512",
-          "EdDSA"
-        ],
-        "type": "string"
-      },
-      "KeyUse": {
-        "enum": [
-          "sig",
-          "enc"
-        ],
-        "type": "string"
-      },
       "NodeJoinApproval": {
         "additionalProperties": false,
         "properties": {
@@ -651,9 +521,6 @@
           "name": {
             "type": "string"
           },
-          "public_signer": {
-            "$ref": "#/components/schemas/JwkPublic"
-          },
           "purpose": {
             "type": "string"
           }
@@ -664,7 +531,6 @@
           "member_id",
           "endpoint_id",
           "name",
-          "public_signer",
           "approving_peer"
         ],
         "type": "object"

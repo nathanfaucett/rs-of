@@ -13,23 +13,12 @@ use ofdb_sql::{EngineResult, Kernel, KernelTransaction, RedbKernel};
 pub(super) struct CatalogReads {
     tables: AtomicUsize,
     fields: AtomicUsize,
-    signers: AtomicUsize,
-    members: AtomicUsize,
 }
 
 impl CatalogReads {
     pub(super) fn reset(&self) {
         self.tables.store(0, Ordering::Relaxed);
         self.fields.store(0, Ordering::Relaxed);
-        self.signers.store(0, Ordering::Relaxed);
-        self.members.store(0, Ordering::Relaxed);
-    }
-
-    pub(super) fn trust_documents(&self) -> [usize; 2] {
-        [
-            self.signers.load(Ordering::Relaxed),
-            self.members.load(Ordering::Relaxed),
-        ]
     }
 
     pub(super) fn totals(&self) -> [usize; 2] {
@@ -94,17 +83,6 @@ impl KernelTransaction for CountingTransaction {
                 }
                 "table_fields" => {
                     self.reads.fields.fetch_add(1, Ordering::Relaxed);
-                }
-                _ => {}
-            }
-        }
-        if !matches!(range, (Bound::Unbounded, Bound::Unbounded)) {
-            match table {
-                "idp_replica_signers" => {
-                    self.reads.signers.fetch_add(1, Ordering::Relaxed);
-                }
-                "idp_replica_members" => {
-                    self.reads.members.fetch_add(1, Ordering::Relaxed);
                 }
                 _ => {}
             }

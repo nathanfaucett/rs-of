@@ -26,38 +26,15 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         peer: EndpointId,
     ) -> io::Result<NodeJoinRequest> {
         let path = self.data_dir.join("node-join-request.json");
-        let previous: Option<NodeJoinRequest> = read_optional(&path)?;
-        if previous.is_some() {
-            let namespace = format!(
-                "{}:node:{}:{}",
-                self.key_namespace, binding.member_id, binding.key_id
-            );
-            if self
-                .oauth2
-                .key_service
-                .private_key_repo()
-                .load(&namespace, &bip32::DerivationPath::default())
-                .map_err(io::Error::other)?
-                .is_none()
-            {
-                return Err(invalid(
-                    "persisted join private signer is unavailable; explicit reset required",
-                ));
-            }
-        }
         let request = NodeJoinRequest {
             purpose: "of.equal-node-join.v1".into(),
             installation: self.oauth2.oauth_config.issuer.clone(),
             member_id: binding.member_id,
             endpoint_id: binding.endpoint_id.clone(),
             name: name.into(),
-            public_signer: self.prepare_node_signer(binding)?,
             approving_peer: peer.to_string(),
         };
         request.validate()?;
-        if previous.as_ref().is_some_and(|value| value != &request) {
-            return Err(invalid("join request conflicts with persisted setup"));
-        }
         persist_exact(&path, &request)?;
         Ok(request)
     }
@@ -68,23 +45,6 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
             read_optional(&self.data_dir.join("node-join-request.json"))?
                 .ok_or_else(|| invalid("no persisted join request"))?;
         approval.verify(&request)?;
-        let binding = NodeSignerBinding {
-            member_id: request.member_id,
-            key_id: request
-                .public_signer
-                .kid
-                .parse()
-                .map_err(io::Error::other)?,
-            endpoint_id: request.endpoint_id.clone(),
-        };
-        if self.prepare_node_join(
-            &binding,
-            &request.name,
-            request.approving_peer.parse().map_err(io::Error::other)?,
-        )? != request
-        {
-            return Err(invalid("local independent signer does not match approval"));
-        }
         persist_exact(&self.data_dir.join("node-join-approval.json"), approval)
     }
 

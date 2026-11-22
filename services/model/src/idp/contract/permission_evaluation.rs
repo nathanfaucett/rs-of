@@ -54,9 +54,6 @@ pub enum IdentityAction {
     DeviceRestrictionsUpdate,
     DevicePairingRead,
     DevicePairingUpdate,
-    ReplicaSignersEnroll,
-    ReplicaSignersRotate,
-    ReplicaSignersRevoke,
     IdpSecuritySync,
     ManagementSecuritySync,
 }
@@ -99,9 +96,6 @@ impl IdentityAction {
             Self::DeviceRestrictionsUpdate => "management.device_restrictions.update",
             Self::DevicePairingRead => "management.device_pairing.read",
             Self::DevicePairingUpdate => "management.device_pairing.update",
-            Self::ReplicaSignersEnroll => "idp.replica_signers.enroll",
-            Self::ReplicaSignersRotate => "idp.replica_signers.rotate",
-            Self::ReplicaSignersRevoke => "idp.replica_signers.revoke",
             Self::IdpSecuritySync => "idp.security.sync",
             Self::ManagementSecuritySync => "management.security.sync",
         }
@@ -165,10 +159,6 @@ pub enum IdentityResource {
     DevicePairing,
     IdpSecurity,
     ManagementSecurity,
-    ReplicaSigner {
-        #[cfg_attr(feature = "utoipa", schema(value_type = Option<String>))]
-        member_id: Option<Id>,
-    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -251,14 +241,7 @@ impl PermissionEvaluationRequest {
             (A::DevicePairingRead | A::DevicePairingUpdate, IdentityResource::DevicePairing) => {
                 true
             }
-            (A::ReplicaSignersEnroll, IdentityResource::ReplicaSigner { member_id: None }) => true,
-            (
-                A::ReplicaSignersRotate | A::ReplicaSignersRevoke,
-                IdentityResource::ReplicaSigner {
-                    member_id: Some(id),
-                },
-            ) => !id.is_nil(),
-            (A::IdpSecuritySync, IdentityResource::IdpSecurity)
+            (A::IdpSecuritySync | A::KeysRotate, IdentityResource::IdpSecurity)
             | (A::ManagementSecuritySync, IdentityResource::ManagementSecurity) => true,
             _ => false,
         };
@@ -399,58 +382,6 @@ mod tests {
             };
             assert_eq!(request.policy_namespace(), None);
         }
-    }
-
-    #[test]
-    fn replica_signer_permissions_are_installation_scoped_and_exact() {
-        let mut request = PermissionEvaluationRequest {
-            request_id: Id::from_u128(1),
-            subject: PermissionSubject::User {
-                id: Id::from_u128(2),
-            },
-            action: IdentityAction::ReplicaSignersEnroll,
-            target: PermissionTarget::Installation {
-                resource: IdentityResource::ReplicaSigner { member_id: None },
-            },
-        };
-        assert_eq!(request.policy_namespace(), Some(Id::nil()));
-        assert_eq!(request.action.permission(), "idp.replica_signers.enroll");
-
-        request.action = IdentityAction::ReplicaSignersRotate;
-        request.target = PermissionTarget::Installation {
-            resource: IdentityResource::ReplicaSigner {
-                member_id: Some(Id::from_u128(3)),
-            },
-        };
-        assert_eq!(request.policy_namespace(), Some(Id::nil()));
-        request.action = IdentityAction::ReplicaSignersRevoke;
-        assert_eq!(request.action.permission(), "idp.replica_signers.revoke");
-        assert_eq!(request.policy_namespace(), Some(Id::nil()));
-
-        request.target = PermissionTarget::Installation {
-            resource: IdentityResource::ReplicaSigner { member_id: None },
-        };
-        assert!(request.policy_namespace().is_none());
-        request.action = IdentityAction::ReplicaSignersEnroll;
-        request.target = PermissionTarget::Installation {
-            resource: IdentityResource::ReplicaSigner {
-                member_id: Some(Id::from_u128(3)),
-            },
-        };
-        assert!(request.policy_namespace().is_none());
-        request.action = IdentityAction::ReplicaSignersRotate;
-        request.target = PermissionTarget::Installation {
-            resource: IdentityResource::ReplicaSigner {
-                member_id: Some(Id::nil()),
-            },
-        };
-        assert!(request.policy_namespace().is_none());
-
-        request.target = PermissionTarget::Application {
-            application_id: Id::from_u128(4),
-            resource: IdentityResource::ReplicaSigner { member_id: None },
-        };
-        assert!(request.policy_namespace().is_none());
     }
 
     #[test]

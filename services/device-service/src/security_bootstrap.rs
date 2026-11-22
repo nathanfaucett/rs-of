@@ -55,7 +55,7 @@ impl SecurityProtocol {
         let binding = self
             .binding
             .as_ref()
-            .ok_or_else(|| denied("local independent signer binding is required"))?;
+            .ok_or_else(|| denied("local Device binding is required"))?;
         let request = owner.prepare_node_join(binding, name, peer)?;
         if owner.node_join_approval()?.is_none() {
             let approval = request.send(&self.server, peer.into()).await?;
@@ -346,14 +346,11 @@ impl SecurityProtocol {
         let local = self
             .binding
             .as_ref()
-            .ok_or_else(|| denied("local node signer is not configured"))?;
+            .ok_or_else(|| denied("local Device binding is not configured"))?;
         let endpoint = self.server.endpoint().id().to_string();
         if local.endpoint_id != endpoint {
-            return Err(denied("local node signer/member is not currently trusted"));
+            return Err(denied("local Device endpoint does not match"));
         }
-        LocalIdentity::new(self.idp.client())
-            .check_signer_binding(&self.installation, local, now()?)
-            .await?;
         let (action, resource) = context.permission();
         let perm_request = PermissionEvaluationRequest {
             request_id: Id::now_v7(),
@@ -374,17 +371,16 @@ impl SecurityProtocol {
     }
 
     async fn check_join_identity(&self, approval: &NodeJoinApproval) -> io::Result<()> {
-        let request = &approval.request;
-        LocalIdentity::new(self.idp.client())
-            .check_join_identity(
-                &self.installation,
-                request.member_id,
-                &request.endpoint_id,
-                &request.public_signer,
-                approval.owner_subject,
-                now()?,
-            )
-            .await
+        if approval.request.installation != self.installation
+            || !LocalIdentity::new(self.idp.client())
+                .is_active_user(approval.owner_subject)
+                .await?
+        {
+            return Err(denied(
+                "bootstrap requires the current User and Installation",
+            ));
+        }
+        Ok(())
     }
 
     pub async fn check_exact_join_trust(&self, approval: &NodeJoinApproval) -> io::Result<()> {
@@ -595,7 +591,6 @@ impl SecurityProtocol {
             device_id: approval.device_id,
             endpoint: &approval.request.endpoint_id,
             owner: approval.owner_subject,
-            public_signer: &approval.request.public_signer,
             name: &approval.request.name,
         };
         let mut total = SyncResult::default();
@@ -635,11 +630,19 @@ impl SecurityProtocol {
     ) -> io::Result<bool> {
         let approval = owner.node_join_anchor()?;
         let request = &approval.request;
-        let device = DbDeviceRepo::new(self.management.clone().client())
+        let Some(device) = DbDeviceRepo::new(self.management.client())
             .find_approved_by_public_key(&request.endpoint_id)
             .await
             .map_err(denied)?
-            .ok_or_else(|| denied("bootstrap requires exact approved Device"))?;
+        else {
+            return Ok(false);
+        };
+        if device.id != approval.device_id
+            || device.owner_subject != approval.owner_subject.to_string()
+            || device.name != request.name
+        {
+            return Ok(false);
+        }
         let actor = device.owner_subject.parse().map_err(denied)?;
         for context in [SecurityContext::Idp, SecurityContext::Device] {
             let (action, resource) = context.permission();

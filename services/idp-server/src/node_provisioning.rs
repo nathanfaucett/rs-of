@@ -7,7 +7,7 @@ use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use bip32::DerivationPath;
 use idp_service::{
     oauth2::node_signer::NodeSignerBinding,
-    replica::DbReplicaSignerRepo,
+    replica::DbIssuerKeyRepo,
     repo::{
         appliccation_repo::ApplicationRepo, client_repo::ClientRepo, error::RepoError,
         key_repo::KeyRepo, key_service::KeyService, private_key_repo::PrivateKeyRepo,
@@ -23,8 +23,6 @@ use of_model::idp::contract::client_registration::ClientRegistration;
 use of_model::idp::contract::client_type::ClientType;
 use of_model::idp::contract::entity_type::EntityType;
 use of_model::idp::contract::grant_type::GrantType;
-use of_model::idp::contract::idp_signer::IdpSignerRecord;
-use of_model::idp::contract::idp_signer::ReplicaMembership;
 use of_model::idp::contract::jwk_public::JwkPublic;
 use of_model::idp::contract::jwk_public_parameters::JwkPublicParameters;
 use of_model::idp::contract::jws_algorithm::JwsAlgorithm;
@@ -1261,46 +1259,19 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
         if rows[0].rows.len() != 1 || rows[0].rows[0].values != [Value::Uuid(owner)] {
             return Err(invalid("fresh setup requires the exact initial local User"));
         }
-        let enrolled = self
-            .engine
-            .translate_and_execute("SELECT member_id FROM idp_replica_members", &SqlTranslator)
+        let issuer = &self.oauth2.oauth_config.issuer;
+        let keys = DbIssuerKeyRepo::new(self.engine.clone());
+        if keys
+            .keys(issuer, 0)
             .await
-            .map_err(io::Error::other)?;
-        let public = if enrolled[0].rows.is_empty() {
-            self.prepare_node_signer_locked(binding)?
-        } else {
-            let prepared = self.verify_prepared_node_signer_locked(binding)?;
-            let approved = self.verify_node_signer(binding).await?;
-            if prepared != approved {
-                return Err(invalid(
-                    "prepared Node signer conflicts with approved trust",
-                ));
-            }
-            approved
-        };
-        let issuer = self.oauth2.oauth_config.issuer.clone();
-        DbReplicaSignerRepo::new(self.engine.clone())
-            .enroll(
-                &ReplicaMembership {
-                    installation_id: issuer.clone(),
-                    member_id: binding.member_id,
-                    endpoint_id: binding.endpoint_id.clone(),
-                    issuer: issuer.clone(),
-                    approved_at: 1,
-                    revoked_at: None,
-                },
-                &IdpSignerRecord {
-                    member_id: binding.member_id,
-                    key_id: binding.key_id,
-                    issuer,
-                    public_jwk: public,
-                    approved_at: Some(1),
-                    revoked_at: None,
-                    expires_at: None,
-                },
-            )
-            .await
-            .map_err(io::Error::other)?;
+            .map_err(io::Error::other)?
+            .is_empty()
+        {
+            let public = self.prepare_node_signer_locked(binding)?;
+            keys.install_initial(issuer, &public)
+                .await
+                .map_err(io::Error::other)?;
+        }
         self.verify_node_signer(binding).await?;
         Ok(())
     }

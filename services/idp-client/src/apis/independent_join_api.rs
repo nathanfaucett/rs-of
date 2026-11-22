@@ -13,12 +13,6 @@ use crate::{apis::ResponseContent, models};
 use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
-/// struct for passing parameters to the method [`independent_join_enroll_node_join`]
-#[derive(Clone, Debug)]
-pub struct IndependentJoinEnrollNodeJoinParams {
-    pub independent_join_approval: models::IndependentJoinApproval,
-}
-
 /// struct for passing parameters to the method [`independent_join_history_stream`]
 #[derive(Clone, Debug)]
 pub struct IndependentJoinHistoryStreamParams {
@@ -34,18 +28,6 @@ pub struct IndependentJoinHistoryStreamParams {
 #[derive(Clone, Debug)]
 pub struct IndependentJoinRequestHistoryParams {
     pub history_request: models::HistoryRequest,
-}
-
-/// struct for typed errors of method [`independent_join_enroll_node_join`]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum IndependentJoinEnrollNodeJoinError {
-    Status400(),
-    Status401(),
-    Status403(),
-    Status409(),
-    Status503(),
-    UnknownValue(serde_json::Value),
 }
 
 /// struct for typed errors of method [`independent_join_history_stream`]
@@ -66,43 +48,6 @@ pub enum IndependentJoinRequestHistoryError {
     Status403(),
     Status503(),
     UnknownValue(serde_json::Value),
-}
-
-pub async fn independent_join_enroll_node_join(
-    configuration: &configuration::Configuration,
-    params: IndependentJoinEnrollNodeJoinParams,
-) -> Result<(), Error<IndependentJoinEnrollNodeJoinError>> {
-    let uri_str = format!("{}/independent/node-joins/enroll", configuration.base_path);
-    let mut req_builder = configuration
-        .client
-        .request(reqwest::Method::POST, &uri_str);
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    if let Some(ref token) = configuration.bearer_access_token {
-        req_builder = req_builder.bearer_auth(token.to_owned());
-    };
-    req_builder = req_builder.json(&params.independent_join_approval);
-
-    let req = req_builder.build()?;
-    configuration::check_request(&req, configuration.request_limit)?;
-    let resp = configuration.client.execute(req).await?;
-
-    let status = resp.status();
-
-    if status.as_u16() == 204 || false {
-        Ok(())
-    } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        let entity: Option<IndependentJoinEnrollNodeJoinError> =
-            serde_json::from_str(&content).ok();
-        Err(Error::ResponseError(ResponseContent {
-            status,
-            content,
-            entity,
-        }))
-    }
 }
 
 /// WebSocket upgrade only. The subsequent bounded binary SQL history protocol is not implemented by generated HTTP clients.

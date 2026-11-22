@@ -325,6 +325,12 @@ async fn build_state_with_keys(
         keys,
         config.key_namespace.clone(),
     ));
+    if config.oauth2.local_signer.is_some() && config.oauth2.trusted_issuer_jwks.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "issuer and verifier configurations are mutually exclusive",
+        ));
+    }
     if let Some(binding) = config.oauth2.local_signer.as_ref() {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

@@ -9,11 +9,8 @@ use ofdb_sql::SqlTranslator;
 use ofdb_sql::Transaction;
 
 use device_service::device_repo::DeviceRepo;
-use idp_service::replica::DbReplicaSignerRepo;
 use iroh_chain::{MAX_PAIRING_PAYLOAD_LENGTH, PairingOffer};
 use of_model::id::Id;
-use of_model::idp::contract::idp_signer::IdpSignerRecord;
-use of_model::idp::contract::idp_signer::ReplicaMembership;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 use of_model::idp::contract::permission_evaluation::IdentityResource;
 use of_model::idp::contract::permission_evaluation::PermissionTarget;
@@ -38,8 +35,8 @@ impl RouterState {
                 IdentityResource::DevicePairing,
             ),
             (
-                IdentityAction::ReplicaSignersEnroll,
-                IdentityResource::ReplicaSigner { member_id: None },
+                IdentityAction::DevicesEnroll,
+                IdentityResource::Device { id: None },
             ),
         ] {
             require_identity_permission_for_audience(
@@ -154,29 +151,8 @@ impl RouterState {
             .find_user_info(approval.owner_subject)
             .await
             .map_err(auth_error)?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(io::Error::other)?
-            .as_secs()
-            .try_into()
-            .map_err(io::Error::other)?;
-        let trusted = self
-            .replica_signers
-            .trusted_signers(&request.installation, now)
-            .await
-            .map_err(io::Error::other)?;
         self.verify_node_join_approving_device(&request.approving_peer)
-            .await?;
-        if !trusted.into_iter().any(|(member, signer)| {
-            member.member_id == request.member_id
-                && member.endpoint_id == request.endpoint_id
-                && signer.public_jwk == request.public_signer
-        }) {
-            return Err(invalid(
-                "approved enrollment signer/membership is not currently trusted",
-            ));
-        }
-        Ok(())
+            .await
     }
 
     async fn verify_node_join_approving_device(&self, endpoint: &str) -> io::Result<()> {
@@ -247,64 +223,8 @@ impl RouterState {
             )
             .await
             .map_err(io::Error::other)?;
-        let membership = ReplicaMembership {
-            installation_id: request.installation.clone(),
-            member_id: request.member_id,
-            endpoint_id: request.endpoint_id.clone(),
-            issuer: request.installation.clone(),
-            approved_at: now,
-            revoked_at: None,
-        };
-        let signer = IdpSignerRecord {
-            member_id: request.member_id,
-            key_id: request
-                .public_signer
-                .kid
-                .parse()
-                .map_err(io::Error::other)?,
-            issuer: request.installation.clone(),
-            public_jwk: request.public_signer.clone(),
-            approved_at: Some(now),
-            revoked_at: None,
-            expires_at: None,
-        };
         let mut transaction = self.engine.transaction().await.map_err(io::Error::other)?;
-        let result = async {
-            persist_join_intent(&mut transaction, request, device.id, owner).await?;
-            DbReplicaSignerRepo::enroll_in_transaction(&mut transaction, &membership, &signer)
-                .await
-                .map_err(|error| match error {
-                    idp_service::repo::error::RepoError::InvalidInput(message) => invalid(&message),
-                    error => io::Error::other(error),
-                })?;
-            for (table, query) in [
-                (
-                    "idp_replica_members",
-                    format!(
-                        "SELECT id FROM idp_replica_members WHERE member_id = CAST('{}' AS UUID)",
-                        request.member_id
-                    ),
-                ),
-                (
-                    "idp_replica_signers",
-                    format!(
-                        "SELECT id FROM idp_replica_signers WHERE active_member_id = CAST('{}' AS UUID)",
-                        request.member_id
-                    ),
-                ),
-            ] {
-                let results = transaction
-                    .translate_and_execute(&query, &SqlTranslator)
-                    .await
-                    .map_err(io::Error::other)?;
-                let [row] = results[0].rows.as_slice() else {
-                    return Err(invalid("join enrollment is not unique"));
-                };
-                require_clear(&mut transaction, table, row).await?;
-            }
-            Ok(())
-        }
-        .await;
+        let result = persist_join_intent(&mut transaction, request, device.id, owner).await;
         match result {
             Ok(()) => {
                 transaction.commit().await.map_err(io::Error::other)?;

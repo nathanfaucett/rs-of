@@ -800,26 +800,6 @@
         },
         "type": "object"
       },
-      "EnrollReplicaSigner": {
-        "additionalProperties": false,
-        "properties": {
-          "endpointId": {
-            "type": "string"
-          },
-          "memberId": {
-            "type": "string"
-          },
-          "publicJwk": {
-            "$ref": "#/components/schemas/JwkPublic"
-          }
-        },
-        "required": [
-          "memberId",
-          "endpointId",
-          "publicJwk"
-        ],
-        "type": "object"
-      },
       "ErrorCode": {
         "description": "Standard OAuth 2.0 error codes (RFC 6749 Section 5.2).",
         "enum": [
@@ -1032,9 +1012,6 @@
           "operation": {
             "$ref": "#/components/schemas/IndependentCreateIntent"
           },
-          "public_signer": {
-            "$ref": "#/components/schemas/JwkPublic"
-          },
           "request_id": {
             "format": "uuid",
             "type": "string"
@@ -1048,7 +1025,6 @@
           "request_id",
           "member_id",
           "endpoint_id",
-          "public_signer",
           "source"
         ],
         "type": "object"
@@ -1466,18 +1442,6 @@
         },
         "required": [
           "token"
-        ],
-        "type": "object"
-      },
-      "RotateReplicaSigner": {
-        "additionalProperties": false,
-        "properties": {
-          "publicJwk": {
-            "$ref": "#/components/schemas/JwkPublic"
-          }
-        },
-        "required": [
-          "publicJwk"
         ],
         "type": "object"
       },
@@ -2460,49 +2424,6 @@
         }
       }
     },
-    "/independent/node-joins/enroll": {
-      "post": {
-        "operationId": "independent_join_enroll_node_join",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IndependentJoinApproval"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "Exact signer enrolled"
-          },
-          "400": {
-            "description": "Invalid signer"
-          },
-          "401": {
-            "description": "Bearer required"
-          },
-          "403": {
-            "description": "Current owner permission or approval denied"
-          },
-          "409": {
-            "description": "Enrollment conflict"
-          },
-          "503": {
-            "description": "Unavailable"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "independent_join"
-        ]
-      }
-    },
     "/independent/node-joins/history/request": {
       "post": {
         "description": "Requires verified exact independent approval and current owner permission. Returns a capability only through the operation-bound recipient callback.",
@@ -2605,6 +2526,31 @@
         ],
         "tags": [
           "independent_join"
+        ]
+      }
+    },
+    "/issuer-keys/rotate": {
+      "post": {
+        "operationId": "rotate_issuer_key",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JwkPublic"
+                }
+              }
+            },
+            "description": "New public issuer key"
+          },
+          "403": {
+            "description": "Rotation not authorized on this IdP"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
         ]
       }
     },
@@ -3184,101 +3130,6 @@
             "description": "OpenAPI specification"
           }
         }
-      }
-    },
-    "/replica-signers": {
-      "post": {
-        "operationId": "enroll_replica_signer",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EnrollReplicaSigner"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Replica signer approved"
-          },
-          "403": {
-            "description": "Caller is not authorized"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "super_routes_replica_signers"
-        ]
-      }
-    },
-    "/replica-signers/{member_id}": {
-      "delete": {
-        "operationId": "revoke_replica_signer",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "member_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Replica signer revoked"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "super_routes_replica_signers"
-        ]
-      },
-      "put": {
-        "operationId": "rotate_replica_signer",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "member_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RotateReplicaSigner"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Replica signer rotated"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ],
-        "tags": [
-          "super_routes_replica_signers"
-        ]
       }
     },
     "/setup/owner/admission": {

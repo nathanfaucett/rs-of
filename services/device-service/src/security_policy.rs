@@ -89,7 +89,7 @@ impl SecurityHistory {
         table: &str,
         column: &str,
         value: &Value,
-        installation: &str,
+        _installation: &str,
     ) -> Result<(), String> {
         match self {
             Self::Idp => {
@@ -102,9 +102,6 @@ impl SecurityHistory {
                 }
                 if !public.permits_historical_value(column, value) {
                     return Err(format!("invalid idp value: {table}.{column}"));
-                }
-                if !permits_installation(table, column, value, installation) {
-                    return Err(format!("invalid installation value: {table}.{column}"));
                 }
                 Ok(())
             }
@@ -141,24 +138,11 @@ impl SecurityHistory {
     pub fn validate_candidate(
         self,
         view: &ofdb_sql::SyncCandidateView,
-        installation: &str,
+        _installation: &str,
         approval: Option<&JoinCandidate<'_>>,
     ) -> Result<(), io::Error> {
         match self {
-            Self::Idp => {
-                let bindings = approval
-                    .map(|a| {
-                        vec![PeerBinding {
-                            member: a.member_id,
-                            endpoint: a.endpoint.to_owned(),
-                            owner: a.owner,
-                        }]
-                    })
-                    .unwrap_or_default();
-                security_candidates::validate(view, installation, &bindings)
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-            }
-            Self::IdentityPolicy => security_candidates::validate(view, installation, &[])
+            Self::Idp | Self::IdentityPolicy => security_candidates::validate(view)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
             Self::Devices => {
                 let bindings = approval
@@ -184,17 +168,6 @@ impl SecurityHistory {
     ) -> Result<(), io::Error> {
         let _ = (idp, permissions, candidate);
         Ok(())
-    }
-}
-
-fn permits_installation(table: &str, column: &str, value: &Value, installation: &str) -> bool {
-    if matches!(
-        (table, column),
-        ("idp_replica_members", "installation_id" | "issuer") | ("idp_replica_signers", "issuer")
-    ) {
-        matches!(value, Value::Null) || matches!(value, Value::Text(text) if text == installation)
-    } else {
-        true
     }
 }
 

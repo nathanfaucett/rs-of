@@ -44,7 +44,7 @@ pub(super) async fn revoke(
             "select a trusted HTTPS peer IdP base URL and an authorized User session".into(),
         );
     }
-    let mut idp = of_idp_client::apis::configuration::Configuration {
+    let idp = of_idp_client::apis::configuration::Configuration {
         base_path: peer_api.to_owned(),
         client: client.clone(),
         ..Default::default()
@@ -55,51 +55,31 @@ pub(super) async fn revoke(
     if target["issuer"].as_str() != Some(metadata.issuer.as_str()) {
         return Err("peer belongs to a different Installation; no bearer was sent".into());
     }
-    let device_api = format!("{}/device", url.origin().ascii_serialization());
-    for (idp_owner, resource) in [(true, peer_api), (false, MANAGEMENT_APPLICATION_URI)] {
-        idp.bearer_access_token = None;
-        let token = of_idp_client::apis::default_api::token(&idp,
-            of_idp_client::apis::default_api::TokenParams {
-                grant_type: Some("urn:ietf:params:oauth:grant-type:token-exchange".to_owned()),
-                subject_token_type: Some(of_idp_client::models::SubjectTokenType::UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken),
-                subject_token: Some(bearer.to_owned()), resource: Some(resource.to_owned()), ..Default::default()
-            }).await.map_err(|error| format!("peer User audience exchange denied; target retained: {error}"))?;
-        if token.access_token.is_empty() {
-            return Err(
-                "peer did not return an authorized User access token; target retained".into(),
-            );
-        }
-        if idp_owner {
-            idp.bearer_access_token = Some(token.access_token);
-            of_idp_client::apis::super_routes_replica_signers_api::revoke_replica_signer(
-                &idp,
-                of_idp_client::apis::super_routes_replica_signers_api::RevokeReplicaSignerParams {
-                    member_id: member_id.to_string(),
-                },
-            )
-            .await
-            .map_err(|error| {
-                format!("peer signer revocation incomplete; public target retained: {error}")
-            })?;
-        } else {
-            let configuration = of_device_client::apis::configuration::Configuration {
-                base_path: device_api.clone(),
-                client: client.clone(),
-                bearer_access_token: Some(token.access_token),
-                ..Default::default()
-            };
-            of_device_client::apis::default_api::revoke_device(
-                &configuration,
-                of_device_client::apis::default_api::RevokeDeviceParams {
-                    id: member_id.to_string(),
-                },
-            )
-            .await
-            .map_err(|error| {
-                format!("peer Device revocation incomplete; public target retained: {error}")
-            })?;
-        }
+    let authority = of_idp_client::apis::configuration::Configuration {
+        base_path: metadata.issuer,
+        ..idp
+    };
+    let token = of_idp_client::apis::default_api::token(&authority,
+        of_idp_client::apis::default_api::TokenParams {
+            grant_type: Some("urn:ietf:params:oauth:grant-type:token-exchange".to_owned()),
+            subject_token_type: Some(of_idp_client::models::SubjectTokenType::UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken),
+            subject_token: Some(bearer.to_owned()), resource: Some(MANAGEMENT_APPLICATION_URI.to_owned()), ..Default::default()
+        }).await.map_err(|error| format!("issuer audience exchange denied; target retained: {error}"))?;
+    if token.access_token.is_empty() {
+        return Err("issuer did not return an authorized User access token; target retained".into());
     }
+    let configuration = of_device_client::apis::configuration::Configuration {
+        base_path: format!("{}/device", url.origin().ascii_serialization()),
+        client: client.clone(),
+        bearer_access_token: Some(token.access_token),
+        ..Default::default()
+    };
+    of_device_client::apis::default_api::revoke_device(
+        &configuration,
+        of_device_client::apis::default_api::RevokeDeviceParams { id: member_id.to_string() },
+    )
+    .await
+    .map_err(|error| format!("peer Device revocation incomplete; public target retained: {error}"))?;
     let mut acknowledged = target;
     acknowledged["status"] = serde_json::json!("acknowledged");
     reset::publish(

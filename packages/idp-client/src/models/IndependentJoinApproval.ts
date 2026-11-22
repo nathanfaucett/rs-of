@@ -79,7 +79,9 @@ export function IndependentJoinApprovalFromJSONTyped(
   if (
     json &&
     typeof json === "object" &&
-    Object.keys(json).some((key) => !["device_id", "owner_subject", "request", "signature"].includes(key))
+    Object.keys(json).some(
+      (key) => !["device_id", "owner_subject", "request", "signature"].includes(key)
+    )
   )
     throw new Error("Unexpected IndependentJoinApproval field");
   if (json == null) {

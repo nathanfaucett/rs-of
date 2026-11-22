@@ -51,24 +51,23 @@ impl<R: KeyRepo, P: PrivateKeyRepo> KeyService<R, P> {
         issuer: &str,
         now: i64,
     ) -> RepoResult<JwkPrivate> {
-        let trusted = self.key_repo().trusted_node_signers(issuer, now).await?;
-        let record = trusted
-            .iter()
-            .find(|(member, signer)| {
-                member.matches(issuer, binding.member_id, &binding.endpoint_id)
-                    && signer.matches(binding.member_id, binding.key_id, issuer, now)
-            })
-            .ok_or_else(|| {
-                RepoError::InvalidInput("local node signer is not approved and active".into())
-            })?;
+        let (public, _) = self
+            .key_repo()
+            .issuer_keys(issuer, now)
+            .await?
+            .into_iter()
+            .find(|(_, active)| *active)
+            .ok_or_else(|| RepoError::InvalidInput("local issuer key is not active".into()))?;
+        let mut binding = binding.clone();
+        binding.key_id = public.kid.parse().map_err(RepoError::other)?;
         let private = self
             .private_key_repo()
-            .load(&self.node_namespace(binding), &DerivationPath::default())?
+            .load(&self.node_namespace(&binding), &DerivationPath::default())?
             .ok_or_else(|| {
                 RepoError::InvalidInput("local node private signer is missing".into())
             })?;
-        let jwk = private_jwk(binding, &private)?;
-        if JwkPublic::from(jwk.clone()) != record.1.public_jwk {
+        let jwk = private_jwk(&binding, &private)?;
+        if JwkPublic::from(jwk.clone()) != public {
             return Err(RepoError::InvalidInput(
                 "local node private signer does not match approved public material".into(),
             ));

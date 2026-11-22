@@ -274,28 +274,11 @@ pub(crate) async fn seed_idp_with_config(
     };
     let public_jwk = owner
         .prepare_node_signer(&local_signer)
-        .expect("prepare local Node signer");
-    let member = of_model::idp::contract::ReplicaMembership {
-        installation_id: issuer.into(),
-        issuer: issuer.into(),
-        member_id: local_signer.member_id,
-        endpoint_id: endpoint_id.into(),
-        approved_at: 1,
-        revoked_at: None,
-    };
-    let signer = of_model::idp::contract::IdpSignerRecord {
-        member_id: member.member_id,
-        key_id: local_signer.key_id,
-        issuer: issuer.into(),
-        public_jwk,
-        approved_at: Some(1),
-        revoked_at: None,
-        expires_at: None,
-    };
-    idp_service::replica::DbReplicaSignerRepo::new(engine.clone())
-        .enroll(&member, &signer)
+        .expect("prepare local issuer key");
+    idp_service::replica::DbIssuerKeyRepo::new(engine.clone())
+        .install_initial(issuer, &public_jwk)
         .await
-        .expect("approve local Node signer");
+        .expect("publish local issuer key");
     let pending_peer = devices
         .create(
             administrator.to_string(),

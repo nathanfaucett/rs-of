@@ -76,7 +76,7 @@ pub use error_response::{ErrorResponse, ErrorResponseResult};
 
 pub use grant_type::GrantType;
 pub use id_token_claims::IdTokenClaims;
-pub use idp_signer::{IdpSignerRecord, ReplicaMembership, TokenPrincipalBinding};
+pub use idp_signer::TokenPrincipalBinding;
 
 pub use introspection_request::IntrospectionRequest;
 pub use introspection_response::IntrospectionResponse;

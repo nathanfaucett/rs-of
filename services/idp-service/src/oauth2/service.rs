@@ -803,6 +803,13 @@ where
         request: TokenRequest,
         client_auth: Option<OAuth2ClientAuth>,
     ) -> ErrorResponseResult<TokenResponse> {
+        if self.oauth_config.trusted_issuer_jwks.is_some() {
+            return Err(
+                ErrorResponse::new(ErrorCode::AccessDenied).with_description(
+                    "this Node verifies tokens; request issuance at the canonical issuer",
+                ),
+            );
+        }
         match request {
             TokenRequest::Password(request) => self.password(request, client_auth.as_ref()).await,
             TokenRequest::AuthorizationCode(request) => {
@@ -1341,17 +1348,45 @@ where
     }
 
     pub async fn list_jwks(&self) -> ErrorResponseResult<Jwks> {
-        let records = self
+        if let Some(jwks) = &self.oauth_config.trusted_issuer_jwks {
+            return Ok(jwks.clone());
+        }
+        let keys = self
             .key_service
             .key_repo()
-            .trusted_node_signers(&self.oauth_config.issuer, Utc::now().timestamp())
+            .issuer_keys(&self.oauth_config.issuer, Utc::now().timestamp())
             .await?;
         Ok(Jwks {
-            keys: records
-                .into_iter()
-                .map(|(_, signer)| signer.public_jwk)
-                .collect(),
+            keys: keys.into_iter().map(|(key, _)| key).collect(),
         })
+    }
+
+    pub async fn rotate_issuer_key(&self) -> ErrorResponseResult<JwkPublic> {
+        let previous = self.local_signing_jwk().await?;
+        let mut binding = self
+            .oauth_config
+            .local_signer
+            .clone()
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::AccessDenied))?;
+        binding.key_id = Id::now_v7();
+        let replacement = self.key_service.prepare_node_signer(&binding)?;
+        let ttl = self
+            .oauth_config
+            .refresh_token_ttl_secs
+            .max(self.oauth_config.token_ttl_secs);
+        let expires = Utc::now()
+            .timestamp()
+            .saturating_add(i64::try_from(ttl).unwrap_or(i64::MAX));
+        self.key_service
+            .key_repo()
+            .rotate_issuer_key(
+                &self.oauth_config.issuer,
+                &replacement,
+                &previous.kid,
+                expires,
+            )
+            .await?;
+        Ok(replacement)
     }
 
     pub async fn rotate_client_secret(&self, client_id: &str) -> ErrorResponseResult<String> {
@@ -1436,26 +1471,16 @@ where
     }
 
     pub async fn find_public_jwk(&self, key_id: Id) -> ErrorResponseResult<JwkPublic> {
-        let records = self
-            .key_service
-            .key_repo()
-            .trusted_node_signers(&self.oauth_config.issuer, Utc::now().timestamp())
-            .await?;
-        let mut matching = records
-            .into_iter()
-            .filter(|(_, signer)| signer.key_id == key_id);
-        let signer = matching
+        let jwks = self.list_jwks().await?;
+        let key_id = key_id.to_string();
+        let mut matching = jwks.keys.into_iter().filter(|key| key.kid == key_id);
+        let key = matching
             .next()
-            .ok_or_else(|| {
-                ErrorResponse::new(ErrorCode::InvalidGrant)
-                    .with_description("approved active node signer not found")
-            })?
-            .1;
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidGrant))?;
         if matching.next().is_some() {
-            return Err(ErrorResponse::new(ErrorCode::InvalidGrant)
-                .with_description("ambiguous node signer"));
+            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
         }
-        Ok(signer.public_jwk)
+        Ok(key)
     }
 
     async fn validate_issuance_inputs(
@@ -1604,6 +1629,9 @@ where
     }
 
     pub fn metadata(&self, endpoint_base: &str) -> AuthorizationServerMetadata {
+        if self.oauth_config.trusted_issuer_jwks.is_some() {
+            return self.oauth_config.to_metadata(&self.oauth_config.issuer);
+        }
         self.oauth_config.to_metadata(endpoint_base)
     }
 

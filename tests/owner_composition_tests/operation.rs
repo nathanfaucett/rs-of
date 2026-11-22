@@ -158,8 +158,8 @@ async fn operation_child() {
     let idp_worker = fs::read(root.join("idp.setup-host/worker.json")).expect("retained signer");
     {
         let engine = Arc::new(db::Database::open(root.join("idp/idp.redb")).expect("stopped IdP"));
-        let signers = idp_service::replica::DbReplicaSignerRepo::new(engine.client())
-            .trusted_signers(
+        let signers = idp_service::replica::DbIssuerKeyRepo::new(engine.client())
+            .keys(
                 &intent.issuer,
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -171,12 +171,6 @@ async fn operation_child() {
         assert!(
             !signers.is_empty(),
             "valid issuer still has token-signing trust"
-        );
-        assert!(
-            signers
-                .iter()
-                .all(|(member, _)| member.endpoint_id != *endpoint),
-            "approved endpoint has no IdP signer membership"
         );
     }
     let retained = setup(&root, "storage", addresses[2]);

@@ -72,7 +72,7 @@
         if (
             approve &&
             !confirm(
-                `Approve ${offer.request.name} as an equal Node in ${offer.request.installation}? Verify the authenticated endpoint and independent public signer shown below.`,
+                `Approve ${offer.request.name} as a Device in ${offer.request.installation}? Verify the authenticated endpoint shown below.`,
             )
         )
             return;
@@ -141,8 +141,7 @@
         </p>
     {/if}
     <p>
-        Approval enrolls a Node and its independent public signer, not general
-        resource access. Existing permissions, restrictions, and data selections
+        Approval enrolls this Device. It does not grant resource access. Existing permissions, restrictions, and data selections
         still apply.
     </p>
     <button
@@ -228,18 +227,10 @@
                         </dd>
                     {/each}
                 {/if}
-                <dt>Signer member</dt>
+                <dt>Enrollment ID</dt>
                 <dd class="break-all">{offer.request.member_id}</dd>
                 <dt>Approving endpoint</dt>
                 <dd class="break-all">{offer.request.approving_peer}</dd>
-                <dt>Independent public signer</dt>
-                <dd>
-                    <pre class="whitespace-pre-wrap break-all">{JSON.stringify(
-                            offer.request.public_signer,
-                            null,
-                            2,
-                        )}</pre>
-                </dd>
             </dl>
             <div class="flex gap-2">
                 <button

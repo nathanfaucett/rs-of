@@ -61,20 +61,12 @@ impl JoinHistoryContext {
             Self::Device => crate::security_sync::PUBLIC_DEVICE_TABLES.to_vec(),
         }
     }
-    fn permits(self, table: &str, column: &str, value: &Value, issuer: &str) -> bool {
+    fn permits(self, table: &str, column: &str, value: &Value, _issuer: &str) -> bool {
         match self {
-            Self::Idp => {
-                idp_service::security_sync::public_security_tables()
-                    .iter()
-                    .find(|public| public.name() == table)
-                    .is_some_and(|public| public.permits_historical_value(column, value))
-                    && (!matches!(
-                        (table, column),
-                        ("idp_replica_members", "issuer" | "installation_id")
-                            | ("idp_replica_signers", "issuer")
-                    ) || matches!(value, Value::Null)
-                        || matches!(value, Value::Text(text) if text == issuer))
-            }
+            Self::Idp => idp_service::security_sync::public_security_tables()
+                .iter()
+                .find(|public| public.name() == table)
+                .is_some_and(|public| public.permits_historical_value(column, value)),
             Self::Device => {
                 crate::security_sync::public_device_columns(table)
                     .is_some_and(|columns| columns.contains(&column))
@@ -514,15 +506,10 @@ fn validate_candidate(
         device_id: approval.device_id,
         endpoint: &approval.request.endpoint_id,
         owner: approval.owner_subject,
-        public_signer: &approval.request.public_signer,
         name: &approval.request.operation.node,
     };
     match context {
-        JoinHistoryContext::Idp => crate::security_candidates::validate_node_join(
-            view,
-            &approval.request.operation.issuer,
-            &candidate,
-        ),
+        JoinHistoryContext::Idp => crate::security_candidates::validate(view),
         JoinHistoryContext::Device => crate::security_candidates::validate_device_history(
             view,
             &[crate::security_candidates::PeerBinding {

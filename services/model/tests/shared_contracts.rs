@@ -48,7 +48,6 @@ fn server_config_preserves_prefix_normalization() {
 #[cfg(feature = "utoipa")]
 #[test]
 fn owner_schemas_are_available_from_the_model_crate() {
-    use of_model::server::idp::replica_signers::EnrollReplicaSigner;
     use of_model::server::management::permissions::CreatePermissionRequest;
     use of_model::server::storage::resources::SyncConnectRequest;
     use utoipa::PartialSchema;
@@ -56,7 +55,6 @@ fn owner_schemas_are_available_from_the_model_crate() {
     for schema in [
         SelectionRequest::schema(),
         SqlRequest::schema(),
-        EnrollReplicaSigner::schema(),
         CreatePermissionRequest::schema(),
         SyncConnectRequest::schema(),
     ] {

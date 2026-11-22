@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::id::Id;
-use crate::idp::contract::jwk_public::JwkPublic;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -13,7 +12,6 @@ pub struct NodeJoinRequest {
     pub member_id: Id,
     pub endpoint_id: String,
     pub name: String,
-    pub public_signer: JwkPublic,
     pub approving_peer: String,
 }
 

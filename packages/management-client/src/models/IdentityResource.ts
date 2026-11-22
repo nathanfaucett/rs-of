@@ -76,13 +76,6 @@ import {
   IdentityResourceOneOf8FromJSONTyped,
   IdentityResourceOneOf8ToJSON,
 } from "./IdentityResourceOneOf8.js";
-import type { IdentityResourceOneOf9 } from "./IdentityResourceOneOf9.js";
-import {
-  instanceOfIdentityResourceOneOf9,
-  IdentityResourceOneOf9FromJSON,
-  IdentityResourceOneOf9FromJSONTyped,
-  IdentityResourceOneOf9ToJSON,
-} from "./IdentityResourceOneOf9.js";
 
 /**
  * @type IdentityResource
@@ -98,8 +91,7 @@ export type IdentityResource =
   | IdentityResourceOneOf5
   | IdentityResourceOneOf6
   | IdentityResourceOneOf7
-  | IdentityResourceOneOf8
-  | IdentityResourceOneOf9;
+  | IdentityResourceOneOf8;
 
 export function IdentityResourceFromJSON(json: any): IdentityResource {
   return IdentityResourceFromJSONTyped(json, false);
@@ -141,9 +133,6 @@ export function IdentityResourceFromJSONTyped(
   }
   if (instanceOfIdentityResourceOneOf8(json)) {
     return IdentityResourceOneOf8FromJSONTyped(json, true);
-  }
-  if (instanceOfIdentityResourceOneOf9(json)) {
-    return IdentityResourceOneOf9FromJSONTyped(json, true);
   }
   return {} as any;
 }
@@ -188,9 +177,6 @@ export function IdentityResourceToJSONTyped(
   }
   if (instanceOfIdentityResourceOneOf8(value)) {
     return IdentityResourceOneOf8ToJSON(value as IdentityResourceOneOf8);
-  }
-  if (instanceOfIdentityResourceOneOf9(value)) {
-    return IdentityResourceOneOf9ToJSON(value as IdentityResourceOneOf9);
   }
   return {};
 }

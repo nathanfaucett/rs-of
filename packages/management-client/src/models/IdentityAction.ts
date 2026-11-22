@@ -51,9 +51,6 @@ export const IdentityAction = {
   DeviceRestrictionsUpdate: "device_restrictions_update",
   DevicePairingRead: "device_pairing_read",
   DevicePairingUpdate: "device_pairing_update",
-  ReplicaSignersEnroll: "replica_signers_enroll",
-  ReplicaSignersRotate: "replica_signers_rotate",
-  ReplicaSignersRevoke: "replica_signers_revoke",
   IdpSecuritySync: "idp_security_sync",
   ManagementSecuritySync: "management_security_sync",
 } as const;

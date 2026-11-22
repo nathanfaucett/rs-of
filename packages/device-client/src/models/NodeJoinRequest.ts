@@ -13,14 +13,6 @@
  */
 
 import { mapValues } from "../runtime.js";
-import type { JwkPublic } from "./JwkPublic.js";
-import {
-  JwkPublicFromJSON,
-  JwkPublicFromJSONTyped,
-  JwkPublicToJSON,
-  JwkPublicToJSONTyped,
-} from "./JwkPublic.js";
-
 /**
  *
  * @export
@@ -47,10 +39,6 @@ export interface NodeJoinRequest {
    *
    */
   name: string;
-  /**
-   *
-   */
-  publicSigner: JwkPublic;
   /**
    *
    */
@@ -84,13 +72,6 @@ export function instanceOfNodeJoinRequest(value: object): value is NodeJoinReque
   )
     return false;
   if (!("name" in value) || value["name"] === undefined) return false;
-  if (
-    (!("publicSigner" in (value as Record<string, any>)) &&
-      !("public_signer" in (value as Record<string, any>))) ||
-    ((value as Record<string, any>)["publicSigner"] === undefined &&
-      (value as Record<string, any>)["public_signer"] === undefined)
-  )
-    return false;
   if (!("purpose" in value) || value["purpose"] === undefined) return false;
   return true;
 }
@@ -108,15 +89,9 @@ export function NodeJoinRequestFromJSONTyped(
     typeof json === "object" &&
     Object.keys(json).some(
       (key) =>
-        ![
-          "approving_peer",
-          "endpoint_id",
-          "installation",
-          "member_id",
-          "name",
-          "public_signer",
-          "purpose",
-        ].includes(key)
+        !["approving_peer", "endpoint_id", "installation", "member_id", "name", "purpose"].includes(
+          key
+        )
     )
   )
     throw new Error("Unexpected NodeJoinRequest field");
@@ -129,7 +104,6 @@ export function NodeJoinRequestFromJSONTyped(
     installation: json["installation"],
     memberId: json["member_id"],
     name: json["name"],
-    publicSigner: JwkPublicFromJSON(json["public_signer"]),
     purpose: json["purpose"],
   };
 }
@@ -152,7 +126,6 @@ export function NodeJoinRequestToJSONTyped(
     installation: value["installation"],
     member_id: value["memberId"],
     name: value["name"],
-    public_signer: JwkPublicToJSON(value["publicSigner"]),
     purpose: value["purpose"],
   };
 }

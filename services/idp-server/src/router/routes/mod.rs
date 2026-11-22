@@ -1,7 +1,7 @@
 pub(crate) mod active_user;
 pub(crate) mod administration;
 pub(crate) mod health;
-pub(crate) mod replica_signers;
+pub(crate) mod issuer_keys;
 
 pub(crate) mod oauth2;
 

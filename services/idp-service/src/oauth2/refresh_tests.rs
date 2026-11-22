@@ -125,27 +125,10 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         .prepare_node_signer(&binding)
         .expect("prepare independent local signer");
 
-    let member = of_model::idp::contract::idp_signer::ReplicaMembership {
-        installation_id: service.oauth_config.issuer.clone(),
-        issuer: service.oauth_config.issuer.clone(),
-        member_id: binding.member_id,
-        endpoint_id: binding.endpoint_id.clone(),
-        approved_at: 1,
-        revoked_at: None,
-    };
-    let signer = of_model::idp::contract::idp_signer::IdpSignerRecord {
-        member_id: binding.member_id,
-        key_id: binding.key_id,
-        issuer: member.issuer.clone(),
-        public_jwk,
-        approved_at: Some(1),
-        revoked_at: None,
-        expires_at: None,
-    };
-    crate::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(engine.client())
-        .enroll(&member, &signer)
+    crate::replica::DbIssuerKeyRepo::new(engine.client())
+        .install_initial(&service.oauth_config.issuer, &public_jwk)
         .await
-        .expect("approve local node signer");
+        .expect("install issuer key");
     service.oauth_config.local_signer = Some(binding);
     let client = service
         .client_repo
@@ -953,14 +936,6 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
             .as_ref()
             .expect("binding survives reopen");
         assert_eq!(binding.key_id, expected_signer);
-        let peers = crate::ofdb::replica_signer_repo::DbReplicaSignerRepo::new(engine.client());
-        let signers = peers
-            .trusted_signers(&config.issuer, chrono::Utc::now().timestamp())
-            .await
-            .expect("persisted token-signing trust");
-        assert!(signers.iter().any(|(member, signer)| {
-            member.member_id == binding.member_id && signer.key_id == binding.key_id
-        }));
         let keys = Arc::new(KeyService::new(
             DbKeyRepo::new(engine.client()),
             private_store.clone(),
@@ -987,18 +962,6 @@ async fn persisted_node_binding_reopens_for_real_offline_issuance_and_rotation()
                 .await
                 .is_err(),
             "persisted public binding does not restore private capability"
-        );
-        let mut wrong_endpoint = binding.clone();
-        wrong_endpoint.endpoint_id = "forged-endpoint".into();
-        assert!(
-            keys.load_node_signer(
-                &wrong_endpoint,
-                &config.issuer,
-                chrono::Utc::now().timestamp()
-            )
-            .await
-            .is_err(),
-            "persisted endpoint binding is still enforced"
         );
         let reopened = OAuth2Service::new(
             DbApplicationRepo::new(engine.client()),

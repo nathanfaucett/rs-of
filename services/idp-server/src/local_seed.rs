@@ -10,7 +10,6 @@ use of_model::idp::contract::client_registration::ClientRegistration;
 use of_model::idp::contract::client_type::ClientType;
 use of_model::idp::contract::entity_type::EntityType;
 use of_model::idp::contract::grant_type::GrantType;
-use of_model::idp::contract::permission_evaluation::IdentityAction;
 use of_model::idp::contract::response_type::ResponseType;
 use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
@@ -23,10 +22,9 @@ pub async fn signer(
     issuer: &str,
 ) -> io::Result<idp_service::oauth2::node_signer::NodeSignerBinding> {
     use idp_service::{
-        replica::{DbKeyRepo, DbReplicaSignerRepo},
+        replica::{DbIssuerKeyRepo, DbKeyRepo},
         repo::{KeyService, PrivateKeyKeyringRepo},
     };
-    use of_model::idp::contract::idp_signer::{IdpSignerRecord, ReplicaMembership};
     use sha2::{Digest, Sha256};
     let member_id = Id::new_v5(&Id::NAMESPACE_URL, namespace.as_bytes());
     let binding = idp_service::oauth2::node_signer::NodeSignerBinding {
@@ -41,31 +39,21 @@ pub async fn signer(
         PrivateKeyKeyringRepo::new_local(storage).map_err(io::Error::other)?,
         namespace,
     );
-    let public = keys
-        .prepare_node_signer(&binding)
-        .map_err(io::Error::other)?;
-    DbReplicaSignerRepo::new(client)
-        .enroll(
-            &ReplicaMembership {
-                installation_id: issuer.into(),
-                member_id,
-                endpoint_id: binding.endpoint_id.clone(),
-                issuer: issuer.into(),
-                approved_at: 1,
-                revoked_at: None,
-            },
-            &IdpSignerRecord {
-                member_id,
-                key_id: binding.key_id,
-                issuer: issuer.into(),
-                public_jwk: public,
-                approved_at: Some(1),
-                revoked_at: None,
-                expires_at: None,
-            },
-        )
+    let public_keys = DbIssuerKeyRepo::new(client);
+    if public_keys
+        .keys(issuer, 0)
         .await
-        .map_err(io::Error::other)?;
+        .map_err(io::Error::other)?
+        .is_empty()
+    {
+        let public = keys
+            .prepare_node_signer(&binding)
+            .map_err(io::Error::other)?;
+        public_keys
+            .install_initial(issuer, &public)
+            .await
+            .map_err(io::Error::other)?;
+    }
     Ok(binding)
 }
 
@@ -110,7 +98,6 @@ pub async fn seed(
         Id::new_v5(&user, b"administrator"),
         &INITIAL_ADMINISTRATOR_ACTIONS
             .iter()
-            .chain([IdentityAction::DevicesEnroll].iter())
             .map(|action| (Id::new_v5(&user, format!("{action:?}").as_bytes()), *action))
             .collect::<Vec<_>>(),
     )

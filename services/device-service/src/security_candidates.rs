@@ -1,7 +1,6 @@
 #[cfg(feature = "ofdb")]
 use idp_service::security_sync::public_security_tables;
 use of_model::id::Id;
-use of_model::idp::contract::jwk_public::JwkPublic;
 use ofdb_sql::Value;
 use ofdb_sql::{SyncCandidateView, SyncRowView as CandidateRow, SyncTableView as CandidateTable};
 
@@ -10,7 +9,6 @@ pub struct JoinCandidate<'a> {
     pub device_id: Id,
     pub endpoint: &'a str,
     pub owner: Id,
-    pub public_signer: &'a JwkPublic,
     pub name: &'a str,
 }
 
@@ -20,11 +18,7 @@ pub struct PeerBinding {
     pub owner: Id,
 }
 
-pub fn validate(
-    view: &SyncCandidateView,
-    installation: &str,
-    bindings: &[PeerBinding],
-) -> Result<(), String> {
+pub fn validate(view: &SyncCandidateView) -> Result<(), String> {
     for table in &view.tables {
         let public = public_security_tables()
             .into_iter()
@@ -46,9 +40,7 @@ pub fn validate(
                 return Err(invalid());
             }
             for (column, value) in table.columns.iter().zip(&row.row.values) {
-                if !public.permits_historical_value(column, value)
-                    || !permits_installation(&table.name, column, value, installation)
-                {
+                if !public.permits_historical_value(column, value) {
                     return Err(format!(
                         "invalid public security historical value: {}.{column}",
                         table.name
@@ -56,32 +48,16 @@ pub fn validate(
                 }
             }
             for (column, values) in &row.conflicts {
-                if values.iter().any(|value| {
-                    !public.permits_historical_value(column, value)
-                        || !permits_installation(&table.name, column, value, installation)
-                }) {
+                if values
+                    .iter()
+                    .any(|value| !public.permits_historical_value(column, value))
+                {
                     return Err("invalid public security historical value".into());
                 }
-            }
-            match table.name.as_str() {
-                "idp_replica_members" => validate_member(table, row, bindings)?,
-                "idp_replica_signers" => validate_signer(table, row)?,
-                _ => {}
             }
         }
     }
     Ok(())
-}
-
-pub fn permits_installation(table: &str, column: &str, value: &Value, installation: &str) -> bool {
-    if matches!(
-        (table, column),
-        ("idp_replica_members", "installation_id" | "issuer") | ("idp_replica_signers", "issuer")
-    ) {
-        matches!(value, Value::Null) || matches!(value, Value::Text(text) if text == installation)
-    } else {
-        true
-    }
 }
 
 fn field<'a>(table: &CandidateTable, row: &'a CandidateRow, column: &str) -> Option<&'a Value> {
@@ -125,90 +101,6 @@ fn validate_device(
             || owner.is_some_and(|owner| owner != binding.owner))
     {
         return Err(invalid());
-    }
-    Ok(())
-}
-
-fn validate_member(
-    table: &CandidateTable,
-    row: &CandidateRow,
-    bindings: &[PeerBinding],
-) -> Result<(), String> {
-    let member = uuid(table, row, "member_id");
-
-    let endpoint = text(table, row, "endpoint_id");
-    if let Some(endpoint) = endpoint {
-        let parsed = endpoint
-            .parse::<iroh::EndpointId>()
-            .map_err(|_| invalid())?;
-        if parsed.to_string() != endpoint {
-            return Err(invalid());
-        }
-    }
-    if let Some(binding) = bindings
-        .iter()
-        .find(|binding| Some(binding.member) == member)
-        && endpoint.is_some_and(|endpoint| endpoint != binding.endpoint)
-    {
-        return Err(invalid());
-    }
-    Ok(())
-}
-
-fn validate_signer(table: &CandidateTable, row: &CandidateRow) -> Result<(), String> {
-    if let (Some(member), Some(active)) = (
-        uuid(table, row, "member_id"),
-        uuid(table, row, "active_member_id"),
-    ) && member != active
-    {
-        return Err(invalid());
-    }
-    if let (Some(key), Some(jwk)) = (uuid(table, row, "key_id"), text(table, row, "public_jwk")) {
-        let jwk: JwkPublic = serde_json::from_str(jwk).map_err(|_| invalid())?;
-        if jwk.kid != key.to_string() {
-            return Err(invalid());
-        }
-    }
-    Ok(())
-}
-
-pub fn validate_node_join(
-    view: &SyncCandidateView,
-    installation: &str,
-    approval: &JoinCandidate<'_>,
-) -> Result<(), String> {
-    validate(
-        view,
-        installation,
-        &[PeerBinding {
-            member: approval.member_id,
-            endpoint: approval.endpoint.to_owned(),
-            owner: approval.owner,
-        }],
-    )?;
-    let key: Id = approval.public_signer.kid.parse().map_err(|_| invalid())?;
-    for table in &view.tables {
-        for row in &table.rows {
-            if row.deleted {
-                continue;
-            }
-            if table.name == "idp_replica_signers"
-                && (uuid(table, row, "key_id") == Some(key)
-                    || uuid(table, row, "active_member_id") == Some(approval.member_id))
-            {
-                if uuid(table, row, "key_id").is_some_and(|id| id != key)
-                    || uuid(table, row, "member_id").is_some_and(|id| id != approval.member_id)
-                {
-                    return Err(invalid());
-                }
-                if let Some(public) = text(table, row, "public_jwk") {
-                    let public: JwkPublic = serde_json::from_str(public).map_err(|_| invalid())?;
-                    if public != *approval.public_signer {
-                        return Err(invalid());
-                    }
-                }
-            }
-        }
     }
     Ok(())
 }
