@@ -40,7 +40,6 @@ See [architecture](architecture.md).
 
 - One canonical checkout and reproducible CI.
 - One product goal, architecture, glossary, and current-status view.
-- Documentation links and examples checked automatically.
 - No manual synchronization with sibling source repositories.
 
 ### M2 — Single-Node encrypted synchronization

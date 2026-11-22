@@ -18,7 +18,7 @@ import {
 } from "./localhostBaseUrl.svelte";
 import { getOidcClient } from "./oidc.svelte";
 import { getDeviceApiUrl } from "./deviceClient.svelte";
-import { fetchSetupStatus } from "./setupApi";
+import { validateServiceApiUrl } from "./serviceApi";
 
 const idpApiUrl = createStorage<string | null>(
   "idp-api-url",
@@ -160,38 +160,5 @@ export async function ensureTauriIdpApiUrl(): Promise<string | null> {
 }
 
 export async function validateIdpApiUrl(basePath: string): Promise<boolean> {
-  if (!basePath) {
-    return false;
-  }
-  const configuration = new Configuration({
-    ...defaultConfigurationParameters,
-    basePath,
-  });
-  const api = new DefaultApi(configuration);
-
-  try {
-    const metadata = await api.openidConfiguration();
-    if (
-      metadata.tokenEndpoint === `${basePath.replace(/\/$/, "")}/oauth2/token`
-    )
-      return true;
-  } catch {}
-  try {
-    return (await fetchSetupStatus(basePath)).owners.includes("idp");
-  } catch {
-    return false;
-  }
+  return validateServiceApiUrl(basePath, "idp");
 }
-
-async function hydrateWebApiUrl(): Promise<void> {
-  if (isTauri() || (await validateIdpApiUrl(idpApiUrl.item ?? ""))) {
-    return;
-  }
-
-  const fallback = env.PUBLIC_IDP_BASE_URL;
-  if (fallback && (await validateIdpApiUrl(fallback))) {
-    idpApiUrl.item = fallback;
-  }
-}
-
-void hydrateWebApiUrl();

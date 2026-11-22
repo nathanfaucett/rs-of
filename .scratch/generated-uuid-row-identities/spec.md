@@ -80,7 +80,7 @@ Replication between updated Databases continues to transfer peer-generated UUIDv
 - Update affected service repository and public service API tests. Cover generated IDs, deterministic Selection and Resource lookup after schema decoupling, conflict behavior, restart with fresh stores, and synchronization between updated owners.
 - Extend the existing real-backend browser SQL tests for omitted-key generation and explicit-key rejection. Run filtered package build, test, lint, and type checks, then affected dependents; unit tests alone are insufficient for the browser behavior change.
 - Use the existing schema identity tests, SQL client and remote tests, Automerge history and convergence tests, service repository tests, and browser binding tests as prior art.
-- Run focused Rust tests first, then formatting, focused Clippy, the appropriate feature-powerset checks, and CRAP checks for the changed Rust surface. Run documentation checks for the contract updates. Record any unrun broader qualification explicitly.
+- Run focused Rust tests first, then formatting, focused Clippy, the appropriate feature-powerset checks, and CRAP checks for the changed Rust surface. Record any unrun broader qualification explicitly.
 
 ## Out of Scope
 

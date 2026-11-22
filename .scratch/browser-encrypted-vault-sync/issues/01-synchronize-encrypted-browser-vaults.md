@@ -58,7 +58,7 @@ The required real-backend Vitest and Playwright suites pass. Focused public Inde
 - `cargo test -p ofdb-sql-engine` — **3 passed**. `cargo test -p ofdb-sql-engine-automerge` — **34 passed**. `cargo test -p ofdb-sql-history` — **16 passed**. `cargo test -p ofdb-sql --features validated-history,sql,in-memory` — **14 passed, 7 pre-existing ignored**. `cargo test -p of-storage-client --test websocket_sync` — **3 passed**. `RUST_MIN_STACK=67108864 cargo test -p storage-server --features sync ws_` — **9 passed**.
 - `cargo hack check --feature-powerset --depth 1 -p ofdb-sql --exclude-features postgres,remote --all-targets` — **13 configurations passed**, including `wasm`. `cargo hack check --feature-powerset --depth 1 -p ofdb-sql-engine -p ofdb-sql-engine-automerge --no-dev-deps --lib` — **6 configurations passed**.
 - Focused Clippy completed for `ofdb-sql-engine`, `ofdb-sql-engine-automerge`, `ofdb-sql-history`, and `ofdb-wasm`; only pre-existing warnings remain. Targeted LLVM coverage plus `cargo crap` completed and reported **48/483 functions above CRAP threshold 30**. This is a complexity finding, not a clean-CRAP claim.
-- `cargo fmt --all -- --check`, `just docs-check`, and `git diff --check` — passed.
+- `cargo fmt --all -- --check` and `git diff --check` — passed.
 
 Qualification limits:
 
@@ -75,7 +75,7 @@ Qualification limits:
 - `pnpm --filter @ofsdk/sync-sdk run build:browser`, `pnpm --filter @ofsdk/sync-sdk run build:node`, and `pnpm --filter @ofsdk/sync-sdk test` — passed; **7 tests total**, including stalled-receive and close-during-sync coverage for both browser and Node implementations. Changed lifecycle files passed direct Biome lint with only the four pre-existing unrelated constructor infos.
 - `cargo test -p ofdb-sql-engine` — **3 passed**. `cargo test -p ofdb-sql-engine-automerge` — **34 passed**. `cargo test -p ofdb-sql-history` — **16 passed**. `cargo test -p ofdb-sql --features validated-history,sql,in-memory` — **14 passed, 7 pre-existing ignored**. `cargo test -p of-storage-client --test websocket_sync` — **3 passed**. `RUST_MIN_STACK=67108864 cargo test -p storage-server --features sync ws_` — **9 passed**.
 - `cargo check -p ofdb-btree-indexeddb --target wasm32-unknown-unknown` and `cargo check -p ofdb-sql-engine-indexeddb --target wasm32-unknown-unknown` — passed. `cargo hack check --feature-powerset --depth 1 -p ofdb-sql --exclude-features postgres,remote --all-targets` — **13 configurations passed**. `cargo hack check --feature-powerset --depth 1 -p ofdb-sql-engine -p ofdb-sql-engine-automerge --no-dev-deps --lib` — **6 configurations passed**.
-- Focused Clippy completed for the changed SQL engine, history, browser persistence, and WASM crates; only pre-existing warnings remain. `cargo fmt --all -- --check`, `just docs-check`, and `git diff --check` — passed.
+- Focused Clippy completed for the changed SQL engine, history, browser persistence, and WASM crates; only pre-existing warnings remain. `cargo fmt --all -- --check` and `git diff --check` — passed.
 - `pnpm --filter @ofsdk/password-manager test` — **174 passed, 5 skipped**. `pnpm --filter @ofsdk/password-manager check` — **0 errors, 0 warnings**.
 - `E2E_BACKEND_BIN=./target/debug/unified-server pnpm test:backend` — **9 passed**: app **4**, password-manager **5**. `E2E_BACKEND_BIN=./target/debug/unified-server pnpm test:e2e` — **11 passed** against the rebuilt unified server.
 
@@ -92,7 +92,7 @@ Remaining qualification limits:
 - `pnpm --filter @ofsdk/sync-sdk exec vitest run tests/dist-entrypoints.test.ts` — **2 passed**, importing the actual `dist/browser.js` and `dist/node.js` entry points and their relative lifecycle artifact. Hiding the lifecycle file first reproduced both missing-module failures before regeneration.
 - Lifecycle/client construction is now synchronous. Immediate close cannot attach after close, and concurrent sync calls share one lifecycle/session. New tests pass for both implementations.
 - The SQL close-lifetime tests now also prove IndexedDB deletion is incomplete while receive is pending and succeeds after operation settlement and handle release. Both history and legacy paths pass.
-- Full affected validation: SQL browser **54 passed**; sync SDK **13 passed** across **3 files**, including 8 lifecycle tests and 2 dist import smoke tests; real-backend Vitest **9 passed** and Playwright **11 passed**. Direct changed-file Biome lint, `cargo fmt --all -- --check`, `just docs-check`, and `git diff --check` passed.
+- Full affected validation: SQL browser **54 passed**; sync SDK **13 passed** across **3 files**, including 8 lifecycle tests and 2 dist import smoke tests; real-backend Vitest **9 passed** and Playwright **11 passed**. Direct changed-file Biome lint, `cargo fmt --all -- --check`, and `git diff --check` passed.
 - This pass changes only TypeScript/tests/generated dist output, so no additional Rust test run was required beyond the focused Rust evidence above. Existing harness, full-workspace, nested-Biome, and caller-future-cancellation qualification limits remain unchanged.
 
 ### 2026-11-21 — Test-only lifetime spy and package-resolution limit

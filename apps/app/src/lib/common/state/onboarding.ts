@@ -115,12 +115,12 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
               fetchApi: fetch,
             }),
           ).openidConfiguration();
+          if (!sameSelection(selected)) return blocked(selection(), "retry");
           if (
-            !sameSelection(selected) ||
             metadata.issuer !== selected.idp ||
             metadata.tokenEndpoint !== `${selected.idp}/oauth2/token`
           ) {
-            return blocked(selection(), "repair");
+            return blocked(target, "prerequisite");
           }
           return {
             target: { ...target, idp: selected.idp },

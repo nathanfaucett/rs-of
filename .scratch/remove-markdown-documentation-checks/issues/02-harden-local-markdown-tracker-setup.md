@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work: resolved
+
 - [ ] Exploration reads existing agent configuration, ignore rules, contributor guidance, and tracker contents before proposing a tracker.
 - [ ] Existing local Markdown configuration takes precedence over remote-host defaults; no GitHub tracker is selected merely because a GitHub remote exists.
 - [ ] Local Markdown setup identifies an ignored tracker directory and includes the required tracking correction in the confirmation draft.

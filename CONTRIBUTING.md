@@ -54,17 +54,13 @@ Use the tracked local Markdown issue tracker in `.scratch/` for durable work and
 - Rustdoc and TypeScript declarations: API signatures.
 - E2E evidence: GitHub Actions logs and artifacts tied to a specific commit or run.
 
-Do not duplicate route tables, method inventories, or implementation-status tables across documents. Run:
-
-```bash
-just docs-check
-```
+Do not duplicate route tables, method inventories, or implementation-status tables across documents.
 
 ## Validation by change
 
 | Change               | Required focused checks                                           | Broader checks when behavior or risk requires                               |
 | -------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Documentation only   | `just docs-check`, `git diff --check`                             | Render or execute changed examples where practical                          |
+| Documentation only   | `git diff --check`                                                | Render or execute changed examples where practical                          |
 | Rust crate           | Focused crate tests, `cargo fmt --all -- --check`, focused Clippy | `cargo hack test --feature-powerset --workspace --all-targets`, `just crap` |
 | TypeScript package   | Filtered build, test, lint, and type check                        | `pnpm test`, dependent package checks                                       |
 | Public HTTP contract | OpenAPI generation/checks and generated-client tests              | Real-backend owner and browser tests                                        |
@@ -87,7 +83,6 @@ just build
 just test
 just clippy
 just crap
-just docs-check
 pnpm test
 pnpm test:backend
 pnpm test:e2e

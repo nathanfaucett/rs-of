@@ -110,13 +110,13 @@ impl NativeContent {
             .join(file_id.to_string())
             .join(revision.to_string())
     }
+}
 
-    fn read_error(error: io::Error) -> Error {
-        if error.kind() == io::ErrorKind::NotFound {
-            Error::ContentUnavailable
-        } else {
-            Error::Io(error)
-        }
+pub fn read_error(error: io::Error) -> Error {
+    if error.kind() == io::ErrorKind::NotFound {
+        Error::ContentUnavailable
+    } else {
+        Error::Io(error)
     }
 }
 
@@ -125,8 +125,16 @@ impl ContentStore for NativeContent {
         Box::pin(async move { Ok(self.path(file_id, revision).is_file()) })
     }
 
+    fn content_len(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<u64, Error>> {
+        Box::pin(async move {
+            fs::metadata(self.path(file_id, revision))
+                .map(|metadata| metadata.len())
+                .map_err(read_error)
+        })
+    }
+
     fn read(&self, file_id: Uuid, revision: Uuid) -> BoxFuture<'_, Result<Vec<u8>, Error>> {
-        Box::pin(async move { fs::read(self.path(file_id, revision)).map_err(Self::read_error) })
+        Box::pin(async move { fs::read(self.path(file_id, revision)).map_err(read_error) })
     }
 
     fn read_range(
@@ -137,7 +145,7 @@ impl ContentStore for NativeContent {
         length: u32,
     ) -> BoxFuture<'_, Result<Bytes, Error>> {
         Box::pin(async move {
-            let mut file = File::open(self.path(file_id, revision)).map_err(Self::read_error)?;
+            let mut file = File::open(self.path(file_id, revision)).map_err(read_error)?;
             file.seek(SeekFrom::Start(offset))?;
             let mut chunk = vec![0; length as usize];
             let read = file.read(&mut chunk)?;

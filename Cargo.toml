@@ -97,6 +97,7 @@ members = [
     "db/sync",
     "db/value",
     "fs/file-system",
+    "fs/file-system-fuse",
     "fs/file-system-wasm",
     "net/iroh-chain",
     "net/iroh-chain-wasm",

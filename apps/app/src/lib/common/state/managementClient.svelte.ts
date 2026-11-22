@@ -12,6 +12,7 @@ import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
 import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
 import { ownerAccessToken, usesRemoteApis } from "./idpClient.svelte";
+import { validateServiceApiUrl } from "./serviceApi";
 
 const managementApiUrl = createStorage<string | null>(
   "management-api-url",
@@ -82,18 +83,5 @@ export function getManagementApiUrl(): string | null {
 export async function validateManagementApiUrl(
   basePath: string,
 ): Promise<boolean> {
-  if (!basePath) {
-    return false;
-  }
-  const configuration = new Configuration({
-    ...defaultConfigurationParameters,
-    basePath,
-  });
-  const api = new DefaultApi(configuration);
-
-  try {
-    const version = await api.version();
-    if (version.name === "management-server") return true;
-  } catch {}
-  return false;
+  return validateServiceApiUrl(basePath, "management");
 }

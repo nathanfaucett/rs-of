@@ -22,4 +22,4 @@ Work: resolved
 
 ## Comments
 
-Implementation integrated. On the integration tip, `cargo test -p ofdb-sql --features sql,redb,validated-history,remote,server --test client --test remote` passed 12 tests with one pre-existing ignore. The engine ticket run passed 107 focused tests with seven ignores before review follow-ups. Review added batch preflight, staged row validation, and `DEFAULT VALUES`. Formatting and documentation checks passed. Broader service, Clippy, feature, and CRAP qualifications are tracked under issue 06.
+Implementation integrated. On the integration tip, `cargo test -p ofdb-sql --features sql,redb,validated-history,remote,server --test client --test remote` passed 12 tests with one pre-existing ignore. The engine ticket run passed 107 focused tests with seven ignores before review follow-ups. Review added batch preflight, staged row validation, and `DEFAULT VALUES`. Formatting passed. Broader service, Clippy, feature, and CRAP qualifications are tracked under issue 06.

@@ -29,9 +29,9 @@ enum Command {
         data_dir: PathBuf,
         #[arg(long, default_value_t = 1355)]
         port: u16,
-        #[arg(long, default_value = "http://localhost:5173")]
+        #[arg(long, default_value = "https://of.localhost:1355")]
         origin: String,
-        #[arg(long)]
+        #[arg(long, default_value = "https://password-manager.localhost:1355")]
         password_manager_origin: Option<String>,
         #[arg(
             long,
