@@ -29,19 +29,19 @@ test("coordinated and independent Device approvals retain distinct semantics", (
     );
 });
 
-test("Management publishes policy administration and Selection without Device authority", () => {
-    const doc = JSON.parse(
-        readFileSync(new URL("openapi/management.json", root)),
-    );
-    const selection = "/devices/{device_id}/sync-selections";
-    assert.ok(doc.paths["/applications/{application_id}/roles"]);
-    assert.ok(doc.paths["/permissions/evaluate"]);
-    assert.ok(doc.paths[selection]);
-    for (const route of Object.keys(doc.paths))
-        assert.ok(
-            route === selection || !/^\/(devices?|replication|node-joins)(\/|$)/.test(route),
-            route,
-        );
+test("only Device publishes Selection routes", () => {
+    const management = JSON.parse(readFileSync(new URL("openapi/management.json", root)));
+    assert.ok(management.paths["/applications/{application_id}/roles"]);
+    assert.ok(management.paths["/permissions/evaluate"]);
+    for (const route of Object.keys(management.paths))
+        assert.doesNotMatch(route, /^\/(devices?|replication|node-joins|resources)(\/|$)/);
+
+    const device = JSON.parse(readFileSync(new URL("openapi/device.json", root)));
+    assert.ok(device.paths["/devices/{device_id}/selection"].put);
+    assert.ok(!device.paths["/devices/{device_id}/selection"].delete);
+    assert.ok(device.paths["/devices/{device_id}/selection/{application_id}/{kind}/{resource_id}"].delete);
+    const storage = JSON.parse(readFileSync(new URL("openapi/storage.json", root)));
+    assert.ok(!storage.paths["/sync/connect"]);
 });
 
 test("setup contracts expose only owner-local capabilities in every layout", () => {

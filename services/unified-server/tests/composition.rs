@@ -469,44 +469,7 @@ async fn exercise_frontends(client: &reqwest::Client, base: &str, bearer: &str) 
         ("app", "http://localhost:5173/callback"),
         ("password-manager", "http://localhost:5174/callback"),
     ] {
-        let consent = client
-            .post(format!("{base}/idp/oauth2/auth/approve-for-user"))
-            .bearer_auth(bearer)
-            .json(&json!({"client_id":id,"redirect_uri":redirect,"scope":"openid"}))
-            .send()
-            .await
-            .expect("approve frontend");
-        assert_eq!(consent.status(), 200, "{id}");
-        let response = client.post(format!("{base}/idp/oauth2/auth")).bearer_auth(bearer).json(&json!({
-            "response_type":"code", "client_id":id,"redirect_uri":redirect,"scope":"openid","state":"test-state",
-            "code_challenge":"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "code_challenge_method":"S256"
-        })).send().await.expect("authorize frontend");
-        assert_eq!(response.status(), 200, "{id}");
-        let authorization: Value = response.json().await.expect("authorization JSON");
-        assert_eq!(authorization["state"], "test-state");
-        let response = client
-            .post(format!("{base}/idp/oauth2/token"))
-            .form(&[
-                ("grant_type", "authorization_code"),
-                ("client_id", id),
-                ("redirect_uri", redirect),
-                (
-                    "code",
-                    authorization["code"].as_str().expect("authorization code"),
-                ),
-                (
-                    "code_verifier",
-                    "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
-                ),
-            ])
-            .send()
-            .await
-            .expect("PKCE token exchange");
-        assert_eq!(response.status(), 200, "{id}");
-        let token: Value = response.json().await.expect("frontend token JSON");
-        assert_eq!(token["iss"], format!("{base}/idp"));
-        assert!(token["access_token"].is_string());
-        assert!(token["id_token"].is_string());
+        let token = frontend_token(client, base, bearer, id, redirect).await;
         storage_roundtrip(
             client,
             base,
@@ -517,6 +480,54 @@ async fn exercise_frontends(client: &reqwest::Client, base: &str, bearer: &str) 
     }
 }
 
+async fn frontend_token(
+    client: &reqwest::Client,
+    base: &str,
+    bearer: &str,
+    id: &str,
+    redirect: &str,
+) -> Value {
+    let consent = client
+        .post(format!("{base}/idp/oauth2/auth/approve-for-user"))
+        .bearer_auth(bearer)
+        .json(&json!({"client_id":id,"redirect_uri":redirect,"scope":"openid"}))
+        .send()
+        .await
+        .expect("approve frontend");
+    assert_eq!(consent.status(), 200, "{id}");
+    let response = client.post(format!("{base}/idp/oauth2/auth")).bearer_auth(bearer).json(&json!({
+        "response_type":"code", "client_id":id,"redirect_uri":redirect,"scope":"openid","state":"test-state",
+        "code_challenge":"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "code_challenge_method":"S256"
+    })).send().await.expect("authorize frontend");
+    assert_eq!(response.status(), 200, "{id}");
+    let authorization: Value = response.json().await.expect("authorization JSON");
+    assert_eq!(authorization["state"], "test-state");
+    let response = client
+        .post(format!("{base}/idp/oauth2/token"))
+        .form(&[
+            ("grant_type", "authorization_code"),
+            ("client_id", id),
+            ("redirect_uri", redirect),
+            (
+                "code",
+                authorization["code"].as_str().expect("authorization code"),
+            ),
+            (
+                "code_verifier",
+                "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+            ),
+        ])
+        .send()
+        .await
+        .expect("PKCE token exchange");
+    assert_eq!(response.status(), 200, "{id}");
+    let token: Value = response.json().await.expect("frontend token JSON");
+    assert_eq!(token["iss"], format!("{base}/idp"));
+    assert!(token["access_token"].is_string());
+    assert!(token["id_token"].is_string());
+    token
+}
+
 async fn exchange_storage(
     client: &reqwest::Client,
     base: &str,
@@ -525,25 +536,37 @@ async fn exchange_storage(
     resource: &str,
     action: &str,
 ) -> String {
+    let details = json!([{"type":"storage","actions":[action]}]).to_string();
+    exchange_token(client, base, client_id, bearer, resource, Some(&details)).await
+}
+
+async fn exchange_token(
+    client: &reqwest::Client,
+    base: &str,
+    client_id: &str,
+    bearer: &str,
+    resource: &str,
+    details: Option<&str>,
+) -> String {
+    let mut form = vec![
+        (
+            "grant_type",
+            "urn:ietf:params:oauth:grant-type:token-exchange",
+        ),
+        ("subject_token", bearer),
+        (
+            "subject_token_type",
+            "urn:ietf:params:oauth:token-type:access_token",
+        ),
+        ("client_id", client_id),
+        ("resource", resource),
+    ];
+    if let Some(details) = details {
+        form.push(("authorization_details", details));
+    }
     let response = client
         .post(format!("{base}/idp/oauth2/token"))
-        .form(&[
-            (
-                "grant_type",
-                "urn:ietf:params:oauth:grant-type:token-exchange",
-            ),
-            ("subject_token", bearer),
-            (
-                "subject_token_type",
-                "urn:ietf:params:oauth:token-type:access_token",
-            ),
-            ("client_id", client_id),
-            ("resource", resource),
-            (
-                "authorization_details",
-                &json!([{"type":"storage","actions":[action]}]).to_string(),
-            ),
-        ])
+        .form(&form)
         .send()
         .await
         .expect("Storage token exchange");
@@ -708,4 +731,338 @@ async fn assert_saved_resource(client: &reqwest::Client, url: &str, read: &str) 
         400,
         "resource SQL must not expose owner private keys"
     );
+}
+
+#[tokio::test]
+async fn device_selection_is_scoped_and_deselection_preserves_the_resource() {
+    use std::sync::Arc;
+
+    use management_service::{
+        ManagementService,
+        ofdb::{DbPermissionRepo, DbRoleRepo},
+    };
+    use of_model::id::Id;
+
+    let root = tempfile::tempdir().expect("fresh owner data");
+    let shared = db::EmbeddedDatabase::open(root.path())
+        .await
+        .expect("fresh database");
+    let database = Arc::new(shared.database.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind owner routes");
+    let address = listener.local_addr().expect("listener address");
+    let base = format!("http://{address}");
+    let idp_base = format!("{base}/idp");
+    let device_base = format!("{base}/device");
+    let storage_base = format!("{base}/storage");
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .expect("owner HTTP client");
+    let idp = idp_server::build_local_router(
+        root.path(),
+        &idp_base,
+        "http://localhost:5173",
+        Some("http://localhost:5174"),
+        Some(database.clone()),
+        Some(shared.storage()),
+        &[("other-user".into(), "other-password".into())],
+    )
+    .await
+    .expect("IdP owner");
+    let device = device_server::build_local_router(
+        root.path(),
+        address.port(),
+        &idp_base,
+        Some(database.clone()),
+        Some(client.clone()),
+    )
+    .await
+    .expect("Device owner");
+    let storage = storage_server::build_local_runtime(
+        root.path(),
+        address.port(),
+        &idp_base,
+        &device_base,
+        Some(database),
+        Some(shared.storage()),
+        Some(client.clone()),
+    )
+    .await
+    .expect("Storage owner");
+    let router = unified_server::compose_router(idp, axum::Router::new(), device, storage.router());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.expect("serve owners");
+    });
+
+    let login = |username: &'static str, password: &'static str| {
+        let url = format!("{idp_base}/oauth2/token");
+        let client = client.clone();
+        async move {
+            let response = client
+                .post(url)
+                .form(&[
+                    ("grant_type", "password"),
+                    ("client_id", "local-login"),
+                    ("username", username),
+                    ("password", password),
+                    ("scope", "openid"),
+                ])
+                .send()
+                .await
+                .expect("password request");
+            assert_eq!(response.status(), 200);
+            response.json::<Value>().await.expect("login token")["access_token"]
+                .as_str()
+                .expect("login bearer")
+                .to_owned()
+        }
+    };
+    let bearer = login("admin@local.test", "password").await;
+    let other_user = login("other-user", "other-password").await;
+    exercise_device(&client, &base, &bearer, true).await;
+
+    let device_token =
+        exchange_token(&client, &base, "local-login", &bearer, &device_base, None).await;
+    let listed: Value = client
+        .get(format!("{device_base}/devices"))
+        .bearer_auth(&device_token)
+        .send()
+        .await
+        .expect("list Devices")
+        .error_for_status()
+        .expect("approved Device list")
+        .json()
+        .await
+        .expect("Device list body");
+    let device_id = listed[0]["id"].as_str().expect("approved Device ID");
+    let selection = format!("{device_base}/devices/{device_id}/selection");
+    let management = ManagementService::new(
+        DbPermissionRepo::new(shared.client()),
+        DbRoleRepo::new(shared.client()),
+    );
+    let subject = |token: String| {
+        let client = client.clone();
+        let url = format!("{idp_base}/userinfo");
+        async move {
+            let info: Value = client
+                .get(url)
+                .bearer_auth(token)
+                .send()
+                .await
+                .expect("userinfo")
+                .error_for_status()
+                .expect("valid User")
+                .json()
+                .await
+                .expect("User response");
+            info["sub"]
+                .as_str()
+                .expect("subject")
+                .parse::<Id>()
+                .expect("User ID")
+        }
+    };
+    let other_token = exchange_token(
+        &client,
+        &base,
+        "local-login",
+        &other_user,
+        &device_base,
+        None,
+    )
+    .await;
+    let other_app = frontend_token(
+        &client,
+        &base,
+        &bearer,
+        "app",
+        "http://localhost:5173/callback",
+    )
+    .await;
+    let app_bearer = other_app["access_token"]
+        .as_str()
+        .expect("second Application token");
+    let app_token = exchange_token(&client, &base, "app", app_bearer, &device_base, None).await;
+    let owner = subject(bearer.clone()).await;
+    let stranger = subject(other_user).await;
+    let mut selected = Vec::new();
+    for (id, login, token) in [
+        ("local-login", bearer.as_str(), &device_token),
+        ("app", app_bearer, &app_token),
+    ] {
+        let resource = storage_roundtrip(&client, &base, id, login).await;
+        let read = exchange_storage(&client, &base, id, login, "storage:databases", "read").await;
+        let url = format!("{storage_base}/databases/{resource}");
+        let details: Value = client
+            .get(&url)
+            .bearer_auth(&read)
+            .send()
+            .await
+            .expect("read database")
+            .error_for_status()
+            .expect("own database")
+            .json()
+            .await
+            .expect("database details");
+        let app: Id = details["applicationId"]
+            .as_str()
+            .expect("Application")
+            .parse()
+            .expect("Application ID");
+        let role = management
+            .create_role(app, "selector", None)
+            .await
+            .expect("test role");
+        let permission = management
+            .create_permission(app, "devices.select", None)
+            .await
+            .expect("Selection permission");
+        management
+            .add_permission_to_role(app, role.id, permission.id)
+            .await
+            .expect("grant permission");
+        for subject in [owner]
+            .into_iter()
+            .chain((id == "local-login").then_some(stranger))
+        {
+            management
+                .add_role_to_user(app, subject, role.id)
+                .await
+                .expect("grant role");
+        }
+        let body = json!({"applicationId": app, "kind": "database", "id": resource, "storageAccessToken": read});
+        let response = client
+            .put(&selection)
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .expect("select own database");
+        let status = response.status();
+        assert_eq!(
+            status,
+            204,
+            "{}",
+            response.text().await.expect("Selection response")
+        );
+        selected.push((
+            body,
+            format!("{selection}/{app}/database/{resource}"),
+            url,
+            read,
+        ));
+    }
+
+    let (body, deselect, resource_url, read) = &selected[0];
+    let (app_body, app_deselect, _, _) = &selected[1];
+    for (token, body, url) in [
+        (&other_token, body, deselect),
+        (&device_token, app_body, app_deselect),
+    ] {
+        assert_eq!(
+            client
+                .put(&selection)
+                .bearer_auth(token)
+                .json(body)
+                .send()
+                .await
+                .expect("cross-scope PUT")
+                .status(),
+            403
+        );
+        assert_eq!(
+            client
+                .delete(url)
+                .bearer_auth(token)
+                .send()
+                .await
+                .expect("cross-scope DELETE")
+                .status(),
+            403
+        );
+    }
+    for (field, value) in [("kind", json!("filesystem")), ("id", json!(Id::now_v7()))] {
+        let mut invalid = body.clone();
+        invalid[field] = value;
+        assert_eq!(
+            client
+                .put(&selection)
+                .bearer_auth(&device_token)
+                .json(&invalid)
+                .send()
+                .await
+                .expect("wrong Resource binding")
+                .status(),
+            403
+        );
+    }
+    assert_eq!(
+        client
+            .get(&selection)
+            .bearer_auth(&device_token)
+            .send()
+            .await
+            .expect("no unscoped User list")
+            .status(),
+        405
+    );
+    let wrong_device = format!("{device_base}/devices/{}/selection", Id::now_v7());
+    assert_eq!(
+        client
+            .put(wrong_device)
+            .bearer_auth(&device_token)
+            .json(body)
+            .send()
+            .await
+            .expect("wrong Device")
+            .status(),
+        403
+    );
+    let endpoint = listed[0]["publicKey"]
+        .as_str()
+        .expect("Device endpoint key");
+    let listing = client
+        .get(format!(
+            "{device_base}/replication/devices/{endpoint}/selections"
+        ))
+        .bearer_auth(&device_token)
+        .send()
+        .await
+        .expect("Storage-only listing");
+    assert_eq!(listing.status(), 403);
+    for (url, token) in [(deselect, &device_token), (app_deselect, &app_token)] {
+        assert_eq!(
+            client
+                .delete(url)
+                .bearer_auth(token)
+                .send()
+                .await
+                .expect("exact scoped DELETE")
+                .status(),
+            204
+        );
+    }
+    assert_eq!(
+        client
+            .get(resource_url)
+            .bearer_auth(read)
+            .send()
+            .await
+            .expect("retained Resource")
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .post(format!("{storage_base}/sync/connect"))
+            .send()
+            .await
+            .expect("retired Storage caller")
+            .status(),
+        404
+    );
+    server.abort();
 }

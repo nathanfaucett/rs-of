@@ -91,21 +91,6 @@ pub(crate) async fn put_device_selection(
 
 #[utoipa::path(
     delete,
-    path = "/devices/{device_id}/selection",
-    params(("device_id" = String, Path, description = "Device ID")),
-    responses((status = 204, description = "Device selection removed")),
-    security(("authorization" = []))
-)]
-pub(crate) async fn delete_device_selection(
-    Path(_device_id): Path<Id>,
-    _authorization: DeviceAuthorization,
-) -> Result<StatusCode, ErrorResponse> {
-    Err(ErrorResponse::new(ErrorCode::AccessDenied)
-        .with_description("deselect resources through the application-scoped resource route"))
-}
-
-#[utoipa::path(
-    delete,
     path = "/devices/{device_id}/selection/{application_id}/{kind}/{resource_id}",
     params(
         ("device_id" = String, Path, description = "Device ID"),
@@ -157,12 +142,15 @@ pub(crate) async fn require_device_owner(
         .get_storage_device_identity(device_id)
         .await
         .map_err(|_| ErrorResponse::new(ErrorCode::AccessDenied))?;
+    if identity.owner_subject != owner {
+        return Err(ErrorResponse::new(ErrorCode::AccessDenied));
+    }
     let ready = state
         .selection_policies
         .reconcile_owner_prevalidated(device_id, &identity.owner_subject)
         .await
         .map_err(ErrorResponse::from)?;
-    if !ready || identity.owner_subject != owner {
+    if !ready {
         return Err(ErrorResponse::new(ErrorCode::AccessDenied));
     }
     Ok(())

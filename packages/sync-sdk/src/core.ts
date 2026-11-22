@@ -168,19 +168,6 @@ export interface SyncSDK {
     /** List filesystems */
     list(): Promise<{ id: string; name: string | null }[]>;
   };
-  /** Sync a resource to a target device */
-  syncToDevice(
-    resourceId: string,
-    targetDeviceId: string,
-  ): Promise<SyncSession>;
   /** Close all connections */
   close(): Promise<void>;
-}
-
-/** Sync session */
-export interface SyncSession {
-  sessionId: string;
-  resourceId: string;
-  targetDevice: string;
-  status: "connecting" | "synchronizing" | "synced" | "disconnected" | "error";
 }

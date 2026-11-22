@@ -10,12 +10,10 @@
 | `contract` | Common token, health, authorization, and replication payloads |
 | `device` | Device, enrollment, pairing, approval, restriction, and selection types |
 | `idp` | Identity entities and OAuth/OIDC contracts |
-| `management` | Management roles, permissions, assignments, and synchronization payloads |
 | `storage` | Resource identities, namespaces, catalogs, sessions, and synchronization payloads |
 | `server` | HTTP contracts shared by router handlers |
 | `http` | Generated Rust wire models and re-exports used by generated clients |
 | `setup`, `node_join`, `oauth_user` | Setup, Join, and User payload contracts |
-| `sync_selection` | Selection repository and service traits |
 | `ofdb` | The shared SQL migration text exported as `MIGRATION` |
 
 The crate also contains `id`, error, JSON, and parsing helpers. With the `ofdb` feature, `idp::replica` applies the current IdP and Management schema through `ofdb_sql::Client` transactions.

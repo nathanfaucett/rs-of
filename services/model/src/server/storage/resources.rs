@@ -1,6 +1,5 @@
 use serde::Deserialize;
 use serde::Serialize;
-use uuid::Uuid;
 
 use crate::storage::database_resource::DatabaseId;
 
@@ -45,36 +44,4 @@ pub struct FileSystemDetailResponse {
     pub id: String,
     pub name: Option<String>,
     pub application_id: String,
-}
-
-#[derive(Deserialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SyncConnectRequest {
-    #[cfg_attr(feature = "utoipa", schema(value_type = String))]
-    pub resource_id: DatabaseId,
-    pub target_device: Uuid,
-    #[serde(default = "default_bidirectional")]
-    pub _direction: SyncDirection,
-}
-
-use crate::storage::sync::SyncDirection;
-use crate::storage::sync::SyncStatus;
-
-#[derive(Serialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct SyncSessionResponse {
-    pub session_id: Uuid,
-    #[cfg_attr(feature = "utoipa", schema(value_type = String))]
-    pub resource_id: DatabaseId,
-    pub source_device: Uuid,
-    pub target_device: Uuid,
-    pub status: SyncStatus,
-    pub bytes_sent: u64,
-    pub bytes_received: u64,
-}
-
-const fn default_bidirectional() -> SyncDirection {
-    SyncDirection::Bidirectional
 }

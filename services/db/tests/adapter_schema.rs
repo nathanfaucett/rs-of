@@ -30,7 +30,6 @@ async fn embedded_adapter_initializes_all_owner_tables() {
     for table in [
         "users",
         "clients",
-        "sync_selections",
         "devices",
         "namespaces",
         "resources",

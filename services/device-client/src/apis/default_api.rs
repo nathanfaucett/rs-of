@@ -32,13 +32,6 @@ pub struct DeleteDeviceResourceSelectionParams {
     pub resource_id: String,
 }
 
-/// struct for passing parameters to the method [`delete_device_selection`]
-#[derive(Clone, Debug)]
-pub struct DeleteDeviceSelectionParams {
-    /// Device ID
-    pub device_id: String,
-}
-
 /// struct for passing parameters to the method [`enroll_device`]
 #[derive(Clone, Debug)]
 pub struct EnrollDeviceParams {
@@ -125,13 +118,6 @@ pub enum ApproveEnrollmentError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum DeleteDeviceResourceSelectionError {
-    UnknownValue(serde_json::Value),
-}
-
-/// struct for typed errors of method [`delete_device_selection`]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum DeleteDeviceSelectionError {
     UnknownValue(serde_json::Value),
 }
 
@@ -373,45 +359,6 @@ pub async fn delete_device_resource_selection(
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<DeleteDeviceResourceSelectionError> =
             serde_json::from_str(&content).ok();
-        Err(Error::ResponseError(ResponseContent {
-            status,
-            content,
-            entity,
-        }))
-    }
-}
-
-pub async fn delete_device_selection(
-    configuration: &configuration::Configuration,
-    params: DeleteDeviceSelectionParams,
-) -> Result<(), Error<DeleteDeviceSelectionError>> {
-    let uri_str = format!(
-        "{}/devices/{device_id}/selection",
-        configuration.base_path,
-        device_id = crate::apis::urlencode(params.device_id)
-    );
-    let mut req_builder = configuration
-        .client
-        .request(reqwest::Method::DELETE, &uri_str);
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    if let Some(ref token) = configuration.bearer_access_token {
-        req_builder = req_builder.bearer_auth(token.to_owned());
-    };
-
-    let req = req_builder.build()?;
-    configuration::check_request(&req, configuration.request_limit)?;
-    let resp = configuration.client.execute(req).await?;
-
-    let status = resp.status();
-
-    if status.as_u16() == 204 || false {
-        Ok(())
-    } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        let entity: Option<DeleteDeviceSelectionError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

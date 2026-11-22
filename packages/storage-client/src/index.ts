@@ -7,7 +7,6 @@ import {
 import { DefaultApi as StorageApi } from "./generated/apis/DefaultApi.js";
 import { ResourcesApi } from "./generated/apis/ResourcesApi.js";
 import { ResourcesSqlApi } from "./generated/apis/ResourcesSqlApi.js";
-import { SyncApi } from "./generated/apis/SyncApi.js";
 import type {
   DatabaseDetailResponse,
   DatabaseResource,
@@ -15,10 +14,6 @@ import type {
   SqlRequest,
   SqlResponse,
   SqlValue,
-} from "./generated/models/index.js";
-import type {
-  SyncConnectRequest,
-  SyncSessionResponse,
 } from "./generated/models/index.js";
 import {
   Configuration,
@@ -302,22 +297,6 @@ export class StorageClient {
       storeId: resource.id,
       replicaId: crypto.randomUUID(),
     });
-  }
-
-  // Sync methods
-  async syncToDevice(
-    resourceId: string,
-    targetDeviceId: string,
-  ): Promise<SyncSessionResponse> {
-    const token = await this.exchangeToken(["write"], undefined);
-    const api = new SyncApi(this.configuration(token));
-    const request: SyncConnectRequest = {
-      resourceId,
-      targetDevice: targetDeviceId,
-    };
-    return databaseResult(
-      api.syncConnect({ syncConnectRequest: request }, undefined),
-    );
   }
 
   // Existing methods

@@ -6,4 +6,3 @@ export * from "./OwnerSetupApi.js";
 export * from "./ResourcesApi.js";
 export * from "./ResourcesResidencyApi.js";
 export * from "./ResourcesSqlApi.js";
-export * from "./SyncApi.js";

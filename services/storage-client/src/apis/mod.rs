@@ -7,6 +7,5 @@ pub mod owner_setup_api;
 pub mod resources_api;
 pub mod resources_residency_api;
 pub mod resources_sql_api;
-pub mod sync_api;
 
 pub mod configuration;

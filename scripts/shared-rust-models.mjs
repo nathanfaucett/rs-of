@@ -51,12 +51,6 @@ export function extractRustModels(output, owner, shared) {
       "std::fmt",
       "core::fmt",
     );
-    if (module === "sync_session_response") {
-      source = source.replace(
-        /\/\/\/\n#\[derive[\s\S]*$/,
-        "pub use crate::storage::sync::SyncStatus as Status;\n",
-      );
-    }
     const imports = [];
     for (const [symbol, imported] of [
       ["Box", "boxed::Box"],

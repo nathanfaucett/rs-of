@@ -60,8 +60,7 @@ async function createVault(password: string, name: string) {
     if (isSyncEnabled()) {
         const handle = await syncStateModule.createDatabase("password-manager-main");
         if (!handle) throw new Error("Failed to create sync database");
-        const syncSDK = syncStateModule.getSyncSDK();
-        const vault = await createSyncVault(password, name.trim(), handle, syncSDK ? { syncToDevice: syncSDK.syncToDevice.bind(syncSDK) } : undefined);
+        const vault = await createSyncVault(password, name.trim(), handle);
         const request = session;
         const settings = await vault.loadLockSettings();
         const inactivity = createInactivityLock(() => { void lockVault(); });
@@ -86,10 +85,10 @@ async function unlockExistingVault(password: string, id: string) {
     if (isSyncEnabled()) {
         const handle = await openMainDatabase();
         if (!handle) throw new Error("Failed to open sync database");
-        const syncSDK = syncStateModule.getSyncSDK();
+
 
         // Try to unlock as sync vault first
-        let vault: VaultHandleLike | null = await unlockSyncVault(password, id, handle, syncSDK ? { syncToDevice: syncSDK.syncToDevice.bind(syncSDK) } : undefined);
+        let vault: VaultHandleLike | null = await unlockSyncVault(password, id, handle);
         let isSynced = true;
 
         // If sync vault doesn't exist, try to migrate local vault

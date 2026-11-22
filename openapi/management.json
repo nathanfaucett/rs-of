@@ -499,33 +499,6 @@
         ],
         "type": "object"
       },
-      "SyncSelectionRequest": {
-        "properties": {
-          "resource_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "select": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "resource_id",
-          "select"
-        ],
-        "type": "object"
-      },
-      "SyncSelectionResponse": {
-        "properties": {
-          "selections": {
-            "type": "array"
-          }
-        },
-        "required": [
-          "selections"
-        ],
-        "type": "object"
-      },
       "UserApplicationRoleResponse": {
         "properties": {
           "application_id": {
@@ -1136,104 +1109,6 @@
         ]
       }
     },
-    "/devices/{device_id}/sync-selections": {
-      "get": {
-        "operationId": "list_sync_selections",
-        "parameters": [
-          {
-            "description": "Device ID",
-            "in": "path",
-            "name": "device_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SyncSelectionResponse"
-                }
-              }
-            },
-            "description": "Sync selections for device"
-          },
-          "401": {
-            "description": "Invalid bearer token"
-          },
-          "403": {
-            "description": "Insufficient permissions"
-          },
-          "404": {
-            "description": "Device not found"
-          },
-          "503": {
-            "description": "Service unavailable"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ]
-      },
-      "post": {
-        "operationId": "set_sync_selection",
-        "parameters": [
-          {
-            "description": "Device ID",
-            "in": "path",
-            "name": "device_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SyncSelectionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SyncSelectionResponse"
-                }
-              }
-            },
-            "description": "Sync selection updated"
-          },
-          "401": {
-            "description": "Invalid bearer token"
-          },
-          "403": {
-            "description": "Insufficient permissions"
-          },
-          "404": {
-            "description": "Device not found"
-          },
-          "503": {
-            "description": "Service unavailable"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ]
-      }
-    },
     "/health": {
       "get": {
         "operationId": "health",
@@ -1293,51 +1168,6 @@
           },
           "503": {
             "description": "Identity or policy authority unavailable"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ]
-      }
-    },
-    "/resources/{resource_id}/sync-targets": {
-      "get": {
-        "operationId": "list_sync_targets",
-        "parameters": [
-          {
-            "description": "Resource ID",
-            "in": "path",
-            "name": "resource_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SyncSelectionResponse"
-                }
-              }
-            },
-            "description": "Devices with resource selected for sync"
-          },
-          "401": {
-            "description": "Invalid bearer token"
-          },
-          "403": {
-            "description": "Insufficient permissions"
-          },
-          "404": {
-            "description": "Resource not found"
-          },
-          "503": {
-            "description": "Service unavailable"
           }
         },
         "security": [

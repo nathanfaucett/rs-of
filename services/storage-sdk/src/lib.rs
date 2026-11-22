@@ -25,7 +25,7 @@ pub mod browser;
 
 pub use error::{StorageSdkError, StorageSdkResult};
 pub use handle::{DatabaseId, DatabaseInfo, FilesystemId, FilesystemInfo, KvStoreId, KvStoreInfo, ResourceId};
-pub use sync::{DeviceId, SyncDirection, SyncResult, SyncSession, SyncStatus, SyncToDeviceConfig};
+pub use sync::{DeviceId, SyncDirection, SyncResult, SyncStatus};
 
 #[cfg(feature = "native")]
 pub use native::StorageSdk;

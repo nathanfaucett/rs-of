@@ -22,9 +22,7 @@ use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLay
 
 #[cfg(not(unix))]
 use crate::AppConfig;
-use crate::{
-    DeviceClient, IdpClient, ManagementClient, RouterState, build_http_runtime, build_runtime,
-};
+use crate::{DeviceClient, IdpClient, RouterState, build_http_runtime, build_runtime};
 
 #[derive(clap::Parser, Debug)]
 enum StorageCommand {
@@ -196,7 +194,7 @@ pub async fn run() -> io::Result<()> {
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "STORAGE_MANAGEMENT_OAUTH_CLIENT_ID is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+                "STORAGE_DEVICE_OAUTH_CLIENT_ID is required when STORAGE_DEVICE_API_BASE_URI is configured",
             ))?;
         let client_secret = app_config
             .device_oauth_client_secret
@@ -204,7 +202,7 @@ pub async fn run() -> io::Result<()> {
             .filter(|value| !value.is_empty())
             .ok_or_else(|| io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "STORAGE_MANAGEMENT_OAUTH_CLIENT_SECRET is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+                "STORAGE_DEVICE_OAUTH_CLIENT_SECRET is required when STORAGE_DEVICE_API_BASE_URI is configured",
             ))?;
         let audience = app_config
             .device_service_audience
@@ -212,7 +210,7 @@ pub async fn run() -> io::Result<()> {
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "STORAGE_MANAGEMENT_SERVICE_AUDIENCE is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+                "STORAGE_DEVICE_SERVICE_AUDIENCE is required when STORAGE_DEVICE_API_BASE_URI is configured",
             ))?;
         let idp_api_base_uri = app_config
             .idp_api_base_uri
@@ -222,7 +220,7 @@ pub async fn run() -> io::Result<()> {
         if idp_api_base_uri.is_empty() || app_config.idp_issuer_uri.trim().is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "STORAGE_IDP_API_BASE_URI and STORAGE_IDP_ISSUER_URI are required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
+                "STORAGE_IDP_API_BASE_URI and STORAGE_IDP_ISSUER_URI are required when STORAGE_DEVICE_API_BASE_URI is configured",
             ));
         }
         let device_client = DeviceClient::new(
@@ -237,60 +235,13 @@ pub async fn run() -> io::Result<()> {
         router_state = router_state.with_device_client(device_client);
     }
 
-    // Create ManagementClient if configured
-    if !app_config.management_api_base_uri.trim().is_empty() {
-        let client_id = app_config
-            .management_oauth_client_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "STORAGE_MANAGEMENT_OAUTH_CLIENT_ID is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
-            ))?;
-        let client_secret = app_config
-            .management_oauth_client_secret
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "STORAGE_MANAGEMENT_OAUTH_CLIENT_SECRET is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
-            ))?;
-        let _audience = app_config
-            .management_service_audience
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "STORAGE_MANAGEMENT_SERVICE_AUDIENCE is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
-            ))?;
-        let idp_api_base_uri = app_config
-            .idp_api_base_uri
-            .trim()
-            .strip_suffix('/')
-            .unwrap_or(app_config.idp_api_base_uri.trim());
-        if idp_api_base_uri.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "STORAGE_IDP_API_BASE_URI is required when STORAGE_MANAGEMENT_API_BASE_URI is configured",
-            ));
-        }
-        let management_client = ManagementClient::new(
-            &app_config.management_api_base_uri,
-            idp_api_base_uri,
-            client_id,
-            client_secret,
-        )
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        router_state = router_state.with_management_client(management_client);
-    }
-
     let prefix = app_config.server.prefix();
     let mut storage_runtime = if router_state.device_client.is_some() {
         let endpoint = app_config.device_endpoint_id.as_deref()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput,
-                "STORAGE_MANAGEMENT_ENDPOINT_ID must identify the current Management-approved endpoint; Storage does not create transport identity"))?
+                "STORAGE_DEVICE_ENDPOINT_ID must identify the current approved Device endpoint; Storage does not create transport identity"))?
             .parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput,
-                "invalid STORAGE_MANAGEMENT_ENDPOINT_ID"))?;
+                "invalid STORAGE_DEVICE_ENDPOINT_ID"))?;
         build_http_runtime(
             router_state,
             Path::new(&app_config.data_dir),

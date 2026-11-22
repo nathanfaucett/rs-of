@@ -1,5 +1,4 @@
 import type { DatabaseDetailResponse, DatabaseResource, EnsureDatabaseRequest, SqlRequest, SqlResponse } from "./generated/models/index.js";
-import type { SyncSessionResponse } from "./generated/models/index.js";
 export { ResourcesResidencyApi } from "./generated/apis/ResourcesResidencyApi.js";
 export type { DatabaseDetailResponse, DatabaseResource, EnsureDatabaseRequest, SqlRequest, SqlResponse, SqlStatement, SqlValue, } from "./generated/models/index.js";
 export { ResidencyMode } from "./generated/models/ResidencyMode.js";
@@ -146,7 +145,6 @@ export declare class StorageClient {
     }[]>;
     createFilesystem(name?: string): Promise<FilesystemHandle>;
     openFilesystem(filesystemId: string): Promise<FilesystemHandle>;
-    syncToDevice(resourceId: string, targetDeviceId: string): Promise<SyncSessionResponse>;
     ensureDatabase(request: EnsureDatabaseRequest, signal?: AbortSignal): Promise<DatabaseResource>;
     createDatabase(name?: string, signal?: AbortSignal): Promise<DatabaseResource>;
     listDatabases(signal?: AbortSignal): Promise<DatabaseResource[]>;

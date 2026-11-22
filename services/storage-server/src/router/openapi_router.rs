@@ -11,7 +11,7 @@ use super::resources::sql::__path_execute_sql;
 use super::resources::{
     __path_create_database, __path_create_file_system, __path_delete_database,
     __path_delete_file_system, __path_ensure_database, __path_get_database, __path_get_file_system,
-    __path_list_databases, __path_list_file_systems, __path_sync_connect,
+    __path_list_databases, __path_list_file_systems,
 };
 use super::routes::health::{__path_health, health};
 use super::routes::version::{__path_version, version};
@@ -37,7 +37,6 @@ use of_model::server::storage::resources::{
         delete_file_system,
         get_file_system_residency,
         put_file_system_residency,
-        sync_connect,
         upgrade_socket
     ),
     components(schemas(

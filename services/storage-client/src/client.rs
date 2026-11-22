@@ -6,8 +6,7 @@ use serde::{Deserialize, de::DeserializeOwned};
 use uuid::Uuid;
 
 use crate::{
-    DatabaseId, DatabaseInfo, DeviceId, FilesystemId, FilesystemInfo, KvStoreId, KvStoreInfo,
-    ResourceId, SyncSession,
+    DatabaseId, DatabaseInfo, FilesystemId, FilesystemInfo, KvStoreId, KvStoreInfo, ResourceId,
     error::{Result, StorageClientError},
     handle::{FilesystemHandle, KvStoreHandle, SqlDatabaseHandle},
     protocol::StoreIdentity,
@@ -113,27 +112,6 @@ impl StorageClient {
     }
     pub async fn list_filesystems(&self) -> Result<Vec<FilesystemInfo>> {
         self.list_resources("filesystems").await
-    }
-    pub async fn sync_to_device(
-        &self,
-        resource_id: ResourceId,
-        target_device: DeviceId,
-    ) -> Result<SyncSession> {
-        let token = self
-            .get_storage_token("storage:sync", &["read", "write"])
-            .await?;
-        let response = self
-            .http_client
-            .post(format!("{}/sync/connect", self.base_url))
-            .bearer_auth(token)
-            .json(&crate::SyncToDeviceRequest {
-                resource_id,
-                target_device,
-            })
-            .send()
-            .await?
-            .error_for_status()?;
-        Ok(response.json().await?)
     }
     async fn create_resource<T: DeserializeOwned>(
         &self,

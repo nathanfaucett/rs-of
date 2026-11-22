@@ -7,7 +7,7 @@ pub use of_model::http::storage::{
     JwkPublicParametersOneOf2, JwsAlgorithm, KeyUse, OwnerSetupStatus, Registration, ResidencyMode,
     ResourceResidency, SqlRequest, SqlResponse, SqlResult, SqlStatement, SqlValue, SqlValueOneOf,
     SqlValueOneOf1, SqlValueOneOf2, SqlValueOneOf3, SqlValueOneOf4, SqlValueOneOf5, SqlValueOneOf6,
-    SyncConnectRequest, SyncSessionResponse, VersionResponse, challenge, create_resource_request,
+    VersionResponse, challenge, create_resource_request,
     database_detail_response, database_failure, database_resource, ensure_database_request,
     file_system_detail_response, file_system_resource_response, history_request,
     independent_create_intent, independent_create_request, independent_join_approval,
@@ -16,6 +16,5 @@ pub use of_model::http::storage::{
     jwk_public_parameters_one_of_2, jws_algorithm, key_use, owner_setup_status, registration,
     residency_mode, resource_residency, sql_request, sql_response, sql_result, sql_statement,
     sql_value, sql_value_one_of, sql_value_one_of_1, sql_value_one_of_2, sql_value_one_of_3,
-    sql_value_one_of_4, sql_value_one_of_5, sql_value_one_of_6, sync_connect_request,
-    sync_session_response, version_response,
+    sql_value_one_of_4, sql_value_one_of_5, sql_value_one_of_6, version_response,
 };

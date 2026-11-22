@@ -31,7 +31,6 @@ mod independent_create;
 mod independent_reset;
 #[cfg(feature = "network")]
 mod local_replication_authorizer;
-mod management_client;
 #[cfg(feature = "network")]
 mod provisioning;
 #[cfg(feature = "network")]
@@ -63,7 +62,6 @@ pub use idp_client::{IdpClient, IdpIntrospectionError};
 pub use independent_create::serve_independent_create;
 #[cfg(feature = "network")]
 pub use local_replication_authorizer::{DeviceReplicationPolicy, LocalReplicationAuthorizer};
-pub use management_client::ManagementClient;
 #[cfg(feature = "network")]
 pub use replication_runtime::StorageReplicationRuntime;
 pub use router::{

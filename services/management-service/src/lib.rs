@@ -23,9 +23,6 @@ pub mod service;
 #[cfg(feature = "ofdb")]
 pub use local_permissions::LocalPermissions;
 pub use of_model::management_error::{ManagementError, ManagementResult};
-pub use of_model::sync_selection::{ManagementSyncSelection, SyncSelectionRepo};
 pub use permission_repo::PermissionRepo;
 pub use role_repo::RoleRepo;
 pub use service::{INITIAL_ADMINISTRATOR_ACTIONS, MANAGEMENT_APPLICATION_URI, ManagementService};
-
-pub use of_model::management::{SyncSelection, SyncSelectionRequest, SyncSelectionResponse};

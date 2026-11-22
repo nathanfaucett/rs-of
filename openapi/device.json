@@ -1410,30 +1410,6 @@
       }
     },
     "/devices/{device_id}/selection": {
-      "delete": {
-        "operationId": "delete_device_selection",
-        "parameters": [
-          {
-            "description": "Device ID",
-            "in": "path",
-            "name": "device_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Device selection removed"
-          }
-        },
-        "security": [
-          {
-            "authorization": []
-          }
-        ]
-      },
       "put": {
         "operationId": "put_device_selection",
         "parameters": [

@@ -14,7 +14,6 @@ import type {
   ChangeEvent,
   SyncState,
   SyncOptions,
-  SyncSession,
   QueryResult,
   FileEntry,
 } from "./core";
@@ -181,22 +180,6 @@ export class NodeSyncSDK extends EventEmitter implements SyncSDK {
       return resources.map((r) => ({ id: r.id, name: r.name ?? null }));
     },
   };
-
-  async syncToDevice(
-    resourceId: string,
-    targetDeviceId: string,
-  ): Promise<SyncSession> {
-    const session = await this.storageClient.syncToDevice(
-      resourceId,
-      targetDeviceId,
-    );
-    return {
-      sessionId: session.sessionId,
-      resourceId: session.resourceId,
-      targetDevice: session.targetDevice,
-      status: session.status.toLowerCase() as SyncSession["status"],
-    };
-  }
 
   async close(): Promise<void> {
     for (const db of this.databases.values()) {

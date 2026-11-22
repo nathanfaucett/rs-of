@@ -186,31 +186,6 @@ pub struct SyncResult {
     pub sent_snapshots: usize,
 }
 
-/// Sync session handle.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncSession {
-    pub session_id: String,
-    pub resource_id: ResourceId,
-    pub target_device: DeviceId,
-    pub status: SyncStatus,
-}
-
-/// Sync status.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum SyncStatus {
-    #[serde(rename = "connecting")]
-    Connecting,
-    #[serde(rename = "syncing")]
-    Synchronizing,
-    #[serde(rename = "completed")]
-    Synced,
-    #[serde(rename = "cancelled")]
-    Disconnected,
-    #[serde(rename = "failed")]
-    Error,
-}
-
 /// Database info.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DatabaseInfo {
@@ -266,18 +241,4 @@ pub struct CreateFilesystemRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OpenFilesystemRequest {
     pub id: FilesystemId,
-}
-
-/// Sync to device request.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncToDeviceRequest {
-    pub resource_id: ResourceId,
-    pub target_device: DeviceId,
-}
-
-/// Sync to device response.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SyncToDeviceResponse {
-    pub session: SyncSession,
 }

@@ -107,13 +107,6 @@ export interface DeleteDeviceResourceSelectionRequest {
   resourceId: string;
 }
 
-export interface DeleteDeviceSelectionRequest {
-  /**
-   * Device ID
-   */
-  deviceId: string;
-}
-
 export interface EnrollDeviceRequest {
   /**
    *
@@ -275,35 +268,6 @@ export interface DefaultApiInterface {
    */
   deleteDeviceResourceSelection(
     requestParameters: DeleteDeviceResourceSelectionRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<void>;
-
-  /**
-   * Creates request options for deleteDeviceSelection without sending the request
-   * @param {string} deviceId Device ID
-   * @throws {RequiredError}
-   * @memberof DefaultApiInterface
-   */
-  deleteDeviceSelectionRequestOpts(
-    requestParameters: DeleteDeviceSelectionRequest
-  ): Promise<runtime.RequestOpts>;
-
-  /**
-   *
-   * @param {string} deviceId Device ID
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof DefaultApiInterface
-   */
-  deleteDeviceSelectionRaw(
-    requestParameters: DeleteDeviceSelectionRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<void>>;
-
-  /**
-   */
-  deleteDeviceSelection(
-    requestParameters: DeleteDeviceSelectionRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void>;
 
@@ -983,67 +947,6 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void> {
     await this.deleteDeviceResourceSelectionRaw(requestParameters, initOverrides);
-  }
-
-  /**
-   * Creates request options for deleteDeviceSelection without sending the request
-   */
-  async deleteDeviceSelectionRequestOpts(
-    requestParameters: DeleteDeviceSelectionRequest
-  ): Promise<runtime.RequestOpts> {
-    if (requestParameters["deviceId"] == null) {
-      throw new runtime.RequiredError(
-        "deviceId",
-        'Required parameter "deviceId" was null or undefined when calling deleteDeviceSelection().'
-      );
-    }
-
-    const queryParameters: any = {};
-
-    const headerParameters: runtime.HTTPHeaders = {};
-
-    if (this.configuration && this.configuration.accessToken) {
-      const token = this.configuration.accessToken;
-      const tokenString = await token("authorization", []);
-
-      if (tokenString) {
-        headerParameters["Authorization"] = `Bearer ${tokenString}`;
-      }
-    }
-
-    let urlPath = `/devices/{device_id}/selection`;
-    urlPath = urlPath.replace(
-      "{device_id}",
-      encodeURIComponent(String(requestParameters["deviceId"]))
-    );
-
-    return {
-      path: urlPath,
-      method: "DELETE",
-      headers: headerParameters,
-      query: queryParameters,
-    };
-  }
-
-  /**
-   */
-  async deleteDeviceSelectionRaw(
-    requestParameters: DeleteDeviceSelectionRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<void>> {
-    const requestOptions = await this.deleteDeviceSelectionRequestOpts(requestParameters);
-    const response = await this.request(requestOptions, initOverrides);
-
-    return new runtime.VoidApiResponse(response);
-  }
-
-  /**
-   */
-  async deleteDeviceSelection(
-    requestParameters: DeleteDeviceSelectionRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<void> {
-    await this.deleteDeviceSelectionRaw(requestParameters, initOverrides);
   }
 
   /**

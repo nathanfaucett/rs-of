@@ -102,20 +102,6 @@ pub struct ListRolesParams {
     pub limit: Option<i32>,
 }
 
-/// struct for passing parameters to the method [`list_sync_selections`]
-#[derive(Clone, Debug)]
-pub struct ListSyncSelectionsParams {
-    /// Device ID
-    pub device_id: String,
-}
-
-/// struct for passing parameters to the method [`list_sync_targets`]
-#[derive(Clone, Debug)]
-pub struct ListSyncTargetsParams {
-    /// Resource ID
-    pub resource_id: String,
-}
-
 /// struct for passing parameters to the method [`list_user_roles`]
 #[derive(Clone, Debug)]
 pub struct ListUserRolesParams {
@@ -152,14 +138,6 @@ pub struct RevokeRoleFromUserParams {
     pub user_id: String,
     /// Role ID
     pub role_id: String,
-}
-
-/// struct for passing parameters to the method [`set_sync_selection`]
-#[derive(Clone, Debug)]
-pub struct SetSyncSelectionParams {
-    /// Device ID
-    pub device_id: String,
-    pub sync_selection_request: models::SyncSelectionRequest,
 }
 
 /// struct for typed errors of method [`assign_permission_to_role`]
@@ -242,28 +220,6 @@ pub enum ListRolesError {
     UnknownValue(serde_json::Value),
 }
 
-/// struct for typed errors of method [`list_sync_selections`]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ListSyncSelectionsError {
-    Status401(),
-    Status403(),
-    Status404(),
-    Status503(),
-    UnknownValue(serde_json::Value),
-}
-
-/// struct for typed errors of method [`list_sync_targets`]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ListSyncTargetsError {
-    Status401(),
-    Status403(),
-    Status404(),
-    Status503(),
-    UnknownValue(serde_json::Value),
-}
-
 /// struct for typed errors of method [`list_user_roles`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -296,17 +252,6 @@ pub enum RevokePermissionFromRoleError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RevokeRoleFromUserError {
-    UnknownValue(serde_json::Value),
-}
-
-/// struct for typed errors of method [`set_sync_selection`]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SetSyncSelectionError {
-    Status401(),
-    Status403(),
-    Status404(),
-    Status503(),
     UnknownValue(serde_json::Value),
 }
 
@@ -881,118 +826,6 @@ pub async fn list_roles(
     }
 }
 
-pub async fn list_sync_selections(
-    configuration: &configuration::Configuration,
-    params: ListSyncSelectionsParams,
-) -> Result<models::SyncSelectionResponse, Error<ListSyncSelectionsError>> {
-    let uri_str = format!(
-        "{}/devices/{device_id}/sync-selections",
-        configuration.base_path,
-        device_id = crate::apis::urlencode(params.device_id)
-    );
-    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    if let Some(ref token) = configuration.bearer_access_token {
-        req_builder = req_builder.bearer_auth(token.to_owned());
-    };
-
-    let req = req_builder.build()?;
-    configuration::check_request(&req, configuration.request_limit)?;
-    let resp = configuration.client.execute(req).await?;
-
-    let status = resp.status();
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream");
-    let content_type = super::ContentType::from(content_type);
-
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        match content_type {
-            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::SyncSelectionResponse`",
-                )));
-            }
-            ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
-                    "Received `{unknown_type}` content type response that cannot be converted to `models::SyncSelectionResponse`"
-                ))));
-            }
-        }
-    } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        let entity: Option<ListSyncSelectionsError> = serde_json::from_str(&content).ok();
-        Err(Error::ResponseError(ResponseContent {
-            status,
-            content,
-            entity,
-        }))
-    }
-}
-
-pub async fn list_sync_targets(
-    configuration: &configuration::Configuration,
-    params: ListSyncTargetsParams,
-) -> Result<models::SyncSelectionResponse, Error<ListSyncTargetsError>> {
-    let uri_str = format!(
-        "{}/resources/{resource_id}/sync-targets",
-        configuration.base_path,
-        resource_id = crate::apis::urlencode(params.resource_id)
-    );
-    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    if let Some(ref token) = configuration.bearer_access_token {
-        req_builder = req_builder.bearer_auth(token.to_owned());
-    };
-
-    let req = req_builder.build()?;
-    configuration::check_request(&req, configuration.request_limit)?;
-    let resp = configuration.client.execute(req).await?;
-
-    let status = resp.status();
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream");
-    let content_type = super::ContentType::from(content_type);
-
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        match content_type {
-            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::SyncSelectionResponse`",
-                )));
-            }
-            ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
-                    "Received `{unknown_type}` content type response that cannot be converted to `models::SyncSelectionResponse`"
-                ))));
-            }
-        }
-    } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        let entity: Option<ListSyncTargetsError> = serde_json::from_str(&content).ok();
-        Err(Error::ResponseError(ResponseContent {
-            status,
-            content,
-            entity,
-        }))
-    }
-}
-
 pub async fn list_user_roles(
     configuration: &configuration::Configuration,
     params: ListUserRolesParams,
@@ -1210,65 +1043,6 @@ pub async fn revoke_role_from_user(
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<RevokeRoleFromUserError> = serde_json::from_str(&content).ok();
-        Err(Error::ResponseError(ResponseContent {
-            status,
-            content,
-            entity,
-        }))
-    }
-}
-
-pub async fn set_sync_selection(
-    configuration: &configuration::Configuration,
-    params: SetSyncSelectionParams,
-) -> Result<models::SyncSelectionResponse, Error<SetSyncSelectionError>> {
-    let uri_str = format!(
-        "{}/devices/{device_id}/sync-selections",
-        configuration.base_path,
-        device_id = crate::apis::urlencode(params.device_id)
-    );
-    let mut req_builder = configuration
-        .client
-        .request(reqwest::Method::POST, &uri_str);
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    if let Some(ref token) = configuration.bearer_access_token {
-        req_builder = req_builder.bearer_auth(token.to_owned());
-    };
-    req_builder = req_builder.json(&params.sync_selection_request);
-
-    let req = req_builder.build()?;
-    configuration::check_request(&req, configuration.request_limit)?;
-    let resp = configuration.client.execute(req).await?;
-
-    let status = resp.status();
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream");
-    let content_type = super::ContentType::from(content_type);
-
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        match content_type {
-            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::SyncSelectionResponse`",
-                )));
-            }
-            ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
-                    "Received `{unknown_type}` content type response that cannot be converted to `models::SyncSelectionResponse`"
-                ))));
-            }
-        }
-    } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
-        let entity: Option<SetSyncSelectionError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

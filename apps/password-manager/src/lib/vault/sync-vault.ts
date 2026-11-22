@@ -30,15 +30,10 @@ interface EncryptedSecret {
   updatedAt: string;
 }
 
-interface SyncSDKRef {
-  syncToDevice: (resourceId: string, targetDeviceId: string) => Promise<{ sessionId: string; resourceId: string; targetDevice: string; status: string }>;
-}
-
 interface SyncVaultHandleOptions {
   handle: DatabaseHandle;
   key: CryptoKey;
   meta: VaultMeta;
-  syncSDK?: SyncSDKRef;
 }
 
 export class SyncVaultHandle implements VaultHandleLike {
@@ -46,18 +41,14 @@ export class SyncVaultHandle implements VaultHandleLike {
   private meta: VaultMeta;
   private handle: DatabaseHandle;
 
-  private syncSDK?: SyncSDKRef;
-
   constructor(options: SyncVaultHandleOptions) {
     this.handle = options.handle;
     this.key = options.key;
     this.meta = options.meta;
-    this.syncSDK = options.syncSDK;
-
   }
 
-  static create(handle: DatabaseHandle, key: CryptoKey, meta: VaultMeta, syncSDK?: SyncSDKRef): SyncVaultHandle {
-    return new SyncVaultHandle({ handle, key, meta, syncSDK });
+  static create(handle: DatabaseHandle, key: CryptoKey, meta: VaultMeta): SyncVaultHandle {
+    return new SyncVaultHandle({ handle, key, meta });
   }
 
   get id(): string {
@@ -332,13 +323,6 @@ export class SyncVaultHandle implements VaultHandleLike {
     return this.handle.sync(options);
   }
 
-  async syncToDevice(targetDeviceId: string): Promise<void> {
-    if (!this.syncSDK) {
-      throw new Error("Sync SDK not available for device sync");
-    }
-    await this.syncSDK.syncToDevice(this.handle.id, targetDeviceId);
-  }
-
   close(): void {
     this.handle.close();
   }
@@ -348,7 +332,6 @@ export async function createSyncVault(
   password: string,
   name: string,
   syncHandle: DatabaseHandle,
-  syncSDK?: SyncSDKRef,
 ): Promise<SyncVaultHandle> {
   const vaultId = crypto.randomUUID();
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -368,14 +351,13 @@ export async function createSyncVault(
     [vaultId, name.trim(), meta.salt, meta.iv, meta.createdAt, authentication],
   );
 
-  return SyncVaultHandle.create(syncHandle, key, meta, syncSDK);
+  return SyncVaultHandle.create(syncHandle, key, meta);
 }
 
 export async function unlockSyncVault(
   password: string,
   vaultId: string,
   syncHandle: DatabaseHandle,
-  syncSDK?: SyncSDKRef,
 ): Promise<SyncVaultHandle | null> {
   const results = await syncHandle.execute(
     `SELECT id, name, salt, iv, created_at, authentication, status, migrated FROM vaults WHERE id = ?`,
@@ -424,7 +406,7 @@ export async function unlockSyncVault(
     createdAt: meta.createdAt,
   };
 
-  return SyncVaultHandle.create(syncHandle, key, vaultMeta, syncSDK);
+  return SyncVaultHandle.create(syncHandle, key, vaultMeta);
 }
 
 export async function listSyncVaults(syncHandle: DatabaseHandle): Promise<
