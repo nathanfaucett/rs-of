@@ -183,7 +183,7 @@ async fn enroll(
     .await
     .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    let owner = actor.principal.get_entity_id();
+    let owner = actor.subject;
     if owner != approval.owner_subject {
         return Err(StatusCode::FORBIDDEN);
     }

@@ -23,9 +23,14 @@ use crate::router::{middleware::authorization::StandardAuthorization, state::Rou
 )]
 pub(crate) async fn authorize_json(
     State(state): State<RouterState>,
-    StandardAuthorization { principal, .. }: StandardAuthorization,
+    actor: StandardAuthorization,
     Json(request): Json<AuthorizationRequest>,
 ) -> Result<Json<AuthorizationCodeResponse>, ErrorResponse> {
+    actor.require_oidc_audience(&state.service_audience)?;
+    let principal = state
+        .oauth2_service
+        .active_user_principal(actor.subject)
+        .await?;
     let response = state
         .oauth2_service
         .authorize(request, principal.as_ref())

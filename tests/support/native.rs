@@ -9,7 +9,7 @@ use db::Database;
 use futures_util::{SinkExt, StreamExt};
 use idp_service::{
     oauth2::NodeSignerBinding,
-    replica::{DbClientRepo, DbKeyRepo, DbUserRepo},
+    replica::{DbClientRepo, DbKeyRepo},
     repo::{ClientRepo, KeyService, PrivateKeyKeyringRepo, UserRepo},
 };
 use iroh::{SecretKey, endpoint::presets};
@@ -549,11 +549,15 @@ impl Fixture {
             .await
             .expect("public local resource observation")
     }
-    pub(crate) async fn revoke_user(&self) {
-        DbUserRepo::new(self.idp.client(), Default::default())
-            .delete_user_by_id(self.owner)
+    pub(crate) async fn withdraw_issuer_key(&self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("valid test clock")
+            .as_secs() as i64;
+        idp_service::replica::DbReplicaSignerRepo::new(self.idp.client())
+            .revoke(self.binding.member_id, &self.issuer, now)
             .await
-            .expect("learn native User revocation");
+            .expect("learn issuer key withdrawal");
     }
     pub(crate) async fn request(
         &self,

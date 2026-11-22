@@ -497,36 +497,6 @@ where
             .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))
     }
 
-    /// Checks live client registration for already verified access-token claims.
-    pub async fn validate_bearer_client(&self, claims: &StandardClaims) -> ErrorResponseResult<Id> {
-        let client = self
-            .client_repo
-            .find_client_registration(&claims.client_id)
-            .await
-            .map_err(ErrorResponse::from)?
-            .ok_or_else(|| ErrorResponse::new(ErrorCode::NotAuthorized))?;
-        Self::validate_bearer_registration(claims, &client)
-    }
-
-    async fn validate_bearer_principal_client(
-        &self,
-        claims: &StandardClaims,
-        principal: &dyn Principal,
-    ) -> ErrorResponseResult<Id> {
-        if claims.principal_type == PrincipalType::Client {
-            let client = principal
-                .get_entity_as_any()
-                .downcast_ref::<Client>()
-                .ok_or_else(|| ErrorResponse::new(ErrorCode::NotAuthorized))?;
-            if client.client_id != claims.client_id {
-                return Err(ErrorResponse::new(ErrorCode::NotAuthorized));
-            }
-            Self::validate_bearer_registration(claims, client)
-        } else {
-            self.validate_bearer_client(claims).await
-        }
-    }
-
     fn validate_bearer_registration(
         claims: &StandardClaims,
         client: &Client,
@@ -1203,22 +1173,11 @@ where
                 .with_description("subject_token_type must be access_token"));
         }
 
-        let (subject_token, principal) =
-            self.verify_token_principal(&request.subject_token).await?;
-        let now = Utc::now().timestamp();
-        if subject_token.r#type != TokenType::Bearer
-            || subject_token.r#use != TokenUse::Access
-            || subject_token.iss != self.oauth_config.issuer
-            || subject_token.exp <= now
-            || subject_token.nbf > now
-            || subject_token.iat > now
-            || subject_token.aud.is_empty()
-        {
-            return Err(ErrorResponse::new(ErrorCode::InvalidGrant)
-                .with_description("invalid subject access token"));
-        }
-
-        self.validate_bearer_client(&subject_token).await?;
+        let access = self
+            .verify_access_token_claims(&request.subject_token)
+            .await?;
+        let subject_token = access.standard_claims;
+        let principal = self.principal_for_claims(&subject_token).await?;
 
         let client = self
             .client_repo
@@ -1228,6 +1187,9 @@ where
             .ok_or_else(|| {
                 ErrorResponse::new(ErrorCode::InvalidClient).with_description("client not found")
             })?;
+        if Self::validate_bearer_registration(&subject_token, &client)? != access.application_id {
+            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
+        }
         self.validate_grant_type(&client, GrantType::TokenExchange)?;
         self.authenticate_client_for_token_endpoint(&client, client_auth)?;
 
@@ -1597,25 +1559,21 @@ where
         Ok((claims, principal))
     }
 
-    pub async fn verify_access_token_principal(
+    /// Verify the token before routing it to the operation that enforces its audience.
+    pub async fn verify_access_token_claims(
         &self,
         token: &str,
-    ) -> ErrorResponseResult<(StandardClaims, Box<dyn Principal>, Id)> {
-        let (claims, principal) = self.verify_token_principal(token).await?;
-        let now = Utc::now().timestamp();
-        if claims.r#type != TokenType::Bearer
-            || claims.r#use != TokenUse::Access
-            || claims.exp <= now
-            || claims.nbf > now
-            || claims.iat > now
-            || claims.aud.is_empty()
-        {
-            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
-        }
-        let application_id = self
-            .validate_bearer_principal_client(&claims, principal.as_ref())
-            .await?;
-        Ok((claims, principal, application_id))
+    ) -> ErrorResponseResult<super::token::AccessClaims> {
+        let (header, _) = decode_jwt::<serde::de::IgnoredAny>(token)?;
+        let key_id =
+            Id::parse_str(&header.kid).map_err(|_| ErrorResponse::new(ErrorCode::InvalidGrant))?;
+        let public = self.find_public_jwk(key_id).await?;
+        super::token::verify_access_claims(
+            &public,
+            &self.oauth_config.issuer,
+            token,
+            Utc::now().timestamp(),
+        )
     }
 
     pub async fn validate_access_token(
@@ -1623,21 +1581,26 @@ where
         token: &str,
         audience: &str,
     ) -> ErrorResponseResult<StandardClaims> {
-        let (claims, _, _) = self.verify_access_token_principal(token).await?;
-        let now = Utc::now().timestamp();
-        if audience.is_empty()
-            || claims.aud != audience
-            || claims.iss != self.oauth_config.issuer
-            || claims.r#type != TokenType::Bearer
-            || claims.r#use != TokenUse::Access
-            || claims.exp <= now
-            || claims.nbf > now
-            || claims.iat > now
-        {
-            return Err(ErrorResponse::new(ErrorCode::InvalidGrant)
-                .with_description("invalid access token claims"));
+        let access = self.verify_access_token_claims(token).await?;
+        if access.standard_claims.aud != audience {
+            return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
         }
-        Ok(claims)
+        Ok(access.standard_claims)
+    }
+
+    pub async fn active_user_principal(
+        &self,
+        subject: Id,
+    ) -> ErrorResponseResult<Box<dyn Principal>> {
+        let key = self
+            .key_service
+            .key_repo()
+            .find_active_entity_root_key(EntityType::User, subject)
+            .await?
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::AccessDenied))?;
+        self.principal_for_active_key(key)
+            .await?
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::AccessDenied))
     }
 
     pub fn metadata(&self, endpoint_base: &str) -> AuthorizationServerMetadata {
@@ -1736,9 +1699,10 @@ where
 
         let access_token_value = encode_jwt(
             &signing_jwk,
-            &super::token::PrincipalBoundClaims {
+            &super::token::AccessClaims {
                 standard_claims: access_claims.clone(),
-                principal_key_id: principal.get_key().id,
+                application_id: client.application_id,
+                introspection_audiences: Vec::new(),
             },
         )?;
 
@@ -1849,9 +1813,10 @@ where
         };
         let access_token = AccessToken(encode_jwt(
             &signing_jwk,
-            &super::token::PrincipalBoundClaims {
+            &super::token::AccessClaims {
                 standard_claims: claims,
-                principal_key_id: principal.get_key().id,
+                application_id: client.application_id,
+                introspection_audiences: client.allowed_audiences.clone(),
             },
         )?);
 
@@ -2231,6 +2196,9 @@ where
                     return Ok(None);
                 };
 
+                if user.blocked {
+                    return Ok(None);
+                }
                 Box::new(UserPrincipal { user, key }) as Box<dyn Principal>
             }
             EntityType::Client => {

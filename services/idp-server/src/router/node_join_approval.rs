@@ -52,7 +52,7 @@ impl RouterState {
             .await
             .map_err(auth_error)?;
         }
-        Ok(actor.principal.get_entity_id())
+        Ok(actor.subject)
     }
 
     pub async fn approve_node_join(

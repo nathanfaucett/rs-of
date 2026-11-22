@@ -1,8 +1,5 @@
 use axum::{Json, extract::State};
-use of_model::idp::contract::{
-    entity_type::EntityType, error_code::ErrorCode, error_response::ErrorResponse,
-    user_info::UserInfo,
-};
+use of_model::idp::contract::{error_response::ErrorResponse, user_info::UserInfo};
 
 use crate::router::{middleware::authorization::StandardAuthorization, state::RouterState};
 
@@ -16,17 +13,11 @@ use crate::router::{middleware::authorization::StandardAuthorization, state::Rou
 )]
 pub(crate) async fn userinfo(
     State(state): State<RouterState>,
-    StandardAuthorization { principal, .. }: StandardAuthorization,
+    actor: StandardAuthorization,
 ) -> Result<Json<UserInfo>, ErrorResponse> {
-    if principal.get_entity_type() != EntityType::User {
-        return Err(ErrorResponse::new(ErrorCode::AccessDenied)
-            .with_description("Only users can access this endpoint".to_string()));
-    }
+    actor.require_oidc_audience(&state.service_audience)?;
 
-    let user_info = state
-        .oauth2_service
-        .find_user_info(principal.get_entity_id())
-        .await?;
+    let user_info = state.oauth2_service.find_user_info(actor.subject).await?;
 
     Ok(Json(user_info))
 }

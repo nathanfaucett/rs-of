@@ -28,26 +28,17 @@ pub(crate) async fn require_identity_permission_for_audience(
     action: IdentityAction,
     target: PermissionTarget,
 ) -> Result<(), ErrorResponse> {
-    if actor.claims.principal_type != PrincipalType::User
-        || actor.claims.aud != audience
-        || actor.principal.get_entity_id().to_string() != actor.claims.sub
+    if actor.claims.principal_type != PrincipalType::User || actor.claims.aud != audience {
+        return Err(ErrorResponse::new(ErrorCode::AccessDenied));
+    }
+    if let PermissionTarget::Application { application_id, .. } = target
+        && (application_id.is_nil() || actor.application_id != application_id)
     {
         return Err(ErrorResponse::new(ErrorCode::AccessDenied));
     }
-    if let PermissionTarget::Application { application_id, .. } = target {
-        let actor_application = state
-            .oauth2_service
-            .application_id_for_client(&actor.claims.client_id)
-            .await?;
-        if application_id.is_nil() || actor_application != application_id {
-            return Err(ErrorResponse::new(ErrorCode::AccessDenied));
-        }
-    }
     let request = PermissionEvaluationRequest {
         request_id: Id::now_v7(),
-        subject: PermissionSubject::User {
-            id: actor.principal.get_entity_id(),
-        },
+        subject: PermissionSubject::User { id: actor.subject },
         action,
         target,
     };

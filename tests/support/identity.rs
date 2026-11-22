@@ -701,8 +701,8 @@ pub(crate) async fn run_lifecycle_http_checks(
             .json(&evaluation)
             .send()
             .await
-            .expect("old root bearer rejected"),
-        http::StatusCode::UNAUTHORIZED,
+            .expect("old root bearer still authenticates, but cannot assert a human"),
+        http::StatusCode::FORBIDDEN,
     )
     .await;
     let new_token = infrastructure_token(client, base, &id, "rotated-infrastructure-secret").await;
@@ -723,8 +723,8 @@ pub(crate) async fn run_lifecycle_http_checks(
             .json(&evaluation)
             .send()
             .await
-            .expect("revoked key bearer rejected"),
-        http::StatusCode::UNAUTHORIZED,
+            .expect("client bearer still authenticates, but cannot assert a human"),
+        http::StatusCode::FORBIDDEN,
     )
     .await;
     expect_status(

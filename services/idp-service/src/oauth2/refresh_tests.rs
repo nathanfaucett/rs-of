@@ -464,6 +464,65 @@ async fn issue(service: &TestService, client: &Client, principal: &UserPrincipal
         .await
         .expect("issue persisted tokens")
 }
+#[tokio::test]
+async fn blocked_user_or_disabled_client_cannot_issue_or_refresh_but_access_survives() {
+    use of_model::idp::contract::password_grant_request::PasswordGrantRequest;
+
+    for block_user in [true, false] {
+        let (_, service, mut client, principal) = setup().await;
+        client.allowed_grant_types.push(GrantType::Password);
+        let client = service
+            .client_repo
+            .update_client(client)
+            .await
+            .expect("enable password grant");
+        let password = || {
+            TokenRequest::Password(PasswordGrantRequest {
+                client_id: client.client_id.clone(),
+                username: "refresh-user".into(),
+                password: "test-password".into(),
+                scope: Some("openid".into()),
+                resource: None,
+            })
+        };
+        let issued = service
+            .token(password(), Some(auth(&client)))
+            .await
+            .expect("initial issuance");
+        let refresh = issued.refresh_token.expect("initial refresh grant");
+        if block_user {
+            service
+                .user_repo
+                .set_user_blocked(principal.user.id, true, None)
+                .await
+                .expect("block User");
+        } else {
+            service
+                .delete_client(&client.client_id)
+                .await
+                .expect("disable Client");
+        }
+        assert!(
+            service
+                .token(password(), Some(auth(&client)))
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .token(grant(&refresh.0, None), Some(auth(&client)))
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .validate_access_token(&issued.access_token.0, &client.client_id)
+                .await
+                .is_ok()
+        );
+    }
+}
+
 async fn states(engine: &TestEngine) -> Vec<ofdb_sql::Row> {
     engine
         .client()

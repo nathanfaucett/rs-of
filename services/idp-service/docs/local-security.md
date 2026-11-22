@@ -16,7 +16,9 @@ Node Signer preparation, public signer approval, Device approval, and endpoint a
 
 JWKS contains approved public Node Signers only. Keep private signers, entity master keys, derived private keys, password verifiers, Client secret verifiers, and raw grant credentials out of public responses and synchronization.
 
-Access, ID, and refresh tokens have different uses. Validate the required use together with signature, issuer, audience, lifetime, Client, Principal, scope, and current authentication-root state. ID tokens are not access tokens. Revocation at an unaware offline relying party is not guaranteed.
+Access, ID, and refresh tokens have different uses. Validate access JWTs against trusted issuer keys. Require the expected algorithm, issuer, audience, purpose, and validity interval. Take the subject, Application, and scopes from signed claims. The API owner still checks current Resource, Device, and Management authorization as applicable.
+
+Issuance and refresh check current User, Client, and grant state. Blocking a User, disabling a Client, or changing its Application does not change an unexpired access JWT. Learning that an issuer key was withdrawn can deny a token before expiry. A verifier with an older JWKS does not know about the withdrawal. ID and refresh tokens are not access tokens.
 
 ## Grants and reconnect
 

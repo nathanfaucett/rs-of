@@ -37,17 +37,33 @@ pub async fn active_management_user(state: &RouterState, user_id: Id) -> Result<
 
 #[cfg(test)]
 mod tests {
+    use axum::{body::Body, http::Request};
     use device_service::hosted_control_plane::HostedControlPlane;
-    use idp_service::repo::client_repo::ClientRepo;
+    use idp_service::{oauth2::verify_access_jwt, repo::client_repo::ClientRepo};
+    use of_model::idp::contract::jwks::Jwks;
+    use tower::ServiceExt;
 
     use crate::node_join_tests::{approval_fixture, user_token};
 
     use crate::management_owner::authorize_management_bearer;
 
     #[tokio::test]
-    async fn local_management_bearer_rechecks_current_client_registration() {
+    async fn local_management_bearer_retains_signed_application_after_client_deletion() {
         let fixture = approval_fixture().await;
         let token = user_token(&fixture, "idp-services").await;
+        let router: axum::Router = crate::openapi_router(fixture.state.clone(), "/idp").into();
+        let request = Request::builder()
+            .uri("/idp/.well-known/jwks.json")
+            .body(Body::empty())
+            .expect("issuer JWKS request");
+        let response = router.oneshot(request).await.expect("issuer JWKS response");
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let jwks: Jwks = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), 16 * 1024)
+                .await
+                .expect("read public keys"),
+        )
+        .expect("parse public keys");
         let state = fixture.state.clone();
         let control = HostedControlPlane::new_with_services(
             "http://127.0.0.1:1",
@@ -77,7 +93,20 @@ mod tests {
             .delete_client_by_client_id("human-client")
             .await
             .expect("learn registration deletion");
-        assert!(control.validate_actor_token(&token).await.is_err());
+        let (after, after_application) = control
+            .validate_actor_token(&token)
+            .await
+            .expect("an unexpired JWT still validates");
+        assert_eq!(after.sub, claims.sub);
+        assert_eq!(after_application, application_id);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("valid test clock")
+            .as_secs() as i64;
+        let verified = verify_access_jwt(&jwks, &fixture.issuer, "idp-services", &token, now)
+            .expect("verify using only the retained JWKS");
+        assert_eq!(verified.application_id, application_id);
+        assert_eq!(verified.standard_claims.sub, fixture.owner.to_string());
         drop(control);
         fixture.server.endpoint().close().await;
         let root = fixture.root.clone();

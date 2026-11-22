@@ -1,34 +1,30 @@
-use std::marker::PhantomData;
-
 use axum::extract::{FromRef, FromRequestParts};
 use http::{HeaderValue, header::AUTHORIZATION, request::Parts};
-use idp_service::oauth2::principal::Principal;
-use of_model::contract::{
-    principal_type::PrincipalType, standard_claims::StandardClaims, token_type::TokenType,
-    token_use::TokenUse,
-};
-use of_model::idp::contract::entity_type::EntityType;
+use of_model::contract::{principal_type::PrincipalType, standard_claims::StandardClaims};
+use of_model::id::Id;
 use of_model::idp::contract::{error_code::ErrorCode, error_response::ErrorResponse};
-use serde::de::DeserializeOwned;
 
 use crate::router::state::RouterState;
 
 pub const AUTHORIZATION_BEARER_PREFIX: &str = "Bearer ";
 
-pub type StandardAuthorization = Authorization<StandardClaims>;
-
-pub struct Authorization<T>
-where
-    T: DeserializeOwned + Send,
-{
-    pub principal: Box<dyn Principal>,
-    pub claims: T,
-    pub application_id: of_model::id::Id,
-    pub token: String,
-    _phantom_data: PhantomData<T>,
+pub struct StandardAuthorization {
+    pub subject: Id,
+    pub introspection_audiences: Vec<String>,
+    pub claims: StandardClaims,
+    pub application_id: Id,
 }
 
-impl<S> FromRequestParts<S> for Authorization<StandardClaims>
+impl StandardAuthorization {
+    pub fn require_oidc_audience(&self, service_audience: &str) -> Result<(), ErrorResponse> {
+        if self.claims.aud != self.claims.client_id && self.claims.aud != service_audience {
+            return Err(ErrorResponse::new(ErrorCode::NotAuthorized));
+        }
+        Ok(())
+    }
+}
+
+impl<S> FromRequestParts<S> for StandardAuthorization
 where
     RouterState: FromRef<S>,
     S: Send + Sync,
@@ -39,14 +35,7 @@ where
         if let Some(authorization_header_value) = parts.headers.get(AUTHORIZATION) {
             let authorization_string = authorization_from_header(authorization_header_value)?;
             let router_state = RouterState::from_ref(state);
-            let authorization = authorize_bearer(&router_state, authorization_string).await?;
-            return Ok(Authorization {
-                principal: authorization.principal,
-                claims: authorization.claims,
-                application_id: authorization.application_id,
-                token: authorization.token,
-                _phantom_data: PhantomData,
-            });
+            return authorize_bearer(&router_state, authorization_string).await;
         }
         Err(ErrorResponse::new(ErrorCode::NotAuthorized)
             .with_description("missing authorization header"))
@@ -56,7 +45,7 @@ where
 pub async fn authorize_bearer(
     router_state: &RouterState,
     authorization_string: &str,
-) -> Result<Authorization<StandardClaims>, ErrorResponse> {
+) -> Result<StandardAuthorization, ErrorResponse> {
     authorize_bearer_with_principal(
         router_state,
         authorization_string,
@@ -68,14 +57,14 @@ pub async fn authorize_bearer(
 pub(crate) async fn authorize_bearer_any_principal(
     router_state: &RouterState,
     authorization_string: &str,
-) -> Result<Authorization<StandardClaims>, ErrorResponse> {
+) -> Result<StandardAuthorization, ErrorResponse> {
     authorize_bearer_with_principal(router_state, authorization_string, None).await
 }
 
 pub(crate) async fn authorize_bearer_client(
     router_state: &RouterState,
     authorization_string: &str,
-) -> Result<Authorization<StandardClaims>, ErrorResponse> {
+) -> Result<StandardAuthorization, ErrorResponse> {
     authorize_bearer_with_principal(
         router_state,
         authorization_string,
@@ -88,46 +77,24 @@ async fn authorize_bearer_with_principal(
     router_state: &RouterState,
     authorization_string: &str,
     expected_principal: Option<PrincipalType>,
-) -> Result<Authorization<StandardClaims>, ErrorResponse> {
-    let (claims, principal, application_id) = router_state
+) -> Result<StandardAuthorization, ErrorResponse> {
+    let access = router_state
         .oauth2_service
-        .verify_access_token_principal(authorization_string)
+        .verify_access_token_claims(authorization_string)
         .await
         .map_err(|_| ErrorResponse::new(ErrorCode::NotAuthorized))?;
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| ErrorResponse::new(ErrorCode::NotAuthorized))?
-        .as_secs() as i64;
-    let claimed_entity_type = match claims.principal_type {
-        PrincipalType::User => EntityType::User,
-        PrincipalType::Client => EntityType::Client,
-    };
-    if claims.r#type != TokenType::Bearer
-        || claims.r#use != TokenUse::Access
-        || claims.iss
-            != router_state
-                .oauth2_service
-                .metadata(&router_state.api_base_uri)
-                .issuer
-        || claims.exp <= now
-        || claims.nbf > now
-        || claims.iat > now
-        || principal.get_entity_type() != claimed_entity_type
-        || expected_principal.is_some_and(|expected| expected != claims.principal_type)
-        || claims.sub != principal.get_entity_id().to_string()
-        || claims.aud.is_empty()
-    {
-        return Err(ErrorResponse::new(ErrorCode::NotAuthorized)
-            .with_description("invalid bearer token claims"));
+    let claims = access.standard_claims;
+    if expected_principal.is_some_and(|expected| expected != claims.principal_type) {
+        return Err(ErrorResponse::new(ErrorCode::NotAuthorized));
     }
+    let subject =
+        Id::parse_str(&claims.sub).map_err(|_| ErrorResponse::new(ErrorCode::NotAuthorized))?;
 
-    Ok(Authorization {
-        principal,
+    Ok(StandardAuthorization {
+        subject,
         claims,
-        application_id,
-        token: authorization_string.to_owned(),
-        _phantom_data: PhantomData,
+        application_id: access.application_id,
+        introspection_audiences: access.introspection_audiences,
     })
 }
 

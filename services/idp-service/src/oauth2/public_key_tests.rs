@@ -146,23 +146,39 @@ async fn approve_independent_signer(engine: &Arc<TestEngine>, service: &mut Test
 }
 
 #[tokio::test]
-async fn public_node_signers_verify_without_private_material_or_principal_impersonation() {
+async fn access_jwts_verify_with_retained_issuer_keys_without_identity_or_private_material() {
     let (engine, service, client, principal) = setup().await;
     let token = issue(&service, &client, &principal).await.access_token.0;
-    let (_, verifier) = public_verifier(&engine).await;
+    let (verifier_engine, verifier) = public_verifier(&engine).await;
+    verifier_engine
+        .client()
+        .translate_and_execute(
+            "DROP TABLE users; DROP TABLE clients; DROP TABLE keys",
+            &SqlTranslator,
+        )
+        .await
+        .expect("remove live identity tables from verifier");
     let claims = verifier
         .validate_access_token(&token, &client.client_id)
         .await
         .expect("verify offline with public trust");
     assert_eq!(claims.sub, principal.user.id.to_string());
-    let (_, _, application_id) = verifier
-        .verify_access_token_principal(&token)
+    let access = verifier
+        .verify_access_token_claims(&token)
         .await
-        .expect("verified bearer registration");
-    assert_eq!(
-        application_id, client.application_id,
-        "introspection reuses the currently validated Client's Application"
-    );
+        .expect("verified access claims");
+    assert_eq!(access.application_id, client.application_id);
+    let retained_jwks = service.list_jwks().await.expect("issuer JWKS");
+    let now = chrono::Utc::now().timestamp();
+    let access = crate::oauth2::verify_access_jwt(
+        &retained_jwks,
+        &service.oauth_config.issuer,
+        &client.client_id,
+        &token,
+        now,
+    )
+    .expect("retained JWKS needs no repositories");
+    assert_eq!(access.application_id, client.application_id);
     assert!(
         verifier
             .key_service
@@ -263,36 +279,96 @@ async fn public_node_signers_verify_without_private_material_or_principal_impers
     );
     let (_, original) = decode_jwt::<StandardClaims>(&token).expect("claims");
     for field in [
-        "subject", "type", "issuer", "use", "scope", "lifetime", "client",
+        "issuer",
+        "audience",
+        "purpose",
+        "expired",
+        "not yet valid",
+        "future issuance",
     ] {
         let mut claims = original.clone();
         match field {
-            "subject" => claims.sub = Id::now_v7().to_string(),
-            "type" => {
-                claims.principal_type = of_model::contract::principal_type::PrincipalType::Client
-            }
             "issuer" => claims.iss = "https://other-installation.example".into(),
-            "use" => claims.r#use = of_model::contract::token_use::TokenUse::Id,
-            "scope" => claims.scope.push("ungranted".into()),
-            "lifetime" => claims.exp = 0,
-            _ => claims.client_id = "other-client".into(),
+            "audience" => claims.aud = "another-api".into(),
+            "purpose" => claims.r#use = of_model::contract::token_use::TokenUse::Id,
+            "expired" => claims.exp = now,
+            "not yet valid" => claims.nbf = now + 300,
+            "future issuance" => claims.iat = now + 300,
+            _ => unreachable!(),
         }
         let invalid = encode_jwt(
             &service.local_signing_jwk().await.expect("local signer"),
-            &crate::oauth2::token::PrincipalBoundClaims {
+            &crate::oauth2::token::AccessClaims {
                 standard_claims: claims,
-                principal_key_id: principal.key.id,
+                application_id: client.application_id,
+                introspection_audiences: vec![],
             },
         )
         .expect("sign invalid claims");
         assert!(
-            verifier
-                .validate_access_token(&invalid, &client.client_id)
-                .await
-                .is_err(),
+            crate::oauth2::verify_access_jwt(
+                &retained_jwks,
+                &service.oauth_config.issuer,
+                &client.client_id,
+                &invalid,
+                now,
+            )
+            .is_err(),
             "accepted {field}"
         );
     }
+    let (signing_input, _) = token.rsplit_once('.').expect("JWT signature separator");
+    let invalid = format!("{signing_input}.{}", "A".repeat(86));
+    assert!(
+        crate::oauth2::verify_access_jwt(
+            &retained_jwks,
+            &service.oauth_config.issuer,
+            &client.client_id,
+            &invalid,
+            now,
+        )
+        .is_err()
+    );
+
+    use base64::{
+        Engine,
+        engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
+    };
+    use k256::ecdsa::{Signature, SigningKey, signature::Signer};
+    use of_model::idp::contract::jwk_private_parameters::JwkPrivateParameters;
+
+    let signer = service.local_signing_jwk().await.expect("local signer");
+    let JwkPrivateParameters::Ec { d, .. } = signer.params else {
+        panic!("EC issuer key")
+    };
+    let key = SigningKey::from_slice(&STANDARD_NO_PAD.decode(d).expect("EC scalar"))
+        .expect("issuer signing key");
+    let (_, payload) = signing_input
+        .split_once('.')
+        .expect("JWT payload separator");
+    let header = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&serde_json::json!({
+            "kid": signer.kid, "typ": "JWT", "alg": "ES256",
+        }))
+        .expect("wrong algorithm header"),
+    );
+    let wrong_input = format!("{header}.{payload}");
+    let signature: Signature = key.sign(wrong_input.as_bytes());
+    let invalid = format!(
+        "{wrong_input}.{}",
+        URL_SAFE_NO_PAD.encode(signature.to_bytes())
+    );
+    assert!(
+        crate::oauth2::verify_access_jwt(
+            &retained_jwks,
+            &service.oauth_config.issuer,
+            &client.client_id,
+            &invalid,
+            now,
+        )
+        .is_err(),
+        "reject a wrong algorithm even with a correct signature"
+    );
 }
 
 #[tokio::test]
@@ -321,7 +397,7 @@ async fn token_verification_requires_no_management_device_tables() {
 }
 
 #[tokio::test]
-async fn learned_member_signer_client_and_principal_revocations_deny_locally() {
+async fn only_issuer_trust_changes_invalidate_existing_access_tokens() {
     let (source, service, client, principal) = setup().await;
     let token = issue(&service, &client, &principal).await.access_token.0;
     for kind in ["member", "signer", "client", "principal", "corrupt-key"] {
@@ -380,12 +456,13 @@ async fn learned_member_signer_client_and_principal_revocations_deny_locally() {
                 .await
             }
         }
-        assert!(
+        assert_eq!(
             verifier
                 .validate_access_token(&token, &client.client_id)
                 .await
                 .is_err(),
-            "accepted {kind}"
+            matches!(kind, "member" | "signer"),
+            "unexpected access result for {kind}"
         );
     }
 }
@@ -726,7 +803,8 @@ async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
         .expect("issue against rotated metadata root");
     let (header, bound) =
         decode_jwt::<serde_json::Value>(&renewed.access_token.0).expect("rotated binding");
-    assert_eq!(bound["principal_key_id"], root.id.to_string());
+    assert_eq!(bound["application_id"], client.application_id.to_string());
+    assert!(bound.get("principal_key_id").is_none());
     assert_eq!(bound["sub"], client.id.to_string());
     assert_eq!(header.kid, a.kid);
     first
@@ -750,14 +828,14 @@ async fn independent_nodes_issue_client_tokens_with_distinct_local_signers() {
         first
             .validate_access_token(&left.access_token.0, "https://service.example")
             .await
-            .is_err(),
-        "locally learned Principal root rotation invalidates the old binding"
+            .is_ok(),
+        "Client authentication-root rotation affects issuance, not previous access JWTs"
     );
     assert!(
         second
             .validate_access_token(&left.access_token.0, "https://service.example")
             .await
             .is_ok(),
-        "partitioned Node retains its earlier trusted Principal view"
+        "partitioned Node retains its earlier trusted issuer keys"
     );
 }

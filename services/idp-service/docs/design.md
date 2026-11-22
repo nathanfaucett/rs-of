@@ -28,7 +28,7 @@ A token subject is a stable Principal identity, not a raw authentication key or 
 
 Each Node has an independent Node Signer. Private signing capability remains local; only approved public signer data may synchronize. Preparing a signer does not approve a Device, and Device approval does not prepare or approve a signer. JWKS publishes approved signing keys, not User authentication secrets.
 
-Validate issuer, audience, token use, lifetime, signature, signer approval, Principal state, Client, scope, and requested permission. An actor header or authenticated transport endpoint is not a substitute for these checks.
+Access JWT verification uses trusted issuer public keys and signed claims, not records for the User, Client, or authentication root. A verifier with a trusted JWKS snapshot can check a JWT without contacting the issuer. The OAuth token endpoint still checks current Principal, Client, and grant state before it issues or refreshes tokens. Resource and Device authorization remain separate. An actor header or authenticated transport endpoint does not prove API identity.
 
 ## Grants during partitions
 

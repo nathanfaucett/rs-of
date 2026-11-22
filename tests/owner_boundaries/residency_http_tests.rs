@@ -527,7 +527,7 @@ async fn residency_rechecks_learned_user_denial_before_owner_mutation() {
     tokio::time::timeout(std::time::Duration::from_secs(30), gate.reached())
         .await
         .expect("mutation reaches execution authorization");
-    fixture.revoke_user().await;
+    fixture.withdraw_issuer_key().await;
     gate.release();
     assert_eq!(
         request.await.expect("mutation task").status(),
