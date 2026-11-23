@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -66,7 +65,7 @@ export function ReplicationAdmissionRequestFromJSON(json: any): ReplicationAdmis
 
 export function ReplicationAdmissionRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): ReplicationAdmissionRequest {
   if (
     json &&
@@ -103,7 +102,7 @@ export function ReplicationAdmissionRequestToJSON(json: any): ReplicationAdmissi
 
 export function ReplicationAdmissionRequestToJSONTyped(
   value?: ReplicationAdmissionRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

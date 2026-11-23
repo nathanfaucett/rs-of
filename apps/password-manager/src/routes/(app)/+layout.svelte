@@ -1,10 +1,13 @@
 <script lang="ts">
-import { page } from "$app/state";
-import { goto } from "$app/navigation";
 import { onMount } from "svelte";
-import NavSidebar from "./layout/NavSidebar.svelte";
-import type { LayoutProps } from "./$types";
+import { goto } from "$app/navigation";
+import { resolve } from "$app/paths";
+import { page } from "$app/state";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+import type { LayoutProps } from "./$types";
+import NavSidebar from "./layout/NavSidebar.svelte";
+
+type NavigationView = "vault" | "generator" | "settings" | "trash";
 
 let { children }: LayoutProps = $props();
 let vaultData = $derived(vaultStateModule.vaultData);
@@ -30,13 +33,13 @@ $effect(() => {
     if (!vaultData) {
         // Only redirect if we're not already on the root
         if (page.url.pathname !== "/") {
-            goto("/");
+            void goto(resolve("/"));
         }
     }
 });</script>
 
 <div class="flex min-h-screen bg-canvas">
-    <NavSidebar onNavigate={(view) => goto(`/${view}`)} />
+    <NavSidebar onNavigate={(view: NavigationView) => void goto(resolve(`/${view}`))} />
 
     <main class="flex-1 min-h-0 flex flex-col lg:ml-64">
         <div class="flex-1 flex flex-col min-h-0">

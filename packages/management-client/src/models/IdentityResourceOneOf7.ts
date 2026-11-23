@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -50,7 +49,7 @@ export function IdentityResourceOneOf7FromJSON(json: any): IdentityResourceOneOf
 
 export function IdentityResourceOneOf7FromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IdentityResourceOneOf7 {
   if (json == null) {
     return json;
@@ -66,7 +65,7 @@ export function IdentityResourceOneOf7ToJSON(json: any): IdentityResourceOneOf7 
 
 export function IdentityResourceOneOf7ToJSONTyped(
   value?: IdentityResourceOneOf7 | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

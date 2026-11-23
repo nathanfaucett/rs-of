@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -41,7 +40,7 @@ export function DevicePairingApprovalRequestFromJSON(json: any): DevicePairingAp
 
 export function DevicePairingApprovalRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): DevicePairingApprovalRequest {
   if (json == null) {
     return json;
@@ -57,7 +56,7 @@ export function DevicePairingApprovalRequestToJSON(json: any): DevicePairingAppr
 
 export function DevicePairingApprovalRequestToJSONTyped(
   value?: DevicePairingApprovalRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

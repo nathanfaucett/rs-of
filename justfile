@@ -95,7 +95,7 @@ test-wasm:
     wasm-pack test --headless --chrome db/wasm
 
 npm-lint:
-    pnpm -r run lint
+    pnpm lint
 
 # ofdb browser validation matrix (ported from ofdb justfile)
 [positional-arguments]
@@ -212,7 +212,7 @@ unified *args:
     npx portless run --name unified cargo run -p unified-server -- local {{ args }}
 
 openapi-export:
-    cargo run -p unified-server --features independent-contracts --example export-openapi -- openapi
+    pnpm openapi:export
 
 openapi-generate:
     pnpm openapi

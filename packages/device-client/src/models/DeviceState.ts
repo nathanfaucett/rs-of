@@ -38,7 +38,7 @@ export function DeviceStateFromJSON(json: any): DeviceState {
   return DeviceStateFromJSONTyped(json, false);
 }
 
-export function DeviceStateFromJSONTyped(json: any, ignoreDiscriminator: boolean): DeviceState {
+export function DeviceStateFromJSONTyped(json: any, _ignoreDiscriminator: boolean): DeviceState {
   return json as DeviceState;
 }
 
@@ -46,6 +46,6 @@ export function DeviceStateToJSON(value?: DeviceState | null): any {
   return value as any;
 }
 
-export function DeviceStateToJSONTyped(value: any, ignoreDiscriminator: boolean): DeviceState {
+export function DeviceStateToJSONTyped(value: any, _ignoreDiscriminator: boolean): DeviceState {
   return value as DeviceState;
 }

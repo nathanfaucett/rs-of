@@ -1,43 +1,45 @@
 {
-    "name": "@ofsdk/storage-client",
-    "version": "0.1.0",
-    "description": "Aicacia storage WebSocket client",
-    "type": "module",
-    "module": "esm",
-    "main": "esm",
-    "types": "types",
-    "exports": {
-        ".": {
-            "types": "./types/index.d.ts",
-            "default": "./esm/index.js"
-        },
-        "./package.json": "./package.json",
-        "./generated": {
-            "types": "./types/generated/index.d.ts",
-            "default": "./esm/generated/index.js"
-        }
+  "name": "@ofsdk/storage-client",
+  "version": "0.1.0",
+  "description": "Aicacia storage WebSocket client",
+  "type": "module",
+  "module": "esm",
+  "main": "esm",
+  "types": "types",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./esm/index.js"
     },
-    "scripts": {
-        "build:esm": "tsc --project tsconfig.json",
-        "build:browser": "rolldown -c",
-        "build": "pnpm run clean && pnpm run build:esm && pnpm run build:browser",
-        "clean": "shx rm -rf esm browser types tsconfig.tsbuildinfo",
-        "lint": "biome lint .",
-        "format": "biome format .",
-        "format:fix": "biome format --write .",
-        "test": "vitest",
-        "openapi": "node ../../scripts/generate-openapi-client.mjs storage",
-        "postopenapi": "pnpm exec biome format --write src/generated"
-    },
-    "devDependencies": {
-        "@biomejs/biome": "^2.5.3",
-        "@openapitools/openapi-generator-cli": "2.41.0",
-        "rolldown": "^1.1.5",
-        "shx": "^0.4.0",
-        "typescript": "^5.9.3",
-        "vitest": "4.1.10"
-    },
-    "dependencies": {
-        "@ofsdk/idp-client": "workspace:*"
+    "./package.json": "./package.json",
+    "./generated": {
+      "types": "./types/generated/index.d.ts",
+      "default": "./esm/generated/index.js"
     }
+  },
+  "scripts": {
+    "build:esm": "tsc --project tsconfig.json",
+    "build:browser": "rolldown -c",
+    "build": "pnpm run clean && pnpm run build:esm && pnpm run build:browser",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "clean": "shx rm -rf esm browser types tsconfig.tsbuildinfo",
+    "lint": "biome check --error-on-warnings .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format .",
+    "format:fix": "biome format --write .",
+    "test": "vitest run",
+    "openapi": "node ../../scripts/generate-openapi-client.mjs storage",
+    "postopenapi": "pnpm exec biome format --write src/generated"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.3",
+    "@openapitools/openapi-generator-cli": "2.41.0",
+    "rolldown": "^1.1.5",
+    "shx": "^0.4.0",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.10"
+  },
+  "dependencies": {
+    "@ofsdk/idp-client": "workspace:*"
+  }
 }

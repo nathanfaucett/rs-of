@@ -12,53 +12,45 @@
  * Do not edit the class manually.
  */
 
-import { parseDate, parseDateTime, serializeDate, serializeDateTime } from "../runtime.js";
 import type { SqlValueOneOf } from "./SqlValueOneOf.js";
 import {
   instanceOfSqlValueOneOf,
-  SqlValueOneOfFromJSON,
   SqlValueOneOfFromJSONTyped,
   SqlValueOneOfToJSON,
 } from "./SqlValueOneOf.js";
 import type { SqlValueOneOf1 } from "./SqlValueOneOf1.js";
 import {
   instanceOfSqlValueOneOf1,
-  SqlValueOneOf1FromJSON,
   SqlValueOneOf1FromJSONTyped,
   SqlValueOneOf1ToJSON,
 } from "./SqlValueOneOf1.js";
 import type { SqlValueOneOf2 } from "./SqlValueOneOf2.js";
 import {
   instanceOfSqlValueOneOf2,
-  SqlValueOneOf2FromJSON,
   SqlValueOneOf2FromJSONTyped,
   SqlValueOneOf2ToJSON,
 } from "./SqlValueOneOf2.js";
 import type { SqlValueOneOf3 } from "./SqlValueOneOf3.js";
 import {
   instanceOfSqlValueOneOf3,
-  SqlValueOneOf3FromJSON,
   SqlValueOneOf3FromJSONTyped,
   SqlValueOneOf3ToJSON,
 } from "./SqlValueOneOf3.js";
 import type { SqlValueOneOf4 } from "./SqlValueOneOf4.js";
 import {
   instanceOfSqlValueOneOf4,
-  SqlValueOneOf4FromJSON,
   SqlValueOneOf4FromJSONTyped,
   SqlValueOneOf4ToJSON,
 } from "./SqlValueOneOf4.js";
 import type { SqlValueOneOf5 } from "./SqlValueOneOf5.js";
 import {
   instanceOfSqlValueOneOf5,
-  SqlValueOneOf5FromJSON,
   SqlValueOneOf5FromJSONTyped,
   SqlValueOneOf5ToJSON,
 } from "./SqlValueOneOf5.js";
 import type { SqlValueOneOf6 } from "./SqlValueOneOf6.js";
 import {
   instanceOfSqlValueOneOf6,
-  SqlValueOneOf6FromJSON,
   SqlValueOneOf6FromJSONTyped,
   SqlValueOneOf6ToJSON,
 } from "./SqlValueOneOf6.js";
@@ -81,7 +73,7 @@ export function SqlValueFromJSON(json: any): SqlValue {
   return SqlValueFromJSONTyped(json, false);
 }
 
-export function SqlValueFromJSONTyped(json: any, ignoreDiscriminator: boolean): SqlValue {
+export function SqlValueFromJSONTyped(json: any, _ignoreDiscriminator: boolean): SqlValue {
   if (json == null) {
     return json;
   }
@@ -118,7 +110,7 @@ export function SqlValueToJSON(json: any): any {
 
 export function SqlValueToJSONTyped(
   value?: SqlValue | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

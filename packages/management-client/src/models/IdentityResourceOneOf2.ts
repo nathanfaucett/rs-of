@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -22,7 +21,7 @@ export interface IdentityResourceOneOf2 {
   /**
    *
    */
-  id?: string | null;
+  id?: (string | null) | undefined;
   /**
    *
    */
@@ -54,7 +53,7 @@ export function IdentityResourceOneOf2FromJSON(json: any): IdentityResourceOneOf
 
 export function IdentityResourceOneOf2FromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IdentityResourceOneOf2 {
   if (json == null) {
     return json;
@@ -71,7 +70,7 @@ export function IdentityResourceOneOf2ToJSON(json: any): IdentityResourceOneOf2 
 
 export function IdentityResourceOneOf2ToJSONTyped(
   value?: IdentityResourceOneOf2 | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

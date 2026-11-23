@@ -1,15 +1,15 @@
-import { Database as SqlDatabase, type Client, type Row } from "@ofsdk/sql";
+import { type Client, type Row, Database as SqlDatabase } from "@ofsdk/sql";
 import type { DatabaseHandle } from "@ofsdk/sync-sdk";
-import { unlockSyncVault, type SyncVaultHandle } from "../sync-vault";
+import { type SyncVaultHandle, unlockSyncVault } from "../sync-vault";
 import {
-  parseSecretRow,
-  parseFolderRow,
-  parseVaultRow,
-  parseText,
-  parseOptionalText,
-  MIGRATIONS,
-  dbParams,
   dbParam,
+  dbParams,
+  MIGRATIONS,
+  parseFolderRow,
+  parseOptionalText,
+  parseSecretRow,
+  parseText,
+  parseVaultRow,
 } from "./schema";
 
 const SHARED_DB_NAME = "password-manager-v1";
@@ -85,7 +85,7 @@ export async function needsMigration(): Promise<boolean> {
 
 async function migrateLegacyVault(
   sharedClient: Client,
-  identity: LegacyVaultIdentity,
+  identity: LegacyVaultIdentity
 ): Promise<void> {
   const vaultId = identity.id;
   const legacyDbName = `${LEGACY_DB_PREFIX}${vaultId}`;
@@ -102,7 +102,7 @@ async function migrateLegacyVault(
         createdAt: parseText(row, "created_at"),
         authentication: parseOptionalText(row, "authentication"),
         lockSettings: parseOptionalText(row, "lock_settings"),
-      }),
+      })
     );
     const meta = metaResults[0];
     if (!meta) throw new Error(`Legacy vault metadata not found: ${vaultId}`);
@@ -115,7 +115,7 @@ async function migrateLegacyVault(
         nonce: parseText(row, "nonce"),
         createdAt: parseText(row, "created_at"),
         updatedAt: parseText(row, "updated_at"),
-      }),
+      })
     );
     const folders = await legacyClient.execute(
       `SELECT id, ciphertext, nonce, created_at, updated_at FROM folders`,
@@ -125,7 +125,7 @@ async function migrateLegacyVault(
         nonce: parseText(row, "nonce"),
         createdAt: parseText(row, "created_at"),
         updatedAt: parseText(row, "updated_at"),
-      }),
+      })
     );
 
     const tx = await sharedClient.transaction();
@@ -135,25 +135,42 @@ async function migrateLegacyVault(
         : { type: "null" as const };
       await tx.executeRaw(
         `INSERT INTO vaults (id, name, salt, iv, created_at, authentication, status, migrated) VALUES (?, ?, ?, ?, ?, ?, 'ready', 1)`,
-        [...dbParams(meta.vaultId, identity.name, meta.salt, meta.iv, meta.createdAt), authentication],
+        [
+          ...dbParams(meta.vaultId, identity.name, meta.salt, meta.iv, meta.createdAt),
+          authentication,
+        ]
       );
       for (const secret of secrets) {
         await tx.executeRaw(
           `INSERT INTO secrets (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-          dbParams(secret.id, vaultId, secret.ciphertext, secret.nonce, secret.createdAt, secret.updatedAt),
+          dbParams(
+            secret.id,
+            vaultId,
+            secret.ciphertext,
+            secret.nonce,
+            secret.createdAt,
+            secret.updatedAt
+          )
         );
       }
       for (const folder of folders) {
         await tx.executeRaw(
           `INSERT INTO folders (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-          dbParams(folder.id, vaultId, folder.ciphertext, folder.nonce, folder.createdAt, folder.updatedAt),
+          dbParams(
+            folder.id,
+            vaultId,
+            folder.ciphertext,
+            folder.nonce,
+            folder.createdAt,
+            folder.updatedAt
+          )
         );
       }
       if (meta.lockSettings) {
         const settings = JSON.parse(meta.lockSettings);
         await tx.executeRaw(
           `INSERT INTO lock_settings (vault_id, ciphertext, nonce, updated_at) VALUES (?, ?, ?, ?)`,
-          dbParams(vaultId, settings.ciphertext, settings.nonce, new Date().toISOString()),
+          dbParams(vaultId, settings.ciphertext, settings.nonce, new Date().toISOString())
         );
       }
       await tx.commit();
@@ -218,7 +235,10 @@ async function deleteIndexedDatabase(name: string): Promise<void> {
 export async function migrateLocalVaultToSync(
   vaultId: string,
   password: string,
-  syncClient: { createDatabase: (name: string) => Promise<DatabaseHandle>; openDatabase: (id: string) => Promise<DatabaseHandle> }
+  syncClient: {
+    createDatabase: (name: string) => Promise<DatabaseHandle>;
+    openDatabase: (id: string) => Promise<DatabaseHandle>;
+  }
 ): Promise<{ syncHandle: DatabaseHandle; syncDb: SyncVaultHandle }> {
   // First, get the local vault data
   const localClient = await getSharedClient();
@@ -226,7 +246,7 @@ export async function migrateLocalVaultToSync(
   const vaultResults = await localClient.execute(
     `SELECT id, name, salt, iv, created_at, authentication FROM vaults WHERE id = ?`,
     (row: Row) => parseVaultRow(row),
-    [dbParam(vaultId)],
+    [dbParam(vaultId)]
   );
 
   if (!vaultResults[0]) {
@@ -243,16 +263,20 @@ export async function migrateLocalVaultToSync(
   const key = await deriveKey(password, salt);
 
   if (vault.authentication) {
-    await verifyAuthentication(key, { id: vault.id, salt: vault.salt, iv: vault.iv, createdAt: vault.createdAt }, vault.authentication);
+    await verifyAuthentication(
+      key,
+      { id: vault.id, salt: vault.salt, iv: vault.iv, createdAt: vault.createdAt },
+      vault.authentication
+    );
   } else {
     const secretRows = await localClient.execute(
       `SELECT id, ciphertext, nonce FROM secrets WHERE vault_id = ?`,
       (row: Row) => ({
-        id: (row.id as { type: "uuid"; value: string }).value,
-        ciphertext: (row.ciphertext as { type: "text"; value: string }).value,
-        nonce: (row.nonce as { type: "text"; value: string }).value,
+        id: parseText(row, "id"),
+        ciphertext: parseText(row, "ciphertext"),
+        nonce: parseText(row, "nonce"),
       }),
-      [dbParam(vaultId)],
+      [dbParam(vaultId)]
     );
     if (secretRows.length === 0) {
       localClient.close();
@@ -272,19 +296,20 @@ export async function migrateLocalVaultToSync(
   const secretResults = await localClient.execute(
     `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM secrets WHERE vault_id = ?`,
     (row: Row) => parseSecretRow(row),
-    [dbParam(vaultId)],
+    [dbParam(vaultId)]
   );
 
   const folderResults = await localClient.execute(
     `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ?`,
     (row: Row) => parseFolderRow(row),
-    [dbParam(vaultId)],
+    [dbParam(vaultId)]
   );
 
   const lockResults = await localClient.execute(
     `SELECT vault_id, ciphertext, nonce, updated_at FROM lock_settings WHERE vault_id = ?`,
-    (row: Row): { vault_id: string; ciphertext: string; nonce: string; updated_at: string } => parseLockSettingsRow(row),
-    [dbParam(vaultId)],
+    (row: Row): { vault_id: string; ciphertext: string; nonce: string; updated_at: string } =>
+      parseLockSettingsRow(row),
+    [dbParam(vaultId)]
   );
 
   localClient.close();
@@ -299,14 +324,24 @@ export async function migrateLocalVaultToSync(
     // Insert vault metadata
     await tx.executeRaw(
       `INSERT INTO vaults (id, name, salt, iv, created_at, authentication, status, migrated) VALUES (?, ?, ?, ?, ?, ?, 'ready', 1)`,
-      dbParams(vaultId, vault.name, vault.salt, vault.iv, vault.createdAt, vault.authentication),
+      [
+        ...dbParams(vaultId, vault.name, vault.salt, vault.iv, vault.createdAt),
+        vault.authentication ? dbParam(vault.authentication) : { type: "null" as const },
+      ]
     );
 
     // Insert secrets
     for (const secret of secretResults) {
       await tx.executeRaw(
         `INSERT INTO secrets (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-        dbParams(secret.id, vaultId, secret.ciphertext, secret.nonce, secret.createdAt, secret.updatedAt),
+        dbParams(
+          secret.id,
+          vaultId,
+          secret.ciphertext,
+          secret.nonce,
+          secret.createdAt,
+          secret.updatedAt
+        )
       );
     }
 
@@ -314,7 +349,14 @@ export async function migrateLocalVaultToSync(
     for (const folder of folderResults) {
       await tx.executeRaw(
         `INSERT INTO folders (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-        dbParams(folder.id, vaultId, folder.ciphertext, folder.nonce, folder.createdAt, folder.updatedAt),
+        dbParams(
+          folder.id,
+          vaultId,
+          folder.ciphertext,
+          folder.nonce,
+          folder.createdAt,
+          folder.updatedAt
+        )
       );
     }
 
@@ -322,7 +364,12 @@ export async function migrateLocalVaultToSync(
     if (lockResults[0]) {
       await tx.executeRaw(
         `INSERT INTO lock_settings (vault_id, ciphertext, nonce, updated_at) VALUES (?, ?, ?, ?)`,
-        dbParams(lockResults[0].vault_id, lockResults[0].ciphertext, lockResults[0].nonce, lockResults[0].updated_at),
+        dbParams(
+          lockResults[0].vault_id,
+          lockResults[0].ciphertext,
+          lockResults[0].nonce,
+          lockResults[0].updated_at
+        )
       );
     }
 
@@ -345,9 +392,9 @@ export async function migrateLocalVaultToSync(
 
 function parseLockSettingsRow(row: Row) {
   return {
-    vault_id: (row.vault_id as { type: "uuid"; value: string }).value,
-    ciphertext: (row.ciphertext as { type: "text"; value: string }).value,
-    nonce: (row.nonce as { type: "text"; value: string }).value,
-    updated_at: (row.updated_at as { type: "text"; value: string }).value,
+    vault_id: parseText(row, "vault_id"),
+    ciphertext: parseText(row, "ciphertext"),
+    nonce: parseText(row, "nonce"),
+    updated_at: parseText(row, "updated_at"),
   };
 }

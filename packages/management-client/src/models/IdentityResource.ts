@@ -12,69 +12,59 @@
  * Do not edit the class manually.
  */
 
-import { parseDate, parseDateTime, serializeDate, serializeDateTime } from "../runtime.js";
 import type { IdentityResourceOneOf } from "./IdentityResourceOneOf.js";
 import {
-  instanceOfIdentityResourceOneOf,
-  IdentityResourceOneOfFromJSON,
   IdentityResourceOneOfFromJSONTyped,
   IdentityResourceOneOfToJSON,
+  instanceOfIdentityResourceOneOf,
 } from "./IdentityResourceOneOf.js";
 import type { IdentityResourceOneOf1 } from "./IdentityResourceOneOf1.js";
 import {
-  instanceOfIdentityResourceOneOf1,
-  IdentityResourceOneOf1FromJSON,
   IdentityResourceOneOf1FromJSONTyped,
   IdentityResourceOneOf1ToJSON,
+  instanceOfIdentityResourceOneOf1,
 } from "./IdentityResourceOneOf1.js";
 import type { IdentityResourceOneOf2 } from "./IdentityResourceOneOf2.js";
 import {
-  instanceOfIdentityResourceOneOf2,
-  IdentityResourceOneOf2FromJSON,
   IdentityResourceOneOf2FromJSONTyped,
   IdentityResourceOneOf2ToJSON,
+  instanceOfIdentityResourceOneOf2,
 } from "./IdentityResourceOneOf2.js";
 import type { IdentityResourceOneOf3 } from "./IdentityResourceOneOf3.js";
 import {
-  instanceOfIdentityResourceOneOf3,
-  IdentityResourceOneOf3FromJSON,
   IdentityResourceOneOf3FromJSONTyped,
   IdentityResourceOneOf3ToJSON,
+  instanceOfIdentityResourceOneOf3,
 } from "./IdentityResourceOneOf3.js";
 import type { IdentityResourceOneOf4 } from "./IdentityResourceOneOf4.js";
 import {
-  instanceOfIdentityResourceOneOf4,
-  IdentityResourceOneOf4FromJSON,
   IdentityResourceOneOf4FromJSONTyped,
   IdentityResourceOneOf4ToJSON,
+  instanceOfIdentityResourceOneOf4,
 } from "./IdentityResourceOneOf4.js";
 import type { IdentityResourceOneOf5 } from "./IdentityResourceOneOf5.js";
 import {
-  instanceOfIdentityResourceOneOf5,
-  IdentityResourceOneOf5FromJSON,
   IdentityResourceOneOf5FromJSONTyped,
   IdentityResourceOneOf5ToJSON,
+  instanceOfIdentityResourceOneOf5,
 } from "./IdentityResourceOneOf5.js";
 import type { IdentityResourceOneOf6 } from "./IdentityResourceOneOf6.js";
 import {
-  instanceOfIdentityResourceOneOf6,
-  IdentityResourceOneOf6FromJSON,
   IdentityResourceOneOf6FromJSONTyped,
   IdentityResourceOneOf6ToJSON,
+  instanceOfIdentityResourceOneOf6,
 } from "./IdentityResourceOneOf6.js";
 import type { IdentityResourceOneOf7 } from "./IdentityResourceOneOf7.js";
 import {
-  instanceOfIdentityResourceOneOf7,
-  IdentityResourceOneOf7FromJSON,
   IdentityResourceOneOf7FromJSONTyped,
   IdentityResourceOneOf7ToJSON,
+  instanceOfIdentityResourceOneOf7,
 } from "./IdentityResourceOneOf7.js";
 import type { IdentityResourceOneOf8 } from "./IdentityResourceOneOf8.js";
 import {
-  instanceOfIdentityResourceOneOf8,
-  IdentityResourceOneOf8FromJSON,
   IdentityResourceOneOf8FromJSONTyped,
   IdentityResourceOneOf8ToJSON,
+  instanceOfIdentityResourceOneOf8,
 } from "./IdentityResourceOneOf8.js";
 
 /**
@@ -99,7 +89,7 @@ export function IdentityResourceFromJSON(json: any): IdentityResource {
 
 export function IdentityResourceFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IdentityResource {
   if (json == null) {
     return json;
@@ -143,7 +133,7 @@ export function IdentityResourceToJSON(json: any): any {
 
 export function IdentityResourceToJSONTyped(
   value?: IdentityResource | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

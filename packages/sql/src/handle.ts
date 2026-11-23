@@ -3,7 +3,7 @@ import { SqlError } from "./error.js";
 /** Do not free a Rust handle while a generated async call still borrows it. */
 export class Handle<T extends { free(): void }> {
   private value: T | undefined;
-  private closed = false;
+  private closed: boolean = false;
   private pending = 0;
 
   constructor(value: T) {

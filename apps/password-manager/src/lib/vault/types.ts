@@ -1,7 +1,6 @@
+import type { Folder, ItemMutation, ItemSnapshot } from "$lib/vault/folder";
 import type { LockSettings } from "$lib/vault/lock";
 import type { Secret } from "$lib/vault/secrets/secret";
-import type { Folder } from "$lib/vault/folder";
-import type { ItemMutation, ItemSnapshot } from "$lib/vault/folder";
 
 export interface VaultHandleLike {
   /** Unique vault identifier */
@@ -56,12 +55,15 @@ export interface VaultHandleLike {
   saveLockSettings(settings: LockSettings): Promise<LockSettings>;
 
   /** Sync vault with remote (if available) */
-  sync?(options?: { direction?: "bidirectional" | "push" | "pull"; conflictStrategy?: "local-wins" | "remote-wins" | "merge" | "manual" }): Promise<void>;
+  sync?(options?: {
+    direction?: "bidirectional" | "push" | "pull";
+    conflictStrategy?: "local-wins" | "remote-wins" | "merge" | "manual";
+  }): Promise<void>;
 
   /** Sync vault to another device (if available) */
 
-  /** Close the vault */
-  close(): void;
+  /** Close the vault and wait for pending sync teardown */
+  close(): Promise<void>;
 }
 
-export type { LockSettings, Secret, Folder, ItemMutation, ItemSnapshot };
+export type { Folder, ItemMutation, ItemSnapshot, LockSettings, Secret };

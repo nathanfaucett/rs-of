@@ -38,7 +38,7 @@ export function TokenUseFromJSON(json: any): TokenUse {
   return TokenUseFromJSONTyped(json, false);
 }
 
-export function TokenUseFromJSONTyped(json: any, ignoreDiscriminator: boolean): TokenUse {
+export function TokenUseFromJSONTyped(json: any, _ignoreDiscriminator: boolean): TokenUse {
   return json as TokenUse;
 }
 
@@ -46,6 +46,6 @@ export function TokenUseToJSON(value?: TokenUse | null): any {
   return value as any;
 }
 
-export function TokenUseToJSONTyped(value: any, ignoreDiscriminator: boolean): TokenUse {
+export function TokenUseToJSONTyped(value: any, _ignoreDiscriminator: boolean): TokenUse {
   return value as TokenUse;
 }

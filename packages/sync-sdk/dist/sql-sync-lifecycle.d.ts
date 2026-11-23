@@ -7,12 +7,12 @@ interface LifecycleCallbacks {
 }
 /** Owns one handle's attach, transport, deadline, and close lifecycle. */
 export declare class SqlSyncLifecycle {
+    private active;
+    private closed;
     private readonly database;
     private readonly client;
     private readonly identity;
     private readonly callbacks;
-    private active?;
-    private closed;
     constructor(database: Database, client: SyncClient, identity: StoreIdentity, callbacks: LifecycleCallbacks);
     sync(): Promise<void>;
     close(): Promise<void>;

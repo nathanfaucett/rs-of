@@ -6,8 +6,8 @@
 
 <script lang="ts">
     import type { Notification } from "@ofsdk/svelte-headless";
-    import { Alert } from "$lib/ui";
     import { notifications } from "$lib/common/state/notifications.svelte";
+    import { Alert } from "$lib/ui";
 
     let { notification }: Props = $props();
 

@@ -1,21 +1,21 @@
 export type { ConnectBackend, StorageBackend } from "./backend.js";
-export { createWebSocketBackend } from "./websocket.js";
 export { createOfdbBackend } from "./ofdb.js";
-export {
-  createSyncBackend,
-  createNativeSyncClient,
-  NativeSyncClient,
-} from "./sync.js";
 export type {
-  StoreIdentity,
-  SyncDirection,
-  SyncResult,
-  SyncMessage,
-  ProtocolId,
   AttachDirection,
-  Hello,
   AttachRequest,
   AttachResponse,
+  Hello,
+  ProtocolId,
   ReconnectToken,
+  StoreIdentity,
+  SyncDirection,
+  SyncMessage,
+  SyncResult,
   SyncUnitId,
 } from "./sync.js";
+export {
+  createNativeSyncClient,
+  createSyncBackend,
+  NativeSyncClient,
+} from "./sync.js";
+export { createWebSocketBackend } from "./websocket.js";

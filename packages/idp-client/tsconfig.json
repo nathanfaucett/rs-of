@@ -4,11 +4,7 @@
     "rootDir": "src",
     "outDir": "esm",
     "declarationDir": "types",
-    "allowImportingTsExtensions": false,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "exactOptionalPropertyTypes": false,
-    "noImplicitOverride": false
+    "allowImportingTsExtensions": false
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "esm", "types"]

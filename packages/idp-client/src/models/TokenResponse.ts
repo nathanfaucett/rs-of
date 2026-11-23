@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { TokenType } from "./TokenType.js";
-import {
-  TokenTypeFromJSON,
-  TokenTypeFromJSONTyped,
-  TokenTypeToJSON,
-  TokenTypeToJSONTyped,
-} from "./TokenType.js";
+import { TokenTypeFromJSON, TokenTypeToJSON } from "./TokenType.js";
 
 /**
  *
@@ -34,27 +28,27 @@ export interface TokenResponse {
   /**
    * The lifetime in seconds of the id/access token.
    */
-  expiresIn?: number | null;
+  expiresIn?: (number | null) | undefined;
   /**
    *
    */
-  idToken?: string | null;
+  idToken?: (string | null) | undefined;
   /**
    * The identifier of the authorization server that issued the token.
    */
-  iss?: string | null;
+  iss?: (string | null) | undefined;
   /**
    * The refresh token, which can be used to obtain new access tokens using the same authorization grant.
    */
-  refreshToken?: string | null;
+  refreshToken?: (string | null) | undefined;
   /**
    * The lifetime in seconds of the refresh token.
    */
-  refreshTokenExpiresIn?: number | null;
+  refreshTokenExpiresIn?: (number | null) | undefined;
   /**
    * The scope of the access token as described by the authorization server.
    */
-  scope?: string | null;
+  scope?: (string | null) | undefined;
   /**
    * The type of the token issued.
    */
@@ -86,7 +80,10 @@ export function TokenResponseFromJSON(json: any): TokenResponse {
   return TokenResponseFromJSONTyped(json, false);
 }
 
-export function TokenResponseFromJSONTyped(json: any, ignoreDiscriminator: boolean): TokenResponse {
+export function TokenResponseFromJSONTyped(
+  json: any,
+  _ignoreDiscriminator: boolean
+): TokenResponse {
   if (json == null) {
     return json;
   }
@@ -128,7 +125,7 @@ export function TokenResponseToJSON(json: any): TokenResponse {
 
 export function TokenResponseToJSONTyped(
   value?: TokenResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

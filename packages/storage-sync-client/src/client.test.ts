@@ -13,9 +13,9 @@ const identity = {
 
 class TestSocket extends EventTarget {
   static latest: TestSocket;
-  static reply = fixtures.acceptBidirectional;
-  static echo = true;
-  static open = true;
+  static reply: string = fixtures.acceptBidirectional;
+  static echo: boolean = true;
+  static open: boolean = true;
   binaryType = "blob";
   sent: Uint8Array[] = [];
   readyState = 0;
@@ -34,14 +34,11 @@ class TestSocket extends EventTarget {
   send(data: Uint8Array) {
     this.sent.push(data);
     if (this.sent.length === 1 && TestSocket.echo) this.receive(fixtures.hello);
-    if (this.sent.length === 2 && TestSocket.reply)
-      this.receive(TestSocket.reply);
+    if (this.sent.length === 2 && TestSocket.reply) this.receive(TestSocket.reply);
   }
   receive(hex: string) {
     queueMicrotask(() =>
-      this.dispatchEvent(
-        new MessageEvent("message", { data: bytes(hex).buffer }),
-      ),
+      this.dispatchEvent(new MessageEvent("message", { data: bytes(hex).buffer }))
     );
   }
   close() {
@@ -72,10 +69,7 @@ test("attaches with the storage server Postcard handshake, not the incompatible 
   }).attach({ identity, direction: "Push" });
   expect(TestSocket.latest.url).toBe("wss://node.test/storage/sync/ws");
   expect(TestSocket.latest.binaryType).toBe("arraybuffer");
-  expect(TestSocket.latest.sent).toEqual([
-    bytes(fixtures.hello),
-    bytes(fixtures.attachPush),
-  ]);
+  expect(TestSocket.latest.sent).toEqual([bytes(fixtures.hello), bytes(fixtures.attachPush)]);
   expect(tokenProvider).toHaveBeenCalledTimes(1);
   expect(session.result).toEqual({
     status: "attached",
@@ -110,13 +104,11 @@ test.each(["Push", "Pull", "Bidirectional"] as const)(
   async (direction) => {
     TestSocket.reply = fixtures[`accept${direction}`];
     const session = await client().attach({ identity, direction });
-    expect(TestSocket.latest.sent[1]).toEqual(
-      bytes(fixtures[`attach${direction}`]),
-    );
+    expect(TestSocket.latest.sent[1]).toEqual(bytes(fixtures[`attach${direction}`]));
     expect(session.result.requestedDirection).toBe(direction);
     expect(session.result.grantedDirection).toBe(direction);
     session.close();
-  },
+  }
 );
 
 test.each([
@@ -125,45 +117,35 @@ test.each([
   ["unavailable", "unavailable"],
   ["malformed", "protocol"],
   ["internal", "protocol"],
-] as const)(
-  "reports %s without exposing server details",
-  async (reply, code) => {
-    TestSocket.reply = fixtures[reply];
-    await expect(
-      client().attach({ identity, direction: "Push" }),
-    ).rejects.toMatchObject({
-      name: "SyncError",
-      code,
-      message: expect.not.stringContaining("private server details"),
-    });
-    expect(TestSocket.latest.readyState).toBe(3);
-  },
-);
+] as const)("reports %s without exposing server details", async (reply, code) => {
+  TestSocket.reply = fixtures[reply];
+  await expect(client().attach({ identity, direction: "Push" })).rejects.toMatchObject({
+    name: "SyncError",
+    code,
+    message: expect.not.stringContaining("private server details"),
+  });
+  expect(TestSocket.latest.readyState).toBe(3);
+});
 
 test("rejects a grant that does not permit the requested direction", async () => {
   TestSocket.reply = fixtures.acceptPull;
-  await expect(
-    client().attach({ identity, direction: "Push" }),
-  ).rejects.toMatchObject({
+  await expect(client().attach({ identity, direction: "Push" })).rejects.toMatchObject({
     code: "protocol",
     message: "Requested sync direction not granted",
   });
 });
 
-test.each(["", "   "])(
-  "rejects an empty token before opening a socket",
-  async (token) => {
-    const factory = vi.fn();
-    vi.stubGlobal("WebSocket", factory);
-    await expect(
-      new SyncClient({
-        storageApiUrl: "https://node.test/storage",
-        tokenProvider: () => token,
-      }).attach({ identity, direction: "Push" }),
-    ).rejects.toMatchObject({ code: "auth" });
-    expect(factory).not.toHaveBeenCalled();
-  },
-);
+test.each(["", "   "])("rejects an empty token before opening a socket", async (token) => {
+  const factory = vi.fn();
+  vi.stubGlobal("WebSocket", factory);
+  await expect(
+    new SyncClient({
+      storageApiUrl: "https://node.test/storage",
+      tokenProvider: () => token,
+    }).attach({ identity, direction: "Push" })
+  ).rejects.toMatchObject({ code: "auth" });
+  expect(factory).not.toHaveBeenCalled();
+});
 
 test("does not expose token provider errors", async () => {
   await expect(
@@ -172,7 +154,7 @@ test("does not expose token provider errors", async () => {
       tokenProvider: () => {
         throw new Error("secret-token");
       },
-    }).attach({ identity, direction: "Push" }),
+    }).attach({ identity, direction: "Push" })
   ).rejects.toMatchObject({
     code: "auth",
     message: "Could not obtain sync access token",
@@ -228,26 +210,20 @@ test("cancels an attached session and rejects pending and future receives", asyn
   expect(() => session.send(Uint8Array.of(1))).toThrow();
 });
 
-test.each(["close", "error"])(
-  "rejects a transport %s during attach",
-  async (event) => {
-    TestSocket.reply = "";
-    const pending = client().attach({ identity, direction: "Push" });
-    await Promise.resolve();
-    TestSocket.latest.dispatchEvent(new Event(event));
-    await expect(pending).rejects.toMatchObject({ code: "transport" });
-  },
-);
+test.each(["close", "error"])("rejects a transport %s during attach", async (event) => {
+  TestSocket.reply = "";
+  const pending = client().attach({ identity, direction: "Push" });
+  await Promise.resolve();
+  TestSocket.latest.dispatchEvent(new Event(event));
+  await expect(pending).rejects.toMatchObject({ code: "transport" });
+});
 
-test.each(["close", "error"])(
-  "rejects a pending receive on transport %s",
-  async (event) => {
-    const session = await client().attach({ identity, direction: "Push" });
-    const pending = session.receive();
-    TestSocket.latest.dispatchEvent(new Event(event));
-    await expect(pending).rejects.toMatchObject({ code: "transport" });
-  },
-);
+test.each(["close", "error"])("rejects a pending receive on transport %s", async (event) => {
+  const session = await client().attach({ identity, direction: "Push" });
+  const pending = session.receive();
+  TestSocket.latest.dispatchEvent(new Event(event));
+  await expect(pending).rejects.toMatchObject({ code: "transport" });
+});
 
 test.each([
   "http://user:pass@node.test/storage",
@@ -256,77 +232,66 @@ test.each([
   "file:///storage",
   "wss://node.test/storage",
 ])("rejects unsafe or unsupported API URL %s", (storageApiUrl) => {
-  expect(
-    () => new SyncClient({ storageApiUrl, tokenProvider: () => "token" }),
-  ).toThrow();
+  expect(() => new SyncClient({ storageApiUrl, tokenProvider: () => "token" })).toThrow();
 });
 
 test.each([
   ["http://localhost:8080/storage", "ws://localhost:8080/storage/sync/ws"],
-  [
-    "https://node.test/custom/storage///",
-    "wss://node.test/custom/storage/sync/ws",
-  ],
+  ["https://node.test/custom/storage///", "wss://node.test/custom/storage/sync/ws"],
   ["https://node.test", "wss://node.test/sync/ws"],
-])(
-  "preserves the configured API prefix %s",
-  async (storageApiUrl, expected) => {
-    vi.stubGlobal("WebSocket", TestSocket);
-    const session = await new SyncClient({
-      storageApiUrl,
-      tokenProvider: () => "token",
-    }).attach({ identity, direction: "Push" });
-    expect(TestSocket.latest.url).toBe(expected);
-    session.close();
-  },
-);
+])("preserves the configured API prefix %s", async (storageApiUrl, expected) => {
+  vi.stubGlobal("WebSocket", TestSocket);
+  const session = await new SyncClient({
+    storageApiUrl,
+    tokenProvider: () => "token",
+  }).attach({ identity, direction: "Push" });
+  expect(TestSocket.latest.url).toBe(expected);
+  session.close();
+});
 
 test.each([
   { ...identity, storeId: "not-a-uuid" },
   { ...identity, creationEpoch: -1n },
   { ...identity, creationEpoch: 18446744073709551616n },
   { ...identity, schemaFingerprint: new Uint8Array(31) },
-])(
-  "rejects an invalid store identity without opening a socket",
-  async (invalid) => {
-    const factory = vi.fn();
-    vi.stubGlobal("WebSocket", factory);
-    await expect(
-      new SyncClient({
-        storageApiUrl: "https://node.test",
-        tokenProvider: () => "token",
-      }).attach({ identity: invalid, direction: "Push" }),
-    ).rejects.toMatchObject({ code: "protocol" });
-    expect(factory).not.toHaveBeenCalled();
-  },
-);
-
-test.each([
-  "version",
-  "flags",
-  "crc",
-  "truncated",
-  "trailing",
-  "oversized",
-  "text",
-])("rejects %s frames and closes the socket", async (fault) => {
-  TestSocket.reply = "";
-  const pending = client().attach({ identity, direction: "Push" });
-  await Promise.resolve();
-  await Promise.resolve();
-  let data: ArrayBuffer | string = bytes(fixtures.acceptPush).buffer!;
-  const view = new Uint8Array(data);
-  if (fault === "version") view[0] = 2;
-  if (fault === "flags") view[1] = 2;
-  if (fault === "crc" && view.length > 0) view[view.length - 1]! ^= 1;
-  if (fault === "truncated") data = data.slice(0, -1);
-  if (fault === "trailing") data = new Uint8Array([...view, 0]).buffer;
-  if (fault === "oversized") new DataView(data).setUint32(2, 16777217, true);
-  if (fault === "text") data = "not binary";
-  TestSocket.latest.dispatchEvent(new MessageEvent("message", { data }));
-  await expect(pending).rejects.toMatchObject({ code: "protocol" });
-  expect(TestSocket.latest.readyState).toBe(3);
+])("rejects an invalid store identity without opening a socket", async (invalid) => {
+  const factory = vi.fn();
+  vi.stubGlobal("WebSocket", factory);
+  await expect(
+    new SyncClient({
+      storageApiUrl: "https://node.test",
+      tokenProvider: () => "token",
+    }).attach({ identity: invalid, direction: "Push" })
+  ).rejects.toMatchObject({ code: "protocol" });
+  expect(factory).not.toHaveBeenCalled();
 });
+
+test.each(["version", "flags", "crc", "truncated", "trailing", "oversized", "text"])(
+  "rejects %s frames and closes the socket",
+  async (fault) => {
+    TestSocket.reply = "";
+    const pending = client().attach({ identity, direction: "Push" });
+    await Promise.resolve();
+    await Promise.resolve();
+    let data: ArrayBuffer | string = bytes(fixtures.acceptPush).buffer;
+    const view = new Uint8Array(data);
+    if (fault === "version") view[0] = 2;
+    if (fault === "flags") view[1] = 2;
+    if (fault === "crc") {
+      const index = view.length - 1;
+      const value = view[index];
+      if (value === undefined) throw new Error("Expected a non-empty sync frame");
+      view[index] = value ^ 1;
+    }
+    if (fault === "truncated") data = data.slice(0, -1);
+    if (fault === "trailing") data = new Uint8Array([...view, 0]).buffer;
+    if (fault === "oversized") new DataView(data).setUint32(2, 16777217, true);
+    if (fault === "text") data = "not binary";
+    TestSocket.latest.dispatchEvent(new MessageEvent("message", { data }));
+    await expect(pending).rejects.toMatchObject({ code: "protocol" });
+    expect(TestSocket.latest.readyState).toBe(3);
+  }
+);
 
 test("answers the server Ping using its actual Pong tag", async () => {
   TestSocket.reply = fixtures.ping;
@@ -341,18 +306,16 @@ test("answers the server Ping using its actual Pong tag", async () => {
 
 test("rejects negotiated session limits already exceeded by the handshake", async () => {
   TestSocket.reply = fixtures.tinySession;
-  await expect(
-    client().attach({ identity, direction: "Push" }),
-  ).rejects.toMatchObject({ code: "protocol" });
+  await expect(client().attach({ identity, direction: "Push" })).rejects.toMatchObject({
+    code: "protocol",
+  });
   expect(TestSocket.latest.readyState).toBe(3);
 });
 
 test("counts the envelope in the negotiated frame limit", async () => {
   TestSocket.reply = fixtures.tinyFrame;
   const session = await client().attach({ identity, direction: "Push" });
-  expect(() => session.send(new Uint8Array(6))).toThrow(
-    "Sync frame exceeds negotiated limit",
-  );
+  expect(() => session.send(new Uint8Array(6))).toThrow("Sync frame exceeds negotiated limit");
   expect(TestSocket.latest.readyState).toBe(3);
   await expect(session.receive()).rejects.toMatchObject({ code: "protocol" });
 });
@@ -361,9 +324,7 @@ test("enforces the cumulative negotiated session budget", async () => {
   TestSocket.reply = fixtures.budget;
   const session = await client().attach({ identity, direction: "Push" });
   session.send(new Uint8Array(100));
-  expect(() => session.send(new Uint8Array(200))).toThrow(
-    "Sync session exceeds byte limit",
-  );
+  expect(() => session.send(new Uint8Array(200))).toThrow("Sync session exceeds byte limit");
   expect(TestSocket.latest.readyState).toBe(3);
 });
 
@@ -374,7 +335,7 @@ test("rejects inbound owner messages above the negotiated frame limit", async ()
   TestSocket.latest.dispatchEvent(
     new MessageEvent("message", {
       data: bytes(fixtures.largeOwner).buffer,
-    }),
+    })
   );
   await expect(pending).rejects.toMatchObject({ code: "protocol" });
 });
@@ -400,24 +361,20 @@ test("reports authorization loss after attach", async () => {
 test("rejects oversized outgoing owner payloads as protocol errors and closes the session", async () => {
   const session = await client().attach({ identity, direction: "Push" });
   expect(() => session.send(new Uint8Array(16777216))).toThrowError(
-    expect.objectContaining({ code: "protocol" }),
+    expect.objectContaining({ code: "protocol" })
   );
   expect(TestSocket.latest.readyState).toBe(3);
 });
 
-test.each([
-  "invalidBoolean",
-  "trailingPostcard",
-  "wrongClientAbortTag",
-] as const)(
+test.each(["invalidBoolean", "trailingPostcard", "wrongClientAbortTag"] as const)(
   "rejects malformed Postcard %s with a valid frame checksum",
   async (reply) => {
     TestSocket.reply = fixtures[reply];
-    await expect(
-      client().attach({ identity, direction: "Push" }),
-    ).rejects.toMatchObject({ code: "protocol" });
+    await expect(client().attach({ identity, direction: "Push" })).rejects.toMatchObject({
+      code: "protocol",
+    });
     expect(TestSocket.latest.readyState).toBe(3);
-  },
+  }
 );
 
 test("preserves all u64 creation epoch bits in server-compatible messages", async () => {
@@ -483,8 +440,6 @@ test("reports malformed API URLs as a protocol error", () => {
       new SyncClient({
         storageApiUrl: "not a URL",
         tokenProvider: () => "token",
-      }),
-  ).toThrowError(
-    expect.objectContaining({ name: "SyncError", code: "protocol" }),
-  );
+      })
+  ).toThrowError(expect.objectContaining({ name: "SyncError", code: "protocol" }));
 });

@@ -1,11 +1,6 @@
 import type { Client, Row } from "@ofsdk/sql";
 
-import {
-  parseVaultRow,
-  type VaultRow,
-  dbParams,
-  dbParam,
-} from "./schema";
+import { dbParam, dbParams, parseVaultRow, type VaultRow } from "./schema";
 
 export interface VaultIdentity {
   id: string;
@@ -40,7 +35,7 @@ export class VaultRegistry {
           status: "ready" as const,
           migrated: vault.migrated,
         };
-      },
+      }
     );
     return results;
   }
@@ -61,7 +56,7 @@ export class VaultRegistry {
           migrated: vault.migrated,
         };
       },
-      [dbParam(id)],
+      [dbParam(id)]
     );
     if (!results[0]) throw new Error(`Vault ${id} not found`);
     return results[0];
@@ -76,14 +71,14 @@ export class VaultRegistry {
     name: string,
     salt: string,
     iv: string,
-    authentication: string,
+    authentication: string
   ): Promise<VaultIdentity> {
     const id = crypto.randomUUID();
     const createdAt = new Date().toISOString();
 
     await this.client.executeRaw(
       `INSERT INTO vaults (id, name, salt, iv, created_at, authentication, status, migrated) VALUES (?, ?, ?, ?, ?, ?, 'ready', 1)`,
-      dbParams(id, name, salt, iv, createdAt, authentication),
+      dbParams(id, name, salt, iv, createdAt, authentication)
     );
 
     return { id, name, status: "ready", migrated: true };
@@ -115,7 +110,7 @@ export class VaultRegistry {
     const results = await this.client.execute(
       `SELECT id, name, salt, iv, created_at, authentication, status, migrated FROM vaults WHERE id = ?`,
       (row: Row) => parseVaultRow(row),
-      [dbParam(id)],
+      [dbParam(id)]
     );
     return results[0] ?? null;
   }

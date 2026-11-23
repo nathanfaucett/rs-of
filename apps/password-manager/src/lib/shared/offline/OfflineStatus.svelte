@@ -1,8 +1,8 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { dev } from "$app/environment";
-import { offlineError, prepareOffline } from "./offline";
 import { notifications } from "../state/notifications.svelte";
+import { offlineError, prepareOffline } from "./offline";
 
 let status = $state<string | null>(null);
 

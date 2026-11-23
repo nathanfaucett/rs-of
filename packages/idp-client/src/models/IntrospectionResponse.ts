@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { StandardClaims } from "./StandardClaims.js";
-import {
-  StandardClaimsFromJSON,
-  StandardClaimsFromJSONTyped,
-  StandardClaimsToJSON,
-  StandardClaimsToJSONTyped,
-} from "./StandardClaims.js";
+import { StandardClaimsFromJSON, StandardClaimsToJSON } from "./StandardClaims.js";
 
 /**
  *
@@ -52,7 +46,7 @@ export function IntrospectionResponseFromJSON(json: any): IntrospectionResponse 
 
 export function IntrospectionResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IntrospectionResponse {
   if (
     json &&
@@ -75,7 +69,7 @@ export function IntrospectionResponseToJSON(json: any): IntrospectionResponse {
 
 export function IntrospectionResponseToJSONTyped(
   value?: IntrospectionResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

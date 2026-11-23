@@ -1,8 +1,4 @@
-import type {
-  DeviceEnrollment,
-  DeviceInfo,
-  DeviceState,
-} from "@ofsdk/device-client";
+import type { DeviceEnrollment, DeviceInfo, DeviceState } from "@ofsdk/device-client";
 import { deviceApi } from "./deviceClient.svelte";
 
 export type { DeviceEnrollment, DeviceInfo, DeviceState };
@@ -23,7 +19,7 @@ export function revokeDevice(id: string): Promise<void> {
 export async function enrollDevice(
   address: string,
   name: string,
-  publicKey: string,
+  publicKey: string
 ): Promise<DeviceEnrollment> {
   const enrollment = await deviceApi.enrollDevice({
     deviceEnrollmentRequest: { address, name, publicKey },
@@ -31,9 +27,7 @@ export async function enrollDevice(
   return enrollment;
 }
 
-export async function approveDeviceEnrollment(
-  enrollmentId: string,
-): Promise<DeviceEnrollment> {
+export async function approveDeviceEnrollment(enrollmentId: string): Promise<DeviceEnrollment> {
   return deviceApi.approveEnrollment({ deviceId: enrollmentId });
 }
 

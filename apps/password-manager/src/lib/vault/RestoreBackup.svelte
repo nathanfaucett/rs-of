@@ -1,6 +1,6 @@
 <script lang="ts">
 import { onDestroy } from "svelte";
-import { Alert, Card, Field } from "$lib/ui";
+import { Alert, Card, Field, type FieldControl } from "$lib/ui";
 import { BACKUP_MAX_BYTES, type BackupRestore, prepareBackupRestore } from "./backup";
 import { listVaults, type VaultIdentity } from "./vault";
 
@@ -62,12 +62,12 @@ async function restore() {
             <button class="btn btn-primary btn-md" type="button" disabled={busy || collision} onclick={restore}>{busy ? "Restoring…" : "Restore vault"}</button>
         {:else}
             <Field id="backup-file" label="Encrypted backup file" required>
-                {#snippet children(control)}
+                {#snippet children(control: FieldControl)}
                     <input {...control} type="file" accept=".json,application/json" bind:files disabled={busy} />
                 {/snippet}
             </Field>
             <Field id="backup-password" label="Backup master password" required>
-                {#snippet children(control)}
+                {#snippet children(control: FieldControl)}
                     <input {...control} type="password" autocomplete="off" bind:value={password} disabled={busy} />
                 {/snippet}
             </Field>

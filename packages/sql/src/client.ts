@@ -1,15 +1,11 @@
+import { SqlError, wrapError } from "./error.js";
 import { Handle } from "./handle.js";
-import {
-  type Migration,
-  MigrationError,
-  type MigrationResult,
-} from "./migration.js";
+import { type Migration, MigrationError, type MigrationResult } from "./migration.js";
 import type { QueryParams, Result } from "./result.js";
 import { decodeResults, encodeParams } from "./result.js";
 import { parseRows, type RowParser } from "./select.js";
 import { Transaction } from "./transaction.js";
 import type { WasmSqlClient } from "./wasm.js";
-import { wrapError, SqlError } from "./error.js";
 
 /** SQL query handle — the only API for SQL reads and writes. */
 export class Client {
@@ -31,11 +27,7 @@ export class Client {
    * @param parser Synchronous row → T
    * @param params Optional positional/named parameters
    */
-  async execute<T>(
-    sql: string,
-    parser: RowParser<T>,
-    params?: QueryParams,
-  ): Promise<T[]> {
+  async execute<T>(sql: string, parser: RowParser<T>, params?: QueryParams): Promise<T[]> {
     try {
       const encoded = encodeParams(params);
       const raw = await this.handle.run((wasm) => wasm.execute(sql, encoded));
@@ -64,9 +56,7 @@ export class Client {
   /** Apply the complete migration list. Each pending version commits with its history record. */
   async migrate(migrations: readonly Migration[]): Promise<MigrationResult> {
     try {
-      const raw = await this.handle.run((wasm) =>
-        wasm.migrate(JSON.stringify(migrations)),
-      );
+      const raw = await this.handle.run((wasm) => wasm.migrate(JSON.stringify(migrations)));
       return JSON.parse(raw) as MigrationResult;
     } catch (error) {
       if (
@@ -74,9 +64,7 @@ export class Client {
         "migration" in error &&
         typeof error.migration === "string"
       ) {
-        throw new MigrationError(
-          error as globalThis.Error & { migration: string },
-        );
+        throw new MigrationError(error as globalThis.Error & { migration: string });
       }
       throw wrapError(error, SqlError);
     }
@@ -95,10 +83,7 @@ export class Client {
   /** Return a clone of this client with a request deadline in milliseconds. */
   withDeadline(ms: bigint): Client {
     if (typeof ms !== "bigint" || ms <= 0n || ms > 18446744073709551615n) {
-      throw new SqlError(
-        "query",
-        "deadline must be a positive u64 bigint in milliseconds",
-      );
+      throw new SqlError("query", "deadline must be a positive u64 bigint in milliseconds");
     }
     return new Client(this.handle.get().with_deadline(ms));
   }

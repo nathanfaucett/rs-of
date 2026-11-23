@@ -5,9 +5,9 @@ export interface FieldIssue {
 
 export interface FieldControl {
     id: string;
-    "aria-describedby"?: string;
-    "aria-invalid"?: boolean;
-    required?: boolean;
+    "aria-describedby"?: string | undefined;
+    "aria-invalid"?: boolean | undefined;
+    required?: boolean | undefined;
 }
 
 export interface FieldProps {

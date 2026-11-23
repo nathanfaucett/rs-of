@@ -11,10 +11,7 @@ export interface SyncConfig {
   /** Function to get sync access token (OIDC) */
   getToken: () => Promise<string>;
   /** Function to get Storage capability token for a resource and actions */
-  getStorageToken: (
-    resource: string,
-    actions: ("read" | "write")[],
-  ) => Promise<string>;
+  getStorageToken: (resource: string, actions: ("read" | "write")[]) => Promise<string>;
 }
 
 /** Change event types */

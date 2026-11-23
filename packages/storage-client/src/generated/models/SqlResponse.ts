@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { SqlResult } from "./SqlResult.js";
-import {
-  SqlResultFromJSON,
-  SqlResultFromJSONTyped,
-  SqlResultToJSON,
-  SqlResultToJSONTyped,
-} from "./SqlResult.js";
+import { SqlResultFromJSON, SqlResultToJSON } from "./SqlResult.js";
 
 /**
  *
@@ -45,7 +39,7 @@ export function SqlResponseFromJSON(json: any): SqlResponse {
   return SqlResponseFromJSONTyped(json, false);
 }
 
-export function SqlResponseFromJSONTyped(json: any, ignoreDiscriminator: boolean): SqlResponse {
+export function SqlResponseFromJSONTyped(json: any, _ignoreDiscriminator: boolean): SqlResponse {
   if (json == null) {
     return json;
   }
@@ -60,7 +54,7 @@ export function SqlResponseToJSON(json: any): SqlResponse {
 
 export function SqlResponseToJSONTyped(
   value?: SqlResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

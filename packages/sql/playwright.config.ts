@@ -8,9 +8,7 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:8091",
     ignoreHTTPSErrors: false,
-    launchOptions: process.env.BROWSER_PATH
-      ? { executablePath: process.env.BROWSER_PATH }
-      : {},
+    launchOptions: process.env.BROWSER_PATH ? { executablePath: process.env.BROWSER_PATH } : {},
   },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   webServer: {

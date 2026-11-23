@@ -12,7 +12,7 @@ type RowBuilder = Record<string, DbValue>;
 
 /** A synchronous parser; the returned value determines the selected element type. */
 export type RowParser<T> = (
-  row: Row,
+  row: Row
 ) => T & (Extract<T, PromiseLike<unknown>> extends never ? unknown : never);
 
 export type ExecuteErrorReason = "result-count" | "duplicate-column" | "parser";
@@ -22,17 +22,13 @@ export class ExecuteError extends SqlError {
   readonly reason: ExecuteErrorReason;
   readonly rowIndex: number | undefined;
 
-  constructor(
-    reason: ExecuteErrorReason,
-    rowIndex?: number,
-    options?: ErrorOptions,
-  ) {
+  constructor(reason: ExecuteErrorReason, rowIndex?: number, options?: ErrorOptions) {
     super(
       "query",
       reason === "parser"
         ? `SQL row parser failed at row ${rowIndex}`
         : `SQL row mapping failed: ${reason}`,
-      options,
+      options
     );
     this.name = "ExecuteError";
     this.reason = reason;
@@ -72,9 +68,7 @@ export function parseRows<T>(results: Result[], parser: RowParser<T>): T[] {
           throw new ExecuteError("parser", rowIndex, { cause: reason });
         });
         throw new ExecuteError("parser", rowIndex, {
-          cause: new Error(
-            "Parser returned a promise; synchronous parser required",
-          ),
+          cause: new Error("Parser returned a promise; synchronous parser required"),
         });
       }
       return parsed;

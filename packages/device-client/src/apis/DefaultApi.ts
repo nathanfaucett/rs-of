@@ -12,42 +12,31 @@
  * Do not edit the class manually.
  */
 
-import * as runtime from "../runtime.js";
 import {
   type ApprovedDeviceEndpoints,
   ApprovedDeviceEndpointsFromJSON,
-  ApprovedDeviceEndpointsToJSON,
 } from "../models/ApprovedDeviceEndpoints.js";
-import { type Device, DeviceFromJSON, DeviceToJSON } from "../models/Device.js";
+import { type Device, DeviceFromJSON } from "../models/Device.js";
 import {
   type DeviceEndpointIdentity,
   DeviceEndpointIdentityFromJSON,
-  DeviceEndpointIdentityToJSON,
 } from "../models/DeviceEndpointIdentity.js";
-import {
-  type DeviceEnrollment,
-  DeviceEnrollmentFromJSON,
-  DeviceEnrollmentToJSON,
-} from "../models/DeviceEnrollment.js";
+import { type DeviceEnrollment, DeviceEnrollmentFromJSON } from "../models/DeviceEnrollment.js";
 import {
   type DeviceEnrollmentRequest,
-  DeviceEnrollmentRequestFromJSON,
   DeviceEnrollmentRequestToJSON,
 } from "../models/DeviceEnrollmentRequest.js";
-import { type DeviceInfo, DeviceInfoFromJSON, DeviceInfoToJSON } from "../models/DeviceInfo.js";
+import { type DeviceInfo, DeviceInfoFromJSON } from "../models/DeviceInfo.js";
 import {
   type DevicePairingApprovalPayload,
   DevicePairingApprovalPayloadFromJSON,
-  DevicePairingApprovalPayloadToJSON,
 } from "../models/DevicePairingApprovalPayload.js";
 import {
   type DevicePairingApprovalRequest,
-  DevicePairingApprovalRequestFromJSON,
   DevicePairingApprovalRequestToJSON,
 } from "../models/DevicePairingApprovalRequest.js";
 import {
   type DevicePairingRequest,
-  DevicePairingRequestFromJSON,
   DevicePairingRequestToJSON,
 } from "../models/DevicePairingRequest.js";
 import {
@@ -57,39 +46,21 @@ import {
 } from "../models/DeviceRestriction.js";
 import {
   type DeviceSelfRevocationRequest,
-  DeviceSelfRevocationRequestFromJSON,
   DeviceSelfRevocationRequestToJSON,
 } from "../models/DeviceSelfRevocationRequest.js";
 import {
   type DeviceTransferRequest,
-  DeviceTransferRequestFromJSON,
   DeviceTransferRequestToJSON,
 } from "../models/DeviceTransferRequest.js";
-import {
-  type HealthResponse,
-  HealthResponseFromJSON,
-  HealthResponseToJSON,
-} from "../models/HealthResponse.js";
-import {
-  type SelectionRequest,
-  SelectionRequestFromJSON,
-  SelectionRequestToJSON,
-} from "../models/SelectionRequest.js";
-import {
-  type TrustedDevice,
-  TrustedDeviceFromJSON,
-  TrustedDeviceToJSON,
-} from "../models/TrustedDevice.js";
+import { type HealthResponse, HealthResponseFromJSON } from "../models/HealthResponse.js";
+import { type SelectionRequest, SelectionRequestToJSON } from "../models/SelectionRequest.js";
+import { type TrustedDevice, TrustedDeviceFromJSON } from "../models/TrustedDevice.js";
 import {
   type UpdateDeviceRequest,
-  UpdateDeviceRequestFromJSON,
   UpdateDeviceRequestToJSON,
 } from "../models/UpdateDeviceRequest.js";
-import {
-  type VersionResponse,
-  VersionResponseFromJSON,
-  VersionResponseToJSON,
-} from "../models/VersionResponse.js";
+import { type VersionResponse, VersionResponseFromJSON } from "../models/VersionResponse.js";
+import * as runtime from "../runtime.js";
 
 export interface ApproveEnrollmentRequest {
   /**

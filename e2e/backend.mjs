@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -15,15 +15,13 @@ async function freePorts(count) {
           new Promise((resolve, reject) => {
             server.once("error", reject);
             server.listen(0, "127.0.0.1", resolve);
-          }),
-      ),
+          })
+      )
     );
     return servers.map((server) => server.address().port);
   } finally {
     await Promise.all(
-      servers.map(
-        (server) => new Promise((resolve) => server.close(() => resolve())),
-      ),
+      servers.map((server) => new Promise((resolve) => server.close(() => resolve())))
     );
   }
 }
@@ -45,10 +43,7 @@ export const root = fileURLToPath(new URL("../", import.meta.url));
 const allocatedPorts = await freePorts(3);
 const backendPort = runnerPort("E2E_BACKEND_PORT", allocatedPorts[0]);
 const appPort = runnerPort("E2E_APP_PORT", allocatedPorts[1]);
-const passwordManagerPort = runnerPort(
-  "E2E_PASSWORD_MANAGER_PORT",
-  allocatedPorts[2],
-);
+const passwordManagerPort = runnerPort("E2E_PASSWORD_MANAGER_PORT", allocatedPorts[2]);
 export const backendURL = `http://127.0.0.1:${backendPort}`;
 export const appURL = `http://127.0.0.1:${appPort}`;
 export const passwordManagerURL = `http://127.0.0.1:${passwordManagerPort}`;
@@ -72,18 +67,16 @@ export async function startBackend({
           ? new Error(`Backend port ${port} is already in use`, {
               cause: error,
             })
-          : error,
-      ),
+          : error
+      )
     );
     probe.listen(port, "127.0.0.1", resolve);
   });
   port = probe.address().port;
   await new Promise((resolve, reject) =>
-    probe.close((error) => (error ? reject(error) : resolve())),
+    probe.close((error) => (error ? reject(error) : resolve()))
   );
-  console.info(
-    `Starting backend ${command} on port ${port} (launcher PID ${process.pid})`,
-  );
+  console.info(`Starting backend ${command} on port ${port} (launcher PID ${process.pid})`);
   const dataDir = await mkdtemp(join(tmpdir(), "of-e2e-"));
   const baseURL = `http://127.0.0.1:${port}`;
   const child = spawn(
@@ -111,7 +104,7 @@ export async function startBackend({
         E2E_DATA_DIR: dataDir,
         E2E_PORT: String(port),
       },
-    },
+    }
   );
   let failure;
   let exited = false;
@@ -166,23 +159,21 @@ export async function startBackend({
       if (failure || exited) throw failure;
       if (Date.now() >= deadline) {
         throw new Error(
-          `Backend health timeout: ${[...pending].map((owner) => `${baseURL}/${owner}/health`).join(", ")}`,
+          `Backend health timeout: ${[...pending].map((owner) => `${baseURL}/${owner}/health`).join(", ")}`
         );
       }
       await Promise.all(
         [...pending].map(async (owner) => {
           try {
             const response = await fetch(`${baseURL}/${owner}/health`, {
-              signal: AbortSignal.timeout(
-                Math.max(1, Math.min(500, deadline - Date.now())),
-              ),
+              signal: AbortSignal.timeout(Math.max(1, Math.min(500, deadline - Date.now()))),
             });
             if (response.ok) pending.delete(owner);
             await response.body?.cancel();
           } catch {
             /* Retry until the shared startup deadline. */
           }
-        }),
+        })
       );
       if (pending.size) await delay(100);
     }

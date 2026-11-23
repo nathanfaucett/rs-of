@@ -12,18 +12,15 @@
  * Do not edit the class manually.
  */
 
-import { parseDate, parseDateTime, serializeDate, serializeDateTime } from "../runtime.js";
 import type { PermissionTargetOneOf } from "./PermissionTargetOneOf.js";
 import {
   instanceOfPermissionTargetOneOf,
-  PermissionTargetOneOfFromJSON,
   PermissionTargetOneOfFromJSONTyped,
   PermissionTargetOneOfToJSON,
 } from "./PermissionTargetOneOf.js";
 import type { PermissionTargetOneOf1 } from "./PermissionTargetOneOf1.js";
 import {
   instanceOfPermissionTargetOneOf1,
-  PermissionTargetOneOf1FromJSON,
   PermissionTargetOneOf1FromJSONTyped,
   PermissionTargetOneOf1ToJSON,
 } from "./PermissionTargetOneOf1.js";
@@ -41,7 +38,7 @@ export function PermissionTargetFromJSON(json: any): PermissionTarget {
 
 export function PermissionTargetFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): PermissionTarget {
   if (json == null) {
     return json;
@@ -64,7 +61,7 @@ export function PermissionTargetToJSON(json: any): any {
 
 export function PermissionTargetToJSONTyped(
   value?: PermissionTarget | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

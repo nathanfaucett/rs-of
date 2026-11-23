@@ -70,38 +70,23 @@ export function validateValue(value: unknown, nested = false): void {
       integer(payload, true);
       return;
     }
-    if (tag === (nested ? "f64" : "float") && /^[0-9a-fA-F]{16}$/.test(payload))
-      return;
+    if (tag === (nested ? "f64" : "float") && /^[0-9a-fA-F]{16}$/.test(payload)) return;
     if (
       !nested &&
       tag === "uuid" &&
-      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
-        payload,
-      )
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(payload)
     )
       return;
     if (
       !nested &&
       tag === "blob" &&
-      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-        payload,
-      )
+      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(payload)
     )
       return;
     if (
       !nested &&
       tag === "type" &&
-      [
-        "Null",
-        "Type",
-        "Uuid",
-        "Bool",
-        "Integer",
-        "Float",
-        "Text",
-        "Json",
-        "Blob",
-      ].includes(payload)
+      ["Null", "Type", "Uuid", "Bool", "Integer", "Float", "Text", "Json", "Blob"].includes(payload)
     )
       return;
   }
@@ -114,8 +99,7 @@ export function validateValue(value: unknown, nested = false): void {
     return;
   }
   if (nested && tag === "object") {
-    for (const item of Object.values(object(payload)))
-      validateValue(item, true);
+    for (const item of Object.values(object(payload))) validateValue(item, true);
     return;
   }
   throw new TypeError("invalid tagged value");

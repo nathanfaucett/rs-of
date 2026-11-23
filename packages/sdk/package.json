@@ -1,27 +1,29 @@
 {
-    "name": "@ofsdk/sdk",
-    "version": "0.1.0",
-    "private": true,
-    "type": "module",
-    "exports": {
-        ".": {
-            "types": "./types/index.d.ts",
-            "default": "./esm/index.js"
-        }
-    },
-    "scripts": {
-        "build": "tsc -p tsconfig.json",
-        "test": "vitest run",
-        "lint": "biome lint .",
-        "format": "biome format ."
-    },
-    "dependencies": {
-        "@ofsdk/oidc-client": "workspace:*",
-        "@ofsdk/storage-client": "workspace:*"
-    },
-    "devDependencies": {
-        "@biomejs/biome": "^2.5.3",
-        "typescript": "^5.9.3",
-        "vitest": "4.1.10"
+  "name": "@ofsdk/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./esm/index.js"
     }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check --error-on-warnings .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format ."
+  },
+  "dependencies": {
+    "@ofsdk/oidc-client": "workspace:*",
+    "@ofsdk/storage-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.3",
+    "typescript": "^5.9.3",
+    "vitest": "4.1.10"
+  }
 }

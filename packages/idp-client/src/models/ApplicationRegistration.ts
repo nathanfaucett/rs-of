@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -22,11 +21,11 @@ export interface ApplicationRegistration {
   /**
    *
    */
-  description?: string | null;
+  description?: (string | null) | undefined;
   /**
    *
    */
-  name?: string | null;
+  name?: (string | null) | undefined;
   /**
    *
    */
@@ -47,7 +46,7 @@ export function ApplicationRegistrationFromJSON(json: any): ApplicationRegistrat
 
 export function ApplicationRegistrationFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): ApplicationRegistration {
   if (json == null) {
     return json;
@@ -70,7 +69,7 @@ export function ApplicationRegistrationToJSON(json: any): ApplicationRegistratio
 
 export function ApplicationRegistrationToJSONTyped(
   value?: ApplicationRegistration | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

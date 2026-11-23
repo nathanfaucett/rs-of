@@ -57,6 +57,7 @@ redb = [
 ]
 server = ["remote", "dep:kv-server"]
 sync = [
+    "dep:automerge",
     "dep:postcard",
     "dep:serde",
     "dep:platform",
@@ -68,6 +69,7 @@ sync = [
     "dep:uuid",
 ]
 wasm = [
+    "sync",
     "dep:postcard",
     "dep:serde",
     "dep:platform",
@@ -115,7 +117,10 @@ hyper-util = { version = "0.1", default-features = false, features = [
 redb = { version = "4.3", default-features = false, features = [
     "uuid",
 ], optional = true }
-serde = { version = "1.0", default-features = false, features = ["alloc", "derive"], optional = true }
+serde = { version = "1.0", default-features = false, features = [
+    "alloc",
+    "derive",
+], optional = true }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 tokio = { version = "1.0", default-features = false, features = [
     "time",

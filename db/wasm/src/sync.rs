@@ -1,15 +1,31 @@
 // Shared sync types for both KV and SQL WASM bindings.
 
+use core::time::Duration;
+
+use futures_util::{FutureExt, StreamExt};
 use ofdb_btree::ChangeEvent;
 use ofdb_sync::{
     ChangeSubscription as OfdbChangeSubscription, PushConfig as OfdbPushConfig,
     PushResult as OfdbPushResult, PushSyncTransport as OfdbPushSyncTransport,
     PushSynchronizeConfig as OfdbPushSynchronizeConfig,
-    PushSynchronizeError as OfdbPushSynchronizeError,
+    PushSynchronizeError as OfdbPushSynchronizeError, SyncRole as OfdbSyncRole,
 };
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
+
+async fn next_change(subscription: &mut OfdbChangeSubscription) -> Option<ChangeEvent> {
+    let mut stream = subscription.events();
+    let next = stream.next();
+    futures_util::pin_mut!(next);
+    loop {
+        match next.as_mut().now_or_never() {
+            Some(event) => return event,
+            // Yield after every idle poll so IndexedDB callbacks can run.
+            None => platform::sleep(Duration::ZERO).await,
+        }
+    }
+}
 
 /// TypeScript interface for the sync transport that JavaScript must implement.
 /// The send method must return a Promise (async).
@@ -39,6 +55,22 @@ impl PushSynchronizeConfig {
         Self {
             inner: OfdbPushSynchronizeConfig::default(),
         }
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn role(&self) -> KvSyncRole {
+        match self.inner.role {
+            OfdbSyncRole::Initiator => KvSyncRole::Initiator,
+            OfdbSyncRole::Responder => KvSyncRole::Acceptor,
+        }
+    }
+
+    #[wasm_bindgen(setter)]
+    pub fn set_role(&mut self, value: KvSyncRole) {
+        self.inner.role = match value {
+            KvSyncRole::Initiator => OfdbSyncRole::Initiator,
+            KvSyncRole::Acceptor => OfdbSyncRole::Responder,
+        };
     }
 
     #[wasm_bindgen(getter)]
@@ -273,7 +305,7 @@ impl JsKvSyncError {
 
     #[wasm_bindgen(getter)]
     pub fn kind(&self) -> JsKvSyncErrorKind {
-        self.inner.kind().into()
+        self.inner.kind()
     }
 }
 
@@ -286,7 +318,7 @@ impl JsSqlSyncError {
 
     #[wasm_bindgen(getter)]
     pub fn kind(&self) -> JsSqlSyncErrorKind {
-        self.inner.kind().into()
+        self.inner.kind()
     }
 }
 
@@ -438,6 +470,12 @@ impl From<OfdbPushSynchronizeConfig> for SqlSessionConfig {
     }
 }
 
+impl From<SqlSessionConfig> for OfdbPushSynchronizeConfig {
+    fn from(config: SqlSessionConfig) -> Self {
+        config.inner
+    }
+}
+
 #[wasm_bindgen]
 impl SqlSessionConfig {
     #[wasm_bindgen(constructor)]
@@ -445,6 +483,22 @@ impl SqlSessionConfig {
         Self {
             inner: OfdbPushSynchronizeConfig::default(),
         }
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn role(&self) -> SqlSyncRole {
+        match self.inner.role {
+            OfdbSyncRole::Initiator => SqlSyncRole::Initiator,
+            OfdbSyncRole::Responder => SqlSyncRole::Acceptor,
+        }
+    }
+
+    #[wasm_bindgen(setter)]
+    pub fn set_role(&mut self, value: SqlSyncRole) {
+        self.inner.role = match value {
+            SqlSyncRole::Initiator => OfdbSyncRole::Initiator,
+            SqlSyncRole::Acceptor => OfdbSyncRole::Responder,
+        };
     }
 
     #[wasm_bindgen(getter)]
@@ -615,22 +669,27 @@ pub(crate) async fn send_bytes(
     bytes: &[u8],
     operation: &str,
 ) -> Result<(), JsPushSyncTransportError> {
-    let send = js_sys::Reflect::get(transport, &"send".into()).map_err(|_| {
-        JsPushSyncTransportError::new("transport has no send method".into())
-    })?;
+    let send = js_sys::Reflect::get(transport, &"send".into())
+        .map_err(|_| JsPushSyncTransportError::new("transport has no send method".into()))?;
     let send: js_sys::Function = send
         .dyn_into()
         .map_err(|_| JsPushSyncTransportError::new("send is not a function".into()))?;
     let array = js_sys::Uint8Array::from(bytes);
-    let promise = send
-        .call1(transport, &array)
-        .map_err(|e| JsPushSyncTransportError::new(format!("{operation} call failed: {}", transport_error(operation, &e))))?;
-    let promise: js_sys::Promise = promise
-        .dyn_into()
-        .map_err(|_| JsPushSyncTransportError::new(format!("{operation} did not return a Promise")))?;
-    JsFuture::from(promise)
-        .await
-        .map_err(|e| JsPushSyncTransportError::new(format!("{operation} failed: {}", transport_error(operation, &e))))?;
+    let promise = send.call1(transport, &array).map_err(|e| {
+        JsPushSyncTransportError::new(format!(
+            "{operation} call failed: {}",
+            transport_error(operation, &e)
+        ))
+    })?;
+    let promise: js_sys::Promise = promise.dyn_into().map_err(|_| {
+        JsPushSyncTransportError::new(format!("{operation} did not return a Promise"))
+    })?;
+    JsFuture::from(promise).await.map_err(|e| {
+        JsPushSyncTransportError::new(format!(
+            "{operation} failed: {}",
+            transport_error(operation, &e)
+        ))
+    })?;
     Ok(())
 }
 
@@ -638,15 +697,14 @@ pub(crate) async fn receive_bytes(
     transport: &JsValue,
     max_bytes: Option<usize>,
 ) -> Result<Vec<u8>, JsPushSyncTransportError> {
-    let receive = js_sys::Reflect::get(transport, &"receive".into()).map_err(|_| {
-        JsPushSyncTransportError::new("transport has no receive method".into())
-    })?;
+    let receive = js_sys::Reflect::get(transport, &"receive".into())
+        .map_err(|_| JsPushSyncTransportError::new("transport has no receive method".into()))?;
     let receive: js_sys::Function = receive
         .dyn_into()
         .map_err(|_| JsPushSyncTransportError::new("receive is not a function".into()))?;
-    let promise = receive.call0(transport).map_err(|e| {
-        JsPushSyncTransportError::new(format!("receive call failed: {:?}", e))
-    })?;
+    let promise = receive
+        .call0(transport)
+        .map_err(|e| JsPushSyncTransportError::new(format!("receive call failed: {:?}", e)))?;
     let promise: js_sys::Promise = promise
         .dyn_into()
         .map_err(|_| JsPushSyncTransportError::new("receive did not return a Promise".into()))?;
@@ -686,7 +744,9 @@ impl OfdbPushSyncTransport for JsPushSyncTransport {
         }
     }
 
-    fn receive(&mut self) -> impl Future<Output = Result<ofdb_sync::PushMessage, Self::Error>> {
+    fn receive(
+        &mut self,
+    ) -> impl Future<Output = Result<ofdb_sync::PushMessage, Self::Error>> + 'static {
         let transport = self.inner.clone();
         async move {
             let bytes = receive_bytes(&transport, None).await?;
@@ -709,7 +769,9 @@ impl OfdbPushSyncTransport for &mut JsPushSyncTransport {
         (*self).send(msg)
     }
 
-    fn receive(&mut self) -> impl Future<Output = Result<ofdb_sync::PushMessage, Self::Error>> {
+    fn receive(
+        &mut self,
+    ) -> impl Future<Output = Result<ofdb_sync::PushMessage, Self::Error>> + 'static {
         (*self).receive()
     }
 }
@@ -777,14 +839,17 @@ impl KvChangeSubscription {
     #[cfg(feature = "sync")]
     pub async fn next_event(&mut self) -> Option<JsChangeEvent> {
         // Return cached event from wait_for_changes if available
-        if let Ok(mut cached) = self.cached_event.lock() {
-            if let Some(event) = cached.take() {
-                return Some(event);
-            }
+        if let Ok(mut cached) = self.cached_event.lock()
+            && let Some(event) = cached.take()
+        {
+            return Some(event);
         }
         let mut stream = self.inner.events();
-        futures_util::StreamExt::next(&mut stream)
-            .await
+        let next = stream.next();
+        futures_util::pin_mut!(next);
+        next.as_mut()
+            .now_or_never()
+            .flatten()
             .map(JsChangeEvent::from)
     }
 
@@ -792,8 +857,7 @@ impl KvChangeSubscription {
     /// Returns `true` if new changes are available, `false` if the subscription is closed.
     #[cfg(feature = "sync")]
     pub async fn wait_for_changes(&mut self) -> bool {
-        let mut stream = self.inner.events();
-        match futures_util::StreamExt::next(&mut stream).await {
+        match next_change(&mut self.inner).await {
             Some(event) => {
                 // Cache the event for next_event to return
                 if let Ok(mut cached) = self.cached_event.lock() {
@@ -841,14 +905,17 @@ impl SqlChangeSubscription {
     #[cfg(feature = "sync")]
     pub async fn next_event(&mut self) -> Option<JsChangeEvent> {
         // Return cached event from wait_for_changes if available
-        if let Ok(mut cached) = self.cached_event.lock() {
-            if let Some(event) = cached.take() {
-                return Some(event);
-            }
+        if let Ok(mut cached) = self.cached_event.lock()
+            && let Some(event) = cached.take()
+        {
+            return Some(event);
         }
         let mut stream = self.inner.events();
-        futures_util::StreamExt::next(&mut stream)
-            .await
+        let next = stream.next();
+        futures_util::pin_mut!(next);
+        next.as_mut()
+            .now_or_never()
+            .flatten()
             .map(JsChangeEvent::from)
     }
 
@@ -856,8 +923,7 @@ impl SqlChangeSubscription {
     /// Returns `true` if new changes are available, `false` if the subscription is closed.
     #[cfg(feature = "sync")]
     pub async fn wait_for_changes(&mut self) -> bool {
-        let mut stream = self.inner.events();
-        match futures_util::StreamExt::next(&mut stream).await {
+        match next_change(&mut self.inner).await {
             Some(event) => {
                 // Cache the event for next_event to return
                 if let Ok(mut cached) = self.cached_event.lock() {

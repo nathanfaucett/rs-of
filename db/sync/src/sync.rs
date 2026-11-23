@@ -8,7 +8,7 @@ use tokio::time::timeout;
 use crate::{
     SyncRole,
     protocol::{
-        Config, Error, HelloConfig, Message, PushResult, PushSynchronizeConfig,
+        Config, Error, HelloConfig, Message, PushApplyResult, PushResult, PushSynchronizeConfig,
         PushSynchronizeError, SyncResult,
     },
     transport::SyncTransport,
@@ -112,7 +112,7 @@ where
     T: SyncTransport,
     S: Stream<Item = ChangeEvent> + Unpin + Send,
     F: FnMut(ChangeEvent) -> Fut + Send,
-    Fut: Future<Output = Result<(), String>> + Send,
+    Fut: Future<Output = Result<PushApplyResult, String>> + Send,
 {
     let mut result = SyncResult::default();
     let mut local_generations: HashMap<StorageKey, u64> = HashMap::new();
@@ -182,7 +182,7 @@ where
 
     // Main bidirectional loop
     let mut outbound_exhausted = false;
-    let inbound_closed = false;
+    let mut inbound_closed = false;
 
     loop {
         tokio::select! {
@@ -237,15 +237,16 @@ where
 
 
                                 // Apply to local storage
-                                apply_inbound(event).await
+                                let applied = apply_inbound(event).await
                                     .map_err(SynchronizeError::Apply)?;
                                 result.events_received += 1;
 
-                                // Queue acknowledgment
-                                pending_acks.insert(key, generation);
+                                if applied == PushApplyResult::Applied {
+                                    pending_acks.insert(key, generation);
+                                }
 
                                 // Send ACK if immediate
-                                if config.protocol.immediate_ack {
+                                if config.protocol.immediate_ack && !pending_acks.is_empty() {
                                     let ack = Message::Ack {
                                         acknowledgments: take(&mut pending_acks),
                                     };
@@ -276,7 +277,12 @@ where
                             Message::Done { .. } => {
                                 received_done = true;
                             }
-                            Message::Close => { break; }
+                            Message::Close => {
+                                if !outstanding.is_empty() {
+                                    return Err(SynchronizeError::PeerClosed);
+                                }
+                                inbound_closed = true;
+                            }
                             Message::HelloAck { .. } | Message::Hello { .. } => {
                                 // Ignore duplicate handshake messages
                             }
@@ -291,7 +297,7 @@ where
                 }
             }
             // Check termination conditions
-            () = async {}, if outbound_exhausted && outstanding.is_empty() && (received_done || inbound_closed) => {
+            () = async {}, if outbound_exhausted && outstanding.is_empty() && pending_acks.is_empty() && (received_done || inbound_closed) => {
                 break;
             }
         }
@@ -340,11 +346,11 @@ where
     T: SyncTransport,
     S: Stream<Item = ChangeEvent> + Unpin + Send,
     F: FnMut(ChangeEvent) -> Fut + Send,
-    Fut: Future<Output = Result<(), String>> + Send,
+    Fut: Future<Output = Result<PushApplyResult, String>> + Send,
 {
     // Convert PushSynchronizeConfig to SynchronizeConfig
     let sync_config = SynchronizeConfig {
-        role: SyncRole::Initiator,
+        role: config.role,
         protocol: config.protocol,
         handshake_timeout: Duration::from_millis(config.handshake_timeout_ms),
         message_timeout: Duration::from_millis(config.message_timeout_ms),
@@ -419,7 +425,7 @@ mod tests {
                     stream::iter([event(b"left", 7)]),
                     move |change| {
                         left_seen.lock().expect("observations").push(change.blob);
-                        async { Ok(()) }
+                        async { Ok(PushApplyResult::Applied) }
                     },
                     SynchronizeConfig {
                         role: SyncRole::Initiator,
@@ -431,7 +437,7 @@ mod tests {
                     stream::iter([event(b"right", 9)]),
                     move |change| {
                         right_seen.lock().expect("observations").push(change.blob);
-                        async { Ok(()) }
+                        async { Ok(PushApplyResult::Applied) }
                     },
                     SynchronizeConfig {
                         role: SyncRole::Responder,
@@ -447,5 +453,42 @@ mod tests {
         let mut seen = seen.lock().expect("observations").clone();
         seen.sort();
         assert_eq!(seen, vec![vec![7], vec![9]]);
+    }
+
+    #[tokio::test]
+    async fn deferred_changes_prevent_sender_success() {
+        let (a, ar) = mpsc::unbounded();
+        let (b, br) = mpsc::unbounded();
+        let event = ChangeEvent {
+            key: StorageKey::kv(b"key".to_vec()),
+            blob: vec![1],
+            generation: 1,
+        };
+        let config = |role| SynchronizeConfig {
+            role,
+            message_timeout: Duration::from_millis(50),
+            ..Default::default()
+        };
+        let (initiator, responder) = timeout(Duration::from_secs(2), async {
+            tokio::join!(
+                synchronize(
+                    Channel(a, br),
+                    stream::iter([event]),
+                    |_| async { Ok(PushApplyResult::Applied) },
+                    config(SyncRole::Initiator),
+                ),
+                synchronize(
+                    Channel(b, ar),
+                    stream::empty(),
+                    |_| async { Ok(PushApplyResult::Deferred) },
+                    config(SyncRole::Responder),
+                ),
+            )
+        })
+        .await
+        .expect("incomplete exchange must terminate");
+
+        assert!(matches!(initiator, Err(SynchronizeError::PeerClosed)));
+        responder.expect("receiver finishes the protocol before its facade validates pending work");
     }
 }

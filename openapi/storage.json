@@ -15,21 +15,13 @@
           },
           "registration": {}
         },
-        "required": [
-          "operation",
-          "recipient",
-          "registration",
-          "challenge"
-        ],
+        "required": ["operation", "recipient", "registration", "challenge"],
         "type": "object"
       },
       "CreateResourceRequest": {
         "properties": {
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
         "type": "object"
@@ -43,16 +35,10 @@
             "type": "string"
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "id",
-          "applicationId"
-        ],
+        "required": ["id", "applicationId"],
         "type": "object"
       },
       "DatabaseFailure": {
@@ -61,9 +47,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "code"
-        ],
+        "required": ["code"],
         "type": "object"
       },
       "DatabaseResource": {
@@ -72,15 +56,10 @@
             "type": "string"
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "id"
-        ],
+        "required": ["id"],
         "type": "object"
       },
       "EnsureDatabaseRequest": {
@@ -93,15 +72,10 @@
             "type": "string"
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "creationKey"
-        ],
+        "required": ["creationKey"],
         "type": "object"
       },
       "FileSystemDetailResponse": {
@@ -113,16 +87,10 @@
             "type": "string"
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "id",
-          "applicationId"
-        ],
+        "required": ["id", "applicationId"],
         "type": "object"
       },
       "FileSystemResourceResponse": {
@@ -131,15 +99,10 @@
             "type": "string"
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "id"
-        ],
+        "required": ["id"],
         "type": "object"
       },
       "IndependentCreateIntent": {
@@ -190,10 +153,7 @@
           {
             "properties": {
               "password": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               }
             },
             "type": "object"
@@ -221,13 +181,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "operation",
-          "owner",
-          "clients",
-          "facts",
-          "registered"
-        ],
+        "required": ["operation", "owner", "clients", "facts", "registered"],
         "type": "object"
       },
       "OwnerSetupStatus": {
@@ -248,12 +202,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "stage",
-          "state",
-          "ready",
-          "owners"
-        ],
+        "required": ["stage", "state", "ready", "owners"],
         "type": "object"
       },
       "Registration": {
@@ -270,19 +219,11 @@
           },
           "registration": {}
         },
-        "required": [
-          "operation",
-          "recipient",
-          "registration",
-          "challenge"
-        ],
+        "required": ["operation", "recipient", "registration", "challenge"],
         "type": "object"
       },
       "ResidencyMode": {
-        "enum": [
-          "full",
-          "passthrough"
-        ],
+        "enum": ["full", "passthrough"],
         "type": "string"
       },
       "ResourceResidency": {
@@ -292,9 +233,7 @@
             "$ref": "#/components/schemas/ResidencyMode"
           }
         },
-        "required": [
-          "mode"
-        ],
+        "required": ["mode"],
         "type": "object"
       },
       "SqlRequest": {
@@ -309,9 +248,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "statements"
-        ],
+        "required": ["statements"],
         "type": "object"
       },
       "SqlResponse": {
@@ -323,9 +260,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "results"
-        ],
+        "required": ["results"],
         "type": "object"
       },
       "SqlResult": {
@@ -346,10 +281,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "columns",
-          "rows"
-        ],
+        "required": ["columns", "rows"],
         "type": "object"
       },
       "SqlStatement": {
@@ -367,9 +299,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "sql"
-        ],
+        "required": ["sql"],
         "type": "object"
       },
       "SqlValue": {
@@ -377,59 +307,43 @@
           {
             "properties": {
               "type": {
-                "enum": [
-                  "null"
-                ],
+                "enum": ["null"],
                 "type": "string"
               }
             },
-            "required": [
-              "type"
-            ],
+            "required": ["type"],
             "type": "object"
           },
           {
             "properties": {
               "type": {
-                "enum": [
-                  "boolean"
-                ],
+                "enum": ["boolean"],
                 "type": "string"
               },
               "value": {
                 "type": "boolean"
               }
             },
-            "required": [
-              "value",
-              "type"
-            ],
+            "required": ["value", "type"],
             "type": "object"
           },
           {
             "properties": {
               "type": {
-                "enum": [
-                  "integer"
-                ],
+                "enum": ["integer"],
                 "type": "string"
               },
               "value": {
                 "type": "string"
               }
             },
-            "required": [
-              "value",
-              "type"
-            ],
+            "required": ["value", "type"],
             "type": "object"
           },
           {
             "properties": {
               "type": {
-                "enum": [
-                  "float"
-                ],
+                "enum": ["float"],
                 "type": "string"
               },
               "value": {
@@ -437,54 +351,39 @@
                 "type": "number"
               }
             },
-            "required": [
-              "value",
-              "type"
-            ],
+            "required": ["value", "type"],
             "type": "object"
           },
           {
             "properties": {
               "type": {
-                "enum": [
-                  "text"
-                ],
+                "enum": ["text"],
                 "type": "string"
               },
               "value": {
                 "type": "string"
               }
             },
-            "required": [
-              "value",
-              "type"
-            ],
+            "required": ["value", "type"],
             "type": "object"
           },
           {
             "properties": {
               "type": {
-                "enum": [
-                  "uuid"
-                ],
+                "enum": ["uuid"],
                 "type": "string"
               },
               "value": {
                 "type": "string"
               }
             },
-            "required": [
-              "value",
-              "type"
-            ],
+            "required": ["value", "type"],
             "type": "object"
           },
           {
             "properties": {
               "type": {
-                "enum": [
-                  "blob"
-                ],
+                "enum": ["blob"],
                 "type": "string"
               },
               "value": {
@@ -496,10 +395,7 @@
                 "type": "array"
               }
             },
-            "required": [
-              "value",
-              "type"
-            ],
+            "required": ["value", "type"],
             "type": "object"
           }
         ]
@@ -523,11 +419,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "name",
-          "version",
-          "build"
-        ],
+        "required": ["name", "version", "build"],
         "type": "object"
       }
     },
@@ -664,9 +556,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources"
-        ]
+        "tags": ["resources"]
       },
       "post": {
         "operationId": "create_database",
@@ -706,9 +596,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources"
-        ]
+        "tags": ["resources"]
       }
     },
     "/databases/ensure": {
@@ -821,9 +709,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources"
-        ]
+        "tags": ["resources"]
       }
     },
     "/databases/{database_id}": {
@@ -862,9 +748,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources"
-        ]
+        "tags": ["resources"]
       },
       "get": {
         "operationId": "get_database",
@@ -908,9 +792,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources"
-        ]
+        "tags": ["resources"]
       }
     },
     "/databases/{database_id}/sql": {
@@ -1024,9 +906,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources::sql"
-        ]
+        "tags": ["resources::sql"]
       }
     },
     "/filesystems": {
@@ -1061,9 +941,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources"
-        ]
+        "tags": ["resources"]
       },
       "post": {
         "operationId": "create_file_system",
@@ -1103,9 +981,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources"
-        ]
+        "tags": ["resources"]
       }
     },
     "/filesystems/{filesystem_id}": {
@@ -1144,9 +1020,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources"
-        ]
+        "tags": ["resources"]
       },
       "get": {
         "operationId": "get_file_system",
@@ -1190,9 +1064,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources"
-        ]
+        "tags": ["resources"]
       }
     },
     "/filesystems/{filesystem_id}/residency": {
@@ -1244,9 +1116,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources::residency"
-        ]
+        "tags": ["resources::residency"]
       },
       "put": {
         "operationId": "put_file_system_residency",
@@ -1299,9 +1169,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "resources::residency"
-        ]
+        "tags": ["resources::residency"]
       }
     },
     "/health": {
@@ -1350,9 +1218,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/cancel": {
@@ -1387,9 +1253,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/challenge": {
@@ -1423,12 +1287,8 @@
             "description": "Owner unavailable"
           }
         },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "owner_setup"
-        ]
+        "security": [{}],
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/create": {
@@ -1466,9 +1326,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/intent": {
@@ -1500,9 +1358,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/public": {
@@ -1523,9 +1379,7 @@
             "description": "Public owner metadata not yet available"
           }
         },
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/register": {
@@ -1559,12 +1413,8 @@
             "description": "Owner unavailable"
           }
         },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "owner_setup"
-        ]
+        "security": [{}],
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/status": {
@@ -1585,9 +1435,7 @@
             "description": "Admission unavailable (empty body), or current owner readiness failed (nonsecret status with ready:false)"
           }
         },
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/version": {

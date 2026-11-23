@@ -7,10 +7,7 @@ test("memory sessions ignore legacy plaintext caches without purging unrelated c
   const values = new Map<string, string>([
     ["oidc.token:https://issuer.example:response", '{"access_token":"old"}'],
     ["oidc.pkce:https://issuer.example:last", "old-verifier"],
-    [
-      "oidc.token:https://previous.example:response",
-      '{"refresh_token":"old-refresh"}',
-    ],
+    ["oidc.token:https://previous.example:response", '{"refresh_token":"old-refresh"}'],
     ["oidc.pkce:https://previous.example:state:pending", "previous-verifier"],
     ["unrelated", "retain"],
   ]);
@@ -38,9 +35,7 @@ test("memory sessions ignore legacy plaintext caches without purging unrelated c
     };
     const client = new OidcClient(options);
     expect(client.getStoredTokenResponse()).toBeNull();
-    expect(
-      values.get("oidc.token:https://previous.example:response"),
-    ).toBeDefined();
+    expect(values.get("oidc.token:https://previous.example:response")).toBeDefined();
     client.setToken({ access_token: "access", refresh_token: "refresh" });
     expect(client.getStoredTokenResponse()?.access_token).toBe("access");
     expect(new OidcClient(options).getStoredTokenResponse()).toBeNull();
@@ -49,9 +44,7 @@ test("memory sessions ignore legacy plaintext caches without purging unrelated c
     values.set("oidc.pkce:https://previous.example:last", "previous-verifier");
     client.clearStoredTokenResponse();
     expect(client.getStoredTokenResponse()).toBeNull();
-    expect(
-      values.get("oidc.token:https://previous.example:response"),
-    ).toBeDefined();
+    expect(values.get("oidc.token:https://previous.example:response")).toBeDefined();
   } finally {
     vi.unstubAllGlobals();
   }
@@ -82,9 +75,7 @@ test.each([
       release = resolve;
     });
     const fetch = vi.fn(async (url: URL | RequestInfo) =>
-      String(url).endsWith("/oauth/token")
-        ? held
-        : Response.json(createOidcConfiguration()),
+      String(url).endsWith("/oauth/token") ? held : Response.json(createOidcConfiguration())
     );
     const options = {
       clientConfig: {
@@ -104,12 +95,9 @@ test.each([
       };
       client.setToken(old);
       const pending = client.getAccessToken();
-      const rejected = expect(pending).rejects.toThrow(
-        "Session changed during token refresh",
-      );
+      const rejected = expect(pending).rejects.toThrow("Session changed during token refresh");
       await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-      if (change === "clear" || change === "clear-and-restore")
-        client.clearStoredTokenResponse();
+      if (change === "clear" || change === "clear-and-restore") client.clearStoredTokenResponse();
       if (change === "clear-and-restore") client.setToken(old);
       if (change === "replace")
         client.setToken({
@@ -126,17 +114,17 @@ test.each([
         Response.json({
           access_token: "stale-refreshed",
           refresh_token: "stale-refresh",
-        }),
+        })
       );
       await rejected;
       expect(client.getStoredTokenResponse()).toEqual(expected);
       expect(new OidcClient(options).getStoredTokenResponse()).toEqual(
-        storage === "memory" ? null : expected,
+        storage === "memory" ? null : expected
       );
     } finally {
       vi.unstubAllGlobals();
     }
-  },
+  }
 );
 
 function createClient(): OidcClient {
@@ -150,9 +138,7 @@ function createClient(): OidcClient {
   });
 }
 
-function createOidcConfiguration(
-  overrides: Partial<OidcConfiguration> = {},
-): OidcConfiguration {
+function createOidcConfiguration(overrides: Partial<OidcConfiguration> = {}): OidcConfiguration {
   return {
     issuer: "https://issuer.example",
     authorization_endpoint: "https://issuer.example/oauth/authorize",
@@ -170,7 +156,7 @@ test("refresh recalculates access-token expiry instead of retaining the expired 
   const fetch = vi.fn(async (url: URL | RequestInfo) =>
     String(url).endsWith("/oauth/token")
       ? Response.json({ access_token: "renewed", expires_in: 3600 })
-      : Response.json(createOidcConfiguration()),
+      : Response.json(createOidcConfiguration())
   );
   const client = new OidcClient({
     storage: "memory",
@@ -189,13 +175,11 @@ test("refresh recalculates access-token expiry instead of retaining the expired 
   });
   const before = Date.now();
   await expect(client.getAccessToken()).resolves.toBe("renewed");
-  expect(
-    client.getStoredTokenResponse()?.access_token_expires_at,
-  ).toBeGreaterThanOrEqual(before + 3600000);
+  expect(client.getStoredTokenResponse()?.access_token_expires_at).toBeGreaterThanOrEqual(
+    before + 3600000
+  );
   await expect(client.getAccessToken()).resolves.toBe("renewed");
-  expect(
-    fetch.mock.calls.filter(([url]) => String(url).endsWith("/oauth/token")),
-  ).toHaveLength(1);
+  expect(fetch.mock.calls.filter(([url]) => String(url).endsWith("/oauth/token"))).toHaveLength(1);
 });
 
 test("getUserInfo throws NO_ACCESS_TOKEN when token is missing", async () => {
@@ -222,10 +206,9 @@ test("getUserInfo throws NO_USERINFO_ENDPOINT when provider does not expose endp
   testClient.getStoredTokenResponse = () => ({
     access_token: "access-token",
   });
-  testClient.getOidcConfiguration = async () =>
-    createOidcConfiguration({
-      userinfo_endpoint: undefined,
-    });
+  const configuration = createOidcConfiguration();
+  Reflect.deleteProperty(configuration, "userinfo_endpoint");
+  testClient.getOidcConfiguration = async () => configuration;
 
   try {
     await client.getUserInfo();
@@ -242,9 +225,7 @@ test("handleSigninCallback rejects a callback without state", async () => {
   const client = createClient();
 
   await expect(
-    client.handleSigninCallback(
-      new URL("https://app.example/callback?code=code"),
-    ),
+    client.handleSigninCallback(new URL("https://app.example/callback?code=code"))
   ).rejects.toMatchObject({ code: "MISSING_STATE" });
 });
 
@@ -252,9 +233,7 @@ test("handleSigninCallback rejects an unknown state", async () => {
   const client = createClient();
 
   await expect(
-    client.handleSigninCallback(
-      new URL("https://app.example/callback?code=code&state=unknown"),
-    ),
+    client.handleSigninCallback(new URL("https://app.example/callback?code=code&state=unknown"))
   ).rejects.toMatchObject({ code: "INVALID_STATE" });
 });
 
@@ -272,7 +251,7 @@ test("getAccessToken refreshes an expired access token", async () => {
     requestToken: (
       endpoint: string,
       headers: Record<string, string>,
-      body: URLSearchParams,
+      body: URLSearchParams
     ) => Promise<{ access_token: string; expires_in: number }>;
     rememberTokenResponse: () => void;
   };
@@ -302,14 +281,14 @@ test("project-owned discovery cannot redirect refresh credentials to a foreign t
       Response.json({
         ...createOidcConfiguration(),
         token_endpoint: "https://foreign.example/oauth/token",
-      }),
+      })
     )
     .mockResolvedValue(
       Response.json({
         access_token: "unsafe",
         token_type: "Bearer",
         expires_in: 60,
-      }),
+      })
     );
   const client = new OidcClient({
     projectOwned: true,

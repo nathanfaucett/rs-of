@@ -26,7 +26,7 @@ pub trait SyncTransport {
     #[cfg(not(target_arch = "wasm32"))]
     fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> + Send;
     #[cfg(target_arch = "wasm32")]
-    fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>>;
+    fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> + 'static;
 
     /// Optional: Get the peer's session ID if available.
     fn session_id(&self) -> Option<SessionId> {

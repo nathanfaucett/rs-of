@@ -1,12 +1,11 @@
 <script lang="ts">
-import LockSettingsControl from "$lib/vault/LockSettings.svelte";
+import { Lock } from "@lucide/svelte";
+import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+import { Alert } from "$lib/ui";
 import JsonExport from "$lib/vault/export/JsonExport.svelte";
 import ImportJson from "$lib/vault/import/ImportJson.svelte";
-import { Alert } from "$lib/ui";
-
-import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+import LockSettingsControl from "$lib/vault/LockSettings.svelte";
 import type { LockSettings } from "$lib/vault/lock";
-import { Lock } from "@lucide/svelte";
 
 let error = $state("");
 let notice = $state("");

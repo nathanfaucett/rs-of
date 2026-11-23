@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -54,7 +53,7 @@ export function SelectedResourceFromJSON(json: any): SelectedResource {
 
 export function SelectedResourceFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): SelectedResource {
   if (json == null) {
     return json;
@@ -73,7 +72,7 @@ export function SelectedResourceToJSON(json: any): SelectedResource {
 
 export function SelectedResourceToJSONTyped(
   value?: SelectedResource | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

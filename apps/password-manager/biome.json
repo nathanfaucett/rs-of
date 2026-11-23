@@ -1,33 +1,33 @@
 {
-	"extends": "//",
-	"assist": {
-		"actions": {
-			"source": {
-				"organizeImports": "on"
-			}
-		}
-	},
-	"css": {
-		"parser": {
-			"tailwindDirectives": true
-		}
-	},
-	"html": {
-		"experimentalFullSupportEnabled": true
-	},
-	"javascript": {
-		"experimentalEmbeddedSnippetsEnabled": true
-	},
-	"overrides": [
-		{
-			"includes": ["scripts/check-json-roundtrip.mjs"],
-			"linter": {
-				"rules": {
-					"performance": {
-						"noDelete": "off"
-					}
-				}
-			}
-		}
-	]
+  "extends": "//",
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "html": {
+    "experimentalFullSupportEnabled": true
+  },
+  "javascript": {
+    "experimentalEmbeddedSnippetsEnabled": true
+  },
+  "overrides": [
+    {
+      "includes": ["scripts/check-json-roundtrip.mjs"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noDelete": "off"
+          }
+        }
+      }
+    }
+  ]
 }

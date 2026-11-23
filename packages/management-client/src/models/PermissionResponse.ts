@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -30,7 +29,7 @@ export interface PermissionResponse {
   /**
    *
    */
-  description?: string | null;
+  description?: (string | null) | undefined;
   /**
    *
    */
@@ -81,7 +80,7 @@ export function PermissionResponseFromJSON(json: any): PermissionResponse {
 
 export function PermissionResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): PermissionResponse {
   if (json == null) {
     return json;
@@ -107,7 +106,7 @@ export function PermissionResponseToJSON(json: any): PermissionResponse {
 
 export function PermissionResponseToJSONTyped(
   value?: PermissionResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

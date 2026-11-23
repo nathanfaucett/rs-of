@@ -15,6 +15,7 @@
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
     import { page } from "$app/state";
+    import Modal from "$lib/common/components/Modal.svelte";
     import {
         type Application,
         idpAdministration,
@@ -23,9 +24,10 @@
     import { managementApi } from "$lib/common/state/managementClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
-    import Modal from "$lib/common/components/Modal.svelte";
 
-    const applicationId = page.params.applicationId;
+    const applicationId = page.params.applicationId ?? "";
+    if (!applicationId) throw new Error("Application ID is required");
+
     const profileOptions = Object.values(ClientProfile);
     const clientTypeOptions = Object.values(ClientType);
     const tokenEndpointAuthMethodOptions = Object.values(
@@ -85,13 +87,15 @@
     let clientType = $state(ClientType.Public);
     let tokenEndpointAuthMethod = $state(TokenEndpointAuthMethod.None);
 
-    const applicationClients = $derived(
-        application
+    const applicationClients = $derived.by(() => {
+        const currentApplication = application;
+        return currentApplication
             ? clients.filter(
-                  (client) => client.application.uri === application!.uri,
+                  (client) =>
+                      client.application.uri === currentApplication.uri,
               )
-            : [],
-    );
+            : [];
+    });
 
     function formatTimestamp(value: number): string {
         return new Date(value * 1000).toLocaleString();
@@ -128,12 +132,14 @@
             selectedPermissionId = "";
         }
 
-        if (!selectedRoleId && roles.length > 0) {
-            selectedRoleId = String(roles[0].id);
+        const firstRole = roles[0];
+        if (!selectedRoleId && firstRole) {
+            selectedRoleId = String(firstRole.id);
         }
 
-        if (!selectedPermissionId && permissions.length > 0) {
-            selectedPermissionId = String(permissions[0].id);
+        const firstPermission = permissions[0];
+        if (!selectedPermissionId && firstPermission) {
+            selectedPermissionId = String(firstPermission.id);
         }
     }
 
@@ -472,9 +478,9 @@
             resetClientForm();
             notifications.add("Client created", "success");
             clients = [...clients, created];
-            if (created.clientSecret) {
+            if (created.clientId && created.clientSecret) {
                 secretModal = {
-                    clientId: created.clientId!,
+                    clientId: created.clientId,
                     clientSecret: created.clientSecret,
                 };
             }
@@ -486,14 +492,6 @@
         }
     }
 
-    $effect(() => {
-        selectedRoleId;
-        if (selectedRoleId) {
-            void loadRolePermissions();
-        } else {
-            rolePermissions = [];
-        }
-    });
 
     onMount(() => {
         void loadApplication();
@@ -782,7 +780,15 @@
                             aria-describedby={describedby}
                             aria-invalid={invalid}
                             {required}
-                            bind:value={selectedRoleId}
+                            value={selectedRoleId}
+                            onchange={(event) => {
+                                selectedRoleId = event.currentTarget.value;
+                                if (selectedRoleId) {
+                                    void loadRolePermissions();
+                                } else {
+                                    rolePermissions = [];
+                                }
+                            }}
                         >
                             <option value="">Select role</option>
                             {#each roles as role (role.id)}
@@ -1070,6 +1076,7 @@
         </Card>
     {/if}
     {#if secretModal}
+        {@const currentSecret = secretModal}
         <Modal title="Client Credentials">
             <div class="flex flex-col gap-4">
                 <p class="mb-0 text-sm text-ink-muted">
@@ -1086,14 +1093,15 @@
                             <input
                                 readonly
                                 id="secret-modal-client-id"
-                                value={secretModal.clientId}
+                                value={currentSecret.clientId}
                                 class="flex-1 rounded-control border border-line bg-surface p-2 text-sm font-mono"
                             />
                             <button
                                 class="btn btn-secondary btn-md"
+                                type="button"
                                 onclick={() => {
-                                    navigator.clipboard.writeText(
-                                        secretModal.clientId,
+                                    void navigator.clipboard.writeText(
+                                        currentSecret.clientId,
                                     );
                                     notifications.add(
                                         "Client ID copied",
@@ -1114,14 +1122,15 @@
                             <input
                                 readonly
                                 id="secret-modal-client-secret"
-                                value={secretModal.clientSecret}
+                                value={currentSecret.clientSecret}
                                 class="flex-1 rounded-control border border-line bg-surface p-2 text-sm font-mono"
                             />
                             <button
                                 class="btn btn-secondary btn-md"
+                                type="button"
                                 onclick={() => {
-                                    navigator.clipboard.writeText(
-                                        secretModal.clientSecret,
+                                    void navigator.clipboard.writeText(
+                                        currentSecret.clientSecret,
                                     );
                                     notifications.add(
                                         "Client secret copied",
@@ -1137,6 +1146,7 @@
                 <form method="dialog" class="flex justify-end">
                     <button
                         class="btn btn-primary btn-md"
+                        type="submit"
                         onclick={() => (secretModal = null)}
                     >
                         Done

@@ -1,31 +1,46 @@
 import type { Client, Row } from "@ofsdk/sql";
 import type { DatabaseHandle } from "@ofsdk/sync-sdk";
-import { getSharedClient, migrateToSharedTables, needsMigration, migrateLocalVaultToSync } from "./storage/migrate-to-shared";
 import * as v from "valibot";
-import { createVaultRegistry } from "./storage/VaultRegistry";
 import {
-  parseSecretRow,
-  parseFolderRow,
-  parseLockSettingsRow,
-  parseVaultRow,
-
-  parseText,
-  dbParams,
-  dbParam,
-} from "./storage/schema";
+  type Folder,
+  FolderSchema,
+  type ItemMutation,
+  type ItemSnapshot,
+  validateItemSnapshot,
+} from "./folder";
 import {
+  DEFAULT_LOCK_SETTINGS,
+  decryptLockSettings,
+  encryptLockSettings,
+  type LockSettings,
+} from "./lock";
+import { type Secret, SecretSchema } from "./secrets/secret";
+import {
+  createAuthentication,
+  decrypt,
   deriveKey,
   encrypt,
-  decrypt,
-  toBase64,
   fromBase64,
-  createAuthentication,
+  toBase64,
   verifyAuthentication,
 } from "./storage/crypto";
-import { type LockSettings, DEFAULT_LOCK_SETTINGS, encryptLockSettings, decryptLockSettings } from "./lock";
-import { type Secret, SecretSchema } from "./secrets/secret";
-import { type Folder, FolderSchema } from "./folder";
-import { type ItemMutation, validateItemSnapshot, type ItemSnapshot } from "./folder";
+import {
+  getSharedClient,
+  migrateLocalVaultToSync,
+  migrateToSharedTables,
+  needsMigration,
+} from "./storage/migrate-to-shared";
+import {
+  dbParam,
+  dbParams,
+  parseFolderRow,
+  parseLockSettingsRow,
+  parseOptionalText,
+  parseSecretRow,
+  parseText,
+  parseVaultRow,
+} from "./storage/schema";
+import { createVaultRegistry } from "./storage/VaultRegistry";
 import type { VaultHandleLike } from "./types";
 
 interface VaultMeta {
@@ -50,25 +65,14 @@ class VaultHandle {
   private client: Client;
   private meta: VaultMeta;
 
-  private constructor(
-    key: CryptoKey,
-    client: Client,
-    meta: VaultMeta,
-    vaultId: string,
-  ) {
+  private constructor(key: CryptoKey, client: Client, meta: VaultMeta, vaultId: string) {
     this.key = key;
     this.client = client;
     this.meta = meta;
     this.vaultId = vaultId;
-
   }
 
-  static create(
-    key: CryptoKey,
-    client: Client,
-    meta: VaultMeta,
-    vaultId: string,
-  ): VaultHandle {
+  static create(key: CryptoKey, client: Client, meta: VaultMeta, vaultId: string): VaultHandle {
     return new VaultHandle(key, client, meta, vaultId);
   }
 
@@ -81,59 +85,69 @@ class VaultHandle {
   }
 
   async loadSecrets(): Promise<Secret[]> {
-    return navigator.locks.request(
-      `password-manager-items-${this.vaultId}`,
-      async () => {
-        await this.verifyVaultExists();
-        const rows = await this.client.execute(
-          `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM secrets WHERE vault_id = ?`,
-          (row: Row) => parseSecretRow(row),
-          [dbParam(this.vaultId)],
-        );
-        return Promise.all(rows.map(async (secret) => {
+    return navigator.locks.request(`password-manager-items-${this.vaultId}`, async () => {
+      await this.verifyVaultExists();
+      const rows = await this.client.execute(
+        `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM secrets WHERE vault_id = ?`,
+        (row: Row) => parseSecretRow(row),
+        [dbParam(this.vaultId)]
+      );
+      return Promise.all(
+        rows.map(async (secret) => {
           const plaintext = await decrypt(this.activeKey(), secret.ciphertext, secret.nonce);
           try {
             const parsed = v.parse(SecretSchema, JSON.parse(plaintext));
             if (parsed.id !== secret.id) {
-              throw new Error("Malformed vault snapshot. No partial records or folders were loaded. Check the complete backup; do not clear browser data.");
+              throw new Error(
+                "Malformed vault snapshot. No partial records or folders were loaded. Check the complete backup; do not clear browser data."
+              );
             }
             return parsed;
           } catch (e) {
             if (e instanceof Error && e.message.includes("Malformed vault snapshot")) throw e;
-            return { id: secret.id, kind: "secureNote", type: 0, name: "", notes: plaintext, favorite: false, fields: [], history: [], createdAt: secret.createdAt, updatedAt: secret.updatedAt } as Secret;
+            return {
+              id: secret.id,
+              kind: "secureNote",
+              type: 0,
+              name: "",
+              notes: plaintext,
+              favorite: false,
+              fields: [],
+              history: [],
+              createdAt: secret.createdAt,
+              updatedAt: secret.updatedAt,
+            } as Secret;
           }
-        }));
-      },
-    );
+        })
+      );
+    });
   }
 
   async loadFolders(): Promise<Folder[]> {
-    return navigator.locks.request(
-      `password-manager-items-${this.vaultId}`,
-      async () => {
-        await this.verifyVaultExists();
-        const rows = await this.client.execute(
-          `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ?`,
-          (row: Row) => parseFolderRow(row),
-          [dbParam(this.vaultId)],
-        );
-        return Promise.all(rows.map(async (folderRow) => {
+    return navigator.locks.request(`password-manager-items-${this.vaultId}`, async () => {
+      await this.verifyVaultExists();
+      const rows = await this.client.execute(
+        `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ?`,
+        (row: Row) => parseFolderRow(row),
+        [dbParam(this.vaultId)]
+      );
+      return Promise.all(
+        rows.map(async (folderRow) => {
           const plaintext = await decrypt(this.activeKey(), folderRow.ciphertext, folderRow.nonce);
           const folder = v.parse(FolderSchema, JSON.parse(plaintext));
           if (folder.id !== folderRow.id) {
-            throw new Error("Malformed vault snapshot. No partial records or folders were loaded. Check the complete backup; do not clear browser data.");
+            throw new Error(
+              "Malformed vault snapshot. No partial records or folders were loaded. Check the complete backup; do not clear browser data."
+            );
           }
           return folder;
-        }));
-      },
-    );
+        })
+      );
+    });
   }
 
   private async itemSnapshot(): Promise<ItemSnapshot> {
-    const [items, folders] = await Promise.all([
-      this.loadSecrets(),
-      this.loadFolders(),
-    ]);
+    const [items, folders] = await Promise.all([this.loadSecrets(), this.loadFolders()]);
     return { items, folders };
   }
 
@@ -164,8 +178,8 @@ class VaultHandle {
               encrypted.ciphertext,
               encrypted.nonce,
               new Date().toISOString(),
-              new Date().toISOString(),
-            ),
+              new Date().toISOString()
+            )
           );
         }
       }
@@ -183,8 +197,8 @@ class VaultHandle {
               encrypted.ciphertext,
               encrypted.nonce,
               new Date().toISOString(),
-              new Date().toISOString(),
-            ),
+              new Date().toISOString()
+            )
           );
         }
       }
@@ -192,20 +206,20 @@ class VaultHandle {
       // Handle secret deletes
       if (mutation.deleteIds?.length) {
         for (const id of mutation.deleteIds) {
-          await tx.executeRaw(
-            `DELETE FROM secrets WHERE id = ? AND vault_id = ?`,
-            [dbParam(id), dbParam(this.vaultId)],
-          );
+          await tx.executeRaw(`DELETE FROM secrets WHERE id = ? AND vault_id = ?`, [
+            dbParam(id),
+            dbParam(this.vaultId),
+          ]);
         }
       }
 
       // Handle folder deletes
       if (mutation.deleteFolderIds?.length) {
         for (const id of mutation.deleteFolderIds) {
-          await tx.executeRaw(
-            `DELETE FROM folders WHERE id = ? AND vault_id = ?`,
-            [dbParam(id), dbParam(this.vaultId)],
-          );
+          await tx.executeRaw(`DELETE FROM folders WHERE id = ? AND vault_id = ?`, [
+            dbParam(id),
+            dbParam(this.vaultId),
+          ]);
         }
       }
 
@@ -223,9 +237,7 @@ class VaultHandle {
   }
 
   async renameFolder(folderId: string, name: string): Promise<void> {
-    const folders = (await this.loadFolders()).map((f) =>
-      f.id === folderId ? { ...f, name } : f,
-    );
+    const folders = (await this.loadFolders()).map((f) => (f.id === folderId ? { ...f, name } : f));
     await this.mutateItems({ folders });
   }
 
@@ -250,7 +262,7 @@ class VaultHandle {
         ciphertext: parseText(row, "ciphertext"),
         nonce: parseText(row, "nonce"),
       }),
-      [dbParam(secret.id), dbParam(this.vaultId)],
+      [dbParam(secret.id), dbParam(this.vaultId)]
     );
     if (!rows[0]) throw new Error("Secret not found");
     return decrypt(this.activeKey(), rows[0].ciphertext, rows[0].nonce);
@@ -278,7 +290,14 @@ class VaultHandle {
     await this.client.executeRaw(
       `INSERT INTO secrets (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`,
-      dbParams(item.id, this.vaultId, encrypted.ciphertext, encrypted.nonce, item.createdAt, item.updatedAt),
+      dbParams(
+        item.id,
+        this.vaultId,
+        encrypted.ciphertext,
+        encrypted.nonce,
+        item.createdAt,
+        item.updatedAt
+      )
     );
     return item;
   }
@@ -296,22 +315,36 @@ class VaultHandle {
       this.client.execute(
         `SELECT name, authentication FROM vaults WHERE id = ?`,
         (row: Row) => ({
-          name: row.name && row.name.type !== "null" ? (row.name as { value: string }).value : "vault",
-          authentication: row.authentication?.type === "null" || !row.authentication ? null : (row.authentication as { value: string }).value,
+          name: parseOptionalText(row, "name") ?? "vault",
+          authentication: parseOptionalText(row, "authentication"),
         }),
-        [dbParam(this.vaultId)],
+        [dbParam(this.vaultId)]
       ),
     ]);
 
     const { encodeBackup } = await import("./backup");
-    const secretsPayload = await Promise.all(items.map(async (item) => {
-      const encrypted = await encrypt(this.activeKey(), JSON.stringify(item));
-      return { id: item.id, ...encrypted, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    }));
-    const foldersPayload = await Promise.all(folders.map(async (folder) => {
-      const encrypted = await encrypt(this.activeKey(), JSON.stringify(folder));
-      return { id: folder.id, ...encrypted, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    }));
+    const secretsPayload = await Promise.all(
+      items.map(async (item) => {
+        const encrypted = await encrypt(this.activeKey(), JSON.stringify(item));
+        return {
+          id: item.id,
+          ...encrypted,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
+    const foldersPayload = await Promise.all(
+      folders.map(async (folder) => {
+        const encrypted = await encrypt(this.activeKey(), JSON.stringify(folder));
+        return {
+          id: folder.id,
+          ...encrypted,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
 
     return encodeBackup(this.activeKey(), {
       meta: this.meta,
@@ -326,39 +359,37 @@ class VaultHandle {
   }
 
   async loadLockSettings(): Promise<LockSettings> {
-    return navigator.locks.request(
-      `password-manager-items-${this.vaultId}`,
-      async () => {
-        await this.verifyVaultExists();
-        const results = await this.client.execute(
-          `SELECT vault_id, ciphertext, nonce, updated_at FROM lock_settings WHERE vault_id = ?`,
-          (row: Row) => parseLockSettingsRow(row),
-          [dbParam(this.vaultId)],
-        );
-        if (!results[0]) return { ...DEFAULT_LOCK_SETTINGS };
-        return decryptLockSettings(this.activeKey(), this.vaultId, JSON.stringify({
+    return navigator.locks.request(`password-manager-items-${this.vaultId}`, async () => {
+      await this.verifyVaultExists();
+      const results = await this.client.execute(
+        `SELECT vault_id, ciphertext, nonce, updated_at FROM lock_settings WHERE vault_id = ?`,
+        (row: Row) => parseLockSettingsRow(row),
+        [dbParam(this.vaultId)]
+      );
+      if (!results[0]) return { ...DEFAULT_LOCK_SETTINGS };
+      return decryptLockSettings(
+        this.activeKey(),
+        this.vaultId,
+        JSON.stringify({
           ciphertext: results[0].ciphertext,
           nonce: results[0].nonce,
-        }));
-      },
-    );
+        })
+      );
+    });
   }
 
   async saveLockSettings(settings: LockSettings): Promise<LockSettings> {
-    return navigator.locks.request(
-      `password-manager-items-${this.vaultId}`,
-      async () => {
-        await this.verifyVaultExists();
-        const encryptedJson = await encryptLockSettings(this.activeKey(), this.vaultId, settings);
-        const encrypted = JSON.parse(encryptedJson);
-        await this.client.executeRaw(
-          `INSERT INTO lock_settings (vault_id, ciphertext, nonce, updated_at) VALUES (?, ?, ?, ?)
+    return navigator.locks.request(`password-manager-items-${this.vaultId}`, async () => {
+      await this.verifyVaultExists();
+      const encryptedJson = await encryptLockSettings(this.activeKey(), this.vaultId, settings);
+      const encrypted = JSON.parse(encryptedJson);
+      await this.client.executeRaw(
+        `INSERT INTO lock_settings (vault_id, ciphertext, nonce, updated_at) VALUES (?, ?, ?, ?)
            ON CONFLICT(vault_id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`,
-          dbParams(this.vaultId, encrypted.ciphertext, encrypted.nonce, new Date().toISOString()),
-        );
-        return settings;
-      },
-    );
+        dbParams(this.vaultId, encrypted.ciphertext, encrypted.nonce, new Date().toISOString())
+      );
+      return settings;
+    });
   }
 
   private async verifyVaultExists(): Promise<void> {
@@ -366,15 +397,12 @@ class VaultHandle {
     if (!identity) throw new Error("Vault not found");
   }
 
-  close(): void {
+  async close(): Promise<void> {
     // Client is managed by caller
   }
 }
 
-export async function createVault(
-  password: string,
-  name: string,
-): Promise<VaultHandle> {
+export async function createVault(password: string, name: string): Promise<VaultHandle> {
   const trimmedName = name.trim();
   const vaultId = crypto.randomUUID();
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -395,7 +423,7 @@ export async function createVault(
   try {
     await tx.executeRaw(
       `INSERT INTO vaults (id, name, salt, iv, created_at, authentication, status, migrated) VALUES (?, ?, ?, ?, ?, ?, 'ready', 1)`,
-      dbParams(vaultId, trimmedName, meta.salt, meta.iv, meta.createdAt, authentication),
+      dbParams(vaultId, trimmedName, meta.salt, meta.iv, meta.createdAt, authentication)
     );
     await tx.commit();
   } catch (e) {
@@ -406,11 +434,7 @@ export async function createVault(
   return VaultHandle.create(key, client, meta, vaultId);
 }
 
-
-export async function unlockVault(
-  password: string,
-  id: string,
-): Promise<VaultHandle> {
+export async function unlockVault(password: string, id: string): Promise<VaultHandle> {
   // Run one-time migration from legacy per-vault DBs + registry to shared tables
   if (await needsMigration()) {
     await migrateToSharedTables();
@@ -422,7 +446,7 @@ export async function unlockVault(
   const results = await client.execute(
     `SELECT id, name, salt, iv, created_at, authentication, status, migrated FROM vaults WHERE id = ?`,
     (row: Row) => parseVaultRow(row),
-    [dbParam(id)],
+    [dbParam(id)]
   );
 
   if (!results[0]) throw new Error("Vault not found");
@@ -441,7 +465,7 @@ export async function unlockVault(
         ciphertext: parseText(row, "ciphertext"),
         nonce: parseText(row, "nonce"),
       }),
-      [dbParam(id)],
+      [dbParam(id)]
     );
     if (secrets.length === 0) {
       throw new Error("original password cannot be verified");
@@ -473,7 +497,10 @@ export async function unlockVault(
 export async function unlockAndMigrateVault(
   password: string,
   id: string,
-  syncClient: { createDatabase: (name: string) => Promise<DatabaseHandle>; openDatabase: (id: string) => Promise<DatabaseHandle> },
+  syncClient: {
+    createDatabase: (name: string) => Promise<DatabaseHandle>;
+    openDatabase: (id: string) => Promise<DatabaseHandle>;
+  }
 ): Promise<{ vault: VaultHandleLike; isSynced: boolean; syncHandle?: DatabaseHandle }> {
   // First try to unlock as local vault
   const vault = await unlockVault(password, id);
@@ -497,8 +524,7 @@ export async function listVaults(): Promise<
   return identities;
 }
 
-export type { VaultHandle };
-export type { VaultMeta };
+export type { VaultHandle, VaultMeta };
 export interface VaultIdentity {
   id: string;
   name: string;

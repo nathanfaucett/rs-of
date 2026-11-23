@@ -1,10 +1,10 @@
 <script lang="ts">
-    import type { UserInfo } from "@ofsdk/idp-client";
+    import type { UpdateUserInfoRequest, UserInfo } from "@ofsdk/idp-client";
     import type { UserApplicationRoleResponse } from "@ofsdk/management-client";
     import { onMount } from "svelte";
-    import { page } from "$app/state";
-    import { resolve } from "$app/paths";
     import { goto } from "$app/navigation";
+    import { resolve } from "$app/paths";
+    import { page } from "$app/state";
     import Modal from "$lib/common/components/Modal.svelte";
     import {
         type Consent,
@@ -13,10 +13,9 @@
     import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { managementApi } from "$lib/common/state/managementClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
-    import { Alert, Card, Page, PageHeader, Field } from "$lib/ui";
+    import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
     const parsedUserId = page.params.userId;
-    const hasValidUserId = Boolean(parsedUserId);
 
     let loading = $state(false);
     let error = $state<string | null>(null);
@@ -54,7 +53,7 @@
     let blockLoading = $state(false);
 
     async function loadUserRoles() {
-        if (!hasValidUserId) {
+        if (!parsedUserId) {
             return;
         }
 
@@ -77,7 +76,7 @@
     }
 
     async function loadConsents() {
-        if (!hasValidUserId) {
+        if (!parsedUserId) {
             return;
         }
 
@@ -106,7 +105,7 @@
     }
 
     async function loadUser() {
-        if (!hasValidUserId) {
+        if (!parsedUserId) {
             error = "Invalid user ID";
             return;
         }
@@ -156,11 +155,11 @@
     }
 
     async function saveEdit() {
-        if (!hasValidUserId || !user) return;
+        if (!parsedUserId || !user) return;
         saving = true;
         saveError = null;
         try {
-            const updates: Record<string, unknown> = {};
+            const updates: UpdateUserInfoRequest = {};
             if (editName !== (user.name ?? "")) updates.name = editName || null;
             if (editGivenName !== (user.givenName ?? ""))
                 updates.givenName = editGivenName || null;
@@ -199,13 +198,13 @@
     }
 
     async function deleteUser() {
-        if (!hasValidUserId || !user) return;
+        if (!parsedUserId || !user) return;
         deleting = true;
         try {
             await idpApi.deleteUser({ userId: parsedUserId });
             notifications.add("User deleted", "success");
             deleteModalRef?.close();
-            await goto("/users");
+            await goto(resolve("/users"));
         } catch (cause) {
             console.error(cause);
             notifications.add("Failed to delete user", "error");
@@ -219,7 +218,7 @@
     }
 
     async function resetPassword() {
-        if (!hasValidUserId || !user) return;
+        if (!parsedUserId || !user) return;
         resettingPassword = true;
         try {
             await idpApi.resetPassword({
@@ -237,7 +236,7 @@
     }
 
     async function onRevokeConsent(consent: Consent) {
-        if (!hasValidUserId) {
+        if (!parsedUserId) {
             return;
         }
 
@@ -262,7 +261,7 @@
     }
 
     async function onToggleMfa() {
-        if (!hasValidUserId) return;
+        if (!parsedUserId) return;
         mfaLoading = true;
         try {
             await idpApi.setUserMfa({
@@ -286,7 +285,7 @@
     }
 
     async function onToggleBlock() {
-        if (!hasValidUserId || !user) return;
+        if (!parsedUserId || !user) return;
         blockLoading = true;
         try {
             const blocked = !isBlocked;

@@ -1,9 +1,10 @@
 import {
   JsPushSyncTransport,
   PushConfig,
-  PushSynchronizeConfig,
   type Client as SqlClient,
   Database as SqlDatabase,
+  SqlSessionConfig,
+  SqlSyncRole,
 } from "@ofsdk/sql";
 import { LoopbackTransport } from "./transport.js";
 
@@ -247,8 +248,9 @@ export class SqlPeerNetwork {
     b.error = "";
     this.onChange();
 
-    const makeConfig = () => {
-      const c = new PushSynchronizeConfig();
+    const makeConfig = (role: SqlSyncRole) => {
+      const c = new SqlSessionConfig();
+      c.role = role;
       const proto = new PushConfig();
       proto.maxFrameBytes = 8 * 1024 * 1024; // 8 MiB
       proto.maxPendingPerKey = 1024;
@@ -261,8 +263,8 @@ export class SqlPeerNetwork {
 
     try {
       await Promise.all([
-        a.db.synchronize(new JsPushSyncTransport(tA), makeConfig()),
-        b.db.synchronize(new JsPushSyncTransport(tB), makeConfig()),
+        a.db.synchronize(new JsPushSyncTransport(tA), makeConfig(SqlSyncRole.Initiator)),
+        b.db.synchronize(new JsPushSyncTransport(tB), makeConfig(SqlSyncRole.Acceptor)),
       ]);
       const now = new Date().toLocaleTimeString();
       a.lastSync = `Synced at ${now}`;

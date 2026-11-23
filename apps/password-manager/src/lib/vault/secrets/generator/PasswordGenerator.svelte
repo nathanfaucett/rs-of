@@ -1,10 +1,10 @@
 <script lang="ts">
 import { onDestroy } from "svelte";
 import { beforeNavigate } from "$app/navigation";
+import { Alert, Card, Field, type FieldControl } from "$lib/ui";
 import ProtectedValue from "../components/ProtectedValue.svelte";
-import { Alert, Card, Field } from "$lib/ui";
+import { generatePassphrase, generatePassword, validatePassphraseSettings, validatePasswordSettings } from "./generator";
 import wordlistLicense from "./WORDLIST-LICENSE?raw";
-import { generatePassword, generatePassphrase, validatePasswordSettings, validatePassphraseSettings } from "./generator";
 
 let { onuse }: { onuse?: (value: string) => void } = $props();
 const id = $props.id();
@@ -34,7 +34,7 @@ export function generate() {
         <fieldset class="flex min-w-0 flex-col gap-3" oninput={clear} onchange={clear}>
             <legend class="text-sm font-medium">Generator settings</legend>
             <Field id={`${id}-mode`} label="Generate type">
-                {#snippet children(control)}
+                {#snippet children(control: FieldControl)}
                     <select {...control} bind:value={mode} {@attach (element) => { element.focus(); }}>
                         <option value="password">Password</option>
                         <option value="passphrase">Passphrase</option>
@@ -43,7 +43,7 @@ export function generate() {
             </Field>
             {#if mode === "password"}
                 <Field id={`${id}-length`} label="Password length" description="8–128 characters. Each selected class appears at least once.">
-                    {#snippet children(control)}<input {...control} type="number" min="8" max="128" step="1" bind:value={password.length} />{/snippet}
+                    {#snippet children(control: FieldControl)}<input {...control} type="number" min="8" max="128" step="1" bind:value={password.length} />{/snippet}
                 </Field>
                 <label><input type="checkbox" bind:checked={password.lowercase} /> Lowercase (a–z)</label>
                 <label><input type="checkbox" bind:checked={password.uppercase} /> Uppercase (A–Z)</label>
@@ -52,10 +52,10 @@ export function generate() {
                 <label><input type="checkbox" bind:checked={password.excludeAmbiguous} /> Exclude ambiguous characters (I l 1 O 0 o)</label>
             {:else}
                 <Field id={`${id}-words`} label="Word count" description="4–20 words from the bundled 2,048-word English list. Words can repeat.">
-                    {#snippet children(control)}<input {...control} type="number" min="4" max="20" step="1" bind:value={passphrase.words} />{/snippet}
+                    {#snippet children(control: FieldControl)}<input {...control} type="number" min="4" max="20" step="1" bind:value={passphrase.words} />{/snippet}
                 </Field>
                 <Field id={`${id}-separator`} label="Word separator">
-                    {#snippet children(control)}
+                    {#snippet children(control: FieldControl)}
                         <select {...control} bind:value={passphrase.separator}>
                             <option value="-">Hyphen</option><option value=" ">Space</option><option value=".">Period</option><option value="_">Underscore</option>
                         </select>

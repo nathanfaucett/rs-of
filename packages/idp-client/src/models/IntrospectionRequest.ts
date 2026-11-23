@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -26,7 +25,7 @@ export interface IntrospectionRequest {
   /**
    *
    */
-  tokenTypeHint?: string | null;
+  tokenTypeHint?: (string | null) | undefined;
 }
 
 /**
@@ -43,7 +42,7 @@ export function IntrospectionRequestFromJSON(json: any): IntrospectionRequest {
 
 export function IntrospectionRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IntrospectionRequest {
   if (json == null) {
     return json;
@@ -65,7 +64,7 @@ export function IntrospectionRequestToJSON(json: any): IntrospectionRequest {
 
 export function IntrospectionRequestToJSONTyped(
   value?: IntrospectionRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

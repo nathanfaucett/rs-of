@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -55,7 +54,7 @@ export function PermissionSubjectFromJSON(json: any): PermissionSubject {
 
 export function PermissionSubjectFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): PermissionSubject {
   if (json == null) {
     return json;
@@ -72,7 +71,7 @@ export function PermissionSubjectToJSON(json: any): PermissionSubject {
 
 export function PermissionSubjectToJSONTyped(
   value?: PermissionSubject | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

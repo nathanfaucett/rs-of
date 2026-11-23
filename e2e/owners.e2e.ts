@@ -1,15 +1,19 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { Configuration, DefaultApi } from "../packages/device-client/src/index";
+import {
+  Configuration,
+  DefaultApi,
+  type DeviceEnrollment,
+} from "../packages/device-client/src/index";
 import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
-import { frontendSession, json, storageClient } from "./session";
 import { checkedFetch } from "./http";
+import { frontendSession, json, storageClient } from "./session";
 
 test("fresh backend exposes four healthy owners and real OIDC metadata", async ({ request }) => {
   for (const owner of ["idp", "device", "storage", "management"]) {
     expect((await request.get(`${backendURL}/${owner}/health`)).status()).toBe(200);
   }
-  const metadata = await json(
+  const metadata = await json<{ issuer: string; token_endpoint: string }>(
     await request.get(`${backendURL}/idp/.well-known/openid-configuration`)
   );
   expect(metadata.issuer).toBe(`${backendURL}/idp`);
@@ -28,7 +32,7 @@ test("fresh backend exposes four healthy owners and real OIDC metadata", async (
 for (const [clientId, origin] of [
   ["app", appURL],
   ["password-manager", passwordManagerURL],
-]) {
+] as const) {
   test(`${clientId}: sign-in, consent and PKCE establish a real User session`, async ({
     request,
   }) => {
@@ -62,8 +66,8 @@ for (const [clientId, origin] of [
         },
         ["write"]
       );
-      const read = () =>
-        storage.executeSql(
+      const read = async () => {
+        const response = await storage.executeSql(
           resource.id,
           {
             statements: [
@@ -75,7 +79,11 @@ for (const [clientId, origin] of [
           },
           ["read"]
         );
-      expect((await read()).results[0].rows).toEqual([[{ type: "text", value: "first" }]]);
+        const result = response.results[0];
+        if (!result) throw new Error("Storage SQL read returned no result");
+        return result.rows;
+      };
+      expect(await read()).toEqual([[{ type: "text", value: "first" }]]);
       await storage.executeSql(
         resource.id,
         {
@@ -91,7 +99,7 @@ for (const [clientId, origin] of [
         },
         ["write"]
       );
-      expect((await read()).results[0].rows).toEqual([[{ type: "text", value: "changed" }]]);
+      expect(await read()).toEqual([[{ type: "text", value: "changed" }]]);
       await storage.executeSql(
         resource.id,
         {
@@ -104,7 +112,7 @@ for (const [clientId, origin] of [
         },
         ["write"]
       );
-      expect((await read()).results[0].rows).toEqual([]);
+      expect(await read()).toEqual([]);
     } finally {
       await storage.deleteDatabase(resource.id);
     }
@@ -118,7 +126,7 @@ test("Device owner requires authorized approval and proof of a second Device key
   request,
 }) => {
   const session = await frontendSession(request, "app", appURL);
-  const token = await json(
+  const token = await json<{ access_token: string }>(
     await request.post(`${backendURL}/idp/oauth2/token`, {
       form: {
         grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
@@ -140,7 +148,8 @@ test("Device owner requires authorized approval and proof of a second Device key
   const key = first.publicKey.export({
     format: "jwk",
   });
-  const publicKey = Buffer.from(key.x!, "base64url").toString("hex");
+  if (!key.x) throw new Error("Ed25519 public key is missing its x coordinate");
+  const publicKey = Buffer.from(key.x, "base64url").toString("hex");
   const enrollment = await device.enrollDevice({
     deviceEnrollmentRequest: {
       name: "E2E browser device",
@@ -159,22 +168,24 @@ test("Device owner requires authorized approval and proof of a second Device key
     ])
   );
   const second = generateKeyPairSync("ed25519");
-  const secondKey = Buffer.from(
-    second.publicKey.export({ format: "jwk" }).x!, "base64url"
-  ).toString("hex");
+  const secondJwk = second.publicKey.export({ format: "jwk" });
+  if (!secondJwk.x) throw new Error("Second Ed25519 public key is missing its x coordinate");
+  const secondKey = Buffer.from(secondJwk.x, "base64url").toString("hex");
   const headers = { Authorization: `Bearer ${token.access_token}` };
   const pairings = `${backendURL}/device/devices/pairings`;
-  const pending = await json(await request.post(pairings, {
-    headers,
-    data: {
-      name: "Second Device",
-      publicKey: secondKey,
-      acceptingPublicKey: publicKey,
-      address: "127.0.0.1:23457",
-    },
-  }));
+  const pending = await json<DeviceEnrollment>(
+    await request.post(pairings, {
+      headers,
+      data: {
+        name: "Second Device",
+        publicKey: secondKey,
+        acceptingPublicKey: publicKey,
+        address: "127.0.0.1:23457",
+      },
+    })
+  );
   expect(pending.state).toBe("pending");
-  const { payload } = await json(
+  const { payload } = await json<{ payload: number[] }>(
     await request.get(`${pairings}/${pending.id}/payload`, { headers })
   );
   const approve = `${pairings}/${pending.id}/approve`;
@@ -183,12 +194,17 @@ test("Device owner requires authorized approval and proof of a second Device key
   expect((await request.post(approve, { data: { signature } })).status()).toBe(401);
   expect((await request.post(approve, { headers, data: { signature: "" } })).status()).toBe(403);
   const wrongProof = sign(null, bytes, first.privateKey).toString("base64url");
-  expect((await request.post(approve, { headers, data: { signature: wrongProof } })).status()).toBe(403);
+  expect((await request.post(approve, { headers, data: { signature: wrongProof } })).status()).toBe(
+    403
+  );
   const unsignedApproval = await request.post(
-    `${backendURL}/device/devices/enrollments/${pending.id}/approve`, { headers }
+    `${backendURL}/device/devices/enrollments/${pending.id}/approve`,
+    { headers }
   );
   expect(unsignedApproval.ok()).toBe(false);
-  const approved = await json(await request.post(approve, { headers, data: { signature } }));
+  const approved = await json<DeviceEnrollment>(
+    await request.post(approve, { headers, data: { signature } })
+  );
   expect(approved).toMatchObject({ id: pending.id, publicKey: secondKey, state: "approved" });
   expect((await request.post(approve, { headers, data: { signature } })).status()).toBe(403);
   const denied = await request.get(`${backendURL}/device/devices`);

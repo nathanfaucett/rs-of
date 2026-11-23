@@ -1,0 +1,15 @@
+{
+  "extends": "//",
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "guest-js/**/*",
+      "biome.json",
+      "package.json",
+      "tsconfig.json",
+      "rollup.config.js",
+      "!dist-js",
+      "!permissions"
+    ]
+  }
+}

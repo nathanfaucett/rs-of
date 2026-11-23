@@ -27,7 +27,7 @@ a build: retain its checksum. No database format migration is provided.
 Database.open(name: string): Promise<Database>
 database.client(): Client
 database.close(): void
-database.synchronize(transport: JsPushSyncTransport, config: PushSynchronizeConfig): Promise<PushSynchronizeResult>
+database.synchronize(transport: JsPushSyncTransport, config: SqlSessionConfig): Promise<PushSynchronizeResult>
 database.synchronizeHistory(transport: JsSqlSyncTransport, role?: SqlHistoryRole): Promise<SqlHistoryResult>
 
 client.execute(sql: string, params?: QueryParams): Promise<Result[]>
@@ -86,7 +86,7 @@ are still accepted. Use a fresh database if it has legacy UUIDv5 row history.
 
 ## Synchronization
 
-`synchronize` is the legacy direct-peer push operation. Its configuration and result are unchanged. IndexedDB construction retains the engine committed-change signal used by this operation. Do not send its v1 messages to a Storage SQL history v7 route.
+`synchronize` is the legacy direct-peer push operation. It takes `SqlSessionConfig`; replace the former KV `PushSynchronizeConfig` and use `SqlSyncRole` for the peer role. This source-breaking correction affects the unpublished 0.1 package and has no compatibility adapter. IndexedDB construction retains the engine committed-change signal used by this operation. Do not send its v1 messages to a Storage SQL history v7 route.
 
 `JsSqlSyncTransport` accepts caller-owned `send(Uint8Array)` and `receive()` methods for ordered byte frames. Transports must bound each read and every queued frame before buffering. A resolved receive must be a `Uint8Array` no larger than 1 MiB; the binding checks its type and length before allocating or copying. `synchronizeHistory` is the distinct SQL history v7 operation. The default role is `SqlHistoryRole.Initiator`; direct test peers can select `Responder`. The operation calls the canonical Rust history session and resolves only after a complete exchange. It does not implement Storage Hello/Attach framing, token exchange, authorization, or automatic reconnect.
 

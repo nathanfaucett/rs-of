@@ -46,7 +46,7 @@ export function JwsAlgorithmFromJSON(json: any): JwsAlgorithm {
   return JwsAlgorithmFromJSONTyped(json, false);
 }
 
-export function JwsAlgorithmFromJSONTyped(json: any, ignoreDiscriminator: boolean): JwsAlgorithm {
+export function JwsAlgorithmFromJSONTyped(json: any, _ignoreDiscriminator: boolean): JwsAlgorithm {
   return json as JwsAlgorithm;
 }
 
@@ -54,6 +54,6 @@ export function JwsAlgorithmToJSON(value?: JwsAlgorithm | null): any {
   return value as any;
 }
 
-export function JwsAlgorithmToJSONTyped(value: any, ignoreDiscriminator: boolean): JwsAlgorithm {
+export function JwsAlgorithmToJSONTyped(value: any, _ignoreDiscriminator: boolean): JwsAlgorithm {
   return value as JwsAlgorithm;
 }

@@ -1,10 +1,11 @@
+import type { DatabaseHandle, SyncConfig, SyncSDK } from "@ofsdk/sync-sdk";
 import { createSync } from "@ofsdk/sync-sdk/browser";
-import type { SyncSDK, SyncConfig, DatabaseHandle } from "@ofsdk/sync-sdk";
-import { StorageClient } from "../../../../../../packages/storage-client/src/index";
-import { authState } from "$lib/auth/auth.svelte";
 import { env } from "$env/dynamic/public";
+import { authState } from "$lib/auth/auth.svelte";
+import { StorageClient } from "../../../../../../packages/storage-client/src/index";
 
-const STORAGE_SERVICE_URL = env.PUBLIC_STORAGE_URL ?? "https://storage.localhost:1355";
+const { PUBLIC_STORAGE_URL } = env;
+const STORAGE_SERVICE_URL = PUBLIC_STORAGE_URL ?? "https://storage.localhost:1355";
 const APP_ID = "password-manager";
 
 let syncSDK = $state<SyncSDK | null>(null);

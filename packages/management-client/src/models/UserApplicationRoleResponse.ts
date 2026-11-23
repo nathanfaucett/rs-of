@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -30,7 +29,7 @@ export interface UserApplicationRoleResponse {
   /**
    *
    */
-  roleDescription?: string | null;
+  roleDescription?: (string | null) | undefined;
   /**
    *
    */
@@ -95,7 +94,7 @@ export function UserApplicationRoleResponseFromJSON(json: any): UserApplicationR
 
 export function UserApplicationRoleResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): UserApplicationRoleResponse {
   if (json == null) {
     return json;
@@ -121,7 +120,7 @@ export function UserApplicationRoleResponseToJSON(json: any): UserApplicationRol
 
 export function UserApplicationRoleResponseToJSONTyped(
   value?: UserApplicationRoleResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

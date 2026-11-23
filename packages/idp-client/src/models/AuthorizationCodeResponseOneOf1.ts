@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { ErrorCode } from "./ErrorCode.js";
-import {
-  ErrorCodeFromJSON,
-  ErrorCodeFromJSONTyped,
-  ErrorCodeToJSON,
-  ErrorCodeToJSONTyped,
-} from "./ErrorCode.js";
+import { ErrorCodeFromJSON, ErrorCodeToJSON } from "./ErrorCode.js";
 
 /**
  *
@@ -34,11 +28,11 @@ export interface AuthorizationCodeResponseOneOf1 {
   /**
    *
    */
-  errorDescription?: string;
+  errorDescription?: string | undefined;
   /**
    *
    */
-  errorUri?: string;
+  errorUri?: string | undefined;
   /**
    *
    */
@@ -64,7 +58,7 @@ export function AuthorizationCodeResponseOneOf1FromJSON(
 
 export function AuthorizationCodeResponseOneOf1FromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): AuthorizationCodeResponseOneOf1 {
   if (json == null) {
     return json;
@@ -83,7 +77,7 @@ export function AuthorizationCodeResponseOneOf1ToJSON(json: any): AuthorizationC
 
 export function AuthorizationCodeResponseOneOf1ToJSONTyped(
   value?: AuthorizationCodeResponseOneOf1 | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

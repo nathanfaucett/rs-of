@@ -1,25 +1,25 @@
 <script lang="ts">
     import { toDataURL } from "qrcode";
     import { onMount } from "svelte";
+    import DevicePolicy from "$lib/common/components/DevicePolicy.svelte";
     import Modal from "$lib/common/components/Modal.svelte";
     import SyncPanel from "$lib/common/components/SyncPanel.svelte";
-    import DevicePolicy from "$lib/common/components/DevicePolicy.svelte";
     import {
         deviceApi,
         getDeviceApiUrl,
     } from "$lib/common/state/deviceClient.svelte";
     import {
+        approveDeviceEnrollment,
         type DeviceEnrollment,
         type DeviceInfo,
+        enrollDevice,
         listDevices,
         listPendingEnrollments,
-        approveDeviceEnrollment,
         renameDevice,
         revokeDevice,
-        enrollDevice,
     } from "$lib/common/state/devices.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
-    import { Alert, Card, Page, PageHeader, Field } from "$lib/ui";
+    import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
     let devices = $state<DeviceInfo[]>([]);
     let pendingEnrollments = $state<DeviceEnrollment[]>([]);
@@ -149,7 +149,7 @@
         enrollmentError = null;
         newDeviceName = "";
         newDeviceAddress = "";
-        enrollmentFormModalRef.show();
+        enrollmentFormModalRef?.show();
     }
 
     async function onEnrollDevice() {
@@ -172,8 +172,8 @@
             const deviceUri = `${deviceApiUrl}#${publicKey}`;
             const qrCode = await toDataURL(deviceUri);
             enrollmentResultModal = { enrollment, deviceUri, qrCode };
-            enrollmentFormModalRef.close();
-            enrollmentResultModalRef.show();
+            enrollmentFormModalRef?.close();
+            enrollmentResultModalRef?.show();
             await loadDevices();
         } catch (cause) {
             console.error(cause);
@@ -187,9 +187,6 @@
         }
     }
 
-    function onEnrollmentResultClose() {
-        enrollmentResultModal = null;
-    }
 
     onMount(() => {
         void deviceApi
@@ -406,7 +403,7 @@
                     class="btn btn-secondary btn-md"
                     type="button"
                     formmethod="dialog"
-                    onclick={() => enrollmentFormModalRef.close()}
+                    onclick={() => enrollmentFormModalRef?.close()}
                 >
                     Cancel
                 </button>
@@ -426,6 +423,7 @@
     </Modal>
 
     {#if enrollmentResultModal}
+        {@const result = enrollmentResultModal}
         <Modal bind:this={enrollmentResultModalRef} title="Device Enrolled">
             <div class="flex flex-col gap-4">
                 <p class="mb-0 text-sm text-ink-muted">
@@ -441,7 +439,7 @@
                             <input
                                 id="device-uri"
                                 type="text"
-                                value={enrollmentResultModal.deviceUri}
+                                value={result.deviceUri}
                                 readonly
                                 class="flex-1 font-mono text-sm"
                             />
@@ -450,7 +448,7 @@
                                 type="button"
                                 onclick={() =>
                                     void onCopy(
-                                        enrollmentResultModal.deviceUri,
+                                        result.deviceUri,
                                         "Device URI",
                                     )}
                             >
@@ -463,14 +461,15 @@
                             >QR Code</span
                         >
                         <img
-                            src={enrollmentResultModal.qrCode}
+                            src={result.qrCode}
                             alt="Device URI QR code"
                             class="w-48 h-48 mx-auto"
                             aria-labelledby="qr-code-label"
                         />
                     </div>
                 </div>
-                {#if enrollmentResultModal.enrollment.approvalCode}
+                {#if result.enrollment.approvalCode}
+                    {@const approvalCode = result.enrollment.approvalCode}
                     <div class="flex flex-col gap-2">
                         <label for="approval-code" class="text-sm font-medium"
                             >Approval Code</label
@@ -479,8 +478,7 @@
                             <input
                                 id="approval-code"
                                 type="text"
-                                value={enrollmentResultModal.enrollment
-                                    .approvalCode}
+                                value={approvalCode}
                                 readonly
                                 class="flex-1 font-mono text-sm"
                             />
@@ -489,8 +487,7 @@
                                 type="button"
                                 onclick={() =>
                                     void onCopy(
-                                        enrollmentResultModal.enrollment
-                                            .approvalCode!,
+                                        approvalCode,
                                         "Approval code",
                                     )}
                             >

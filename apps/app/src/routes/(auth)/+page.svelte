@@ -1,9 +1,9 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { resolve } from "$app/paths";
-    import { Card, Page, PageHeader } from "$lib/ui";
-    import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { deviceApi } from "$lib/common/state/deviceClient.svelte";
+    import { idpApi } from "$lib/common/state/idpClient.svelte";
+    import { Card, Page, PageHeader } from "$lib/ui";
     import type { PageProps } from "./$types";
 
     let { data }: PageProps = $props();

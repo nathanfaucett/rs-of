@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -42,7 +41,7 @@ export function DeviceFromJSON(json: any): Device {
   return DeviceFromJSONTyped(json, false);
 }
 
-export function DeviceFromJSONTyped(json: any, ignoreDiscriminator: boolean): Device {
+export function DeviceFromJSONTyped(json: any, _ignoreDiscriminator: boolean): Device {
   if (json == null) {
     return json;
   }
@@ -58,7 +57,7 @@ export function DeviceToJSON(json: any): Device {
 
 export function DeviceToJSONTyped(
   value?: Device | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

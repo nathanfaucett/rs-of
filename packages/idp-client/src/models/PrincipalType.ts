@@ -37,7 +37,10 @@ export function PrincipalTypeFromJSON(json: any): PrincipalType {
   return PrincipalTypeFromJSONTyped(json, false);
 }
 
-export function PrincipalTypeFromJSONTyped(json: any, ignoreDiscriminator: boolean): PrincipalType {
+export function PrincipalTypeFromJSONTyped(
+  json: any,
+  _ignoreDiscriminator: boolean
+): PrincipalType {
   return json as PrincipalType;
 }
 
@@ -45,6 +48,6 @@ export function PrincipalTypeToJSON(value?: PrincipalType | null): any {
   return value as any;
 }
 
-export function PrincipalTypeToJSONTyped(value: any, ignoreDiscriminator: boolean): PrincipalType {
+export function PrincipalTypeToJSONTyped(value: any, _ignoreDiscriminator: boolean): PrincipalType {
   return value as PrincipalType;
 }

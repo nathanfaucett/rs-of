@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -54,7 +53,7 @@ export function OwnerSetupStatusFromJSON(json: any): OwnerSetupStatus {
 
 export function OwnerSetupStatusFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): OwnerSetupStatus {
   if (json == null) {
     return json;
@@ -73,7 +72,7 @@ export function OwnerSetupStatusToJSON(json: any): OwnerSetupStatus {
 
 export function OwnerSetupStatusToJSONTyped(
   value?: OwnerSetupStatus | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

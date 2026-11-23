@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -42,7 +41,10 @@ export function TrustedDeviceFromJSON(json: any): TrustedDevice {
   return TrustedDeviceFromJSONTyped(json, false);
 }
 
-export function TrustedDeviceFromJSONTyped(json: any, ignoreDiscriminator: boolean): TrustedDevice {
+export function TrustedDeviceFromJSONTyped(
+  json: any,
+  _ignoreDiscriminator: boolean
+): TrustedDevice {
   if (json == null) {
     return json;
   }
@@ -58,7 +60,7 @@ export function TrustedDeviceToJSON(json: any): TrustedDevice {
 
 export function TrustedDeviceToJSONTyped(
   value?: TrustedDevice | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

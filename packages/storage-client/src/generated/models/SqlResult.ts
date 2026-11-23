@@ -12,14 +12,7 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { SqlValue } from "./SqlValue.js";
-import {
-  SqlValueFromJSON,
-  SqlValueFromJSONTyped,
-  SqlValueToJSON,
-  SqlValueToJSONTyped,
-} from "./SqlValue.js";
 
 /**
  *
@@ -50,7 +43,7 @@ export function SqlResultFromJSON(json: any): SqlResult {
   return SqlResultFromJSONTyped(json, false);
 }
 
-export function SqlResultFromJSONTyped(json: any, ignoreDiscriminator: boolean): SqlResult {
+export function SqlResultFromJSONTyped(json: any, _ignoreDiscriminator: boolean): SqlResult {
   if (json == null) {
     return json;
   }
@@ -66,7 +59,7 @@ export function SqlResultToJSON(json: any): SqlResult {
 
 export function SqlResultToJSONTyped(
   value?: SqlResult | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

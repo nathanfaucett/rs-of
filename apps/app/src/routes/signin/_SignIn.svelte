@@ -60,14 +60,24 @@
 
             getOidcClient().setToken({
                 token_type: token.tokenType,
-                iss: token.iss,
-                scope: token.scope ?? undefined,
                 access_token: token.accessToken,
-                refresh_token: token.refreshToken,
-                refresh_token_expires_in:
-                    token.refreshTokenExpiresIn ?? undefined,
-                id_token: token.idToken,
-                expires_in: token.expiresIn ?? undefined,
+                ...(token.iss == null ? {} : { iss: token.iss }),
+                ...(token.scope == null ? {} : { scope: token.scope }),
+                ...(token.refreshToken == null
+                    ? {}
+                    : { refresh_token: token.refreshToken }),
+                ...(token.refreshTokenExpiresIn == null
+                    ? {}
+                    : {
+                          refresh_token_expires_in:
+                              token.refreshTokenExpiresIn,
+                      }),
+                ...(token.idToken == null
+                    ? {}
+                    : { id_token: token.idToken }),
+                ...(token.expiresIn == null
+                    ? {}
+                    : { expires_in: token.expiresIn }),
             });
 
             await afterSigninRedirect.onReturn();

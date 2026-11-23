@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -80,7 +79,7 @@ export function IndependentCreateIntentFromJSON(json: any): IndependentCreateInt
 
 export function IndependentCreateIntentFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IndependentCreateIntent {
   if (
     json &&
@@ -121,7 +120,7 @@ export function IndependentCreateIntentToJSON(json: any): IndependentCreateInten
 
 export function IndependentCreateIntentToJSONTyped(
   value?: IndependentCreateIntent | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

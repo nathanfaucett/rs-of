@@ -29,10 +29,7 @@ export type StorageAccess = Readonly<
     | "deleteDatabase"
     | "executeSql"
   > & {
-    openSocket(
-      filesystemId: string,
-      signal?: AbortSignal,
-    ): Promise<StorageConnection>;
+    openSocket(filesystemId: string, signal?: AbortSignal): Promise<StorageConnection>;
   }
 >;
 
@@ -55,8 +52,7 @@ export type Identity = Readonly<{
   clientId: string;
 }>;
 export type Session = Readonly<{
-  status:
-    "initializing" | "unauthenticated" | "authenticated" | "ended" | "disposed";
+  status: "initializing" | "unauthenticated" | "authenticated" | "ended" | "disposed";
   identity?: Identity;
   generation: number;
 }>;
@@ -255,8 +251,7 @@ export class ApplicationSdk {
         result(() => client.ensureDatabase(request, combined(signal))),
       createDatabase: (name?: string, signal?: AbortSignal) =>
         result(() => client.createDatabase(name, combined(signal))),
-      listDatabases: (signal?: AbortSignal) =>
-        result(() => client.listDatabases(combined(signal))),
+      listDatabases: (signal?: AbortSignal) => result(() => client.listDatabases(combined(signal))),
       getDatabase: (id: string, signal?: AbortSignal) =>
         result(() => client.getDatabase(id, combined(signal))),
       deleteDatabase: (id: string, signal?: AbortSignal) =>
@@ -265,21 +260,18 @@ export class ApplicationSdk {
         id: string,
         request: SqlRequest,
         actions: StorageAction[],
-        signal?: AbortSignal,
-      ) =>
-        result(() => client.executeSql(id, request, actions, combined(signal))),
+        signal?: AbortSignal
+      ) => result(() => client.executeSql(id, request, actions, combined(signal))),
       listFileSystems: (signal?: AbortSignal) =>
         result(() => client.listFileSystems(combined(signal))),
       createFileSystem: (name?: string, signal?: AbortSignal) =>
         result(() => client.createFileSystem(name, combined(signal))),
       openSocket: async (id: string, signal?: AbortSignal) => {
         active();
-        const opened = await client
-          .openSocket(id, combined(signal))
-          .catch((error) => {
-            active();
-            throw error;
-          });
+        const opened = await client.openSocket(id, combined(signal)).catch((error) => {
+          active();
+          throw error;
+        });
         try {
           active();
           signal?.throwIfAborted();
@@ -293,8 +285,7 @@ export class ApplicationSdk {
   }
   #tokenProvider(): () => Promise<string> {
     this.#active();
-    if (this.#session.status !== "authenticated")
-      throw new Error("Sign in before using Storage");
+    if (this.#session.status !== "authenticated") throw new Error("Sign in before using Storage");
     const epoch = this.#epoch;
     return async () => {
       this.#active(epoch);
@@ -309,18 +300,15 @@ export class ApplicationSdk {
     try {
       this.#oidc.clearStoredTokenResponse();
     } catch {
-      throw new Error(
-        "Unable to remove persisted credentials; clear browser site data",
-      );
+      throw new Error("Unable to remove persisted credentials; clear browser site data");
     } finally {
       this.#publish(status);
     }
   }
   async signout(
-    options: { provider?: boolean; redirectUri?: string } = {},
+    options: { provider?: boolean; redirectUri?: string } = {}
   ): Promise<{ providerLogout: "not-requested" | "initiated" | "failed" }> {
-    if (this.#session.status === "disposed")
-      return { providerLogout: "not-requested" };
+    if (this.#session.status === "disposed") return { providerLogout: "not-requested" };
     this.#end("ended");
     if (!options.provider) return { providerLogout: "not-requested" };
     try {

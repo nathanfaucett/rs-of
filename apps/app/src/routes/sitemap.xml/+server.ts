@@ -12,10 +12,10 @@ const xmlHeader = `<?xml version="1.0" encoding="UTF-8" ?>
 const xmlFooter = "</urlset>";
 
 export async function GET() {
-    // TODO: Generate the sitemap XML content dynamically based on the site's routes and content.
-    return new Response(`${xmlHeader}${xmlFooter}`, {
-        headers: {
-            "Content-Type": "application/xml",
-        },
-    });
+  // TODO: Generate the sitemap XML content dynamically based on the site's routes and content.
+  return new Response(`${xmlHeader}${xmlFooter}`, {
+    headers: {
+      "Content-Type": "application/xml",
+    },
+  });
 }

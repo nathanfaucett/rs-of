@@ -1,9 +1,9 @@
 // Node.js implementation of @ofsdk/sync-sdk
 import { EventEmitter } from "node:events";
-import { Subject, BehaviorSubject } from "rxjs";
+import { Database } from "@ofsdk/sql";
 import { StorageClient } from "@ofsdk/storage-client";
 import { SyncClient } from "@ofsdk/storage-sync-client";
-import { Database } from "@ofsdk/sql";
+import { BehaviorSubject, Subject } from "rxjs";
 import { execute } from "./sql";
 import { SqlSyncLifecycle } from "./sql-sync-lifecycle";
 /** Node.js sync SDK implementation */
@@ -32,9 +32,9 @@ export class NodeSyncSDK extends EventEmitter {
     /** SQL database sync */
     sql = {
         open: async (databaseId) => {
-            if (this.databases.has(databaseId)) {
-                return this.databases.get(databaseId);
-            }
+            const existing = this.databases.get(databaseId);
+            if (existing)
+                return existing;
             const handle = await this.storageClient.openSqlDatabase(databaseId);
             const sqlDatabase = await Database.open(handle.id);
             const storeIdentity = {
@@ -68,29 +68,17 @@ export class NodeSyncSDK extends EventEmitter {
     /** KV store sync */
     kv = {
         open: async (storeId) => {
-            if (this.kvStores.has(storeId)) {
-                return this.kvStores.get(storeId);
-            }
-            const handle = await this.storageClient.openKvStore(storeId);
-            const storeIdentity = {
-                storeId: handle.id,
-                replicaId: crypto.randomUUID(),
-                creationEpoch: 0n,
-                schemaFingerprint: new Uint8Array(32),
-            };
-            const kvHandle = new NodeKvStoreHandle({ resourceId: handle.id, storeIdentity }, this.config);
+            const existing = this.kvStores.get(storeId);
+            if (existing)
+                return existing;
+            await this.storageClient.openKvStore(storeId);
+            const kvHandle = new NodeKvStoreHandle();
             this.kvStores.set(storeId, kvHandle);
             return kvHandle;
         },
         create: async (name) => {
             const handle = await this.storageClient.createKvStore(name);
-            const storeIdentity = {
-                storeId: handle.id,
-                replicaId: crypto.randomUUID(),
-                creationEpoch: 0n,
-                schemaFingerprint: new Uint8Array(32),
-            };
-            const kvHandle = new NodeKvStoreHandle({ resourceId: handle.id, storeIdentity }, this.config);
+            const kvHandle = new NodeKvStoreHandle();
             this.kvStores.set(handle.id, kvHandle);
             return kvHandle;
         },
@@ -101,29 +89,17 @@ export class NodeSyncSDK extends EventEmitter {
     /** Filesystem sync */
     fs = {
         open: async (fsId) => {
-            if (this.filesystems.has(fsId)) {
-                return this.filesystems.get(fsId);
-            }
-            const handle = await this.storageClient.openFilesystem(fsId);
-            const storeIdentity = {
-                storeId: handle.id,
-                replicaId: crypto.randomUUID(),
-                creationEpoch: 0n,
-                schemaFingerprint: new Uint8Array(32),
-            };
-            const fsHandle = new NodeFilesystemHandle({ resourceId: handle.id, storeIdentity }, this.config);
+            const existing = this.filesystems.get(fsId);
+            if (existing)
+                return existing;
+            await this.storageClient.openFilesystem(fsId);
+            const fsHandle = new NodeFilesystemHandle();
             this.filesystems.set(fsId, fsHandle);
             return fsHandle;
         },
         create: async (name) => {
             const handle = await this.storageClient.createFilesystem(name);
-            const storeIdentity = {
-                storeId: handle.id,
-                replicaId: crypto.randomUUID(),
-                creationEpoch: 0n,
-                schemaFingerprint: new Uint8Array(32),
-            };
-            const fsHandle = new NodeFilesystemHandle({ resourceId: handle.id, storeIdentity }, this.config);
+            const fsHandle = new NodeFilesystemHandle();
             this.filesystems.set(handle.id, fsHandle);
             return fsHandle;
         },
@@ -211,7 +187,7 @@ class NodeDatabaseHandle {
         if (this.lifecycle)
             return this.lifecycle;
         const client = this.getSyncClient();
-        this.lifecycle = new SqlSyncLifecycle(this.sqlDatabase, client, this.handle.storeIdentity, {
+        this.lifecycle = new SqlSyncLifecycle(this.handle.sqlDatabase, client, this.handle.storeIdentity, {
             connecting: () => this._state$.next({ ...this._state$.value, status: "connecting" }),
             synced: () => this._state$.next({ ...this._state$.value, status: "synced" }),
             failed: (error) => this._state$.next({
@@ -240,7 +216,6 @@ class NodeKvStoreHandle {
         version: 0,
         vectorClock: {},
     });
-    constructor(_handle, _config) { }
     async get(_key) {
         return undefined;
     }
@@ -277,7 +252,6 @@ class NodeFilesystemHandle {
         version: 0,
         vectorClock: {},
     });
-    constructor(_handle, _config) { }
     async read(_path) {
         throw new Error("Filesystem not initialized");
     }
@@ -310,3 +284,4 @@ export async function createSync(config) {
     const sdk = new NodeSyncSDK(config);
     return sdk;
 }
+//# sourceMappingURL=node.js.map

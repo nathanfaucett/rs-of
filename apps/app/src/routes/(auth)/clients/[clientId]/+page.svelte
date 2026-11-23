@@ -5,6 +5,7 @@
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
     import { page } from "$app/state";
+    import Modal from "$lib/common/components/Modal.svelte";
     import {
         type ClientKey,
         idpAdministration,
@@ -12,9 +13,9 @@
     import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
-    import Modal from "$lib/common/components/Modal.svelte";
 
-    const clientId = page.params.clientId;
+    const clientId = page.params.clientId ?? "";
+    if (!clientId) throw new Error("Client ID is required");
 
     let loading = $state(false);
     let saving = $state(false);
@@ -101,9 +102,9 @@
         revealingSecret = true;
         try {
             const currentClient = await idpApi.getRegister({ clientId });
-            if (currentClient.clientSecret) {
+            if (currentClient.clientId && currentClient.clientSecret) {
                 secretModal = {
-                    clientId: currentClient.clientId!,
+                    clientId: currentClient.clientId,
                     clientSecret: currentClient.clientSecret,
                 };
             } else {
@@ -118,7 +119,8 @@
     }
 
     async function rotateSecret() {
-        if (!client) return;
+        const currentClientId = client?.clientId;
+        if (!currentClientId) return;
         if (
             !confirm(
                 "Regenerate client secret? This will invalidate the current secret.",
@@ -130,7 +132,7 @@
         try {
             const newSecret = await idpApi.rotateClientSecret({ clientId });
             secretModal = {
-                clientId: client.clientId!,
+                clientId: currentClientId,
                 clientSecret: newSecret,
             };
             notifications.add("Client secret rotated", "success");
@@ -222,18 +224,21 @@
     {:else if loading}
         <Card tone="subtle">Loading client...</Card>
     {:else if client}
+        {@const currentClient = client}
         {#snippet cardActions()}
             <div class="flex items-center gap-2">
                 <button
                     class="btn btn-secondary btn-sm"
+                    type="button"
                     onclick={revealSecret}
                     disabled={revealingSecret || rotatingSecret}
                 >
                     {revealingSecret ? "Revealing..." : "Reveal secret"}
                 </button>
-                {#if client.clientType === ClientType.Confidential}
+                {#if currentClient.clientType === ClientType.Confidential}
                     <button
                         class="btn btn-warning btn-sm"
+                        type="button"
                         onclick={rotateSecret}
                         disabled={revealingSecret || rotatingSecret}
                     >
@@ -457,6 +462,7 @@
         </Card>
     {/if}
     {#if secretModal}
+        {@const currentSecret = secretModal}
         <Modal title="Client Credentials">
             <div class="flex flex-col gap-4">
                 <p class="mb-0 text-sm text-ink-muted">
@@ -473,14 +479,15 @@
                             <input
                                 readonly
                                 id="secret-modal-client-id"
-                                value={secretModal.clientId}
+                                value={currentSecret.clientId}
                                 class="flex-1 rounded-control border border-line bg-surface p-2 text-sm font-mono"
                             />
                             <button
                                 class="btn btn-secondary btn-md"
+                                type="button"
                                 onclick={() => {
-                                    navigator.clipboard.writeText(
-                                        secretModal.clientId,
+                                    void navigator.clipboard.writeText(
+                                        currentSecret.clientId,
                                     );
                                     notifications.add(
                                         "Client ID copied",
@@ -501,14 +508,15 @@
                             <input
                                 readonly
                                 id="secret-modal-client-secret"
-                                value={secretModal.clientSecret}
+                                value={currentSecret.clientSecret}
                                 class="flex-1 rounded-control border border-line bg-surface p-2 text-sm font-mono"
                             />
                             <button
                                 class="btn btn-secondary btn-md"
+                                type="button"
                                 onclick={() => {
-                                    navigator.clipboard.writeText(
-                                        secretModal.clientSecret,
+                                    void navigator.clipboard.writeText(
+                                        currentSecret.clientSecret,
                                     );
                                     notifications.add(
                                         "Client secret copied",
@@ -524,6 +532,7 @@
                 <form method="dialog" class="flex justify-end">
                     <button
                         class="btn btn-primary btn-md"
+                        type="submit"
                         onclick={() => (secretModal = null)}
                     >
                         Done

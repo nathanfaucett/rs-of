@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { IdentityResource } from "./IdentityResource.js";
-import {
-  IdentityResourceFromJSON,
-  IdentityResourceFromJSONTyped,
-  IdentityResourceToJSON,
-  IdentityResourceToJSONTyped,
-} from "./IdentityResource.js";
+import { IdentityResourceFromJSON, IdentityResourceToJSON } from "./IdentityResource.js";
 
 /**
  *
@@ -68,7 +62,7 @@ export function PermissionTargetOneOfFromJSON(json: any): PermissionTargetOneOf 
 
 export function PermissionTargetOneOfFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): PermissionTargetOneOf {
   if (json == null) {
     return json;
@@ -86,7 +80,7 @@ export function PermissionTargetOneOfToJSON(json: any): PermissionTargetOneOf {
 
 export function PermissionTargetOneOfToJSONTyped(
   value?: PermissionTargetOneOf | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

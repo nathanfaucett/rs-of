@@ -4,24 +4,21 @@ import { createRequire } from "node:module";
 import test from "node:test";
 
 for (const owner of ["idp", "management", "device", "storage"]) {
-    const manifest = new URL(
-        "../packages/" + owner + "-client/package.json",
-        import.meta.url,
-    );
-    const pkg = JSON.parse(readFileSync(manifest, "utf8"));
-    const require = createRequire(manifest);
-    for (const entry of Object.keys(pkg.exports)) {
-        if (entry === "./package.json") continue;
-        const specifier = pkg.name + (entry === "." ? "" : entry.slice(1));
-        test("built export resolves and loads: " + specifier, async () => {
-            const module = await import(require.resolve(specifier));
-            assert.ok(Object.keys(module).length > 0);
-            if (["idp", "device", "storage"].includes(owner)) {
-                if (owner !== "storage" || entry === "./generated")
-                    assert.equal(typeof module.OwnerSetupApi, "function");
-                assert.equal(module.SetupApi, undefined);
-                assert.equal(module.CreateResultFromJSON, undefined);
-            }
-        });
-    }
+  const manifest = new URL(`../packages/${owner}-client/package.json`, import.meta.url);
+  const pkg = JSON.parse(readFileSync(manifest, "utf8"));
+  const require = createRequire(manifest);
+  for (const entry of Object.keys(pkg.exports)) {
+    if (entry === "./package.json") continue;
+    const specifier = pkg.name + (entry === "." ? "" : entry.slice(1));
+    test(`built export resolves and loads: ${specifier}`, async () => {
+      const module = await import(require.resolve(specifier));
+      assert.ok(Object.keys(module).length > 0);
+      if (["idp", "device", "storage"].includes(owner)) {
+        if (owner !== "storage" || entry === "./generated")
+          assert.equal(typeof module.OwnerSetupApi, "function");
+        assert.equal(module.SetupApi, undefined);
+        assert.equal(module.CreateResultFromJSON, undefined);
+      }
+    });
+  }
 }

@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { SqlValue } from "./SqlValue.js";
-import {
-  SqlValueFromJSON,
-  SqlValueFromJSONTyped,
-  SqlValueToJSON,
-  SqlValueToJSONTyped,
-} from "./SqlValue.js";
+import { SqlValueFromJSON, SqlValueToJSON } from "./SqlValue.js";
 
 /**
  *
@@ -30,7 +24,7 @@ export interface SqlStatement {
   /**
    *
    */
-  params?: Array<SqlValue>;
+  params?: Array<SqlValue> | undefined;
   /**
    * SQL text, at most 16 KiB UTF-8; positional parameters only.
    */
@@ -49,7 +43,7 @@ export function SqlStatementFromJSON(json: any): SqlStatement {
   return SqlStatementFromJSONTyped(json, false);
 }
 
-export function SqlStatementFromJSONTyped(json: any, ignoreDiscriminator: boolean): SqlStatement {
+export function SqlStatementFromJSONTyped(json: any, _ignoreDiscriminator: boolean): SqlStatement {
   if (
     json &&
     typeof json === "object" &&
@@ -72,7 +66,7 @@ export function SqlStatementToJSON(json: any): SqlStatement {
 
 export function SqlStatementToJSONTyped(
   value?: SqlStatement | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

@@ -8,15 +8,15 @@
     import { validateIdpApiUrl } from "$lib/common/state/idpClient.svelte";
     import { validateManagementApiUrl } from "$lib/common/state/managementClient.svelte";
     import {
+        discoverServices,
+        type ServiceDiscovery,
+        serviceOwners,
+    } from "$lib/common/state/serviceApi";
+    import {
         getStorageApiUrl,
         setStorageApiUrl,
         validateStorageApiUrl,
     } from "$lib/common/state/storageApiUrl.svelte";
-    import {
-        discoverServices,
-        serviceOwners,
-        type ServiceDiscovery,
-    } from "$lib/common/state/serviceApi";
     import { m } from "$lib/paraglide/messages";
 
     const configSchema = v.objectAsync({

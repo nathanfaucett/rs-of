@@ -9,7 +9,7 @@ test("concurrent migration rejects a stale IndexedDB snapshot without partial wr
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const { Database, MigrationError } = (window as any).sql;
+    const { Database, MigrationError } = window.sql;
     const db = await Database.open("migration-race");
     const winner = db.client();
     const otherDb = await Database.open("migration-race");
@@ -26,20 +26,23 @@ test("concurrent migration rejects a stale IndexedDB snapshot without partial wr
     };
     try {
       await winner.migrate([initial]);
-      const hold = (window as any).faults.holdNextCompletion("readonly");
+      const hold = window.faults.holdNextCompletion("readonly");
       const losingUpgrade = {
         ...upgrade,
         sql: `${upgrade.sql}; CREATE TABLE discarded (id INTEGER PRIMARY KEY)`,
       };
       const pending = loser.migrate([initial, losingUpgrade]).then(
         () => undefined,
-        (error: any) => ({
-          typed: error instanceof MigrationError,
-          version: error.version,
-          phase: error.phase,
-          queryKind: error.queryKind,
-          outcome: error.outcome,
-        }),
+        (error) => {
+          if (!(error instanceof MigrationError)) throw error;
+          return {
+            typed: true,
+            version: error.version,
+            phase: error.phase,
+            queryKind: error.queryKind,
+            outcome: error.outcome,
+          };
+        }
       );
       try {
         await hold.completed;
@@ -48,10 +51,10 @@ test("concurrent migration rejects a stale IndexedDB snapshot without partial wr
         const failure = await pending;
         const rows = await winner.executeRaw("SELECT amount FROM items");
         const history = await winner.executeRaw(
-          "SELECT version FROM _ofdb_migrations ORDER BY version",
+          "SELECT version FROM _ofdb_migrations ORDER BY version"
         );
         const discarded = await winner.executeRaw(
-          "SELECT name FROM tables WHERE name = 'discarded'",
+          "SELECT name FROM tables WHERE name = 'discarded'"
         );
         const repeated = await loser.migrate([initial, upgrade]);
         await loser.executeRaw("INSERT INTO upgraded VALUES (1)");
@@ -89,7 +92,7 @@ for (const mode of ["throw", "abort"]) {
     page,
   }) => {
     const result = await page.evaluate(async (mode) => {
-      const { Database, MigrationError } = (window as any).sql;
+      const { Database, MigrationError } = window.sql;
       const db = await Database.open(`migration-${mode}`);
       const client = db.client();
       const plan = [
@@ -111,29 +114,26 @@ for (const mode of ["throw", "abort"]) {
       ];
       try {
         await client.migrate(plan.slice(0, 1));
-        (window as any).faults.failNextCommit(mode);
-        let failure;
-        try {
-          await client.migrate(plan);
-        } catch (error: any) {
-          failure = {
-            typed: error instanceof MigrationError,
-            version: error.version,
-            phase: error.phase,
-            queryKind: error.queryKind,
-            outcome: error.outcome,
-            message: String(error),
-          };
-        }
-        const rows = await client.executeRaw(
-          "SELECT amount,pending FROM items",
+        window.faults.failNextCommit(mode);
+        const failure = await client.migrate(plan).then(
+          () => undefined,
+          (error) => {
+            if (!(error instanceof MigrationError)) throw error;
+            return {
+              typed: true,
+              version: error.version,
+              phase: error.phase,
+              queryKind: error.queryKind,
+              outcome: error.outcome,
+              message: String(error),
+            };
+          }
         );
+        const rows = await client.executeRaw("SELECT amount,pending FROM items");
         const tables = await client.executeRaw(
-          "SELECT name FROM tables WHERE name = 'staged' OR name = 'later'",
+          "SELECT name FROM tables WHERE name = 'staged' OR name = 'later'"
         );
-        const history = await client.executeRaw(
-          "SELECT version FROM _ofdb_migrations",
-        );
+        const history = await client.executeRaw("SELECT version FROM _ofdb_migrations");
         const retried = await client.migrate(plan);
         return { failure, rows, tables, history, retried };
       } finally {
@@ -169,7 +169,7 @@ for (const stage of ["readonly", "readwrite"]) {
     page,
   }) => {
     const result = await page.evaluate(async (stage) => {
-      const { Database, MigrationError } = (window as any).sql;
+      const { Database, MigrationError } = window.sql;
       const db = await Database.open(`migration-deadline-${stage}`);
       const client = db.client();
       const timed = client.withDeadline(500n);
@@ -190,20 +190,23 @@ for (const stage of ["readonly", "readwrite"]) {
           sql: "CREATE TABLE later (id INTEGER PRIMARY KEY)",
         },
       ];
-      let hold;
+      let hold: ReturnType<Window["faults"]["holdNextCompletion"]> | undefined;
       try {
         await client.migrate(plan.slice(0, 1));
-        hold = (window as any).faults.holdNextCompletion(stage);
+        hold = window.faults.holdNextCompletion(stage);
         const pending = timed.migrate(plan).then(
           () => undefined,
-          (error: any) => ({
-            typed: error instanceof MigrationError,
-            kind: error.kind,
-            version: error.version,
-            phase: error.phase,
-            queryKind: error.queryKind,
-            outcome: error.outcome,
-          }),
+          (error) => {
+            if (!(error instanceof MigrationError)) throw error;
+            return {
+              typed: true,
+              kind: error.kind,
+              version: error.version,
+              phase: error.phase,
+              queryKind: error.queryKind,
+              outcome: error.outcome,
+            };
+          }
         );
         await hold.completed;
         const failure = await pending;
@@ -213,9 +216,7 @@ for (const stage of ["readonly", "readwrite"]) {
         const reader = reopened.client();
         try {
           const before = await reader.executeRaw("SELECT amount FROM items");
-          const later = await reader.executeRaw(
-            "SELECT name FROM tables WHERE name = 'later'",
-          );
+          const later = await reader.executeRaw("SELECT name FROM tables WHERE name = 'later'");
           const followUp = await reader.migrate(plan);
           const after = await reader.executeRaw("SELECT amount FROM items");
           const repeated = await reader.migrate(plan);

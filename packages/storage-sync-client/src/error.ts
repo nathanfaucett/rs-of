@@ -1,9 +1,8 @@
 export class SyncError extends Error {
-  readonly code:
-    "auth" | "protocol" | "transport" | "unavailable" | "cancelled";
+  readonly code: "auth" | "protocol" | "transport" | "unavailable" | "cancelled";
   constructor(
     code: "auth" | "protocol" | "transport" | "unavailable" | "cancelled",
-    message: string,
+    message: string
   ) {
     super(message);
     this.name = "SyncError";
@@ -17,6 +16,6 @@ export function serverAbort(reason: number): SyncError {
       ? "Sync authorization rejected"
       : reason === 1
         ? "Sync backend unavailable"
-        : "Sync server rejected the protocol",
+        : "Sync server rejected the protocol"
   );
 }

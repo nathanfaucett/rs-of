@@ -5,17 +5,15 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => "sql" in window);
 });
 
-test("explicit migrations initialize, upgrade, skip work and survive reopen", async ({
-  page,
-}) => {
+test("explicit migrations initialize, upgrade, skip work and survive reopen", async ({ page }) => {
   const result = await page.evaluate(async () => {
-    const { Database } = (window as any).sql;
+    const { Database } = window.sql;
     const db = await Database.open("migrations");
     const client = db.client();
     try {
       const empty = await client.migrate([]);
       const absent = await client.executeRaw(
-        "SELECT name FROM tables WHERE name = '_ofdb_migrations'",
+        "SELECT name FROM tables WHERE name = '_ofdb_migrations'"
       );
       const plan = [
         {
@@ -50,7 +48,7 @@ test("explicit migrations initialize, upgrade, skip work and survive reopen", as
   await page.reload();
   await page.waitForFunction(() => "sql" in window);
   const reopened = await page.evaluate(async (plan) => {
-    const db = await (window as any).sql.Database.open("migrations");
+    const db = await window.sql.Database.open("migrations");
     const client = db.client();
     try {
       return {
@@ -75,7 +73,7 @@ test("a failed batch rolls back schema, data and history and stops later work", 
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const { Database, MigrationError } = (window as any).sql;
+    const { Database, MigrationError } = window.sql;
     const db = await Database.open("migration-rollback");
     const client = db.client();
     const initial = {
@@ -84,9 +82,8 @@ test("a failed batch rolls back schema, data and history and stops later work", 
       sql: "CREATE TABLE items (id INTEGER PRIMARY KEY, amount INTEGER); INSERT INTO items VALUES (1,10)",
     };
     try {
-      let failure;
-      try {
-        await client.migrate([
+      const failure = await client
+        .migrate([
           initial,
           {
             version: 2,
@@ -98,24 +95,26 @@ test("a failed batch rolls back schema, data and history and stops later work", 
             description: "m3",
             sql: "CREATE TABLE later (id INTEGER PRIMARY KEY)",
           },
-        ]);
-      } catch (error) {
-        failure = {
-          typed: error instanceof MigrationError,
-          version: (error as any).version,
-          phase: (error as any).phase,
-          queryKind: (error as any).queryKind,
-          outcome: (error as any).outcome,
-          message: String(error),
-        };
-      }
+        ])
+        .then(
+          () => undefined,
+          (error) => {
+            if (!(error instanceof MigrationError)) throw error;
+            return {
+              typed: true,
+              version: error.version,
+              phase: error.phase,
+              queryKind: error.queryKind,
+              outcome: error.outcome,
+              message: String(error),
+            };
+          }
+        );
       const rows = await client.executeRaw("SELECT amount FROM items");
       const tables = await client.executeRaw(
-        "SELECT name FROM tables WHERE name = 'discarded' OR name = 'later'",
+        "SELECT name FROM tables WHERE name = 'discarded' OR name = 'later'"
       );
-      const history = await client.executeRaw(
-        "SELECT version FROM _ofdb_migrations",
-      );
+      const history = await client.executeRaw("SELECT version FROM _ofdb_migrations");
       const resumed = await client.migrate([
         initial,
         { version: 2, description: "m2", sql: "UPDATE items SET amount = 20" },

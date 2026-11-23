@@ -40,7 +40,7 @@ export function StorageAuthorizationActionFromJSON(json: any): StorageAuthorizat
 
 export function StorageAuthorizationActionFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): StorageAuthorizationAction {
   return json as StorageAuthorizationAction;
 }
@@ -51,7 +51,7 @@ export function StorageAuthorizationActionToJSON(value?: StorageAuthorizationAct
 
 export function StorageAuthorizationActionToJSONTyped(
   value: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): StorageAuthorizationAction {
   return value as StorageAuthorizationAction;
 }

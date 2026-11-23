@@ -1,18 +1,40 @@
 {
-  "extends": ["../../biome.json"],
+  "extends": "//",
   "files": {
     "ignoreUnknown": true,
     "includes": [
       "src/**/*",
+      "browser-tests/**/*",
+      "example/**/*",
       "biome.json",
       "package.json",
       "tsconfig.json",
       "rolldown.config.mjs",
+      "playwright.config.ts",
       "vite.config.ts",
       "!src/generated",
       "!artifacts",
-      "!browser-tests",
-      "!example"
+      "!test-results",
+      "!example/dist",
+      "!example/playwright-report",
+      "!example/test-results"
     ]
-  }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["example/**/*.svelte"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    }
+  ]
 }

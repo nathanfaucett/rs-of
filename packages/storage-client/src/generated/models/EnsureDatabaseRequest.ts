@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -26,7 +25,7 @@ export interface EnsureDatabaseRequest {
   /**
    *
    */
-  name?: string | null;
+  name?: (string | null) | undefined;
 }
 
 /**
@@ -43,7 +42,7 @@ export function EnsureDatabaseRequestFromJSON(json: any): EnsureDatabaseRequest 
 
 export function EnsureDatabaseRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): EnsureDatabaseRequest {
   if (
     json &&
@@ -66,7 +65,7 @@ export function EnsureDatabaseRequestToJSON(json: any): EnsureDatabaseRequest {
 
 export function EnsureDatabaseRequestToJSONTyped(
   value?: EnsureDatabaseRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

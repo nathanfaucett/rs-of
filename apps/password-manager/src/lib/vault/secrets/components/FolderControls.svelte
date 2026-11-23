@@ -1,6 +1,7 @@
 <script lang="ts">
 import { tick } from "svelte";
 import type { createLocalSecretWorkflow } from "../workflow.svelte";
+
 let { workflow, navigate }: { workflow: ReturnType<typeof createLocalSecretWorkflow>; navigate: (action: () => void) => void } = $props();
 let form = $state<{ action: "create" | "rename" | "delete"; id: string; name: string } | null>(null);
 let destination = $state("");

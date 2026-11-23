@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -22,73 +21,73 @@ export interface UpdateUserInfoRequest {
   /**
    *
    */
-  birthdate?: string | null;
+  birthdate?: (string | null) | undefined;
   /**
    *
    */
-  email?: string | null;
+  email?: (string | null) | undefined;
   /**
    *
    */
-  emailVerified?: boolean | null;
+  emailVerified?: (boolean | null) | undefined;
   /**
    *
    */
-  familyName?: string | null;
+  familyName?: (string | null) | undefined;
   /**
    *
    */
-  givenName?: string | null;
+  givenName?: (string | null) | undefined;
   /**
    *
    */
-  locale?: string | null;
+  locale?: (string | null) | undefined;
   /**
    *
    */
-  middleName?: string | null;
+  middleName?: (string | null) | undefined;
   /**
    *
    */
-  name?: string | null;
+  name?: (string | null) | undefined;
   /**
    *
    */
-  nickname?: string | null;
+  nickname?: (string | null) | undefined;
   /**
    *
    */
-  phoneNumber?: string | null;
+  phoneNumber?: (string | null) | undefined;
   /**
    *
    */
-  phoneNumberVerified?: boolean | null;
+  phoneNumberVerified?: (boolean | null) | undefined;
   /**
    *
    */
-  picture?: string | null;
+  picture?: (string | null) | undefined;
   /**
    *
    */
-  profile?: string | null;
+  profile?: (string | null) | undefined;
   /**
    *
    */
-  sex?: string | null;
+  sex?: (string | null) | undefined;
   /**
    *
    */
-  website?: string | null;
+  website?: (string | null) | undefined;
   /**
    *
    */
-  zoneinfo?: string | null;
+  zoneinfo?: (string | null) | undefined;
 }
 
 /**
  * Check if a given object implements the UpdateUserInfoRequest interface.
  */
-export function instanceOfUpdateUserInfoRequest(value: object): value is UpdateUserInfoRequest {
+export function instanceOfUpdateUserInfoRequest(_value: object): _value is UpdateUserInfoRequest {
   return true;
 }
 
@@ -98,7 +97,7 @@ export function UpdateUserInfoRequestFromJSON(json: any): UpdateUserInfoRequest 
 
 export function UpdateUserInfoRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): UpdateUserInfoRequest {
   if (
     json &&
@@ -204,7 +203,7 @@ export function UpdateUserInfoRequestToJSON(json: any): UpdateUserInfoRequest {
 
 export function UpdateUserInfoRequestToJSONTyped(
   value?: UpdateUserInfoRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

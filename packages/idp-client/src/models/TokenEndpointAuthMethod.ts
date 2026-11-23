@@ -43,7 +43,7 @@ export function TokenEndpointAuthMethodFromJSON(json: any): TokenEndpointAuthMet
 
 export function TokenEndpointAuthMethodFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): TokenEndpointAuthMethod {
   return json as TokenEndpointAuthMethod;
 }
@@ -54,7 +54,7 @@ export function TokenEndpointAuthMethodToJSON(value?: TokenEndpointAuthMethod | 
 
 export function TokenEndpointAuthMethodToJSONTyped(
   value: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): TokenEndpointAuthMethod {
   return value as TokenEndpointAuthMethod;
 }

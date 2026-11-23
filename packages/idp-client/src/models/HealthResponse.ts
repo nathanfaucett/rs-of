@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { HealthStatus } from "./HealthStatus.js";
-import {
-  HealthStatusFromJSON,
-  HealthStatusFromJSONTyped,
-  HealthStatusToJSON,
-  HealthStatusToJSONTyped,
-} from "./HealthStatus.js";
+import { HealthStatusFromJSON, HealthStatusToJSON } from "./HealthStatus.js";
 
 /**
  *
@@ -47,7 +41,7 @@ export function HealthResponseFromJSON(json: any): HealthResponse {
 
 export function HealthResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): HealthResponse {
   if (json == null) {
     return json;
@@ -63,7 +57,7 @@ export function HealthResponseToJSON(json: any): HealthResponse {
 
 export function HealthResponseToJSONTyped(
   value?: HealthResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

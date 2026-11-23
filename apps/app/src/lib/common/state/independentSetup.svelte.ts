@@ -1,19 +1,19 @@
-import type { SetupHost, SetupOwner } from "./setupApi";
-import { requireCurrentSetupUiOrigin } from "./setupApi";
 import {
   cancelIndependentSetup,
   exactIndependentIntent,
   fetchIndependentPublic,
+  type IndependentIntent,
   independentBases,
   independentOwners,
+  type OwnerCodes,
   observeIndependentHosts,
   recoverIndependentIntent,
   sameIndependentIntent,
   submitIndependentSetup,
   verifyIndependentReadiness,
-  type IndependentIntent,
-  type OwnerCodes,
 } from "./independentSetupApi";
+import type { SetupHost, SetupOwner } from "./setupApi";
+import { requireCurrentSetupUiOrigin } from "./setupApi";
 
 type IndependentCreate = {
   administrator: string;
@@ -28,7 +28,7 @@ export class IndependentSetupSession {
   ready = $state(false);
   observationRequired = $state(false);
   message = $state("");
-  private active = true;
+  private active: boolean = true;
   private boundOwners: SetupOwner[] = [];
 
   constructor(hosts: SetupHost[]) {
@@ -39,10 +39,7 @@ export class IndependentSetupSession {
     if (owners.some((owner) => !/^[a-f0-9]{64}$/.test(codes[owner] ?? "")))
       throw new Error("Enter each incomplete owner's exact code");
   }
-  private match(
-    values: IndependentIntent[],
-    reference = this.intent,
-  ): IndependentIntent | null {
+  private match(values: IndependentIntent[], reference = this.intent): IndependentIntent | null {
     const exact = values[0];
     if (
       exact &&
@@ -50,24 +47,18 @@ export class IndependentSetupSession {
         values.some((value) => !sameIndependentIntent(exact, value)) ||
         (reference && !sameIndependentIntent(reference, exact)))
     )
-      throw new Error(
-        "Owner operations conflict with the exact retained intent or issuer",
-      );
+      throw new Error("Owner operations conflict with the exact retained intent or issuer");
     return exact ?? null;
   }
   private async current(reference = this.intent): Promise<SetupHost[]> {
     const hosts = await observeIndependentHosts(this.hosts);
-    if (
-      independentOwners.some(
-        (owner) => independentBases(hosts)[owner] !== this.bases[owner],
-      )
-    )
+    if (independentOwners.some((owner) => independentBases(hosts)[owner] !== this.bases[owner]))
       throw new Error("Owner bases changed");
     if (hosts.every((host) => host.status.ready)) {
       const evidence = await verifyIndependentReadiness(hosts);
       this.match(
         evidence.map((value) => value.operation),
-        reference,
+        reference
       );
       if (this.active) {
         this.hosts = hosts;
@@ -77,13 +68,11 @@ export class IndependentSetupSession {
       const ready = await Promise.all(
         hosts
           .filter((host) => host.status.ready)
-          .map((host) =>
-            fetchIndependentPublic(host.base, host.status.owners[0]),
-          ),
+          .map((host) => fetchIndependentPublic(host.base, host.status.owners[0]))
       );
       this.match(
-        ready.map((value) => value!.operation),
-        reference,
+        ready.map((value) => value.operation),
+        reference
       );
       if (this.active) {
         this.hosts = hosts;
@@ -92,11 +81,7 @@ export class IndependentSetupSession {
     }
     return hosts;
   }
-  async submit(
-    codes: OwnerCodes,
-    choice: IndependentCreate,
-    password?: string,
-  ): Promise<void> {
+  async submit(codes: OwnerCodes, choice: IndependentCreate, password?: string): Promise<void> {
     if (!this.active || this.busy || this.ready) return;
     this.busy = true;
     try {
@@ -109,13 +94,8 @@ export class IndependentSetupSession {
         .filter((host) => !host.status.ready)
         .map((host) => host.status.owners[0]);
       this.requireCodes(codes, unfinished);
-      if (
-        !this.intent &&
-        current.some((host) => host.status.state !== "awaiting_choice")
-      )
-        throw new Error(
-          "Recover the retained operation; never invent a replacement nonce",
-        );
+      if (!this.intent && current.some((host) => host.status.state !== "awaiting_choice"))
+        throw new Error("Recover the retained operation; never invent a replacement nonce");
       const candidate = exactIndependentIntent({
         purpose: "create",
         operation_nonce: this.intent?.operation_nonce ?? "0".repeat(32),
@@ -136,38 +116,29 @@ export class IndependentSetupSession {
       if (!this.intent) {
         const bytes = crypto.getRandomValues(new Uint8Array(16));
         candidate.operation_nonce = Array.from(bytes, (byte) =>
-          byte.toString(16).padStart(2, "0"),
+          byte.toString(16).padStart(2, "0")
         ).join("");
         this.intent = Object.freeze(candidate);
       }
       const intent = this.intent;
       const results = await Promise.allSettled(
         unfinished.map((owner) =>
-          submitIndependentSetup(
-            this.bases[owner],
-            owner,
-            codes[owner],
-            intent,
-            password,
-          ),
-        ),
+          submitIndependentSetup(this.bases[owner], owner, codes[owner], intent, password)
+        )
       );
       if (!this.active) return;
       this.outcomes = Object.fromEntries(
         unfinished.map((owner, index) => [
           owner,
-          results[index].status === "fulfilled"
+          results[index]?.status === "fulfilled"
             ? "accepted; not complete"
             : "uncertain; observe before retry",
-        ]),
+        ])
       );
       this.boundOwners = independentOwners.filter(
-        (owner) =>
-          this.boundOwners.includes(owner) || unfinished.includes(owner),
+        (owner) => this.boundOwners.includes(owner) || unfinished.includes(owner)
       );
-      this.observationRequired = results.some(
-        (result) => result.status === "rejected",
-      );
+      this.observationRequired = results.some((result) => result.status === "rejected");
       this.message = this.observationRequired
         ? "Partial or uncertain admission. Accepted owner work continues. Observe or recover all owners before retrying."
         : "Accepted by each incomplete owner; not complete. Observe all owners.";
@@ -212,24 +183,20 @@ export class IndependentSetupSession {
       if (!this.active || this.ready) return;
       this.requireCodes(
         codes,
-        current
-          .filter((host) => !host.status.ready)
-          .map((host) => host.status.owners[0]),
+        current.filter((host) => !host.status.ready).map((host) => host.status.owners[0])
       );
       const recovered = await Promise.all(
         current.map(async (host) => {
           const owner = host.status.owners[0];
-            const value = host.status.ready
-              ? (await fetchIndependentPublic(host.base, owner))!.operation
-              : await recoverIndependentIntent(host.base, codes[owner]);
-            if (!value && host.status.state !== "awaiting_choice")
-              throw new Error("Unbound owner disagrees with current status");
+          const value = host.status.ready
+            ? (await fetchIndependentPublic(host.base, owner)).operation
+            : await recoverIndependentIntent(host.base, codes[owner]);
+          if (!value && host.status.state !== "awaiting_choice")
+            throw new Error("Unbound owner disagrees with current status");
           return { owner, value };
-        }),
+        })
       );
-      const exact = this.match(
-        recovered.flatMap((result) => (result.value ? [result.value] : [])),
-      );
+      const exact = this.match(recovered.flatMap((result) => (result.value ? [result.value] : [])));
       await this.current(exact ?? this.intent);
       if (!this.active) return;
       if (exact) this.intent = Object.freeze(exact);
@@ -252,40 +219,31 @@ export class IndependentSetupSession {
     }
   }
   async cancel(codes: OwnerCodes): Promise<void> {
-    if (!this.active || this.busy || !this.intent || this.ready) return;
+    const intent = this.intent;
+    if (!this.active || this.busy || !intent || this.ready) return;
     this.busy = true;
     try {
       requireCurrentSetupUiOrigin();
-      if (this.observationRequired)
-        throw new Error("Recover exact intent before cancellation");
+      if (this.observationRequired) throw new Error("Recover exact intent before cancellation");
       const current = await this.current();
       const owners = current
-        .filter(
-          (host) =>
-            !host.status.ready &&
-            this.boundOwners.includes(host.status.owners[0]),
-        )
+        .filter((host) => !host.status.ready && this.boundOwners.includes(host.status.owners[0]))
         .map((host) => host.status.owners[0]);
       this.requireCodes(codes, owners);
       if (!owners.length) throw new Error("No bound active owners");
       const results = await Promise.allSettled(
         owners.map((owner) =>
-          cancelIndependentSetup(
-            this.bases[owner],
-            owner,
-            codes[owner],
-            this.intent!,
-          ),
-        ),
+          cancelIndependentSetup(this.bases[owner], owner, codes[owner], intent)
+        )
       );
       if (!this.active) return;
       this.outcomes = Object.fromEntries(
         owners.map((owner, index) => [
           owner,
-          results[index].status === "fulfilled"
+          results[index]?.status === "fulfilled"
             ? "cancellation signaled; cleanup unconfirmed"
             : "cancellation uncertain; observe",
-        ]),
+        ])
       );
       this.message =
         "Cancellation outcomes recorded per owner, not rollback or cleanup completion. Observe all owners; exact intent remains retained.";

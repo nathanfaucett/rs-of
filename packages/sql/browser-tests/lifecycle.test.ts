@@ -9,7 +9,7 @@ test("all owned handles release IndexedDB connections without garbage collection
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const { Database } = (window as any).sql;
+    const { Database } = window.sql;
     for (let iteration = 0; iteration < 10; iteration++) {
       const db = await Database.open("release");
       const client = db.client();
@@ -25,8 +25,7 @@ test("all owned handles release IndexedDB connections without garbage collection
         const request = indexedDB.deleteDatabase("ofdb:sql:release");
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
-        request.onblocked = () =>
-          reject(new Error("a released handle still holds storage open"));
+        request.onblocked = () => reject(new Error("a released handle still holds storage open"));
       });
     }
     return "released";
@@ -38,18 +37,16 @@ test("the built package runs in a dedicated module worker and persists to a new 
   page,
 }) => {
   await page.evaluate(async () => {
-    const db = await (window as any).sql.Database.open("worker");
+    const db = await window.sql.Database.open("worker");
     const client = db.client();
-    await client.executeRaw(
-      "CREATE TABLE items (id INTEGER PRIMARY KEY, text TEXT)",
-    );
+    await client.executeRaw("CREATE TABLE items (id INTEGER PRIMARY KEY, text TEXT)");
     client.close();
     db.close();
   });
   const workerResult = await page.evaluate(
     () =>
       new Promise((resolve, reject) => {
-        const worker = (window as any).makeSqlWorker();
+        const worker = window.makeSqlWorker();
         const timer = setTimeout(() => {
           worker.terminate();
           reject(new Error("worker timed out"));
@@ -65,7 +62,7 @@ test("the built package runs in a dedicated module worker and persists to a new 
           resolve(event.data);
         };
         worker.postMessage("worker");
-      }),
+      })
   );
   expect(workerResult).toEqual([
     {
@@ -81,7 +78,7 @@ test("the built package runs in a dedicated module worker and persists to a new 
   await page.reload();
   await page.waitForFunction(() => "sql" in window);
   const reopened = await page.evaluate(async () => {
-    const db = await (window as any).sql.Database.open("worker");
+    const db = await window.sql.Database.open("worker");
     const client = db.client();
     try {
       return await client.executeRaw("SELECT id,text FROM items");
@@ -97,7 +94,7 @@ test("failed WASM fetch can be retried in the same realm", async ({ page }) => {
   await page.route("**/*wasm", (route) => route.abort());
   const failed = await page.evaluate(async () => {
     try {
-      await (window as any).sql.Database.open("load-retry");
+      await window.sql.Database.open("load-retry");
       return false;
     } catch {
       return true;
@@ -106,7 +103,7 @@ test("failed WASM fetch can be retried in the same realm", async ({ page }) => {
   expect(failed).toBe(true);
   await page.unroute("**/*wasm");
   const retried = await page.evaluate(async () => {
-    const db = await (window as any).sql.Database.open("load-retry");
+    const db = await window.sql.Database.open("load-retry");
     db.close();
     return true;
   });

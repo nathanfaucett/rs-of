@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -22,33 +21,33 @@ export interface DeviceAuthorization {
   /**
    *
    */
-  deviceCode?: string | null;
+  deviceCode?: (string | null) | undefined;
   /**
    *
    */
-  expiresIn?: number | null;
+  expiresIn?: (number | null) | undefined;
   /**
    *
    */
-  interval?: number | null;
+  interval?: (number | null) | undefined;
   /**
    *
    */
-  userCode?: string | null;
+  userCode?: (string | null) | undefined;
   /**
    *
    */
-  verificationUri?: string | null;
+  verificationUri?: (string | null) | undefined;
   /**
    *
    */
-  verificationUriComplete?: string | null;
+  verificationUriComplete?: (string | null) | undefined;
 }
 
 /**
  * Check if a given object implements the DeviceAuthorization interface.
  */
-export function instanceOfDeviceAuthorization(value: object): value is DeviceAuthorization {
+export function instanceOfDeviceAuthorization(_value: object): _value is DeviceAuthorization {
   return true;
 }
 
@@ -58,7 +57,7 @@ export function DeviceAuthorizationFromJSON(json: any): DeviceAuthorization {
 
 export function DeviceAuthorizationFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): DeviceAuthorization {
   if (json == null) {
     return json;
@@ -109,7 +108,7 @@ export function DeviceAuthorizationToJSON(json: any): DeviceAuthorization {
 
 export function DeviceAuthorizationToJSONTyped(
   value?: DeviceAuthorization | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

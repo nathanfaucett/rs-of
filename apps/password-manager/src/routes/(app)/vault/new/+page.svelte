@@ -1,10 +1,11 @@
 <script lang="ts">
+import { ArrowLeft } from "@lucide/svelte";
 import { goto } from "$app/navigation";
+import { resolve } from "$app/paths";
 import { page } from "$app/state";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
-import SecretEditor from "$lib/vault/secrets/components/SecretEditor.svelte";
 import PageHeader from "$lib/ui/PageHeader.svelte";
-import { ArrowLeft } from "@lucide/svelte";
+import SecretEditor from "$lib/vault/secrets/components/SecretEditor.svelte";
 import type { EditableKind } from "$lib/vault/secrets/secret-draft";
 
 
@@ -14,11 +15,11 @@ let vaultData = $derived(vaultStateModule.vaultData);
 let kind = $derived<EditableKind>((page.url.searchParams.get("kind") as EditableKind) ?? "login");
 
 function handleSave() {
-    goto("/vault");
+    void goto(resolve("/vault"));
 }
 
 function handleCancel() {
-    goto("/vault");
+    void goto(resolve("/vault"));
 }</script>
 
 <div class="flex min-h-0 grow overflow-auto p-6">

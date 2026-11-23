@@ -2,7 +2,7 @@
 import { onDestroy } from "svelte";
 import { parse } from "valibot";
 import type { VaultHandleLike } from "$lib/vault/types";
-import { LockSettingsSchema, type LockSettings, LOCK_TIMEOUT_OPTIONS } from "./lock";
+import { LOCK_TIMEOUT_OPTIONS, type LockSettings, LockSettingsSchema } from "./lock";
 
 let { vault, settings, onsaved }: {
     vault: VaultHandleLike;

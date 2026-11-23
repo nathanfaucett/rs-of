@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { ResidencyMode } from "./ResidencyMode.js";
-import {
-  ResidencyModeFromJSON,
-  ResidencyModeFromJSONTyped,
-  ResidencyModeToJSON,
-  ResidencyModeToJSONTyped,
-} from "./ResidencyMode.js";
+import { ResidencyModeFromJSON, ResidencyModeToJSON } from "./ResidencyMode.js";
 
 /**
  *
@@ -47,7 +41,7 @@ export function ResourceResidencyFromJSON(json: any): ResourceResidency {
 
 export function ResourceResidencyFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): ResourceResidency {
   if (json && typeof json === "object" && Object.keys(json).some((key) => !["mode"].includes(key)))
     throw new Error("Unexpected ResourceResidency field");
@@ -65,7 +59,7 @@ export function ResourceResidencyToJSON(json: any): ResourceResidency {
 
 export function ResourceResidencyToJSONTyped(
   value?: ResourceResidency | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

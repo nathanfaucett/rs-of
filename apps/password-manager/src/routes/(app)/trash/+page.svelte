@@ -1,6 +1,6 @@
 <script lang="ts">
-import LocalSecretEditor from "$lib/vault/secrets/components/LocalSecretEditor.svelte";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+import LocalSecretEditor from "$lib/vault/secrets/components/LocalSecretEditor.svelte";
 
 let vaultData = $derived(vaultStateModule.vaultData);
 </script>

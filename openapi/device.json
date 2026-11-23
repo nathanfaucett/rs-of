@@ -11,9 +11,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "endpointIds"
-        ],
+        "required": ["endpointIds"],
         "type": "object"
       },
       "Challenge": {
@@ -30,12 +28,7 @@
           },
           "registration": {}
         },
-        "required": [
-          "operation",
-          "recipient",
-          "registration",
-          "challenge"
-        ],
+        "required": ["operation", "recipient", "registration", "challenge"],
         "type": "object"
       },
       "Device": {
@@ -47,10 +40,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "publicKey",
-          "address"
-        ],
+        "required": ["publicKey", "address"],
         "type": "object"
       },
       "DeviceEndpointIdentity": {
@@ -65,20 +55,13 @@
             "type": "string"
           }
         },
-        "required": [
-          "deviceId",
-          "ownerSubject",
-          "endpointId"
-        ],
+        "required": ["deviceId", "ownerSubject", "endpointId"],
         "type": "object"
       },
       "DeviceEnrollment": {
         "properties": {
           "approvalCode": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "id": {
             "type": "string"
@@ -87,10 +70,7 @@
             "$ref": "#/components/schemas/DeviceState"
           }
         },
-        "required": [
-          "id",
-          "state"
-        ],
+        "required": ["id", "state"],
         "type": "object"
       },
       "DeviceEnrollmentRequest": {
@@ -105,11 +85,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "name",
-          "publicKey",
-          "address"
-        ],
+        "required": ["name", "publicKey", "address"],
         "type": "object"
       },
       "DeviceInfo": {
@@ -132,10 +108,7 @@
           },
           "revokedAt": {
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": ["integer", "null"]
           },
           "state": {
             "$ref": "#/components/schemas/DeviceState"
@@ -145,15 +118,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "id",
-          "name",
-          "publicKey",
-          "address",
-          "state",
-          "createdAt",
-          "updatedAt"
-        ],
+        "required": ["id", "name", "publicKey", "address", "state", "createdAt", "updatedAt"],
         "type": "object"
       },
       "DevicePairingApprovalPayload": {
@@ -162,9 +127,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "payload"
-        ],
+        "required": ["payload"],
         "type": "object"
       },
       "DevicePairingApprovalRequest": {
@@ -173,9 +136,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "signature"
-        ],
+        "required": ["signature"],
         "type": "object"
       },
       "DevicePairingRequest": {
@@ -193,12 +154,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "name",
-          "publicKey",
-          "address",
-          "acceptingPublicKey"
-        ],
+        "required": ["name", "publicKey", "address", "acceptingPublicKey"],
         "type": "object"
       },
       "DeviceRestriction": {
@@ -208,9 +164,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "adminAllowed"
-        ],
+        "required": ["adminAllowed"],
         "type": "object"
       },
       "DeviceSelfRevocationRequest": {
@@ -222,18 +176,11 @@
             "type": "string"
           }
         },
-        "required": [
-          "publicKey",
-          "signature"
-        ],
+        "required": ["publicKey", "signature"],
         "type": "object"
       },
       "DeviceState": {
-        "enum": [
-          "pending",
-          "approved",
-          "revoked"
-        ],
+        "enum": ["pending", "approved", "revoked"],
         "type": "string"
       },
       "DeviceTransferRequest": {
@@ -243,9 +190,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "ownerSubject"
-        ],
+        "required": ["ownerSubject"],
         "type": "object"
       },
       "HealthResponse": {
@@ -254,17 +199,13 @@
             "$ref": "#/components/schemas/HealthStatus"
           }
         },
-        "required": [
-          "database"
-        ],
+        "required": ["database"],
         "type": "object"
       },
       "HealthStatus": {
         "oneOf": [
           {
-            "enum": [
-              "healthy"
-            ],
+            "enum": ["healthy"],
             "type": "string"
           },
           {
@@ -273,9 +214,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "unhealthy"
-            ],
+            "required": ["unhealthy"],
             "type": "object"
           }
         ]
@@ -328,10 +267,7 @@
           {
             "properties": {
               "password": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               }
             },
             "type": "object"
@@ -359,13 +295,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "operation",
-          "owner",
-          "clients",
-          "facts",
-          "registered"
-        ],
+        "required": ["operation", "owner", "clients", "facts", "registered"],
         "type": "object"
       },
       "OwnerCopyCleanup": {
@@ -388,13 +318,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "cleanupId",
-          "deviceId",
-          "endpointId",
-          "oldOwnerSubject",
-          "newOwnerSubject"
-        ],
+        "required": ["cleanupId", "deviceId", "endpointId", "oldOwnerSubject", "newOwnerSubject"],
         "type": "object"
       },
       "OwnerSetupStatus": {
@@ -415,12 +339,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "stage",
-          "state",
-          "ready",
-          "owners"
-        ],
+        "required": ["stage", "state", "ready", "owners"],
         "type": "object"
       },
       "Registration": {
@@ -437,12 +356,7 @@
           },
           "registration": {}
         },
-        "required": [
-          "operation",
-          "recipient",
-          "registration",
-          "challenge"
-        ],
+        "required": ["operation", "recipient", "registration", "challenge"],
         "type": "object"
       },
       "ReplicationAdmissionRequest": {
@@ -492,12 +406,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "ownerSubject",
-          "applicationId",
-          "kind",
-          "resourceId"
-        ],
+        "required": ["ownerSubject", "applicationId", "kind", "resourceId"],
         "type": "object"
       },
       "SelectedResourcesResponse": {
@@ -532,20 +441,11 @@
             "type": "array"
           }
         },
-        "required": [
-          "deviceId",
-          "endpointId",
-          "ownerSubject",
-          "adminAllowed",
-          "resources"
-        ],
+        "required": ["deviceId", "endpointId", "ownerSubject", "adminAllowed", "resources"],
         "type": "object"
       },
       "SelectionKind": {
-        "enum": [
-          "database",
-          "filesystem"
-        ],
+        "enum": ["database", "filesystem"],
         "type": "string"
       },
       "SelectionRequest": {
@@ -564,12 +464,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "applicationId",
-          "kind",
-          "id",
-          "storageAccessToken"
-        ],
+        "required": ["applicationId", "kind", "id", "storageAccessToken"],
         "type": "object"
       },
       "TrustedDevice": {
@@ -581,10 +476,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "publicKey",
-          "address"
-        ],
+        "required": ["publicKey", "address"],
         "type": "object"
       },
       "UpdateDeviceRequest": {
@@ -593,9 +485,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "name"
-        ],
+        "required": ["name"],
         "type": "object"
       },
       "VersionResponse": {
@@ -617,11 +507,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "name",
-          "version",
-          "build"
-        ],
+        "required": ["name", "version", "build"],
         "type": "object"
       }
     },
@@ -1369,9 +1255,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "super::routes::replication"
-        ]
+        "tags": ["super::routes::replication"]
       }
     },
     "/replication/devices/{endpoint_id}/selections": {
@@ -1414,9 +1298,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "super::routes::replication"
-        ]
+        "tags": ["super::routes::replication"]
       }
     },
     "/replication/owner-cleanup": {
@@ -1451,9 +1333,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "super::routes::replication"
-        ]
+        "tags": ["super::routes::replication"]
       }
     },
     "/setup/owner/admission": {
@@ -1475,9 +1355,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/cancel": {
@@ -1512,9 +1390,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/challenge": {
@@ -1548,12 +1424,8 @@
             "description": "Owner unavailable"
           }
         },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "owner_setup"
-        ]
+        "security": [{}],
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/create": {
@@ -1591,9 +1463,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/intent": {
@@ -1625,9 +1495,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/public": {
@@ -1648,9 +1516,7 @@
             "description": "Public owner metadata not yet available"
           }
         },
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/register": {
@@ -1684,12 +1550,8 @@
             "description": "Owner unavailable"
           }
         },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "owner_setup"
-        ]
+        "security": [{}],
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/status": {
@@ -1710,9 +1572,7 @@
             "description": "Admission unavailable (empty body), or current owner readiness failed (nonsecret status with ready:false)"
           }
         },
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/version": {

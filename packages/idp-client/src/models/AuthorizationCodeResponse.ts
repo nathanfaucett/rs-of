@@ -12,20 +12,17 @@
  * Do not edit the class manually.
  */
 
-import { parseDate, parseDateTime, serializeDate, serializeDateTime } from "../runtime.js";
 import type { AuthorizationCodeResponseOneOf } from "./AuthorizationCodeResponseOneOf.js";
 import {
-  instanceOfAuthorizationCodeResponseOneOf,
-  AuthorizationCodeResponseOneOfFromJSON,
   AuthorizationCodeResponseOneOfFromJSONTyped,
   AuthorizationCodeResponseOneOfToJSON,
+  instanceOfAuthorizationCodeResponseOneOf,
 } from "./AuthorizationCodeResponseOneOf.js";
 import type { AuthorizationCodeResponseOneOf1 } from "./AuthorizationCodeResponseOneOf1.js";
 import {
-  instanceOfAuthorizationCodeResponseOneOf1,
-  AuthorizationCodeResponseOneOf1FromJSON,
   AuthorizationCodeResponseOneOf1FromJSONTyped,
   AuthorizationCodeResponseOneOf1ToJSON,
+  instanceOfAuthorizationCodeResponseOneOf1,
 } from "./AuthorizationCodeResponseOneOf1.js";
 
 /**
@@ -43,7 +40,7 @@ export function AuthorizationCodeResponseFromJSON(json: any): AuthorizationCodeR
 
 export function AuthorizationCodeResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): AuthorizationCodeResponse {
   if (json == null) {
     return json;
@@ -66,7 +63,7 @@ export function AuthorizationCodeResponseToJSON(json: any): any {
 
 export function AuthorizationCodeResponseToJSONTyped(
   value?: AuthorizationCodeResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

@@ -16,7 +16,7 @@ function requireVersion(command, args, expected) {
   const result = spawnSync(command, args, { encoding: "utf8", timeout: 10000 });
   if (result.status !== 0 || !result.stdout.startsWith(expected)) {
     throw new Error(
-      `Build requires ${expected}; got ${result.stdout || result.error || result.stderr}`,
+      `Build requires ${expected}; got ${result.stdout || result.error || result.stderr}`
     );
   }
 }
@@ -41,5 +41,5 @@ run(
     ...process.env,
     CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? "2",
     RUSTFLAGS: "-C link-arg=-zstack-size=16777216",
-  },
+  }
 );

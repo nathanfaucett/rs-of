@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -37,7 +36,10 @@ export function ResetPasswordFromJSON(json: any): ResetPassword {
   return ResetPasswordFromJSONTyped(json, false);
 }
 
-export function ResetPasswordFromJSONTyped(json: any, ignoreDiscriminator: boolean): ResetPassword {
+export function ResetPasswordFromJSONTyped(
+  json: any,
+  _ignoreDiscriminator: boolean
+): ResetPassword {
   if (
     json &&
     typeof json === "object" &&
@@ -58,7 +60,7 @@ export function ResetPasswordToJSON(json: any): ResetPassword {
 
 export function ResetPasswordToJSONTyped(
   value?: ResetPassword | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

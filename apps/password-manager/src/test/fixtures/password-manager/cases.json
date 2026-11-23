@@ -48,17 +48,13 @@
   },
   {
     "name": "explicit-rule-not-inherited",
-    "patch": [
-      { "op": "replace", "path": "/items/0/login/uris/0/match", "value": 0 }
-    ],
+    "patch": [{ "op": "replace", "path": "/items/0/login/uris/0/match", "value": 0 }],
     "expect": "accept",
     "assertion": "Export first URI match as 0, not null."
   },
   {
     "name": "unknown-uri-rule",
-    "patch": [
-      { "op": "replace", "path": "/items/0/login/uris/0/match", "value": 6 }
-    ],
+    "patch": [{ "op": "replace", "path": "/items/0/login/uris/0/match", "value": 6 }],
     "expect": "block",
     "path": "/items/0/login/uris/0/match"
   },
@@ -73,33 +69,25 @@
   },
   {
     "name": "unknown-field-variant",
-    "patch": [
-      { "op": "replace", "path": "/items/0/fields/0/type", "value": 99 }
-    ],
+    "patch": [{ "op": "replace", "path": "/items/0/fields/0/type", "value": 99 }],
     "expect": "block",
     "path": "/items/0/fields/0/type"
   },
   {
     "name": "boolean-not-wire-string",
-    "patch": [
-      { "op": "replace", "path": "/items/0/fields/2/value", "value": false }
-    ],
+    "patch": [{ "op": "replace", "path": "/items/0/fields/2/value", "value": false }],
     "expect": "block",
     "path": "/items/0/fields/2/value"
   },
   {
     "name": "boolean-false-string",
-    "patch": [
-      { "op": "replace", "path": "/items/0/fields/2/value", "value": "false" }
-    ],
+    "patch": [{ "op": "replace", "path": "/items/0/fields/2/value", "value": "false" }],
     "expect": "accept",
     "assertion": "Checkbox is false; do not use string truthiness."
   },
   {
     "name": "missing-history-date",
-    "patch": [
-      { "op": "remove", "path": "/items/0/passwordHistory/0/lastUsedDate" }
-    ],
+    "patch": [{ "op": "remove", "path": "/items/0/passwordHistory/0/lastUsedDate" }],
     "expect": "block",
     "path": "/items/0/passwordHistory/0/lastUsedDate"
   },
@@ -208,9 +196,7 @@
   },
   {
     "name": "unknown-item-key",
-    "patch": [
-      { "op": "add", "path": "/items/0/futureData", "value": "SYNTHETIC" }
-    ],
+    "patch": [{ "op": "add", "path": "/items/0/futureData", "value": "SYNTHETIC" }],
     "expect": "block",
     "path": "/items/0/futureData"
   },
@@ -270,17 +256,13 @@
   },
   {
     "name": "ssh-empty-private-key",
-    "patch": [
-      { "op": "replace", "path": "/items/4/sshKey/privateKey", "value": " \n" }
-    ],
+    "patch": [{ "op": "replace", "path": "/items/4/sshKey/privateKey", "value": " \n" }],
     "expect": "block",
     "path": "/items/4/sshKey/privateKey"
   },
   {
     "name": "unknown-note-subtype",
-    "patch": [
-      { "op": "replace", "path": "/items/1/secureNote/type", "value": 1 }
-    ],
+    "patch": [{ "op": "replace", "path": "/items/1/secureNote/type", "value": 1 }],
     "expect": "block",
     "path": "/items/1/secureNote/type"
   },

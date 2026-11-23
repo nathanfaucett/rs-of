@@ -5,42 +5,30 @@ import { json, signIn, storageClient } from "./session";
 test("invalid service selection opens configuration", async ({ page }) => {
   await page.goto(`${appURL}/config`);
   await page.evaluate(() => {
-    localStorage.setItem(
-      "idp-api-url",
-      JSON.stringify("https://invalid.localhost:1355/idp"),
-    );
+    localStorage.setItem("idp-api-url", JSON.stringify("https://invalid.localhost:1355/idp"));
   });
   await page.goto(`${appURL}/`);
   await expect(page).toHaveURL(`${appURL}/config`);
-  await expect(
-    page.getByRole("heading", { name: "Configuration", exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Configuration", exact: true })).toBeVisible();
 });
 
-test("configuration discovers and saves unified service URLs", async ({
-  page,
-}) => {
+test("configuration discovers and saves unified service URLs", async ({ page }) => {
   await page.goto(`${appURL}/config`);
-  await page
-    .getByRole("button", { name: "Detect services", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Detect services", exact: true }).click();
   await expect(
-    page.getByText(
-      "Unified services detected. Review the four URLs and save.",
-      {
-        exact: true,
-      },
-    ),
+    page.getByText("Unified services detected. Review the four URLs and save.", {
+      exact: true,
+    })
   ).toBeVisible();
   for (const [label, owner] of [
     ["IdP URL", "idp"],
     ["Management URL", "management"],
     ["Device API URL", "device"],
     ["Storage API URL", "storage"],
-  ]) {
-    await expect(
-      page.getByRole("textbox", { name: label, exact: true }),
-    ).toHaveValue(`${backendURL}/${owner}`);
+  ] as const) {
+    await expect(page.getByRole("textbox", { name: label, exact: true })).toHaveValue(
+      `${backendURL}/${owner}`
+    );
   }
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page).toHaveURL(/\/signin/);
@@ -53,14 +41,10 @@ test("browser sign-in bypasses installation setup and retains its protected sess
   await expect(page).toHaveURL(/\/signin/);
   await signIn(page);
   await expect(page).toHaveURL(`${appURL}/devices`);
-  await expect(
-    page.getByRole("heading", { name: /devices/i }).first(),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: /devices/i }).first()).toBeVisible();
   await page.reload();
   await expect(page).toHaveURL(`${appURL}/devices`);
-  await expect(
-    page.getByRole("heading", { name: /devices/i }).first(),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: /devices/i }).first()).toBeVisible();
 });
 
 test("authorization errors give safe, actionable guidance without client registration", async ({
@@ -77,11 +61,9 @@ test("authorization errors give safe, actionable guidance without client registr
     scope: "openid",
   }).toString();
   await page.goto(url.href);
-  await expect(
-    page.getByRole("heading", { name: "Invalid Request", exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Invalid Request", exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText(
-    "New clients require application_id and registration metadata",
+    "New clients require application_id and registration metadata"
   );
 
   url.searchParams.set("application_id", "https://other.test");
@@ -92,11 +74,11 @@ test("authorization errors give safe, actionable guidance without client registr
       clientName: "Untrusted client",
       profile: "native_application",
       tokenEndpointAuthMethod: "none",
-    }),
+    })
   );
   await page.goto(url.href);
   await expect(page.getByRole("alert")).toContainText(
-    "application_id must match registration.application.uri",
+    "application_id must match registration.application.uri"
   );
 
   url.searchParams.delete("application_id");
@@ -106,16 +88,14 @@ test("authorization errors give safe, actionable guidance without client registr
   await expect(
     page.getByText("The client ID you provided does not exist.", {
       exact: false,
-    }),
+    })
   ).toBeVisible();
   await expect(
     page.getByText("These details were supplied by the application", {
       exact: false,
-    }),
+    })
   ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: /accept|register/i }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /accept|register/i })).toHaveCount(0);
 });
 
 test("app signs in and uses its session for Device and Storage access", async ({
@@ -127,7 +107,7 @@ test("app signs in and uses its session for Device and Storage access", async ({
     page.waitForResponse(
       (response) =>
         response.url() === `${backendURL}/idp/oauth2/token` &&
-        response.request().postData()?.includes("grant_type=password") === true,
+        response.request().postData()?.includes("grant_type=password") === true
     ),
     signIn(page),
   ]);
@@ -135,9 +115,7 @@ test("app signs in and uses its session for Device and Storage access", async ({
   const token = await response.json();
   await expect(page).not.toHaveURL(/\/signin/);
   await page.goto(`${appURL}/devices`);
-  await expect(
-    page.getByRole("heading", { name: /devices/i }).first(),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: /devices/i }).first()).toBeVisible();
   const resourceToken = await request.post(`${backendURL}/idp/oauth2/token`, {
     form: {
       grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
@@ -157,7 +135,5 @@ test("app signs in and uses its session for Device and Storage access", async ({
   const storage = storageClient("local-login", token.access_token);
   expect(await storage.listDatabases()).toEqual(expect.any(Array));
   await page.reload();
-  await expect(
-    page.getByRole("heading", { name: /devices/i }).first(),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: /devices/i }).first()).toBeVisible();
 });

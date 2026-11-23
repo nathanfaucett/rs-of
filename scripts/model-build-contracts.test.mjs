@@ -3,7 +3,11 @@ import { execFileSync } from "node:child_process";
 import test from "node:test";
 
 function dependencies(args) {
-  return execFileSync("cargo", ["tree", "--edges", "normal,build", "--prefix", "none", "--format", "{p}", ...args], { encoding: "utf8" });
+  return execFileSync(
+    "cargo",
+    ["tree", "--edges", "normal,build", "--prefix", "none", "--format", "{p}", ...args],
+    { encoding: "utf8" }
+  );
 }
 
 test("unified defaults do not include the independent setup runtime", () => {
@@ -12,6 +16,9 @@ test("unified defaults do not include the independent setup runtime", () => {
 
 test("independent owners retain setup without enabling their CLI", () => {
   for (const owner of ["idp-server", "device-server", "storage-server"]) {
-    assert.match(dependencies(["-p", owner, "--no-default-features", "--features", "independent"]), /^setup v/m);
+    assert.match(
+      dependencies(["-p", owner, "--no-default-features", "--features", "independent"]),
+      /^setup v/m
+    );
   }
 });

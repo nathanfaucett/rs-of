@@ -12,13 +12,7 @@
  * Do not edit the class manually.
  */
 
-import {
-  mapValues,
-  parseDate,
-  parseDateTime,
-  serializeDate,
-  serializeDateTime,
-} from "../runtime.js";
+import { parseDateTime, serializeDateTime } from "../runtime.js";
 /**
  *
  * @export
@@ -28,75 +22,75 @@ export interface UserInfo {
   /**
    *
    */
-  birthdate?: string | null;
+  birthdate?: (string | null) | undefined;
   /**
    *
    */
-  blocked?: boolean;
+  blocked?: boolean | undefined;
   /**
    *
    */
-  email?: string | null;
+  email?: (string | null) | undefined;
   /**
    *
    */
-  emailVerified?: boolean | null;
+  emailVerified?: (boolean | null) | undefined;
   /**
    *
    */
-  familyName?: string | null;
+  familyName?: (string | null) | undefined;
   /**
    *
    */
-  gender?: string | null;
+  gender?: (string | null) | undefined;
   /**
    *
    */
-  givenName?: string | null;
+  givenName?: (string | null) | undefined;
   /**
    *
    */
-  locale?: string | null;
+  locale?: (string | null) | undefined;
   /**
    *
    */
-  mfaTotpEnabled?: boolean | null;
+  mfaTotpEnabled?: (boolean | null) | undefined;
   /**
    *
    */
-  middleName?: string | null;
+  middleName?: (string | null) | undefined;
   /**
    *
    */
-  name?: string | null;
+  name?: (string | null) | undefined;
   /**
    *
    */
-  nickname?: string | null;
+  nickname?: (string | null) | undefined;
   /**
    *
    */
-  permissions?: Array<string>;
+  permissions?: Array<string> | undefined;
   /**
    *
    */
-  phoneNumber?: string | null;
+  phoneNumber?: (string | null) | undefined;
   /**
    *
    */
-  phoneNumberVerified?: boolean | null;
+  phoneNumberVerified?: (boolean | null) | undefined;
   /**
    *
    */
-  picture?: string | null;
+  picture?: (string | null) | undefined;
   /**
    *
    */
-  preferredUsername?: string | null;
+  preferredUsername?: (string | null) | undefined;
   /**
    *
    */
-  profile?: string | null;
+  profile?: (string | null) | undefined;
   /**
    *
    */
@@ -108,11 +102,11 @@ export interface UserInfo {
   /**
    *
    */
-  website?: string | null;
+  website?: (string | null) | undefined;
   /**
    *
    */
-  zoneinfo?: string | null;
+  zoneinfo?: (string | null) | undefined;
 }
 
 /**
@@ -134,7 +128,7 @@ export function UserInfoFromJSON(json: any): UserInfo {
   return UserInfoFromJSONTyped(json, false);
 }
 
-export function UserInfoFromJSONTyped(json: any, ignoreDiscriminator: boolean): UserInfo {
+export function UserInfoFromJSONTyped(json: any, _ignoreDiscriminator: boolean): UserInfo {
   if (json == null) {
     return json;
   }
@@ -230,7 +224,7 @@ export function UserInfoToJSON(json: any): UserInfo {
 
 export function UserInfoToJSONTyped(
   value?: UserInfo | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

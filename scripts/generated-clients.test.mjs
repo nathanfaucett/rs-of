@@ -6,22 +6,15 @@ import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "../packages");
 const { transpileModule, ModuleKind, ScriptTarget } = createRequire(
-  path.join(root, "idp-client/package.json"),
+  path.join(root, "idp-client/package.json")
 )("typescript");
 
 // Execute generated TypeScript in memory; never build or publish package outputs.
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (
-      specifier.endsWith(".js") &&
-      context.parentURL?.includes("-client/src/")
-    ) {
-      const candidate = new URL(
-        specifier.replace(/\.js$/, ".ts"),
-        context.parentURL,
-      );
-      if (existsSync(candidate))
-        return { url: candidate.href, shortCircuit: true };
+    if (specifier.endsWith(".js") && context.parentURL?.includes("-client/src/")) {
+      const candidate = new URL(specifier.replace(/\.js$/, ".ts"), context.parentURL);
+      if (existsSync(candidate)) return { url: candidate.href, shortCircuit: true };
     }
     return nextResolve(specifier, context);
   },
@@ -42,19 +35,12 @@ registerHooks({
   },
 });
 const source = (service) =>
-  path.join(
-    root,
-    `${service}-client/src`,
-    ...(service === "storage" ? ["generated"] : []),
-  );
+  path.join(root, `${service}-client/src`, ...(service === "storage" ? ["generated"] : []));
 
 test("Device owns Device clients and models while IdP owns issuer keys and OAuth contracts", () => {
   const directory = source("idp");
   const api = readFileSync(path.join(directory, "apis/DefaultApi.ts"), "utf8");
-  const management = readFileSync(
-    path.join(source("device"), "apis/DefaultApi.ts"),
-    "utf8",
-  );
+  const management = readFileSync(path.join(source("device"), "apis/DefaultApi.ts"), "utf8");
   for (const operation of [
     "device",
     "enrollDevice",
@@ -86,26 +72,19 @@ test("Device owns Device clients and models while IdP owns issuer keys and OAuth
   assert.match(api, /async deviceAuth\s*\(/);
   assert.match(api, /async deviceVerify\s*\(/);
   assert.match(api, /async rotateIssuerKey\s*\(/);
-  assert.ok(
-    !existsSync(path.join(directory, "apis/SuperRoutesReplicaSignersApi.ts")),
-  );
+  assert.ok(!existsSync(path.join(directory, "apis/SuperRoutesReplicaSignersApi.ts")));
   assert.ok(!existsSync(path.join(directory, "apis/SuperRoutesSetupApi.ts")));
   assert.ok(
-    !readdirSync(path.join(directory, "models")).some((name) =>
-      name.startsWith("SetupBootstrap"),
-    ),
+    !readdirSync(path.join(directory, "models")).some((name) => name.startsWith("SetupBootstrap"))
   );
   assert.doesNotMatch(
     readFileSync(path.join(directory, "apis/index.ts"), "utf8"),
-    /SuperRoutesSetupApi/,
+    /SuperRoutesSetupApi/
   );
 });
 
 test("Device selected resources requires and round-trips the current device policy", async () => {
-  const filename = path.join(
-    source("device"),
-    "models/SelectedResourcesResponse.ts",
-  );
+  const filename = path.join(source("device"), "models/SelectedResourcesResponse.ts");
   const model = readFileSync(filename, "utf8");
   for (const [field, type] of [
     ["deviceId", "string"],
@@ -138,10 +117,7 @@ test("Device selected resources requires and round-trips the current device poli
   };
   const decoded = SelectedResourcesResponseFromJSON(policy);
   assert.equal(decoded.pendingCleanup, undefined);
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(SelectedResourcesResponseToJSON(decoded))),
-    policy,
-  );
+  assert.deepEqual(JSON.parse(JSON.stringify(SelectedResourcesResponseToJSON(decoded))), policy);
   assert.equal(instanceOfSelectedResourcesResponse(policy), true);
   for (const field of Object.keys(policy)) {
     const incomplete = { ...policy };
@@ -155,26 +131,19 @@ for (const service of ["idp", "management", "device", "storage"]) {
     const directory = source(service);
     assert.match(
       readFileSync(path.join(directory, "runtime.ts"), "utf8"),
-      new RegExp(`BASE_PATH = "https://localhost/${service}"`),
+      new RegExp(`BASE_PATH = "https://localhost/${service}"`)
     );
-    for (const file of readdirSync(path.join(directory, "apis")).filter(
-      (name) => name.endsWith(".ts"),
+    for (const file of readdirSync(path.join(directory, "apis")).filter((name) =>
+      name.endsWith(".ts")
     )) {
       const api = readFileSync(path.join(directory, "apis", file), "utf8");
-      assert.doesNotMatch(
-        api,
-        new RegExp(`(?:path:|urlPath =) [\x27\x22\x60]/${service}/`),
-      );
+      assert.doesNotMatch(api, new RegExp(`(?:path:|urlPath =) [\x27\x22\x60]/${service}/`));
       assert.doesNotMatch(api, /x-internal-service|\/internal\//);
     }
   });
   test(`${service} client sends one transport prefix and only the configured bearer`, async () => {
-    const { Configuration } = await import(
-      path.join(source(service), "runtime.ts")
-    );
-    const { DefaultApi } = await import(
-      path.join(source(service), "apis/DefaultApi.ts")
-    );
+    const { Configuration } = await import(path.join(source(service), "runtime.ts"));
+    const { DefaultApi } = await import(path.join(source(service), "apis/DefaultApi.ts"));
     let captured;
     const configuration = new Configuration({
       basePath: `https://node.example/${service}`,
@@ -192,8 +161,8 @@ for (const service of ["idp", "management", "device", "storage"]) {
     assert.equal(captured.url, `https://node.example/${service}/health`);
     assert.ok(
       !Object.keys(captured.init.headers).some((name) =>
-        name.toLowerCase().startsWith("x-internal"),
-      ),
+        name.toLowerCase().startsWith("x-internal")
+      )
     );
     const opts =
       service === "idp"
@@ -241,12 +210,8 @@ for (const service of ["idp", "management", "device", "storage"]) {
 }
 
 test("Device transfer uses its owner prefix, escaped Device ID and exact bearer", async () => {
-  const { Configuration } = await import(
-    path.join(source("device"), "runtime.ts")
-  );
-  const { DefaultApi } = await import(
-    path.join(source("device"), "apis/DefaultApi.ts")
-  );
+  const { Configuration } = await import(path.join(source("device"), "runtime.ts"));
+  const { DefaultApi } = await import(path.join(source("device"), "apis/DefaultApi.ts"));
   let captured;
   const api = new DefaultApi(
     new Configuration({
@@ -256,30 +221,22 @@ test("Device transfer uses its owner prefix, escaped Device ID and exact bearer"
         captured = { url, init };
         return new Response(null, { status: 204 });
       },
-    }),
+    })
   );
   await api.transferDevice({
     deviceId: "device/one",
     deviceTransferRequest: { ownerSubject: "next-owner" },
   });
-  assert.equal(
-    captured.url,
-    "https://node.example/device/devices/device%2Fone/owner",
-  );
+  assert.equal(captured.url, "https://node.example/device/devices/device%2Fone/owner");
   assert.equal(captured.init.method, "PUT");
-  assert.equal(
-    captured.init.headers.Authorization,
-    "Bearer management-user-token",
-  );
+  assert.equal(captured.init.headers.Authorization, "Bearer management-user-token");
   assert.deepEqual(JSON.parse(captured.init.body), {
     ownerSubject: "next-owner",
   });
 });
 
 test("IdP active User lookup is separate from Device authority", async () => {
-  const { Configuration } = await import(
-    path.join(source("idp"), "runtime.ts")
-  );
+  const { Configuration } = await import(path.join(source("idp"), "runtime.ts"));
   const { SuperRoutesActiveUserApi } = await import(
     path.join(source("idp"), "apis/SuperRoutesActiveUserApi.ts")
   );
@@ -292,16 +249,10 @@ test("IdP active User lookup is separate from Device authority", async () => {
         captured = { url, init };
         return new Response(null, { status: 204 });
       },
-    }),
+    })
   );
   await api.activeUser({ userId: "user/one" });
-  assert.equal(
-    captured.url,
-    "https://identity.example/idp/users/user%2Fone/active",
-  );
+  assert.equal(captured.url, "https://identity.example/idp/users/user%2Fone/active");
   assert.equal(captured.init.method, "GET");
-  assert.equal(
-    captured.init.headers.Authorization,
-    "Bearer idp-user-lookup-service-token",
-  );
+  assert.equal(captured.init.headers.Authorization, "Bearer idp-user-lookup-service-token");
 });

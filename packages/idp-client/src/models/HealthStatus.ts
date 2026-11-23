@@ -12,13 +12,11 @@
  * Do not edit the class manually.
  */
 
-import { parseDate, parseDateTime, serializeDate, serializeDateTime } from "../runtime.js";
 import type { HealthStatusOneOf } from "./HealthStatusOneOf.js";
 import {
-  instanceOfHealthStatusOneOf,
-  HealthStatusOneOfFromJSON,
   HealthStatusOneOfFromJSONTyped,
   HealthStatusOneOfToJSON,
+  instanceOfHealthStatusOneOf,
 } from "./HealthStatusOneOf.js";
 
 /**
@@ -32,7 +30,7 @@ export function HealthStatusFromJSON(json: any): HealthStatus {
   return HealthStatusFromJSONTyped(json, false);
 }
 
-export function HealthStatusFromJSONTyped(json: any, ignoreDiscriminator: boolean): HealthStatus {
+export function HealthStatusFromJSONTyped(json: any, _ignoreDiscriminator: boolean): HealthStatus {
   if (json == null) {
     return json;
   }
@@ -54,7 +52,7 @@ export function HealthStatusToJSON(json: any): any {
 
 export function HealthStatusToJSONTyped(
   value?: HealthStatus | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

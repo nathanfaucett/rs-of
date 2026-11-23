@@ -1,13 +1,14 @@
 <script lang="ts">
+import { onDestroy, untrack } from "svelte";
+import { Alert, Card, Field, type FieldControl } from "$lib/ui";
+import type { VaultHandleLike } from "$lib/vault/types";
+import GeneratorDialog from "../generator/GeneratorDialog.svelte";
+import type { EditableKind, EditableSecret } from "../secret-draft";
+import { createLocalSecretWorkflow } from "../workflow.svelte";
 import CardFields from "./CardFields.svelte";
 import IdentityFields from "./IdentityFields.svelte";
-import SshKeyFields from "./SshKeyFields.svelte";
-import GeneratorDialog from "../generator/GeneratorDialog.svelte";
 import PasswordInput from "./PasswordInput.svelte";
-import { Alert, Card, Field } from "$lib/ui";
-import type { VaultHandleLike } from "$lib/vault/types";
-import { createLocalSecretWorkflow } from "../workflow.svelte";
-import type { EditableKind, EditableSecret } from "../secret-draft";
+import SshKeyFields from "./SshKeyFields.svelte";
 
 interface Props {
     vault: VaultHandleLike;
@@ -20,12 +21,11 @@ interface Props {
 
 let { vault, kind = "login", record, recordId, onSave, onCancel }: Props = $props();
 
-let workflow = $state<ReturnType<typeof createLocalSecretWorkflow> | null>(null);
-
-$effect(() => {
-    if (!workflow) {
-        workflow = createLocalSecretWorkflow({ vault });
-    }
+const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
+let active = true;
+onDestroy(() => {
+    active = false;
+    workflow.dispose();
 });
 
 let error = $state("");
@@ -48,6 +48,8 @@ async function loadRecord() {
             checkReady();
         });
 
+        if (!active) return;
+
         // Get the record from the collection via workflow
         const records = workflow.records;
         const found = records.find((r) => r.id === recordId);
@@ -59,7 +61,7 @@ async function loadRecord() {
     } catch (e) {
         error = e instanceof Error ? e.message : "Failed to load record";
     } finally {
-        loading = false;
+        if (active) loading = false;
     }
 }
 
@@ -67,7 +69,7 @@ $effect(() => {
     if (record) {
         workflow.edit(record);
     } else if (recordId) {
-        loadRecord();
+        void loadRecord();
     } else {
         workflow.edit(null, kind);
     }
@@ -95,25 +97,25 @@ function handleCancel() {
     <div class="flex items-center justify-center h-64">
         <p class="text-muted-foreground">Loading secret...</p>
     </div>
-{:else if workflow}
+{:else}
     {#if workflow.editor}
         {@const editor = workflow.editor}
         {@const draft = editor.draft}
         <Card title={editor.record ? "Edit secret" : "New secret"} description="Changes are encrypted and stored when you save.">
-            <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); handleSave(); }}>                <Field id="name" label="Name" required>
-                    {#snippet children(control)}
+            <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void handleSave(); }}>                <Field id="name" label="Name" required>
+                    {#snippet children(control: FieldControl)}
                         <input {...control} {@attach (element) => element?.focus()} bind:value={draft.name} autocomplete="off" disabled={!workflow.canEdit} />
                     {/snippet}
                 </Field>
                 {#if draft.kind === "login"}
                     {@const loginDraft = draft as import("../secret-draft").LoginDraft}
                     <Field id="username" label="Username">
-                        {#snippet children(control)}
+                        {#snippet children(control: FieldControl)}
                             <input {...control} bind:value={loginDraft.username} autocomplete="off" disabled={!workflow.canEdit} />
                         {/snippet}
                     </Field>
                     <Field id="secret" label="Password">
-                        {#snippet children(control)}
+                        {#snippet children(control: FieldControl)}
                             <div class="flex gap-2">
                                 <PasswordInput {...control} bind:value={loginDraft.secret} autocomplete="new-password" disabled={!workflow.canEdit} />
                                 <GeneratorDialog onuse={(value) => { if (editor && editor.draft.kind === "login") { editor.draft.secret = value; editor.confirmPassword = value; } }} />
@@ -122,13 +124,13 @@ function handleCancel() {
                     </Field>
                     {#if loginDraft.secret}
                         <Field id="confirm-secret" label="Confirm password" required>
-                            {#snippet children(control)}
+                            {#snippet children(control: FieldControl)}
                                 <PasswordInput {...control} bind:value={editor.confirmPassword} autocomplete="new-password" disabled={!workflow.canEdit} />
                             {/snippet}
                         </Field>
                     {/if}
                     <Field id="totp" label="Authenticator key (TOTP)" description="Store a Base32 key or otpauth TOTP URI. View local codes in item details.">
-                        {#snippet children(control)}
+                        {#snippet children(control: FieldControl)}
                             <PasswordInput {...control} bind:value={draft.totp} autocomplete="off" disabled={!workflow.canEdit} />
                         {/snippet}
                     </Field>
@@ -137,12 +139,12 @@ function handleCancel() {
                         {#each draft.uris as uri, i (uri)}
                             <div class="flex flex-wrap items-end gap-2">
                                 <Field id={`uri-${i}`} label={`Website ${i + 1}`}>
-                                    {#snippet children(control)}
+                                    {#snippet children(control: FieldControl)}
                                         <input {...control} bind:value={uri.uri} placeholder="https://example.com" />
                                     {/snippet}
                                 </Field>
                                 <Field id={`match-${i}`} label={`Match rule ${i + 1}`}>
-                                    {#snippet children(control)}
+                                    {#snippet children(control: FieldControl)}
                                         <select {...control} bind:value={uri.match}>
                                             <option value={null}>No rule</option>
                                             <option value="domain">Domain</option>
@@ -178,12 +180,12 @@ function handleCancel() {
 
                     <div class="flex flex-wrap items-end gap-2">
                         <Field id={`field-name-${i}`} label={`Field name ${i + 1}`} required>
-                            {#snippet children(control)}
+                            {#snippet children(control: FieldControl)}
                                 <input {...control} bind:value={field.name} />
                             {/snippet}
                         </Field>
                         <Field id={`field-type-${i}`} label={`Field type ${i + 1}`}>
-                            {#snippet children(control)}
+                            {#snippet children(control: FieldControl)}
                                 <select {...control} bind:value={field.type}>
                                     <option value="text">Text</option>
                                     <option value="hidden">Hidden</option>
@@ -192,7 +194,7 @@ function handleCancel() {
                             {/snippet}
                         </Field>
                         <Field id={`field-value-${i}`} label={`Field value ${i + 1}`}>
-                            {#snippet children(control)}
+                            {#snippet children(control: FieldControl)}
                                 {#if field.type === "boolean"}
                                     <select {...control} bind:value={field.value}>
                                         {#if field.value !== "true" && field.value !== "false"}
@@ -218,7 +220,7 @@ function handleCancel() {
                 </button>
             </fieldset>
             <Field id="notes" label="Notes">
-                {#snippet children(control)}
+                {#snippet children(control: FieldControl)}
                     <textarea {...control} bind:value={draft.notes} rows="3" disabled={!workflow.canEdit}></textarea>
                 {/snippet}
             </Field>
@@ -247,8 +249,4 @@ function handleCancel() {
             <p class="text-muted-foreground">Initializing editor...</p>
         </div>
     {/if}
-{:else}
-    <div class="flex items-center justify-center h-64">
-        <p class="text-muted-foreground">No editor available</p>
-    </div>
 {/if}

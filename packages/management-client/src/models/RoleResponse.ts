@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -30,7 +29,7 @@ export interface RoleResponse {
   /**
    *
    */
-  description?: string | null;
+  description?: (string | null) | undefined;
   /**
    *
    */
@@ -79,7 +78,7 @@ export function RoleResponseFromJSON(json: any): RoleResponse {
   return RoleResponseFromJSONTyped(json, false);
 }
 
-export function RoleResponseFromJSONTyped(json: any, ignoreDiscriminator: boolean): RoleResponse {
+export function RoleResponseFromJSONTyped(json: any, _ignoreDiscriminator: boolean): RoleResponse {
   if (json == null) {
     return json;
   }
@@ -104,7 +103,7 @@ export function RoleResponseToJSON(json: any): RoleResponse {
 
 export function RoleResponseToJSONTyped(
   value?: RoleResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

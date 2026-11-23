@@ -1,20 +1,19 @@
-import devtoolsJson from "vite-plugin-devtools-json";
-import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vitest/config";
 import { sveltekit } from "@sveltejs/kit/vite";
+import tailwindcss from "@tailwindcss/vite";
+import devtoolsJson from "vite-plugin-devtools-json";
+import { defineConfig } from "vitest/config";
 
-function parseInteger(value?: string, defaultValue?: number): number {
-  try {
-    return Number.parseInt(value, 10);
-  } catch {
-    return defaultValue;
-  }
+const { PORT } = process.env;
+
+function parseInteger(value: string | undefined, defaultValue: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isNaN(parsed) ? defaultValue : parsed;
 }
 
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit(), devtoolsJson()],
   server: {
-    port: parseInteger(process.env.PORT, 5173),
+    port: parseInteger(PORT, 5173),
     strictPort: true,
   },
   test: {

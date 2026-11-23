@@ -12,28 +12,12 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { CodeChallengeMethod } from "./CodeChallengeMethod.js";
-import {
-  CodeChallengeMethodFromJSON,
-  CodeChallengeMethodFromJSONTyped,
-  CodeChallengeMethodToJSON,
-  CodeChallengeMethodToJSONTyped,
-} from "./CodeChallengeMethod.js";
+import { CodeChallengeMethodFromJSON, CodeChallengeMethodToJSON } from "./CodeChallengeMethod.js";
 import type { ResponseMode } from "./ResponseMode.js";
-import {
-  ResponseModeFromJSON,
-  ResponseModeFromJSONTyped,
-  ResponseModeToJSON,
-  ResponseModeToJSONTyped,
-} from "./ResponseMode.js";
+import { ResponseModeFromJSON, ResponseModeToJSON } from "./ResponseMode.js";
 import type { ResponseType } from "./ResponseType.js";
-import {
-  ResponseTypeFromJSON,
-  ResponseTypeFromJSONTyped,
-  ResponseTypeToJSON,
-  ResponseTypeToJSONTyped,
-} from "./ResponseType.js";
+import { ResponseTypeFromJSON, ResponseTypeToJSON } from "./ResponseType.js";
 
 /**
  *
@@ -48,40 +32,40 @@ export interface AuthorizationRequest {
   /**
    * PKCE parameters (RFC 7636) for public clients and enhanced security
    */
-  codeChallenge?: string | null;
+  codeChallenge?: (string | null) | undefined;
   /**
    * The method used to derive the code challenge (e.g., "S256" or "plain").
    * only required if `code_challenge` is present. "S256" is strongly recommended in OAuth 2.1 for better security.
    */
-  codeChallengeMethod?: CodeChallengeMethod | null;
+  codeChallengeMethod?: (CodeChallengeMethod | null) | undefined;
   /**
    *
    */
-  idTokenHint?: string | null;
+  idTokenHint?: (string | null) | undefined;
   /**
    *
    */
-  loginHint?: string | null;
+  loginHint?: (string | null) | undefined;
   /**
    *
    */
-  nonce?: string | null;
+  nonce?: (string | null) | undefined;
   /**
    *
    */
-  prompt?: string | null;
+  prompt?: (string | null) | undefined;
   /**
    * redirect URI is optional if the client has only one registered redirect URI
    */
-  redirectUri?: string | null;
+  redirectUri?: (string | null) | undefined;
   /**
    * Audience parameter (RFC 8707) to specify the intended recipients of the token.
    */
-  resource?: string | null;
+  resource?: (string | null) | undefined;
   /**
    *
    */
-  responseMode?: ResponseMode | null;
+  responseMode?: (ResponseMode | null) | undefined;
   /**
    *
    */
@@ -89,15 +73,15 @@ export interface AuthorizationRequest {
   /**
    *
    */
-  scope?: string | null;
+  scope?: (string | null) | undefined;
   /**
    *
    */
-  state?: string | null;
+  state?: (string | null) | undefined;
   /**
    *
    */
-  uiLocales?: string | null;
+  uiLocales?: (string | null) | undefined;
 }
 
 /**
@@ -127,7 +111,7 @@ export function AuthorizationRequestFromJSON(json: any): AuthorizationRequest {
 
 export function AuthorizationRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): AuthorizationRequest {
   if (json == null) {
     return json;
@@ -197,7 +181,7 @@ export function AuthorizationRequestToJSON(json: any): AuthorizationRequest {
 
 export function AuthorizationRequestToJSONTyped(
   value?: AuthorizationRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

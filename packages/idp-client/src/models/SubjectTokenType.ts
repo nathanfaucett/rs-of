@@ -43,7 +43,7 @@ export function SubjectTokenTypeFromJSON(json: any): SubjectTokenType {
 
 export function SubjectTokenTypeFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): SubjectTokenType {
   return json as SubjectTokenType;
 }
@@ -54,7 +54,7 @@ export function SubjectTokenTypeToJSON(value?: SubjectTokenType | null): any {
 
 export function SubjectTokenTypeToJSONTyped(
   value: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): SubjectTokenType {
   return value as SubjectTokenType;
 }

@@ -3,8 +3,8 @@
 </script>
 
 <script lang="ts">
-    import { getTheme } from "@ofsdk/svelte-headless";
     import Settings from "@lucide/svelte/icons/settings";
+    import { getTheme } from "@ofsdk/svelte-headless";
     import { isTauri } from "@tauri-apps/api/core";
     import { onMount } from "svelte";
     import { resolve } from "$app/paths";

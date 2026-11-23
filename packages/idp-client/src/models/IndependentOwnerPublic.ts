@@ -12,13 +12,10 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { IndependentCreateIntent } from "./IndependentCreateIntent.js";
 import {
   IndependentCreateIntentFromJSON,
-  IndependentCreateIntentFromJSONTyped,
   IndependentCreateIntentToJSON,
-  IndependentCreateIntentToJSONTyped,
 } from "./IndependentCreateIntent.js";
 
 /**
@@ -67,7 +64,7 @@ export function IndependentOwnerPublicFromJSON(json: any): IndependentOwnerPubli
 
 export function IndependentOwnerPublicFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IndependentOwnerPublic {
   if (
     json &&
@@ -95,7 +92,7 @@ export function IndependentOwnerPublicToJSON(json: any): IndependentOwnerPublic 
 
 export function IndependentOwnerPublicToJSONTyped(
   value?: IndependentOwnerPublic | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

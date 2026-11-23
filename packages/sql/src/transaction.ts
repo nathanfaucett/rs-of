@@ -1,9 +1,9 @@
+import { CommitError, SqlError, wrapError } from "./error.js";
 import { Handle } from "./handle.js";
 import type { QueryParams, Result } from "./result.js";
 import { decodeResults, encodeParams } from "./result.js";
 import { parseRows, type RowParser } from "./select.js";
 import type { WasmSqlTransaction } from "./wasm.js";
-import { wrapError, SqlError, CommitError } from "./error.js";
 
 /** SQL transaction — holds statements until commit or rollback. */
 export class Transaction {
@@ -25,17 +25,10 @@ export class Transaction {
    * @param parser Synchronous row → T
    * @param params Optional positional/named parameters
    */
-  async execute<T>(
-    sql: string,
-    parser: RowParser<T>,
-    params?: QueryParams,
-  ): Promise<T[]> {
+  async execute<T>(sql: string, parser: RowParser<T>, params?: QueryParams): Promise<T[]> {
     try {
       const encoded = encodeParams(params);
-      const raw = await this.handle.run(
-        (wasm) => wasm.execute(sql, encoded),
-        true,
-      );
+      const raw = await this.handle.run((wasm) => wasm.execute(sql, encoded), true);
       return parseRows(decodeResults(raw), parser);
     } catch (error) {
       throw wrapError(error, SqlError);
@@ -51,10 +44,7 @@ export class Transaction {
   async executeRaw(sql: string, params?: QueryParams): Promise<Result[]> {
     try {
       const encoded = encodeParams(params);
-      const raw = await this.handle.run(
-        (wasm) => wasm.execute(sql, encoded),
-        true,
-      );
+      const raw = await this.handle.run((wasm) => wasm.execute(sql, encoded), true);
       return decodeResults(raw);
     } catch (error) {
       throw wrapError(error, SqlError);

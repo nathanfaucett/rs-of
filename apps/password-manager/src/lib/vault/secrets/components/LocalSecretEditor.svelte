@@ -1,15 +1,16 @@
 <script lang="ts">
+import { Pencil, Trash2 } from "@lucide/svelte";
 import { onDestroy, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
+import { resolve } from "$app/paths";
+import Dialog from "$lib/shared/components/Dialog.svelte";
+import { Alert, Card, Field, type FieldControl } from "$lib/ui";
+import type { VaultHandleLike } from "$lib/vault/types";
+import { type ItemSort, type ItemTypeFilter, searchItems } from "../search";
+import type { Secret } from "../secret";
+import { createLocalSecretWorkflow } from "../workflow.svelte";
 import FolderControls from "./FolderControls.svelte";
 import SecretDetail from "./SecretDetail.svelte";
-import { Alert, Card, Field } from "$lib/ui";
-import Dialog from "$lib/shared/components/Dialog.svelte";
-import type { VaultHandleLike } from "$lib/vault/types";
-import { createLocalSecretWorkflow } from "../workflow.svelte";
-import type { Secret } from "../secret";
-import { searchItems, type ItemTypeFilter, type ItemSort } from "../search";
-import { Pencil, Trash2 } from "@lucide/svelte";
 
 interface Props {
     vault: VaultHandleLike;
@@ -123,11 +124,11 @@ function navigate(action: () => void) {
                     onclick={() => { showNewSecretMenu = !showNewSecretMenu; }} aria-expanded={showNewSecretMenu}>New secret</button>
                 {#if showNewSecretMenu}
                 <div class="absolute top-full left-0 mt-1 z-10 min-w-[160px] bg-surface border border-line rounded-lg shadow-lg py-1" role="menu" aria-labelledby={newSecretId}>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto("/vault/new?kind=login"))}>New login</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto("/vault/new?kind=secureNote"))}>New secure note</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto("/vault/new?kind=card"))}>New card</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto("/vault/new?kind=identity"))}>New identity</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto("/vault/new?kind=sshKey"))}>New SSH key</button>
+                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto(resolve("/vault/new?kind=login")))}>New login</button>
+                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto(resolve("/vault/new?kind=secureNote")))}>New secure note</button>
+                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto(resolve("/vault/new?kind=card")))}>New card</button>
+                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto(resolve("/vault/new?kind=identity")))}>New identity</button>
+                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto(resolve("/vault/new?kind=sshKey")))}>New SSH key</button>
                 </div>
                 {/if}
             </div>
@@ -136,14 +137,14 @@ function navigate(action: () => void) {
             <fieldset class="mb-4 flex flex-wrap items-end gap-3 lg:hidden" disabled={workflow.loading || !!workflow.loadError}>
                 <legend class="text-sm font-medium">Find items</legend>
                 <Field id={`${searchId}-text`} label="Search items" description="Search names, usernames, websites, notes, and custom-field names.">
-                    {#snippet children(control)}
+                    {#snippet children(control: FieldControl)}
                         <input {...control} type="search" autocomplete="off" spellcheck="false"
                             value={searchText}
                             oninput={(e) => { if (!retired) { searchText = e.currentTarget.value; onSearchTextChange?.(searchText); } }} />
                     {/snippet}
                 </Field>
                 <Field id={`${searchId}-folder`} label="Folder">
-                    {#snippet children(control)}
+                    {#snippet children(control: FieldControl)}
                         <select {...control} value={workflow.folderFilter} onchange={(e) => { const value = e.currentTarget.value; onFolderFilterChange?.(value); }}>                            <option value="all">All folders</option>
                             <option value="unfiled">Unfiled</option>
                             {#each workflow.folders as folder (folder.id)}
@@ -153,7 +154,7 @@ function navigate(action: () => void) {
                     {/snippet}
                 </Field>
                 <Field id={`${searchId}-type`} label="Item type">
-                    {#snippet children(control)}
+                    {#snippet children(control: FieldControl)}
                         <select {...control} value={itemType} onchange={(e) => { itemType = e.currentTarget.value as ItemTypeFilter; onItemTypeChange?.(itemType); }}>                            <option value="all">All types</option>
                             <option value="login">Login</option>
                             <option value="secureNote">Secure Note</option>
@@ -167,7 +168,7 @@ function navigate(action: () => void) {
                     <input type="checkbox" checked={favoritesOnly} onchange={(e) => { favoritesOnly = e.currentTarget.checked; onFavoritesOnlyChange?.(favoritesOnly); }} /> Favorites only
                 </label>
                 <Field id={`${searchId}-sort`} label="Sort items">
-                    {#snippet children(control)}
+                    {#snippet children(control: FieldControl)}
                         <select {...control} value={sort} onchange={(e) => { sort = e.currentTarget.value as ItemSort; onSortChange?.(sort); }}>                            <option value="favorites">Favorites first, then name</option>
                             <option value="nameAsc">Name (A–Z)</option>
                             <option value="nameDesc">Name (Z–A)</option>
@@ -229,7 +230,7 @@ function navigate(action: () => void) {
                                     <span class="text-sm text-ink-subtle">Deleted: <time datetime={value.deletedAt}>{value.deletedAt}</time></span>
                                 {:else}
                                 <button class="btn btn-ghost btn-md w-full justify-start truncate px-0 text-left font-medium"
-                                    type="button" disabled={!workflow.canEdit} onclick={() => navigate(() => goto(`/vault/edit/${value.id}`))}>
+                                    type="button" disabled={!workflow.canEdit} onclick={() => navigate(() => goto(resolve(`/vault/edit/${value.id}`)))}>
                                     {value.favorite ? "★ " : ""}{value.name}
                                 </button>
                                 {#if (value.kind === "login" || value.kind === "identity") && value.username}<p class="truncate text-sm text-ink-subtle">{value.username}</p>{/if}
@@ -245,7 +246,7 @@ function navigate(action: () => void) {
                                 {:else}
                                     <button class="btn btn-ghost btn-sm p-1.5 text-muted-foreground hover:text-ink hover:bg-surface-hover rounded"
                                         type="button" disabled={!workflow.canEdit} aria-label="Edit"
-                                        onclick={() => navigate(() => goto(`/vault/edit/${value.id}`))}>
+                                        onclick={() => navigate(() => goto(resolve(`/vault/edit/${value.id}`)))}>
                                         <Pencil class="w-4 h-4" />
                                     </button>
                                     <button class="btn btn-ghost btn-sm p-1.5 text-muted-foreground hover:text-danger-text hover:bg-danger-soft rounded"
@@ -263,9 +264,10 @@ function navigate(action: () => void) {
     </Card>
 
     {#if workflow.detail && !workflow.editor}
-        {#key workflow.detail}
-            <SecretDetail record={workflow.detail} canEdit={workflow.canEdit}
-                onedit={() => navigate(() => goto(`/vault/edit/${workflow.detail.id}`))}
+        {@const detail = workflow.detail}
+        {#key detail}
+            <SecretDetail record={detail} canEdit={workflow.canEdit}
+                onedit={() => navigate(() => goto(resolve(`/vault/edit/${detail.id}`)))}
                 onclose={() => navigate(() => { workflow.open(null); document.getElementById(newSecretId)?.focus(); })} />
         {/key}
     {/if}

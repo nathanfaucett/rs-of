@@ -37,7 +37,7 @@ export function ResponseModeFromJSON(json: any): ResponseMode {
   return ResponseModeFromJSONTyped(json, false);
 }
 
-export function ResponseModeFromJSONTyped(json: any, ignoreDiscriminator: boolean): ResponseMode {
+export function ResponseModeFromJSONTyped(json: any, _ignoreDiscriminator: boolean): ResponseMode {
   return json as ResponseMode;
 }
 
@@ -45,6 +45,6 @@ export function ResponseModeToJSON(value?: ResponseMode | null): any {
   return value as any;
 }
 
-export function ResponseModeToJSONTyped(value: any, ignoreDiscriminator: boolean): ResponseMode {
+export function ResponseModeToJSONTyped(value: any, _ignoreDiscriminator: boolean): ResponseMode {
   return value as ResponseMode;
 }

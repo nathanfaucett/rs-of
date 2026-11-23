@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { ErrorCode } from "./ErrorCode.js";
-import {
-  ErrorCodeFromJSON,
-  ErrorCodeFromJSONTyped,
-  ErrorCodeToJSON,
-  ErrorCodeToJSONTyped,
-} from "./ErrorCode.js";
+import { ErrorCodeFromJSON, ErrorCodeToJSON } from "./ErrorCode.js";
 
 /**
  * Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2).
@@ -34,11 +28,11 @@ export interface ErrorResponse {
   /**
    *
    */
-  errorDescription?: string | null;
+  errorDescription?: (string | null) | undefined;
   /**
    *
    */
-  errorUri?: string | null;
+  errorUri?: (string | null) | undefined;
 }
 
 /**
@@ -53,7 +47,10 @@ export function ErrorResponseFromJSON(json: any): ErrorResponse {
   return ErrorResponseFromJSONTyped(json, false);
 }
 
-export function ErrorResponseFromJSONTyped(json: any, ignoreDiscriminator: boolean): ErrorResponse {
+export function ErrorResponseFromJSONTyped(
+  json: any,
+  _ignoreDiscriminator: boolean
+): ErrorResponse {
   if (json == null) {
     return json;
   }
@@ -80,7 +77,7 @@ export function ErrorResponseToJSON(json: any): ErrorResponse {
 
 export function ErrorResponseToJSONTyped(
   value?: ErrorResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

@@ -1,8 +1,4 @@
-import {
-  Configuration,
-  type ConfigurationParameters,
-  DefaultApi,
-} from "@ofsdk/device-client";
+import { Configuration, type ConfigurationParameters, DefaultApi } from "@ofsdk/device-client";
 import { createStorage } from "@ofsdk/svelte-headless";
 import { isTauri } from "@tauri-apps/api/core";
 import { goto } from "$app/navigation";
@@ -10,13 +6,14 @@ import { resolve } from "$app/paths";
 import { page } from "$app/state";
 import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
-import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
 import { ownerAccessToken, usesRemoteApis } from "./idpClient.svelte";
+import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
 import { validateServiceApiUrl } from "./serviceApi";
 
+const { PUBLIC_DEVICE_BASE_URL: configuredDeviceBaseUrl } = env;
 const deviceApiUrl = createStorage<string | null>(
   "device-api-url",
-  env.PUBLIC_DEVICE_BASE_URL ?? null,
+  configuredDeviceBaseUrl ?? null
 );
 
 function readAccessToken(): Promise<string> {
@@ -63,9 +60,7 @@ const defaultConfigurationParameters: ConfigurationParameters = {
   credentials: "same-origin",
 };
 
-export const lidpDeviceConfiguration = new Configuration(
-  defaultConfigurationParameters,
-);
+export const lidpDeviceConfiguration = new Configuration(defaultConfigurationParameters);
 
 export const deviceApi = new DefaultApi(lidpDeviceConfiguration);
 
@@ -88,19 +83,16 @@ export async function validateDeviceApiUrl(basePath: string): Promise<boolean> {
 
 export async function checkStorageSyncCapability(
   storageBaseUrl: string,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<boolean> {
   try {
-    const response = await fetch(
-      `${storageBaseUrl.replace(/\/+$/, "")}/version`,
-      {
-        method: "GET",
-        signal,
-        redirect: "error",
-        credentials: "omit",
-        headers: { Accept: "application/json" },
-      },
-    );
+    const response = await fetch(`${storageBaseUrl.replace(/\/+$/, "")}/version`, {
+      method: "GET",
+      ...(signal === undefined ? {} : { signal }),
+      redirect: "error",
+      credentials: "omit",
+      headers: { Accept: "application/json" },
+    });
     if (!response.ok) return false;
     const version = await response.json();
     return Array.isArray(version.features) && version.features.includes("sync");

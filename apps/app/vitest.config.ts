@@ -21,9 +21,7 @@ export default defineConfig({
       },
       enabled: true,
       provider: playwright(),
-      instances: [
-        { browser: "chromium", globalSetup: ["../../e2e/backend.mjs"] },
-      ],
+      instances: [{ browser: "chromium", globalSetup: ["../../e2e/backend.mjs"] }],
       headless: true,
     },
   },

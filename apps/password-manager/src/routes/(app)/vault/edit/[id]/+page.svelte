@@ -1,9 +1,10 @@
 <script lang="ts">
-import { goto } from "$app/navigation";
-import { vaultStateModule } from "$lib/shared/state/vault.svelte";
-import SecretEditor from "$lib/vault/secrets/components/SecretEditor.svelte";
-import PageHeader from "$lib/ui/PageHeader.svelte";
 import { ArrowLeft } from "@lucide/svelte";
+import { goto } from "$app/navigation";
+import { resolve } from "$app/paths";
+import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+import PageHeader from "$lib/ui/PageHeader.svelte";
+import SecretEditor from "$lib/vault/secrets/components/SecretEditor.svelte";
 
 
 let { data, params } = $props();
@@ -11,11 +12,11 @@ let vaultData = $derived(vaultStateModule.vaultData);
 let recordId = $derived<string | null>(data?.id ?? params.id);
 
 function handleSave() {
-    goto("/vault");
+    void goto(resolve("/vault"));
 }
 
 function handleCancel() {
-    goto("/vault");
+    void goto(resolve("/vault"));
 }</script>
 
 <div class="flex min-h-0 grow overflow-auto p-6">

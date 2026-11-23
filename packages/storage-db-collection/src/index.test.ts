@@ -1,6 +1,6 @@
 import { createLiveQueryCollection } from "@tanstack/db";
-import { afterEach, expect, it, vi } from "vitest";
 import * as v from "valibot";
+import { afterEach, expect, it, vi } from "vitest";
 import { createStorageCollection } from "./index.js";
 
 const schema = v.object({
@@ -17,8 +17,7 @@ const content = (value: unknown): { type: "read"; content: number[] } => ({
 
 const collections: { cleanup(): Promise<void> }[] = [];
 afterEach(async () => {
-  for (const collection of collections.splice(0).reverse())
-    await collection.cleanup();
+  for (const collection of collections.splice(0).reverse()) await collection.cleanup();
 });
 
 interface MockBackend {
@@ -32,11 +31,7 @@ interface MockBackend {
 }
 
 function createMockBackend(
-  respond: (request: {
-    type: string;
-    path: string;
-    content?: number[];
-  }) => Promise<unknown>,
+  respond: (request: { type: string; path: string; content?: number[] }) => Promise<unknown>
 ): MockBackend {
   let disconnectHandler: (() => void) | undefined;
   const writePromises: Array<{ resolve: (value: unknown) => void }> = [];
@@ -95,16 +90,10 @@ function createMockBackend(
 }
 
 function setup(
-  respond?: (request: {
-    type: string;
-    path: string;
-    content?: number[];
-  }) => Promise<unknown>,
-  requestTimeoutMs?: number,
+  respond?: (request: { type: string; path: string; content?: number[] }) => Promise<unknown>,
+  requestTimeoutMs?: number
 ) {
-  const backend = createMockBackend(
-    respond ?? (async () => ({ type: "listed", entries: [] })),
-  );
+  const backend = createMockBackend(respond ?? (async () => ({ type: "listed", entries: [] })));
   const connect = vi.fn(async () => backend);
   const collection = createStorageCollection({
     connect,
@@ -113,7 +102,7 @@ function setup(
     directory: "secrets",
     schema,
     getKey: (value) => value.id,
-    requestTimeoutMs,
+    ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
   });
   collections.push(collection);
   return { collection, connect, backend };
@@ -134,9 +123,9 @@ it("loads validated records through Storage into a real ordered live query", asy
         ? content(
             request.path === "secrets/one.json"
               ? record
-              : { id: "two", name: "Zulu", favorite: true },
+              : { id: "two", name: "Zulu", favorite: true }
           )
-        : { type: "error", code: "operationFailed" },
+        : { type: "error", code: "operationFailed" }
   );
   const query = createLiveQueryCollection({
     query: (q) =>
@@ -166,12 +155,12 @@ it.each(["../escape", "nested/escape", "%2e%2e", "", "a\\b"])(
     const { collection } = setup(async (request) =>
       request.type === "list"
         ? { type: "listed", entries: [entry(`secrets/${key}.json`)] }
-        : { type: "error", code: "operationFailed" },
+        : { type: "error", code: "operationFailed" }
     );
     await expect(collection.preload()).rejects.toThrow("Unsafe record key");
     expect(collection.status).toBe("error");
     expect(collection.size).toBe(0);
-  },
+  }
 );
 
 it.each([
@@ -188,7 +177,7 @@ it.each([
         }
       : request.path.endsWith("one.json")
         ? content(record)
-        : response,
+        : response
   );
   await expect(collection.preload()).rejects.toThrow();
   expect(collection.status).toBe("error");
@@ -218,7 +207,7 @@ it("does not publish a validated record if the connection closes during validati
   const { backend } = setup(async (request) =>
     request.type === "list"
       ? { type: "listed", entries: [entry("secrets/one.json")] }
-      : content(record),
+      : content(record)
   );
   const validation = Promise.withResolvers<{ value: typeof record }>();
   const validating = vi.fn(() => validation.promise);
@@ -235,7 +224,7 @@ it("does not publish a validated record if the connection closes during validati
   collections.push(collection);
   const loading = collection.preload().catch(() => undefined);
   await vi.waitFor(() => expect(validating).toHaveBeenCalledOnce());
-  backend.close?.();
+  await backend.close?.();
   validation.resolve({ value: record });
   await loading;
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -243,36 +232,33 @@ it("does not publish a validated record if the connection closes during validati
   expect(collection.size).toBe(0);
 });
 
-it.each([
-  "../secrets",
-  "/secrets",
-  "secrets/",
-  "secrets//nested",
-  "secrets/%2e%2e",
-])("rejects unsafe directory %s before transport", (directory) => {
-  expect(() =>
-    createStorageCollection({
-      connect: async () => ({
-        read: async () => undefined,
-        write: async () => {},
-        delete: async () => {},
-        list: async () => [],
-      }),
-      userId: "user",
-      applicationId: "app",
-      directory,
-      schema,
-      getKey: (value) => value.id,
-    }),
-  ).toThrow("Unsafe record directory");
-});
+it.each(["../secrets", "/secrets", "secrets/", "secrets//nested", "secrets/%2e%2e"])(
+  "rejects unsafe directory %s before transport",
+  (directory) => {
+    expect(() =>
+      createStorageCollection({
+        connect: async () => ({
+          read: async () => undefined,
+          write: async () => {},
+          delete: async () => {},
+          list: async () => [],
+        }),
+        userId: "user",
+        applicationId: "app",
+        directory,
+        schema,
+        getKey: (value) => value.id,
+      })
+    ).toThrow("Unsafe record directory");
+  }
+);
 
 it("optimistically inserts but settles only after authoritative reconciliation, then reopens persisted CRUD", async () => {
   const files = new Map<string, unknown>();
   const held = Promise.withResolvers<
     { type: "read"; content: number[] } | { type: "error"; code: string }
   >();
-  let hold = true;
+  let hold: boolean = true;
   const respond = async (request: {
     type: string;
     path: string;
@@ -287,9 +273,7 @@ it("optimistically inserts but settles only after authoritative reconciliation, 
     if (request.type === "write") {
       files.set(
         request.path,
-        JSON.parse(
-          new TextDecoder().decode(new Uint8Array(request.content || [])),
-        ),
+        JSON.parse(new TextDecoder().decode(new Uint8Array(request.content || [])))
       );
       return { type: "written", entry: entry(request.path) };
     }
@@ -297,8 +281,7 @@ it("optimistically inserts but settles only after authoritative reconciliation, 
       files.delete(request.path);
       return { type: "deleted" };
     }
-    if (request.type === "list")
-      return { type: "listed", entries: [...files.keys()].map(entry) };
+    if (request.type === "list") return { type: "listed", entries: [...files.keys()].map(entry) };
     if (request.type === "read") {
       if (hold) return held.promise;
       return content(files.get(request.path));
@@ -338,14 +321,11 @@ it("does not overwrite pending optimistic records with an earlier post-write sna
     if (request.type === "write") {
       files.set(
         request.path,
-        JSON.parse(
-          new TextDecoder().decode(new Uint8Array(request.content || [])),
-        ),
+        JSON.parse(new TextDecoder().decode(new Uint8Array(request.content || [])))
       );
       return { type: "written", entry: entry(request.path) };
     }
-    if (request.type === "list")
-      return { type: "listed", entries: [...files.keys()].map(entry) };
+    if (request.type === "list") return { type: "listed", entries: [...files.keys()].map(entry) };
     if (request.type === "read") {
       if (++reads === 1) return held.promise;
       return content(files.get(request.path));
@@ -398,11 +378,9 @@ it.each(["insert", "update", "delete"] as const)(
     await vi.waitFor(() => expect(reconcile).toBe(true));
     expect(tx.state).toBe("persisting");
     held.resolve({ type: "listed", entries: [] });
-    await expect(settled).rejects.toThrow(
-      "rejected; authoritative records reloaded",
-    );
+    await expect(settled).rejects.toThrow("rejected; authoritative records reloaded");
     expect(tx.state).toBe("failed");
     expect(collection.size).toBe(0);
     expect(collection.status).toBe("ready");
-  },
+  }
 );

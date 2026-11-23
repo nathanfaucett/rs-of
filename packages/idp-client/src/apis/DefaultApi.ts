@@ -12,125 +12,69 @@
  * Do not edit the class manually.
  */
 
-import * as runtime from "../runtime.js";
 import {
   type ApplicationRegistration,
-  ApplicationRegistrationFromJSON,
   ApplicationRegistrationToJSON,
 } from "../models/ApplicationRegistration.js";
 import {
   type ApproveForUserRequest,
-  ApproveForUserRequestFromJSON,
   ApproveForUserRequestToJSON,
 } from "../models/ApproveForUserRequest.js";
 import {
   type AuthorizationCodeResponse,
   AuthorizationCodeResponseFromJSON,
-  AuthorizationCodeResponseToJSON,
 } from "../models/AuthorizationCodeResponse.js";
 import {
   type AuthorizationRequest,
-  AuthorizationRequestFromJSON,
   AuthorizationRequestToJSON,
 } from "../models/AuthorizationRequest.js";
 import {
   type AuthorizationServerMetadata,
   AuthorizationServerMetadataFromJSON,
-  AuthorizationServerMetadataToJSON,
 } from "../models/AuthorizationServerMetadata.js";
 import {
   type ClientConsentMetadata,
   ClientConsentMetadataFromJSON,
-  ClientConsentMetadataToJSON,
 } from "../models/ClientConsentMetadata.js";
 import {
   type ClientRegistration,
   ClientRegistrationFromJSON,
   ClientRegistrationToJSON,
 } from "../models/ClientRegistration.js";
-import {
-  type CodeChallengeMethod,
-  CodeChallengeMethodFromJSON,
-  CodeChallengeMethodToJSON,
-} from "../models/CodeChallengeMethod.js";
-import {
-  type CreateUserRequest,
-  CreateUserRequestFromJSON,
-  CreateUserRequestToJSON,
-} from "../models/CreateUserRequest.js";
+import { type CodeChallengeMethod } from "../models/CodeChallengeMethod.js";
+import { type CreateUserRequest, CreateUserRequestToJSON } from "../models/CreateUserRequest.js";
 import {
   type DeviceAuthorization,
   DeviceAuthorizationFromJSON,
-  DeviceAuthorizationToJSON,
 } from "../models/DeviceAuthorization.js";
-import {
-  type ErrorResponse,
-  ErrorResponseFromJSON,
-  ErrorResponseToJSON,
-} from "../models/ErrorResponse.js";
-import {
-  type HealthResponse,
-  HealthResponseFromJSON,
-  HealthResponseToJSON,
-} from "../models/HealthResponse.js";
+import { type HealthResponse, HealthResponseFromJSON } from "../models/HealthResponse.js";
 import {
   type IsAllowedForUserRequest,
-  IsAllowedForUserRequestFromJSON,
   IsAllowedForUserRequestToJSON,
 } from "../models/IsAllowedForUserRequest.js";
 import {
   type IsAllowedForUserResponse,
   IsAllowedForUserResponseFromJSON,
-  IsAllowedForUserResponseToJSON,
 } from "../models/IsAllowedForUserResponse.js";
-import { type JwkPublic, JwkPublicFromJSON, JwkPublicToJSON } from "../models/JwkPublic.js";
-import { type Jwks, JwksFromJSON, JwksToJSON } from "../models/Jwks.js";
-import {
-  type ResetPassword,
-  ResetPasswordFromJSON,
-  ResetPasswordToJSON,
-} from "../models/ResetPassword.js";
-import {
-  type ResponseMode,
-  ResponseModeFromJSON,
-  ResponseModeToJSON,
-} from "../models/ResponseMode.js";
-import {
-  type ResponseType,
-  ResponseTypeFromJSON,
-  ResponseTypeToJSON,
-} from "../models/ResponseType.js";
+import { type JwkPublic, JwkPublicFromJSON } from "../models/JwkPublic.js";
+import { type Jwks, JwksFromJSON } from "../models/Jwks.js";
+import { type ResetPassword, ResetPasswordToJSON } from "../models/ResetPassword.js";
+import { type ResponseMode } from "../models/ResponseMode.js";
+import { type ResponseType } from "../models/ResponseType.js";
 import {
   type SetUserBlockedRequest,
-  SetUserBlockedRequestFromJSON,
   SetUserBlockedRequestToJSON,
 } from "../models/SetUserBlockedRequest.js";
-import {
-  type SetUserMfaRequest,
-  SetUserMfaRequestFromJSON,
-  SetUserMfaRequestToJSON,
-} from "../models/SetUserMfaRequest.js";
-import {
-  type SubjectTokenType,
-  SubjectTokenTypeFromJSON,
-  SubjectTokenTypeToJSON,
-} from "../models/SubjectTokenType.js";
-import {
-  type TokenResponse,
-  TokenResponseFromJSON,
-  TokenResponseToJSON,
-} from "../models/TokenResponse.js";
+import { type SetUserMfaRequest, SetUserMfaRequestToJSON } from "../models/SetUserMfaRequest.js";
+import { type SubjectTokenType } from "../models/SubjectTokenType.js";
+import { type TokenResponse, TokenResponseFromJSON } from "../models/TokenResponse.js";
 import {
   type UpdateUserInfoRequest,
-  UpdateUserInfoRequestFromJSON,
   UpdateUserInfoRequestToJSON,
 } from "../models/UpdateUserInfoRequest.js";
-import { type UserInfo, UserInfoFromJSON, UserInfoToJSON } from "../models/UserInfo.js";
-import {
-  type VersionResponse,
-  VersionResponseFromJSON,
-  VersionResponseToJSON,
-} from "../models/VersionResponse.js";
+import { type UserInfo, UserInfoFromJSON } from "../models/UserInfo.js";
+import { type VersionResponse, VersionResponseFromJSON } from "../models/VersionResponse.js";
+import * as runtime from "../runtime.js";
 
 export interface ApproveForUserOperationRequest {
   /**
@@ -154,64 +98,64 @@ export interface AuthorizeQueryRequest {
   /**
    *
    */
-  clientId?: string;
+  clientId?: string | undefined;
   /**
    * Logical Application URI for onboarding, not an Application database UUID.
    */
-  applicationId?: string;
+  applicationId?: string | undefined;
   /**
    * JSON registration metadata supplied for permission-gated onboarding in the UI.
    */
-  registration?: string;
+  registration?: string | undefined;
   /**
    * redirect URI is optional if the client has only one registered redirect URI
    */
-  redirectUri?: string;
+  redirectUri?: string | undefined;
   /**
    *
    */
-  scope?: string;
+  scope?: string | undefined;
   /**
    *
    */
-  state?: string;
+  state?: string | undefined;
   /**
    * Audience parameter (RFC 8707) to specify the intended recipients of the token.
    */
-  resource?: string;
+  resource?: string | undefined;
   /**
    * PKCE parameters (RFC 7636) for public clients and enhanced security
    */
-  codeChallenge?: string;
+  codeChallenge?: string | undefined;
   /**
    * The method used to derive the code challenge (e.g., "S256" or "plain").
    * only required if `code_challenge` is present. "S256" is strongly recommended in OAuth 2.1 for better security.
    */
-  codeChallengeMethod?: CodeChallengeMethod;
+  codeChallengeMethod?: CodeChallengeMethod | undefined;
   /**
    *
    */
-  nonce?: string;
+  nonce?: string | undefined;
   /**
    *
    */
-  prompt?: string;
+  prompt?: string | undefined;
   /**
    *
    */
-  responseMode?: ResponseMode;
+  responseMode?: ResponseMode | undefined;
   /**
    *
    */
-  loginHint?: string;
+  loginHint?: string | undefined;
   /**
    *
    */
-  idTokenHint?: string;
+  idTokenHint?: string | undefined;
   /**
    *
    */
-  uiLocales?: string;
+  uiLocales?: string | undefined;
 }
 
 export interface CreateApplicationRequest {
@@ -253,11 +197,11 @@ export interface DeviceAuthRequest {
   /**
    *
    */
-  clientId?: string | null;
+  clientId?: (string | null) | undefined;
   /**
    *
    */
-  scope?: string | null;
+  scope?: (string | null) | undefined;
 }
 
 export interface GetApplicationRequest {
@@ -299,11 +243,11 @@ export interface ListApplicationsRequest {
   /**
    *
    */
-  offset?: number;
+  offset?: number | undefined;
   /**
    *
    */
-  limit?: number;
+  limit?: number | undefined;
 }
 
 export interface ListClientKeysRequest {
@@ -321,22 +265,22 @@ export interface ListConsentsRequest {
   /**
    *
    */
-  offset?: number;
+  offset?: number | undefined;
   /**
    *
    */
-  limit?: number;
+  limit?: number | undefined;
 }
 
 export interface ListUsersRequest {
   /**
    *
    */
-  offset?: number;
+  offset?: number | undefined;
   /**
    *
    */
-  limit?: number;
+  limit?: number | undefined;
 }
 
 export interface PutRegisterRequest {
@@ -376,7 +320,7 @@ export interface RevokeRequest {
   /**
    *
    */
-  tokenTypeHint?: string | null;
+  tokenTypeHint?: (string | null) | undefined;
 }
 
 export interface RevokeClientKeysRequest {
@@ -437,79 +381,79 @@ export interface TokenRequest {
   /**
    * Optional HTTP Basic OAuth Client credentials; client_credentials also accepts client_secret_post
    */
-  authorization?: string | null;
+  authorization?: (string | null) | undefined;
   /**
    *
    */
-  clientId?: string;
+  clientId?: string | undefined;
   /**
    *
    */
-  password?: string;
+  password?: string | undefined;
   /**
    *
    */
-  resource?: string | null;
+  resource?: (string | null) | undefined;
   /**
    *
    */
-  scope?: string | null;
+  scope?: (string | null) | undefined;
   /**
    *
    */
-  username?: string;
+  username?: string | undefined;
   /**
    *
    */
-  grantType?: TokenGrantTypeEnum;
+  grantType?: TokenGrantTypeEnum | undefined;
   /**
    * The authorization code received from the authorization server.
    */
-  code?: string;
+  code?: string | undefined;
   /**
    * PKCE parameters (if the client used PKCE during the authorization request)
    */
-  codeVerifier?: string;
+  codeVerifier?: string | undefined;
   /**
    *
    */
-  redirectUri?: string | null;
+  redirectUri?: (string | null) | undefined;
   /**
    *
    */
-  audience?: string | null;
+  audience?: (string | null) | undefined;
   /**
    *
    */
-  clientSecret?: string;
+  clientSecret?: string | undefined;
   /**
    *
    */
-  refreshToken?: string;
+  refreshToken?: string | undefined;
   /**
    *
    */
-  actorToken?: string | null;
+  actorToken?: (string | null) | undefined;
   /**
    *
    */
-  actorTokenType?: string | null;
+  actorTokenType?: (string | null) | undefined;
   /**
    * JSON-encoded authorization details array in the OAuth form field.
    */
-  authorizationDetails?: string | null;
+  authorizationDetails?: (string | null) | undefined;
   /**
    *
    */
-  requestedTokenType?: string | null;
+  requestedTokenType?: (string | null) | undefined;
   /**
    *
    */
-  subjectToken?: string;
+  subjectToken?: string | undefined;
   /**
    *
    */
-  subjectTokenType?: SubjectTokenType;
+  subjectTokenType?: SubjectTokenType | undefined;
 }
 
 export interface UpdateApplicationRequest {

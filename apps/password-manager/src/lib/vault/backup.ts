@@ -1,7 +1,7 @@
 import type { Client, Row } from "@ofsdk/sql";
-import { createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
-import { getSharedClient } from "./storage/migrate-to-shared";
 import * as v from "valibot";
+import { type Folder, FolderSchema, validateItemSnapshot } from "./folder";
+import { decryptLockSettings } from "./lock";
 import { transitionLogin } from "./secrets/legacy-login";
 import { type Secret, SecretSchema } from "./secrets/secret";
 import {
@@ -13,23 +13,23 @@ import {
   toBase64,
   verifyAuthentication,
 } from "./storage/crypto";
-import { type Folder, FolderSchema, validateItemSnapshot } from "./folder";
-import { decryptLockSettings } from "./lock";
+import { getSharedClient } from "./storage/migrate-to-shared";
 import {
-  parseSecretRow,
-  parseFolderRow,
-  parseVaultRow,
-  parseLockSettingsRow,
-  dbParams,
   dbParam,
+  dbParams,
+  parseFolderRow,
+  parseLockSettingsRow,
+  parseSecretRow,
+  parseVaultRow,
 } from "./storage/schema";
+import { createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
 
 export const BACKUP_MAX_BYTES = 16 * 1024 * 1024;
 const MAX_RECORDS = 10_000;
 const FORMAT = "password-manager/encrypted-backup";
 const invalid = () =>
   new Error(
-    "Invalid or unsupported encrypted backup. Keep the original file and source vault. Use a complete supported backup within the 16 MiB / 10,000 record limit.",
+    "Invalid or unsupported encrypted backup. Keep the original file and source vault. Use a complete supported backup within the 16 MiB / 10,000 record limit."
   );
 const text = v.pipe(v.string(), v.minLength(1));
 const date = v.pipe(v.string(), v.isoTimestamp());
@@ -48,9 +48,7 @@ const recordSchema = v.strictObject({
   updatedAt: date,
 });
 const payloadSchema = v.strictObject({
-  folders: v.optional(
-    v.pipe(v.array(recordSchema), v.maxLength(MAX_RECORDS)),
-  ),
+  folders: v.optional(v.pipe(v.array(recordSchema), v.maxLength(MAX_RECORDS))),
 
   lockSettings: v.optional(v.nullable(text)),
   itemFormat: v.optional(v.literal(2)),
@@ -59,7 +57,7 @@ const payloadSchema = v.strictObject({
   authentication: text,
   name: v.pipe(
     text,
-    v.check((name) => !!name.trim()),
+    v.check((name) => !!name.trim())
   ),
   secrets: v.pipe(v.array(recordSchema), v.maxLength(MAX_RECORDS)),
 });
@@ -80,56 +78,36 @@ const envelopeSchema = v.strictObject({
 
 function bytes(value: string, length?: number): ArrayBuffer {
   const decoded = fromBase64(value);
-  if (
-    toBase64(decoded) !== value ||
-    (length !== undefined && decoded.byteLength !== length)
-  )
+  if (toBase64(decoded) !== value || (length !== undefined && decoded.byteLength !== length))
     throw invalid();
   return decoded;
 }
 
 function aad(salt: string, version: number): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(
-    JSON.stringify([
-      FORMAT,
-      version,
-      "PBKDF2",
-      "SHA-512",
-      PBKDF2_ITERATIONS,
-      salt,
-      "AES-256-GCM",
-    ]),
+    JSON.stringify([FORMAT, version, "PBKDF2", "SHA-512", PBKDF2_ITERATIONS, salt, "AES-256-GCM"])
   );
 }
 
-async function validatePayload(
-  key: CryptoKey,
-  input: unknown,
-): Promise<BackupPayload> {
+async function validatePayload(key: CryptoKey, input: unknown): Promise<BackupPayload> {
   const payload = v.parse(payloadSchema, input);
-  if (payload.itemFormat === 2 && !Object.hasOwn(payload, "transitionBackup"))
-    throw invalid();
+  if (payload.itemFormat === 2 && !Object.hasOwn(payload, "transitionBackup")) throw invalid();
   bytes(payload.meta.salt, 16);
   bytes(payload.meta.iv, 12);
   await verifyAuthentication(key, payload.meta, payload.authentication);
-  await decryptLockSettings(
-    key,
-    payload.meta.id,
-    payload.lockSettings ?? null,
-  );
+  await decryptLockSettings(key, payload.meta.id, payload.lockSettings ?? null);
   if (payload.transitionBackup != null) {
     if (payload.itemFormat !== 2) throw invalid();
     await validateTransitionBackup(key, payload, payload.transitionBackup);
   }
-  if (payload.folders !== undefined && payload.itemFormat !== 2)
-    throw invalid();
+  if (payload.folders !== undefined && payload.itemFormat !== 2) throw invalid();
   const folders: Folder[] = [];
   for (const record of payload.folders ?? []) {
     bytes(record.nonce, 12);
     bytes(record.ciphertext);
     const folder = v.parse(
       FolderSchema,
-      JSON.parse(await decrypt(key, record.ciphertext, record.nonce)),
+      JSON.parse(await decrypt(key, record.ciphertext, record.nonce))
     );
     if (folder.id !== record.id) throw invalid();
     folders.push(folder);
@@ -156,23 +134,16 @@ async function validatePayload(
 export async function validateTransitionBackup(
   key: CryptoKey,
   current: Pick<BackupPayload, "meta" | "authentication">,
-  backup: string,
+  backup: string
 ): Promise<void> {
   try {
-    if (new TextEncoder().encode(backup).byteLength > BACKUP_MAX_BYTES)
-      throw invalid();
+    if (new TextEncoder().encode(backup).byteLength > BACKUP_MAX_BYTES) throw invalid();
     const envelope = v.parse(envelopeSchema, JSON.parse(backup));
-    if (envelope.version !== 1 || envelope.kdf.salt !== current.meta.salt)
-      throw invalid();
+    if (envelope.version !== 1 || envelope.kdf.salt !== current.meta.salt) throw invalid();
     bytes(envelope.nonce, 12);
     bytes(envelope.ciphertext);
     const source = JSON.parse(
-      await decrypt(
-        key,
-        envelope.ciphertext,
-        envelope.nonce,
-        aad(envelope.kdf.salt, 1),
-      ),
+      await decrypt(key, envelope.ciphertext, envelope.nonce, aad(envelope.kdf.salt, 1))
     );
     if (
       source.itemFormat !== undefined ||
@@ -188,28 +159,16 @@ export async function validateTransitionBackup(
       throw invalid();
   } catch {
     throw new Error(
-      "Cannot validate the pre-transition backup. Keep the original source database and use a verified external backup. Do not clear browser data.",
+      "Cannot validate the pre-transition backup. Keep the original source database and use a verified external backup. Do not clear browser data."
     );
   }
 }
 
-export async function encodeBackup(
-  key: CryptoKey,
-  input: BackupPayload,
-): Promise<string> {
+export async function encodeBackup(key: CryptoKey, input: BackupPayload): Promise<string> {
   try {
     const payload = await validatePayload(key, input);
-    const version =
-      payload.folders !== undefined
-        ? 3
-        : payload.itemFormat === 2
-          ? 2
-          : 1;
-    const encrypted = await encrypt(
-      key,
-      JSON.stringify(payload),
-      aad(payload.meta.salt, version),
-    );
+    const version = payload.folders !== undefined ? 3 : payload.itemFormat === 2 ? 2 : 1;
+    const encrypted = await encrypt(key, JSON.stringify(payload), aad(payload.meta.salt, version));
     const backup = JSON.stringify({
       format: FORMAT,
       version,
@@ -222,16 +181,14 @@ export async function encodeBackup(
       cipher: "AES-256-GCM",
       ...encrypted,
     });
-    if (new TextEncoder().encode(backup).byteLength > BACKUP_MAX_BYTES)
-      throw invalid();
+    if (new TextEncoder().encode(backup).byteLength > BACKUP_MAX_BYTES) throw invalid();
     return backup;
   } catch {
     throw new Error(
-      "Cannot create a complete encrypted backup. Check the vault records and the 16 MiB / 10,000 record limit. No source data was changed.",
+      "Cannot create a complete encrypted backup. Check the vault records and the 16 MiB / 10,000 record limit. No source data was changed."
     );
   }
 }
-
 
 export interface BackupRestore {
   readonly id: string;
@@ -242,10 +199,9 @@ export interface BackupRestore {
 
 export async function prepareBackupRestore(
   password: string,
-  backup: string,
+  backup: string
 ): Promise<BackupRestore> {
-  if (new TextEncoder().encode(backup).byteLength > BACKUP_MAX_BYTES)
-    throw invalid();
+  if (new TextEncoder().encode(backup).byteLength > BACKUP_MAX_BYTES) throw invalid();
   let key: CryptoKey;
   let payload: BackupPayload;
   try {
@@ -258,7 +214,7 @@ export async function prepareBackupRestore(
       key,
       envelope.ciphertext,
       envelope.nonce,
-      aad(envelope.kdf.salt, envelope.version),
+      aad(envelope.kdf.salt, envelope.version)
     );
     payload = await validatePayload(key, JSON.parse(plaintext));
     if (
@@ -267,11 +223,10 @@ export async function prepareBackupRestore(
       (envelope.version === 3) !== (payload.folders !== undefined)
     )
       throw invalid();
-    if (envelope.version === 1 && payload.transitionBackup !== undefined)
-      throw invalid();
+    if (envelope.version === 1 && payload.transitionBackup !== undefined) throw invalid();
   } catch {
     throw new Error(
-      "Wrong password or invalid encrypted backup. Check the password, complete file, supported version, and 16 MiB / 10,000 record limit. Nothing was restored.",
+      "Wrong password or invalid encrypted backup. Check the password, complete file, supported version, and 16 MiB / 10,000 record limit. Nothing was restored."
     );
   }
   let busy = false;
@@ -280,21 +235,14 @@ export async function prepareBackupRestore(
     name: payload.name,
     recordCount: payload.secrets.length,
     async restore() {
-      if (busy)
-        throw new Error(
-          "Restore is already running. Check the selector before retrying.",
-        );
+      if (busy) throw new Error("Restore is already running. Check the selector before retrying.");
       busy = true;
       try {
         const client = await getSharedClient();
         const registry = createVaultRegistry(client);
-        if (
-          (await registry.listVaultIdentities()).some(
-            (entry) => entry.id === payload.meta.id,
-          )
-        ) {
+        if ((await registry.listVaultIdentities()).some((entry) => entry.id === payload.meta.id)) {
           throw new Error(
-            "This vault ID already exists. Nothing was overwritten. Select the existing vault, or restore in a clean browser profile. Do not delete the source vault.",
+            "This vault ID already exists. Nothing was overwritten. Select the existing vault, or restore in a clean browser profile. Do not delete the source vault."
           );
         }
         const identity: VaultIdentity = {
@@ -317,13 +265,13 @@ async function verifySharedDb(
   vaultId: string,
   key: CryptoKey,
   payload: BackupPayload,
-  client: Client,
+  client: Client
 ): Promise<void> {
   // Verify vault metadata
   const vaultResults = await client.execute(
     `SELECT id, name, salt, iv, created_at, authentication, status, migrated FROM vaults WHERE id = ?`,
     (row: Row) => parseVaultRow(row),
-    [dbParam(vaultId)],
+    [dbParam(vaultId)]
   );
   const vault = vaultResults[0];
   if (!vault) throw invalid();
@@ -344,14 +292,13 @@ async function verifySharedDb(
     vault.createdAt,
     vault.authentication ?? "",
   ];
-  if (JSON.stringify(actualVault) !== JSON.stringify(expectedVault))
-    throw invalid();
+  if (JSON.stringify(actualVault) !== JSON.stringify(expectedVault)) throw invalid();
 
   // Verify secrets
   const secretsResults = await client.execute(
     `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM secrets WHERE vault_id = ?`,
     (row: Row) => parseSecretRow(row),
-    [dbParam(vaultId)],
+    [dbParam(vaultId)]
   );
   const expectedRecords = [...payload.secrets]
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
@@ -371,14 +318,13 @@ async function verifySharedDb(
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
   }));
-  if (JSON.stringify(actualSecrets) !== JSON.stringify(expectedRecords))
-    throw invalid();
+  if (JSON.stringify(actualSecrets) !== JSON.stringify(expectedRecords)) throw invalid();
 
   // Verify folders
   const foldersResults = await client.execute(
     `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ?`,
     (row: Row) => parseFolderRow(row),
-    [dbParam(vaultId)],
+    [dbParam(vaultId)]
   );
   const expectedFolders = [...(payload.folders ?? [])]
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
@@ -398,14 +344,13 @@ async function verifySharedDb(
     createdAt: f.createdAt,
     updatedAt: f.updatedAt,
   }));
-  if (JSON.stringify(actualFolders) !== JSON.stringify(expectedFolders))
-    throw invalid();
+  if (JSON.stringify(actualFolders) !== JSON.stringify(expectedFolders)) throw invalid();
 
   // Verify lock settings
   const lockResults = await client.execute(
     `SELECT vault_id, ciphertext, nonce, updated_at FROM lock_settings WHERE vault_id = ?`,
     (row: Row) => parseLockSettingsRow(row),
-    [dbParam(vaultId)],
+    [dbParam(vaultId)]
   );
   if (lockResults[0]) {
     const lock = lockResults[0];
@@ -421,20 +366,18 @@ async function verifySharedDb(
 export async function stageVault(
   vaultId: string,
   key: CryptoKey,
-  payload: BackupPayload,
+  payload: BackupPayload
 ): Promise<void> {
   const client = await getSharedClient();
 
   try {
     // Check for duplicate vault ID before starting transaction
-    const existing = await client.execute(
-      `SELECT id FROM vaults WHERE id = ?`,
-      () => 1,
-      [dbParam(vaultId)],
-    );
+    const existing = await client.execute(`SELECT id FROM vaults WHERE id = ?`, () => 1, [
+      dbParam(vaultId),
+    ]);
     if (existing.length > 0) {
       throw new Error(
-        "This vault ID already exists. Nothing was overwritten. Select the existing vault, or restore in a clean browser profile. Do not delete the source vault.",
+        "This vault ID already exists. Nothing was overwritten. Select the existing vault, or restore in a clean browser profile. Do not delete the source vault."
       );
     }
 
@@ -449,8 +392,8 @@ export async function stageVault(
           payload.meta.salt,
           payload.meta.iv,
           payload.meta.createdAt,
-          payload.authentication,
-        ),
+          payload.authentication
+        )
       );
 
       // Insert secrets
@@ -463,8 +406,8 @@ export async function stageVault(
             record.ciphertext,
             record.nonce,
             record.createdAt,
-            record.updatedAt,
-          ),
+            record.updatedAt
+          )
         );
       }
 
@@ -478,8 +421,8 @@ export async function stageVault(
             record.ciphertext,
             record.nonce,
             record.createdAt,
-            record.updatedAt,
-          ),
+            record.updatedAt
+          )
         );
       }
 
@@ -488,12 +431,7 @@ export async function stageVault(
         const lock = JSON.parse(payload.lockSettings);
         await tx.executeRaw(
           `INSERT INTO lock_settings (vault_id, ciphertext, nonce, updated_at) VALUES (?, ?, ?, ?)`,
-          dbParams(
-            vaultId,
-            lock.ciphertext,
-            lock.nonce,
-            new Date().toISOString(),
-          ),
+          dbParams(vaultId, lock.ciphertext, lock.nonce, new Date().toISOString())
         );
       }
 

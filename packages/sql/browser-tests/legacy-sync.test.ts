@@ -5,7 +5,7 @@ test.beforeEach(async ({ page }) => {
   await page.waitForFunction(() => "sql" in window);
 });
 
-test("legacy push synchronization uses IndexedDB committed changes", async ({
+test("legacy push synchronization uses IndexedDB committed changes and batched acknowledgments", async ({
   page,
 }) => {
   const result = await page.evaluate(async () => {
@@ -13,24 +13,35 @@ test("legacy push synchronization uses IndexedDB committed changes", async ({
       Database,
       JsPushSyncTransport,
       JsSqlSyncTransport,
-      PushSynchronizeConfig,
+      PushConfig,
+      SqlSessionConfig,
       SqlHistoryRole,
-    } = (window as any).sql;
-    const endpoints = [0, 1].map(() => ({
-      queue: [] as Uint8Array[],
-      waiting: undefined as ((data: Uint8Array) => void) | undefined,
-      peer: undefined as any,
+      SqlSyncRole,
+    } = window.sql;
+    interface TransportEndpoint {
+      queue: Uint8Array[];
+      waiting: ((data: Uint8Array) => void) | undefined;
+      peer: TransportEndpoint | undefined;
+    }
+    const endpoints: TransportEndpoint[] = [0, 1].map(() => ({
+      queue: [],
+      waiting: undefined,
+      peer: undefined,
     }));
-    endpoints[0].peer = endpoints[1];
-    endpoints[1].peer = endpoints[0];
+    const [first, second] = endpoints;
+    if (!first || !second) throw new Error("transport pair is required");
+    first.peer = second;
+    second.peer = first;
     const transports = endpoints.map((endpoint) => ({
       send(data: Uint8Array) {
+        const peer = endpoint.peer;
+        if (!peer) return Promise.reject(new Error("transport peer is not connected"));
         const copy = new Uint8Array(data);
-        if (endpoint.peer.waiting) {
-          endpoint.peer.waiting(copy);
-          endpoint.peer.waiting = undefined;
+        if (peer.waiting) {
+          peer.waiting(copy);
+          peer.waiting = undefined;
         } else {
-          endpoint.peer.queue.push(copy);
+          peer.queue.push(copy);
         }
         return Promise.resolve();
       },
@@ -48,42 +59,33 @@ test("legacy push synchronization uses IndexedDB committed changes", async ({
     const aClient = a.client();
     const bClient = b.client();
     try {
-      await aClient.executeRaw(
-        "CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)",
-      );
-      await bClient.executeRaw(
-        "CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)",
-      );
+      await aClient.executeRaw("CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)");
+      await bClient.executeRaw("CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)");
       await aClient.executeRaw("INSERT INTO entries VALUES (1, 'initial')");
       await Promise.all([
-        a.synchronizeHistory(
-          new JsSqlSyncTransport(transports[0]),
-          SqlHistoryRole.Initiator,
-        ),
-        b.synchronizeHistory(
-          new JsSqlSyncTransport(transports[1]),
-          SqlHistoryRole.Responder,
-        ),
+        a.synchronizeHistory(new JsSqlSyncTransport(transports[0]), SqlHistoryRole.Initiator),
+        b.synchronizeHistory(new JsSqlSyncTransport(transports[1]), SqlHistoryRole.Responder),
       ]);
-      await aClient.executeRaw(
-        "UPDATE entries SET value = 'committed' WHERE id = 1",
-      );
+      await aClient.executeRaw("UPDATE entries SET value = 'committed' WHERE id = 1");
       const outcomes = await Promise.allSettled([
         a.synchronize(
           new JsPushSyncTransport(transports[0]),
-          new PushSynchronizeConfig(),
+          Object.assign(new SqlSessionConfig(), {
+            protocol: Object.assign(new PushConfig(), { immediateAck: false }),
+          })
         ),
         b.synchronize(
           new JsPushSyncTransport(transports[1]),
-          new PushSynchronizeConfig(),
+          Object.assign(new SqlSessionConfig(), {
+            role: SqlSyncRole.Acceptor,
+            protocol: Object.assign(new PushConfig(), { immediateAck: false }),
+          })
         ),
       ]);
       const errors = outcomes.flatMap((outcome) =>
-        outcome.status === "rejected" ? [String(outcome.reason)] : [],
+        outcome.status === "rejected" ? [String(outcome.reason)] : []
       );
-      const rows = errors.length
-        ? []
-        : await bClient.executeRaw("SELECT id, value FROM entries");
+      const rows = errors.length ? [] : await bClient.executeRaw("SELECT id, value FROM entries");
       return { errors, rows };
     } finally {
       aClient.close();
@@ -112,24 +114,21 @@ test("rejected IndexedDB commits never enter immediate or later legacy change st
     const client = database.client();
     const staleDatabase = await wasm.SqlDatabase.open("commit-signal");
     const staleClient = staleDatabase.client();
-    const execute = (handle: any, sql: string) => handle.execute(sql, undefined);
+    const execute = (
+      handle: { execute(sql: string, params: undefined): Promise<string> },
+      sql: string
+    ) => handle.execute(sql, undefined);
     const subscription = staleDatabase.sync_changes();
     try {
-      await execute(
-        client,
-        "CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)",
-      );
+      await execute(client, "CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)");
       await execute(client, "INSERT INTO entries VALUES (1, 'initial')");
 
       const staleTransaction = await staleClient.transaction();
       await staleTransaction.execute(
         "UPDATE entries SET value = 'rejected' WHERE id = 1",
-        undefined,
+        undefined
       );
-      await execute(
-        client,
-        "UPDATE entries SET value = 'durable' WHERE id = 1",
-      );
+      await execute(client, "UPDATE entries SET value = 'durable' WHERE id = 1");
       let commitRejected = false;
       try {
         await staleTransaction.commit();
@@ -137,15 +136,9 @@ test("rejected IndexedDB commits never enter immediate or later legacy change st
         commitRejected = true;
       }
 
-      await execute(
-        staleClient,
-        "UPDATE entries SET value = 'accepted' WHERE id = 1",
-      );
+      await execute(staleClient, "UPDATE entries SET value = 'accepted' WHERE id = 1");
       const acceptedEvent = await subscription.next_event();
-      await execute(
-        staleClient,
-        "UPDATE entries SET value = 'latest' WHERE id = 1",
-      );
+      await execute(staleClient, "UPDATE entries SET value = 'latest' WHERE id = 1");
       const laterEvent = await subscription.next_event();
       return {
         commitRejected,

@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -39,7 +38,7 @@ export function SetUserBlockedRequestFromJSON(json: any): SetUserBlockedRequest 
 
 export function SetUserBlockedRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): SetUserBlockedRequest {
   if (
     json &&
@@ -61,7 +60,7 @@ export function SetUserBlockedRequestToJSON(json: any): SetUserBlockedRequest {
 
 export function SetUserBlockedRequestToJSONTyped(
   value?: SetUserBlockedRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

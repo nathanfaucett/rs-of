@@ -3,16 +3,16 @@ import { env } from "$env/dynamic/public";
 import { validateServiceApiUrl } from "./serviceApi";
 
 const storageApiUrl = createStorage<string | null>(
-    "storage-api-url",
-    env.PUBLIC_STORAGE_BASE_URL ?? null,
+  "storage-api-url",
+  env.PUBLIC_STORAGE_BASE_URL ?? null
 );
 
 export function getStorageApiUrl(): string | null {
-    return storageApiUrl.item;
+  return storageApiUrl.item;
 }
 export function setStorageApiUrl(base: string): void {
-    storageApiUrl.item = base;
+  storageApiUrl.item = base;
 }
 export async function validateStorageApiUrl(base: string): Promise<boolean> {
-    return validateServiceApiUrl(base, "storage");
+  return validateServiceApiUrl(base, "storage");
 }

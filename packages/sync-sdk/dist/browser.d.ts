@@ -1,5 +1,5 @@
 import { type Observable } from "rxjs";
-import type { SyncConfig, SyncSDK, DatabaseHandle, KvStoreHandle, FilesystemHandle, SyncState } from "./core";
+import type { DatabaseHandle, FilesystemHandle, KvStoreHandle, SyncConfig, SyncSDK, SyncState } from "./core";
 /** Browser sync SDK implementation */
 export declare class BrowserSyncSDK implements SyncSDK {
     private storageClient;

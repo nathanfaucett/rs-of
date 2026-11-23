@@ -1,9 +1,9 @@
 import { type Database, JsSqlSyncTransport } from "@ofsdk/sql";
 import {
-  SyncError,
   type StoreIdentity,
-  type SyncSession,
   type SyncClient,
+  SyncError,
+  type SyncSession,
 } from "@ofsdk/storage-sync-client";
 
 const ATTACH_TIMEOUT_MS = 10_000;
@@ -22,15 +22,24 @@ interface ActiveSync {
 
 /** Owns one handle's attach, transport, deadline, and close lifecycle. */
 export class SqlSyncLifecycle {
-  private active?: ActiveSync;
-  private closed = false;
+  private active: ActiveSync | undefined;
+  private closed: boolean = false;
+  private readonly database: Database;
+  private readonly client: SyncClient;
+  private readonly identity: StoreIdentity;
+  private readonly callbacks: LifecycleCallbacks;
 
   constructor(
-    private readonly database: Database,
-    private readonly client: SyncClient,
-    private readonly identity: StoreIdentity,
-    private readonly callbacks: LifecycleCallbacks,
-  ) {}
+    database: Database,
+    client: SyncClient,
+    identity: StoreIdentity,
+    callbacks: LifecycleCallbacks
+  ) {
+    this.database = database;
+    this.client = client;
+    this.identity = identity;
+    this.callbacks = callbacks;
+  }
 
   sync(): Promise<void> {
     if (this.closed) return Promise.resolve();
@@ -59,30 +68,33 @@ export class SqlSyncLifecycle {
     let timeout: "attach" | "inactivity" | undefined;
     const arm = (kind: "attach" | "inactivity") => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timeout = kind;
-        controller.abort();
-      }, kind === "attach" ? ATTACH_TIMEOUT_MS : INACTIVITY_TIMEOUT_MS);
+      timer = setTimeout(
+        () => {
+          timeout = kind;
+          controller.abort();
+        },
+        kind === "attach" ? ATTACH_TIMEOUT_MS : INACTIVITY_TIMEOUT_MS
+      );
     };
     this.callbacks.connecting();
     try {
       arm("attach");
-      session = await this.client.attach({
+      const attached = await this.client.attach({
         identity: this.identity,
         direction: "Bidirectional",
         signal: controller.signal,
       });
+      session = attached;
       arm("inactivity");
       const transport = new JsSqlSyncTransport({
         send: (data: Uint8Array) => {
-          session?.send(data);
+          attached.send(data);
           arm("inactivity");
           return Promise.resolve();
         },
         receive: async () => {
-          const data = await session?.receive();
+          const data = await attached.receive();
           arm("inactivity");
-          if (!data) throw new SyncError("transport", "Sync receive returned no frame");
           return data;
         },
       });
@@ -95,12 +107,12 @@ export class SqlSyncLifecycle {
       const error = timeout
         ? new SyncError(
             "transport",
-            timeout === "attach"
-              ? "Sync attach timed out"
-              : "Sync receive timed out",
+            timeout === "attach" ? "Sync attach timed out" : "Sync receive timed out"
           )
-        : cause;
-      this.callbacks.failed(error as Error);
+        : cause instanceof Error
+          ? cause
+          : new Error("SQL synchronization failed");
+      this.callbacks.failed(error);
       throw error;
     } finally {
       if (timer) clearTimeout(timer);

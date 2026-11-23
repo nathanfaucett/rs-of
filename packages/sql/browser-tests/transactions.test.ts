@@ -9,34 +9,28 @@ test("atomic commit, rollback, stale writers and consumed handles survive page r
   page,
 }) => {
   const before = await page.evaluate(async () => {
-    const { Database, CommitError } = (window as any).sql;
+    const { Database, CommitError } = window.sql;
     const db = await Database.open("transactions");
     const client = db.client();
-    await client.executeRaw(
-      "CREATE TABLE items (id INTEGER PRIMARY KEY, text TEXT)",
-    );
+    await client.executeRaw("CREATE TABLE items (id INTEGER PRIMARY KEY, text TEXT)");
     const tx = await client.transaction();
     await tx.executeRaw("INSERT INTO items VALUES (1,'YWJj')");
     await tx.executeRaw("INSERT INTO items VALUES (2,'')");
     const invisible = await client.executeRaw("SELECT id FROM items");
     await tx.commit();
     const rollback = await client.transaction();
-    await rollback.executeRaw(
-      "DELETE FROM items; INSERT INTO items VALUES (3,'discard')",
-    );
+    await rollback.executeRaw("DELETE FROM items; INSERT INTO items VALUES (3,'discard')");
     await rollback.rollback();
     const stale = await client.transaction();
     await stale.executeRaw("INSERT INTO items VALUES (4,'stale')");
     await client.executeRaw("INSERT INTO items VALUES (5,'winner')");
-    let conflict;
-    try {
-      await stale.commit();
-    } catch (error) {
-      conflict = {
+    const conflict = await stale.commit().then(
+      () => undefined,
+      (error) => ({
         typed: error instanceof CommitError,
-        outcome: (error as any).outcome,
-      };
-    }
+        outcome: error instanceof CommitError ? error.outcome : undefined,
+      })
+    );
     let consumed = 0;
     for (const transaction of [tx, rollback, stale]) {
       try {
@@ -56,7 +50,7 @@ test("atomic commit, rollback, stale writers and consumed handles survive page r
   await page.reload();
   await page.waitForFunction(() => "sql" in window);
   const rows = await page.evaluate(async () => {
-    const db = await (window as any).sql.Database.open("transactions");
+    const db = await window.sql.Database.open("transactions");
     const client = db.client();
     try {
       return await client.executeRaw("SELECT id,text FROM items ORDER BY id");
@@ -86,24 +80,20 @@ for (const mode of ["throw", "abort"]) {
     page,
   }) => {
     const result = await page.evaluate(async (mode) => {
-      const { Database, CommitError } = (window as any).sql;
+      const { Database, CommitError } = window.sql;
       const db = await Database.open(`failure-${mode}`);
       const client = db.client();
       await client.executeRaw("CREATE TABLE items (id INTEGER PRIMARY KEY)");
       const tx = await client.transaction();
-      await tx.executeRaw(
-        "INSERT INTO items VALUES (1); INSERT INTO items VALUES (2)",
-      );
-      (window as any).faults.failNextCommit(mode);
-      let failure;
-      try {
-        await tx.commit();
-      } catch (error) {
-        failure = {
+      await tx.executeRaw("INSERT INTO items VALUES (1); INSERT INTO items VALUES (2)");
+      window.faults.failNextCommit(mode);
+      const failure = await tx.commit().then(
+        () => undefined,
+        (error) => ({
           typed: error instanceof CommitError,
-          outcome: (error as any).outcome,
-        };
-      }
+          outcome: error instanceof CommitError ? error.outcome : undefined,
+        })
+      );
       tx.close();
       client.close();
       db.close();
@@ -128,14 +118,14 @@ test("storage denial and incompatible open reject, preserve data, and permit ret
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const { Database, Error } = (window as any).sql;
-    const { denyOpen, malformed, sentinel } = (window as any).faults;
+    const { Database, Error: SqlError } = window.sql;
+    const { denyOpen, malformed, sentinel } = window.faults;
     denyOpen();
     let denied = false;
     try {
       await Database.open("denied");
     } catch (error) {
-      denied = error instanceof Error;
+      denied = error instanceof SqlError;
     }
     const retried = await Database.open("denied");
     retried.close();
@@ -144,7 +134,7 @@ test("storage denial and incompatible open reject, preserve data, and permit ret
     try {
       await Database.open("incompatible");
     } catch (error) {
-      incompatible = error instanceof Error;
+      incompatible = error instanceof SqlError;
     }
     return {
       denied,
@@ -163,25 +153,21 @@ test("close during an in-flight call defers free and concurrent transaction call
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const { Database } = (window as any).sql;
+    const { Database } = window.sql;
     const db = await Database.open("busy");
     const client = db.client();
     await client.executeRaw("CREATE TABLE items (id INTEGER PRIMARY KEY)");
     const tx = await client.transaction();
     const execution = tx.executeRaw("INSERT INTO items VALUES (1)");
-    const overlap = [
-      tx.executeRaw("SELECT id FROM items"),
-      tx.commit(),
-      tx.rollback(),
-    ];
+    const overlap = [tx.executeRaw("SELECT id FROM items"), tx.commit(), tx.rollback()];
     tx.close();
     const errors = await Promise.all(
       overlap.map((call) =>
         call.then(
           () => "unexpected success",
-          (error: unknown) => String(error),
-        ),
-      ),
+          (error: unknown) => String(error)
+        )
+      )
     );
     await execution;
     const rows = await client.executeRaw("SELECT id FROM items");
@@ -197,28 +183,24 @@ test("close during an in-flight call defers free and concurrent transaction call
 });
 
 for (const stage of ["before-commit", "after-native-commit"]) {
-  test(`page interruption ${stage} is reconciled on reopen`, async ({
-    page,
-  }) => {
+  test(`page interruption ${stage} is reconciled on reopen`, async ({ page }) => {
     await page.evaluate(async (stage) => {
-      const db = await (window as any).sql.Database.open("interrupted");
+      const db = await window.sql.Database.open("interrupted");
       const client = db.client();
       await client.executeRaw("CREATE TABLE items (id INTEGER PRIMARY KEY)");
       const tx = await client.transaction();
-      await tx.executeRaw(
-        "INSERT INTO items VALUES (1); INSERT INTO items VALUES (2)",
-      );
-      (window as any).pendingTransaction = tx;
+      await tx.executeRaw("INSERT INTO items VALUES (1); INSERT INTO items VALUES (2)");
+      window.pendingTransaction = tx;
       if (stage === "after-native-commit") {
-        const hold = (window as any).faults.holdNextCompletion("readwrite");
-        (window as any).pendingCommit = tx.commit();
+        const hold = window.faults.holdNextCompletion("readwrite");
+        window.pendingCommit = tx.commit();
         await hold.completed;
       }
     }, stage);
     await page.reload();
     await page.waitForFunction(() => "sql" in window);
     const rows = await page.evaluate(async () => {
-      const db = await (window as any).sql.Database.open("interrupted");
+      const db = await window.sql.Database.open("interrupted");
       const client = db.client();
       try {
         return await client.executeRaw("SELECT id FROM items ORDER BY id");
@@ -230,10 +212,7 @@ for (const stage of ["before-commit", "after-native-commit"]) {
     expect(rows[0].rows).toEqual(
       stage === "before-commit"
         ? []
-        : [
-            [{ type: "integer", value: "1" }],
-            [{ type: "integer", value: "2" }],
-          ],
+        : [[{ type: "integer", value: "1" }], [{ type: "integer", value: "2" }]]
     );
   });
 }

@@ -12,21 +12,16 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
-import type { PermissionEvaluationRequest } from "./PermissionEvaluationRequest.js";
-import {
-  PermissionEvaluationRequestFromJSON,
-  PermissionEvaluationRequestFromJSONTyped,
-  PermissionEvaluationRequestToJSON,
-  PermissionEvaluationRequestToJSONTyped,
-} from "./PermissionEvaluationRequest.js";
 import type { PermissionAuditIdentity } from "./PermissionAuditIdentity.js";
 import {
   PermissionAuditIdentityFromJSON,
-  PermissionAuditIdentityFromJSONTyped,
   PermissionAuditIdentityToJSON,
-  PermissionAuditIdentityToJSONTyped,
 } from "./PermissionAuditIdentity.js";
+import type { PermissionEvaluationRequest } from "./PermissionEvaluationRequest.js";
+import {
+  PermissionEvaluationRequestFromJSON,
+  PermissionEvaluationRequestToJSON,
+} from "./PermissionEvaluationRequest.js";
 
 /**
  *
@@ -66,7 +61,7 @@ export function PermissionEvaluationResponseFromJSON(json: any): PermissionEvalu
 
 export function PermissionEvaluationResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): PermissionEvaluationResponse {
   if (
     json &&
@@ -90,7 +85,7 @@ export function PermissionEvaluationResponseToJSON(json: any): PermissionEvaluat
 
 export function PermissionEvaluationResponseToJSONTyped(
   value?: PermissionEvaluationResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

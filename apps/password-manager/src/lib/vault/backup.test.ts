@@ -1,344 +1,374 @@
 // @vitest-environment playwright
-import { afterEach, expect, it, vi } from "vitest";
+
 import { Transaction } from "@ofsdk/sql";
-import {
-	fixturePassword,
-	fixturePlaintext,
-} from "./authentication-fixtures";
-import { createVault, listVaults, unlockVault, type VaultIdentity } from "./vault";
+import { afterEach, expect, it, vi } from "vitest";
 import { clearStorage, getStorageClient } from "../../test/utils";
+import { fixturePassword, fixturePlaintext } from "./authentication-fixtures";
 import { prepareBackupRestore } from "./backup";
 import { encrypt, fromBase64 } from "./storage/crypto";
+import { createVault, listVaults, unlockVault, type VaultIdentity } from "./vault";
 
 type ExecuteRawParams = Parameters<Transaction["executeRaw"]>[1];
 type Envelope = Record<string, unknown> & { kdf: Record<string, unknown> };
 type Payload = { secrets: Record<string, unknown>[] };
 
 afterEach(async () => {
-	await clearStorage();
-	vi.restoreAllMocks();
+  await clearStorage();
+  vi.restoreAllMocks();
 });
 
 async function populatedBackup() {
-	const source = await createVault(fixturePassword, "Populated backup");
-	    const records = [
-		{
-			kind: "login",
-			id: "12345678-1234-4234-8234-123456789abc",
-			name: "Test login",
-			username: "test-user",
-			secret: "test-password",
-			uris: [
-				{ uri: "https://example.com", match: "domain" },
-				{ uri: "https://example.org", match: "exact" },
-			],
-			notes: "",
-			favorite: false,
-			fields: [],
-			history: [],
-			createdAt: "2026-01-01T00:00:00.000Z",
-			updatedAt: "2026-01-01T00:00:00.000Z",
-		},
-		{
-			kind: "secureNote",
-			type: 0,
-			id: "12345678-1234-4234-8234-123456789abd",
-			name: "Test note",
-			notes: "private note",
-			favorite: true,
-			fields: [],
-			history: [],
-			createdAt: "2026-01-01T00:00:00.000Z",
-			updatedAt: "2026-01-01T00:00:00.000Z",
-		},
-	];
-	for (const record of records) {
-		await source.encryptAndStore(JSON.stringify(record));
-	}
-	const logical = await source.readItems();
-	const id = source.id;
-	const value = await source.exportBackup();
-	source.close();
-	await clearStorage();
-	return { id, value, logical };
+  const source = await createVault(fixturePassword, "Populated backup");
+  const records = [
+    {
+      kind: "login",
+      id: "12345678-1234-4234-8234-123456789abc",
+      name: "Test login",
+      username: "test-user",
+      secret: "test-password",
+      uris: [
+        { uri: "https://example.com", match: "domain" },
+        { uri: "https://example.org", match: "exact" },
+      ],
+      notes: "",
+      favorite: false,
+      fields: [],
+      history: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      kind: "secureNote",
+      type: 0,
+      id: "12345678-1234-4234-8234-123456789abd",
+      name: "Test note",
+      notes: "private note",
+      favorite: true,
+      fields: [],
+      history: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+  ];
+  for (const record of records) {
+    await source.encryptAndStore(JSON.stringify(record));
+  }
+  const logical = await source.readItems();
+  const id = source.id;
+  const value = await source.exportBackup();
+  await source.close();
+  await clearStorage();
+  return { id, value, logical };
 }
 
 it("restores an authenticated empty backup in clean storage with the original ID", async () => {
-	const source = await createVault(fixturePassword, "Empty backup");
-	const id = source.id;
-	const backup = await source.exportBackup();
-	source.close();
-	await clearStorage();
-	const prepared = await prepareBackupRestore(fixturePassword, backup);
-	const restored = await prepared.restore();
-	expect(restored.id).toBe(id);
-	expect(restored.name).toBe("Empty backup");
-	const reopened = await unlockVault(fixturePassword, restored.id);
-	expect(await reopened.loadSecrets()).toEqual([]);
-	reopened.close();
+  const source = await createVault(fixturePassword, "Empty backup");
+  const id = source.id;
+  const backup = await source.exportBackup();
+  await source.close();
+  await clearStorage();
+  const prepared = await prepareBackupRestore(fixturePassword, backup);
+  const restored = await prepared.restore();
+  expect(restored.id).toBe(id);
+  expect(restored.name).toBe("Empty backup");
+  const reopened = await unlockVault(fixturePassword, restored.id);
+  expect(await reopened.loadSecrets()).toEqual([]);
+  await reopened.close();
 }, 15000);
 
 it("preserves every supported logical field, Trash, record IDs, ciphertext, metadata and proof after clean restore and reopen", async () => {
-	const { id, value: backup, logical } = await populatedBackup();
-	const prepared = await prepareBackupRestore(fixturePassword, backup);
-	const restored = await prepared.restore();
-	expect(restored.id).toBe(id);
-	const independent = await unlockVault(fixturePassword, restored.id);
-	const roundTrip = await independent.readItems();
-	expect(roundTrip.items).toEqual(logical.items);
-	expect(roundTrip.folders).toEqual(logical.folders);
-	independent.close();
-	const reopened = await unlockVault(fixturePassword, restored.id);
-	expect((await reopened.readItems()).items).toEqual(logical.items);
-	reopened.close();
+  const { id, value: backup, logical } = await populatedBackup();
+  const prepared = await prepareBackupRestore(fixturePassword, backup);
+  const restored = await prepared.restore();
+  expect(restored.id).toBe(id);
+  const independent = await unlockVault(fixturePassword, restored.id);
+  const roundTrip = await independent.readItems();
+  expect(roundTrip.items).toEqual(logical.items);
+  expect(roundTrip.folders).toEqual(logical.folders);
+  await independent.close();
+  const reopened = await unlockVault(fixturePassword, restored.id);
+  expect((await reopened.readItems()).items).toEqual(logical.items);
+  await reopened.close();
 }, 15000);
 
 it("rejects wrong passwords, missing metadata, tampering, truncation and unsupported derivation/version before any storage write", async () => {
-	const { value: backup } = await populatedBackup();
-	const envelope = JSON.parse(backup);
-	const mutations = [
-        ["version", (e: Envelope) => Object.assign({}, e, { version: 99 })],
-        ["format", (e: Envelope) => Object.assign({}, e, { format: "unknown" })],
-        ["kdf.name", (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { name: "scrypt" }) })],
-        ["kdf.iterations", (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { iterations: 1 }) })],
-        ["kdf.hash", (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { hash: "SHA-256" }) })],
-        ["kdf.salt", (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { salt: "wrong" }) })],
-        ["nonce", (e: Envelope) => Object.assign({}, e, { nonce: "AA==" })],
-        ["ciphertext", (e: Envelope) => Object.assign({}, e, { ciphertext: "AA==" })],
-        ["extra field", (e: Envelope) => Object.assign({}, e, { extra: "field" })],
-	];
-	for (const [, mutation] of mutations) {
-		const damaged = JSON.stringify(mutation(envelope));
-		await expect(prepareBackupRestore(fixturePassword, damaged)).rejects.toThrow();
-	}
+  const { value: backup } = await populatedBackup();
+  const envelope = JSON.parse(backup);
+  const mutations: [string, (e: Envelope) => Envelope][] = [
+    ["version", (e: Envelope) => Object.assign({}, e, { version: 99 })],
+    ["format", (e: Envelope) => Object.assign({}, e, { format: "unknown" })],
+    [
+      "kdf.name",
+      (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { name: "scrypt" }) }),
+    ],
+    [
+      "kdf.iterations",
+      (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { iterations: 1 }) }),
+    ],
+    [
+      "kdf.hash",
+      (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { hash: "SHA-256" }) }),
+    ],
+    [
+      "kdf.salt",
+      (e: Envelope) => Object.assign({}, e, { kdf: Object.assign({}, e.kdf, { salt: "wrong" }) }),
+    ],
+    ["nonce", (e: Envelope) => Object.assign({}, e, { nonce: "AA==" })],
+    ["ciphertext", (e: Envelope) => Object.assign({}, e, { ciphertext: "AA==" })],
+    ["extra field", (e: Envelope) => Object.assign({}, e, { extra: "field" })],
+  ];
+  for (const [, mutation] of mutations) {
+    const damaged = JSON.stringify(mutation(envelope));
+    await expect(prepareBackupRestore(fixturePassword, damaged)).rejects.toThrow();
+  }
 }, 15000);
 
 it.skip("authenticates and validates the complete payload, not only its first record", async () => {
-	const { value: backup } = await populatedBackup();
-	const envelope = JSON.parse(backup);
-	const salt = envelope.kdf.salt;
-	const key = await crypto.subtle.importKey(
-		"raw",
-		new TextEncoder().encode(fixturePassword),
-		"PBKDF2",
-		false,
-		["deriveKey"],
-	);
-	const derived = await crypto.subtle.deriveKey(
-		{ name: "PBKDF2", salt: fromBase64(salt), iterations: 600000, hash: "SHA-512" },
-		key,
-		{ name: "AES-GCM", length: 256 },
-		false,
-		["encrypt", "decrypt"],
-	);
-	const payload = JSON.parse(
-		new TextDecoder().decode(await crypto.subtle.decrypt(
-			{ name: "AES-GCM", iv: new Uint8Array([...atob(envelope.nonce)].map((c) => c.charCodeAt(0))) },
-			derived,
-			new Uint8Array([...atob(envelope.ciphertext)].map((c) => c.charCodeAt(0))),
-		)),
-	);
-	for (const [field, value] of [
-		["itemFormat", 99],
-		["itemFormat", undefined],
-		["transitionBackup", "AA=="],
-		["transitionBackup", undefined],
-		["authentication", "AA=="],
-		["meta.id", "different-id"],
-		["meta.createdAt", "changed"],
-		["secrets[0].ciphertext", "AA=="],
-		["secrets[0].nonce", "AA=="],
-		["secrets[0].id", "different-id"],
-		["secrets[0].updatedAt", "changed"],
-		["futureData", "extra"],
-	] as const) {
-		const damaged = JSON.parse(JSON.stringify(payload));
-		if (field.includes("[")) {
-			const match = field.match(/(\w+)\[(\d+)\]\.(\w+)/);
-			if (!match) throw new Error("Invalid test field path");
-			const [arr, idx, prop] = match.slice(1);
-			damaged[arr][parseInt(idx, 10)][prop] = value;
-		} else {
-			const [obj, prop] = field.split(".");
-			damaged[obj][prop] = value;
-		}
-		const reencrypted = await encrypt(derived, JSON.stringify(damaged));
-		const damagedBackup = JSON.stringify({
-			...envelope,
-			nonce: reencrypted.nonce,
-			ciphertext: reencrypted.ciphertext,
-		});
-		await expect(prepareBackupRestore(fixturePassword, damagedBackup)).rejects.toThrow();
-	}
+  const { value: backup } = await populatedBackup();
+  const envelope = JSON.parse(backup);
+  const salt = envelope.kdf.salt;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(fixturePassword),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  const derived = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: fromBase64(salt), iterations: 600000, hash: "SHA-512" },
+    key,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+  const payload = JSON.parse(
+    new TextDecoder().decode(
+      await crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: new Uint8Array([...atob(envelope.nonce)].map((c) => c.charCodeAt(0))),
+        },
+        derived,
+        new Uint8Array([...atob(envelope.ciphertext)].map((c) => c.charCodeAt(0)))
+      )
+    )
+  );
+  for (const [field, value] of [
+    ["itemFormat", 99],
+    ["itemFormat", undefined],
+    ["transitionBackup", "AA=="],
+    ["transitionBackup", undefined],
+    ["authentication", "AA=="],
+    ["meta.id", "different-id"],
+    ["meta.createdAt", "changed"],
+    ["secrets[0].ciphertext", "AA=="],
+    ["secrets[0].nonce", "AA=="],
+    ["secrets[0].id", "different-id"],
+    ["secrets[0].updatedAt", "changed"],
+    ["futureData", "extra"],
+  ] as const) {
+    const damaged = JSON.parse(JSON.stringify(payload));
+    if (field.includes("[")) {
+      const match = field.match(/(\w+)\[(\d+)\]\.(\w+)/);
+      if (!match) throw new Error("Invalid test field path");
+      const [, arr, idx, prop] = match;
+      if (!arr || !idx || !prop) throw new Error("Invalid test field path");
+      damaged[arr][Number.parseInt(idx, 10)][prop] = value;
+    } else {
+      const [obj, prop] = field.split(".");
+      if (!obj || !prop) throw new Error("Invalid test field path");
+      damaged[obj][prop] = value;
+    }
+    const reencrypted = await encrypt(derived, JSON.stringify(damaged));
+    const damagedBackup = JSON.stringify({
+      ...envelope,
+      nonce: reencrypted.nonce,
+      ciphertext: reencrypted.ciphertext,
+    });
+    await expect(prepareBackupRestore(fixturePassword, damagedBackup)).rejects.toThrow();
+  }
 }, 15000);
 
 it("rejects an existing vault ID without changing source data and permits an independent same-name vault", async () => {
-	const { id, value: backup } = await populatedBackup();
-	// populatedBackup clears storage; recreate the vault with the same ID via restore first
-	const prepared0 = await prepareBackupRestore(fixturePassword, backup);
-	await prepared0.restore();
-	const before = await listVaults();
-	const prepared = await prepareBackupRestore(fixturePassword, backup);
-	await expect(prepared.restore()).rejects.toThrow("already exists");
-	expect(await listVaults()).toEqual(before);
-	const unrelated = await createVault("other-password", "Populated backup");
-	expect(unrelated.id).not.toBe(id);
-	unrelated.close();
+  const { id, value: backup } = await populatedBackup();
+  // populatedBackup clears storage; recreate the vault with the same ID via restore first
+  const prepared0 = await prepareBackupRestore(fixturePassword, backup);
+  await prepared0.restore();
+  const before = await listVaults();
+  const prepared = await prepareBackupRestore(fixturePassword, backup);
+  await expect(prepared.restore()).rejects.toThrow("already exists");
+  expect(await listVaults()).toEqual(before);
+  const unrelated = await createVault("other-password", "Populated backup");
+  expect(unrelated.id).not.toBe(id);
+  await unrelated.close();
 }, 15000);
 
 it("does not publish a partial destination after a schema storage failure", async () => {
-	const { value: backup } = await populatedBackup();
-	const prepared = await prepareBackupRestore(fixturePassword, backup);
-	await getStorageClient();
-	let injected = false;
-	let schemaSaved = false;
-	const original = Transaction.prototype.executeRaw;
-	const fault = vi
-		.spyOn(Transaction.prototype, "executeRaw")
-		.mockImplementation(async function (this: Transaction, sql: string, ...args: [params?: ExecuteRawParams]) {
-			if (sql.includes("CREATE") || sql.includes("migration") || sql.includes("vaults")) {
-				schemaSaved = true;
-				return original.call(this, sql, ...args);
-			}
-			if (sql.includes("secrets") && !injected) {
-				injected = true;
-				throw new DOMException("Storage denied", "QuotaExceededError");
-			}
-			return original.call(this, sql, ...args);
-		});
-	await expect(prepared.restore()).rejects.toThrow();
-	fault.mockRestore();
-	expect(await listVaults()).toEqual([]);
-	expect(schemaSaved).toBe(true);
+  const { value: backup } = await populatedBackup();
+  const prepared = await prepareBackupRestore(fixturePassword, backup);
+  await getStorageClient();
+  let injected = false;
+  let schemaSaved = false;
+  const original = Transaction.prototype.executeRaw;
+  const fault = vi.spyOn(Transaction.prototype, "executeRaw").mockImplementation(async function (
+    this: Transaction,
+    sql: string,
+    ...args: [params?: ExecuteRawParams]
+  ) {
+    if (sql.includes("CREATE") || sql.includes("migration") || sql.includes("vaults")) {
+      schemaSaved = true;
+      return original.call(this, sql, ...args);
+    }
+    if (sql.includes("secrets") && !injected) {
+      injected = true;
+      throw new DOMException("Storage denied", "QuotaExceededError");
+    }
+    return original.call(this, sql, ...args);
+  });
+  await expect(prepared.restore()).rejects.toThrow();
+  fault.mockRestore();
+  expect(await listVaults()).toEqual([]);
+  expect(schemaSaved).toBe(true);
 }, 15000);
 
 it("does not publish a partial destination after a commit storage failure", async () => {
-	const { value: backup } = await populatedBackup();
-	const prepared = await prepareBackupRestore(fixturePassword, backup);
-	let writes = 0;
-	const original = Transaction.prototype.executeRaw;
-	const fault = vi
-		.spyOn(Transaction.prototype, "executeRaw")
-		.mockImplementation(async function (this: Transaction, sql: string, ...args: [params?: ExecuteRawParams]) {
-			if (sql.includes("secrets") && sql.includes("INSERT")) {
-				writes++;
-				if (writes >= 2) {
-					throw new DOMException("Commit failed", "UnknownError");
-				}
-			}
-			return original.call(this, sql, ...args);
-		});
-	await expect(prepared.restore()).rejects.toThrow();
-	fault.mockRestore();
-	expect(await listVaults()).toEqual([]);
+  const { value: backup } = await populatedBackup();
+  const prepared = await prepareBackupRestore(fixturePassword, backup);
+  let writes = 0;
+  const original = Transaction.prototype.executeRaw;
+  const fault = vi.spyOn(Transaction.prototype, "executeRaw").mockImplementation(async function (
+    this: Transaction,
+    sql: string,
+    ...args: [params?: ExecuteRawParams]
+  ) {
+    if (sql.includes("secrets") && sql.includes("INSERT")) {
+      writes++;
+      if (writes >= 2) {
+        throw new DOMException("Commit failed", "UnknownError");
+      }
+    }
+    return original.call(this, sql, ...args);
+  });
+  await expect(prepared.restore()).rejects.toThrow();
+  fault.mockRestore();
+  expect(await listVaults()).toEqual([]);
 }, 15000);
 
 it("does not publish when a SQL write reports success but is not durable", async () => {
-	const { value: backup } = await populatedBackup();
-	const prepared = await prepareBackupRestore(fixturePassword, backup);
-	await getStorageClient();
-	let writes = 0;
-	const original = Transaction.prototype.executeRaw;
-	const fault = vi
-		.spyOn(Transaction.prototype, "executeRaw")
-		.mockImplementation(async function (this: Transaction, sql: string, ...args: [params?: ExecuteRawParams]) {
-			writes++;
-			if (writes >= 2) {
-				await original.call(this, sql, ...args);
-				throw new DOMException("Not durable", "UnknownError");
-			}
-			return original.call(this, sql, ...args);
-		});
-	await expect(prepared.restore()).rejects.toThrow();
-	fault.mockRestore();
+  const { value: backup } = await populatedBackup();
+  const prepared = await prepareBackupRestore(fixturePassword, backup);
+  await getStorageClient();
+  let writes = 0;
+  const original = Transaction.prototype.executeRaw;
+  const fault = vi.spyOn(Transaction.prototype, "executeRaw").mockImplementation(async function (
+    this: Transaction,
+    sql: string,
+    ...args: [params?: ExecuteRawParams]
+  ) {
+    writes++;
+    if (writes >= 2) {
+      await original.call(this, sql, ...args);
+      throw new DOMException("Not durable", "UnknownError");
+    }
+    return original.call(this, sql, ...args);
+  });
+  await expect(prepared.restore()).rejects.toThrow();
+  fault.mockRestore();
 }, 15000);
 
 it("does not publish on registry failure and reports an uncertain outcome if publication cannot be read back", async () => {
-	const { id, value: backup } = await populatedBackup();
-	const prepared = await prepareBackupRestore(fixturePassword, backup);
-	await getStorageClient();
-	const originalReserve = Transaction.prototype.executeRaw;
-	let denied = false;
-	const fault = vi
-		.spyOn(Transaction.prototype, "executeRaw")
-		.mockImplementation(async function (this: Transaction, sql: string, ...args: [params?: ExecuteRawParams]) {
-			if (sql.includes("vaults") && !denied) {
-				denied = true;
-				throw new DOMException("Denied", "QuotaExceededError");
-			}
-			return originalReserve.call(this, sql, ...args);
-		});
-	await expect(prepared.restore()).rejects.toThrow();
-	fault.mockRestore();
-	const entries = await listVaults();
-	const hasEntry = entries.some((e) => e.id === id);
-	if (hasEntry) {
-		const reopened = await unlockVault(fixturePassword, id);
-		expect((await reopened.loadSecrets()).length).toBeGreaterThan(0);
-		reopened.close();
-	}
+  const { id, value: backup } = await populatedBackup();
+  const prepared = await prepareBackupRestore(fixturePassword, backup);
+  await getStorageClient();
+  const originalReserve = Transaction.prototype.executeRaw;
+  let denied = false;
+  const fault = vi.spyOn(Transaction.prototype, "executeRaw").mockImplementation(async function (
+    this: Transaction,
+    sql: string,
+    ...args: [params?: ExecuteRawParams]
+  ) {
+    if (sql.includes("vaults") && !denied) {
+      denied = true;
+      throw new DOMException("Denied", "QuotaExceededError");
+    }
+    return originalReserve.call(this, sql, ...args);
+  });
+  await expect(prepared.restore()).rejects.toThrow();
+  fault.mockRestore();
+  const entries = await listVaults();
+  const hasEntry = entries.some((e) => e.id === id);
+  if (hasEntry) {
+    const reopened = await unlockVault(fixturePassword, id);
+    expect((await reopened.loadSecrets()).length).toBeGreaterThan(0);
+    await reopened.close();
+  }
 }, 15000);
 
 it("publishes exactly one complete vault when two authenticated restores race", async () => {
-	const { id, value: backup } = await populatedBackup();
-	const p1 = prepareBackupRestore(fixturePassword, backup);
-	const p2 = prepareBackupRestore(fixturePassword, backup);
-	const [r1, r2] = await Promise.all([p1, p2]);
-	const results = await Promise.allSettled([r1.restore(), r2.restore()]);
-	const successful = results.filter((r) => r.status === "fulfilled");
-	expect(successful.length).toBe(1);
-	const restored = (successful[0] as PromiseFulfilledResult<VaultIdentity>).value;
-	const entries = await listVaults();
-	expect(entries.filter((e) => e.id === id)).toHaveLength(1);
-	const reopened = await unlockVault(fixturePassword, restored.id);
-	expect(await reopened.loadSecrets()).toHaveLength(2);
-	reopened.close();
+  const { id, value: backup } = await populatedBackup();
+  const p1 = prepareBackupRestore(fixturePassword, backup);
+  const p2 = prepareBackupRestore(fixturePassword, backup);
+  const [r1, r2] = await Promise.all([p1, p2]);
+  const results = await Promise.allSettled([r1.restore(), r2.restore()]);
+  const successful = results.filter((r) => r.status === "fulfilled");
+  expect(successful.length).toBe(1);
+  const restored = (successful[0] as PromiseFulfilledResult<VaultIdentity>).value;
+  const entries = await listVaults();
+  expect(entries.filter((e) => e.id === id)).toHaveLength(1);
+  const reopened = await unlockVault(fixturePassword, restored.id);
+  expect(await reopened.loadSecrets()).toHaveLength(2);
+  await reopened.close();
 }, 15000);
 
 it.skip("rejects authenticated but malformed logical records and excessive record counts without publishing or leaking diagnostics", async () => {
-	const source = await createVault(fixturePassword, "Malformed backup");
-	await source.encryptAndStore(fixturePlaintext);
-	const backup = await source.exportBackup();
-	source.close();
-	await clearStorage();
-	const envelope = JSON.parse(backup);
-	const salt = envelope.kdf.salt;
-	const key = await crypto.subtle.importKey(
-		"raw",
-		new TextEncoder().encode(fixturePassword),
-		"PBKDF2",
-		false,
-		["deriveKey"],
-	);
-	const derived = await crypto.subtle.deriveKey(
-		{ name: "PBKDF2", salt: fromBase64(salt), iterations: 600000, hash: "SHA-512" },
-		key,
-		{ name: "AES-GCM", length: 256 },
-		false,
-		["encrypt", "decrypt"],
-	);
-	const payload = JSON.parse(
-		new TextDecoder().decode(await crypto.subtle.decrypt(
-			{ name: "AES-GCM", iv: new Uint8Array([...atob(envelope.nonce)].map((c) => c.charCodeAt(0))) },
-			derived,
-			new Uint8Array([...atob(envelope.ciphertext)].map((c) => c.charCodeAt(0))),
-		)),
-	);
-	for (const mutation of [
-		(p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], ciphertext: "AA==" }] }),
-		(p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], nonce: "AA==" }] }),
-		(p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], id: "not-uuid" }] }),
-		(p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], name: "" }] }),
-		(p: Payload) => ({ ...p, secrets: Array(10001).fill(p.secrets[0]) }),
-		(p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], ciphertext: "AA==" }], folders: [] }),
-	] as const) {
-		const damaged = mutation(payload);
-		const reencrypted = await encrypt(derived, JSON.stringify(damaged));
-		const damagedBackup = JSON.stringify({
-			...envelope,
-			nonce: reencrypted.nonce,
-			ciphertext: reencrypted.ciphertext,
-		});
-		await expect(prepareBackupRestore(fixturePassword, damagedBackup)).rejects.toThrow();
-	}
+  const source = await createVault(fixturePassword, "Malformed backup");
+  await source.encryptAndStore(fixturePlaintext);
+  const backup = await source.exportBackup();
+  await source.close();
+  await clearStorage();
+  const envelope = JSON.parse(backup);
+  const salt = envelope.kdf.salt;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(fixturePassword),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  const derived = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: fromBase64(salt), iterations: 600000, hash: "SHA-512" },
+    key,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+  const payload = JSON.parse(
+    new TextDecoder().decode(
+      await crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: new Uint8Array([...atob(envelope.nonce)].map((c) => c.charCodeAt(0))),
+        },
+        derived,
+        new Uint8Array([...atob(envelope.ciphertext)].map((c) => c.charCodeAt(0)))
+      )
+    )
+  );
+  for (const mutation of [
+    (p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], ciphertext: "AA==" }] }),
+    (p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], nonce: "AA==" }] }),
+    (p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], id: "not-uuid" }] }),
+    (p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], name: "" }] }),
+    (p: Payload) => ({ ...p, secrets: Array(10001).fill(p.secrets[0]) }),
+    (p: Payload) => ({ ...p, secrets: [{ ...p.secrets[0], ciphertext: "AA==" }], folders: [] }),
+  ] as const) {
+    const damaged = mutation(payload);
+    const reencrypted = await encrypt(derived, JSON.stringify(damaged));
+    const damagedBackup = JSON.stringify({
+      ...envelope,
+      nonce: reencrypted.nonce,
+      ciphertext: reencrypted.ciphertext,
+    });
+    await expect(prepareBackupRestore(fixturePassword, damagedBackup)).rejects.toThrow();
+  }
 }, 15000);

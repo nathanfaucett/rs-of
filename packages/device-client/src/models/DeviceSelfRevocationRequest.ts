@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -46,7 +45,7 @@ export function DeviceSelfRevocationRequestFromJSON(json: any): DeviceSelfRevoca
 
 export function DeviceSelfRevocationRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): DeviceSelfRevocationRequest {
   if (json == null) {
     return json;
@@ -63,7 +62,7 @@ export function DeviceSelfRevocationRequestToJSON(json: any): DeviceSelfRevocati
 
 export function DeviceSelfRevocationRequestToJSONTyped(
   value?: DeviceSelfRevocationRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

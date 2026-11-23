@@ -2,18 +2,18 @@
     export interface AuthorizeProps {
         userInfo: OidcUserInfo;
         authorizationRequest: PendingAuthorizationRequest;
-        applicationId?: string;
-        registration?: ClientRegistration;
+        applicationId?: string | undefined;
+        registration?: ClientRegistration | undefined;
     }
 </script>
 
 <script lang="ts">
+    import LoaderCircle from "@lucide/svelte/icons/loader-circle";
     import type {
         ClientConsentMetadata,
         ClientRegistration,
     } from "@ofsdk/idp-client";
     import type { OidcUserInfo } from "@ofsdk/oidc-client";
-    import LoaderCircle from "@lucide/svelte/icons/loader-circle";
     import { isTauri } from "@tauri-apps/api/core";
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
@@ -24,8 +24,8 @@
     import {
         authorizationError,
         loadConsent,
-        registerClient,
         type PendingAuthorizationRequest,
+        registerClient,
     } from "./_onboarding";
     import {
         rejectAuthorizationRequest,

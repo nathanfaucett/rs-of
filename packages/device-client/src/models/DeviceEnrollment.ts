@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { DeviceState } from "./DeviceState.js";
-import {
-  DeviceStateFromJSON,
-  DeviceStateFromJSONTyped,
-  DeviceStateToJSON,
-  DeviceStateToJSONTyped,
-} from "./DeviceState.js";
+import { DeviceStateFromJSON, DeviceStateToJSON } from "./DeviceState.js";
 
 /**
  *
@@ -30,7 +24,7 @@ export interface DeviceEnrollment {
   /**
    *
    */
-  approvalCode?: string | null;
+  approvalCode?: (string | null) | undefined;
   /**
    *
    */
@@ -56,7 +50,7 @@ export function DeviceEnrollmentFromJSON(json: any): DeviceEnrollment {
 
 export function DeviceEnrollmentFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): DeviceEnrollment {
   if (json == null) {
     return json;
@@ -79,7 +73,7 @@ export function DeviceEnrollmentToJSON(json: any): DeviceEnrollment {
 
 export function DeviceEnrollmentToJSONTyped(
   value?: DeviceEnrollment | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

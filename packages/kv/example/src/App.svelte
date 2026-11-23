@@ -58,7 +58,7 @@ async function initKvNetwork(): Promise<void> {
 }
 
 $effect(() => {
-  initKvNetwork();
+  void initKvNetwork();
 });
 
 $effect(() => {

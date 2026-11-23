@@ -73,7 +73,7 @@ export function IdentityActionFromJSON(json: any): IdentityAction {
 
 export function IdentityActionFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IdentityAction {
   return json as IdentityAction;
 }
@@ -84,7 +84,7 @@ export function IdentityActionToJSON(value?: IdentityAction | null): any {
 
 export function IdentityActionToJSONTyped(
   value: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IdentityAction {
   return value as IdentityAction;
 }

@@ -14,7 +14,7 @@ test("all four owners are healthy in a real browser", async () => {
 
 test("browser authenticates and reads real User info", async () => {
   const login = await session();
-  const user = await json(
+  const user = await json<{ email: string }>(
     await fetch(`${backendURL}/idp/userinfo`, {
       headers: { Authorization: `Bearer ${login.access_token}` },
     })
@@ -24,7 +24,7 @@ test("browser authenticates and reads real User info", async () => {
 
 test("browser exchanges its session for Device access", async () => {
   const login = await session();
-  const token = await json(
+  const token = await json<{ access_token: string }>(
     await fetch(`${backendURL}/idp/oauth2/token`, {
       method: "POST",
       body: new URLSearchParams({
@@ -53,9 +53,15 @@ test("browser Storage SQL generates UUID primary keys and rejects supplied ones"
     bearerToken: () => login.access_token,
   });
   const resource = await storage.createDatabase(`browser-${crypto.randomUUID()}`);
-  const execute = async (sql: string, params: SqlValue[] = []) =>
-    (await storage.executeSql(resource.id, { statements: [{ sql, params }] }, ["read", "write"]))
-      .results[0].rows;
+  const execute = async (sql: string, params: SqlValue[] = []) => {
+    const response = await storage.executeSql(resource.id, { statements: [{ sql, params }] }, [
+      "read",
+      "write",
+    ]);
+    const result = response.results[0];
+    if (!result) throw new Error("Storage SQL execute returned no result");
+    return result.rows;
+  };
   const uuid5 = "018f0f8e-7b6d-5c4a-8f12-123456789abc";
   const uuid7 = "018f0f8e-7b6d-7c4a-8f12-123456789abc";
   const uuid = (value: string): SqlValue => ({ type: "uuid", value });

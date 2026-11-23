@@ -5,10 +5,7 @@ function encode(value: unknown): DbValue {
   if (value === null) return { type: "null" };
   if (typeof value === "string") return { type: "text", value };
   if (typeof value === "boolean") return { type: "bool", value };
-  if (
-    typeof value === "bigint" ||
-    (typeof value === "number" && Number.isSafeInteger(value))
-  ) {
+  if (typeof value === "bigint" || (typeof value === "number" && Number.isSafeInteger(value))) {
     return { type: "integer", value: String(value) };
   }
   throw new TypeError("SQL parameters must be text, booleans, integers or null");
@@ -26,7 +23,7 @@ function decode(value: DbValue): unknown {
 export async function execute(
   database: Database,
   sql: string,
-  params?: unknown[],
+  params?: unknown[]
 ): Promise<QueryResult> {
   const results = await database.client().executeRaw(sql, params?.map(encode));
   const last = results.at(-1) ?? { columns: [], rows: [] };

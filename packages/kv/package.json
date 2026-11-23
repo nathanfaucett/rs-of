@@ -32,8 +32,8 @@
     "build:all": "pnpm run build:wasm && pnpm run clean && pnpm run build:esm && pnpm run build:browser",
     "clean": "shx rm -rf esm types browser tsconfig.tsbuildinfo",
     "check": "tsc --noEmit",
-    "lint": "biome lint --config-path=. src biome.json package.json tsconfig.json rolldown.config.mjs",
-    "lint:fix": "biome lint --write --config-path=. src biome.json package.json tsconfig.json rolldown.config.mjs",
+    "lint": "biome check --error-on-warnings .",
+    "lint:fix": "biome check --write .",
     "format": "biome format .",
     "format:fix": "biome format --write .",
     "prepublishOnly": "pnpm run build:all"

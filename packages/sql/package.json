@@ -43,15 +43,15 @@
     "test": "playwright test",
     "test:package": "node browser-tests/package.mjs && SQL_TEST_PAGE=/consumer/index.html playwright test",
     "check": "tsc --noEmit",
-    "lint": "biome lint --config-path=. src biome.json package.json tsconfig.json rolldown.config.mjs",
-    "lint:fix": "biome lint --write --config-path=. src biome.json package.json tsconfig.json rolldown.config.mjs",
+    "lint": "biome check --error-on-warnings .",
+    "lint:fix": "biome check --write .",
     "format": "biome format .",
     "format:fix": "biome format --write .",
     "prepublishOnly": "pnpm run build:all"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.6",
-    "@playwright/test": "1.49.0",
+    "@playwright/test": "1.64.1",
     "rolldown": "1.2.16",
     "shx": "0.4.0",
     "typescript": "5.9.3",

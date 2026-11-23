@@ -4,17 +4,19 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { extractRustModels } from "./shared-rust-models.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
+const ts = createRequire(path.join(root, "packages/idp-client/package.json"))("typescript");
 const destinations = {
   idp: ["idp", ""],
   management: ["management", ""],
@@ -22,8 +24,7 @@ const destinations = {
   storage: ["storage", "generated"],
 };
 const selected = process.argv[2];
-if (selected && !destinations[selected])
-  throw new Error("Unknown OpenAPI document");
+if (selected && !destinations[selected]) throw new Error("Unknown OpenAPI document");
 const names = selected ? [selected] : Object.keys(destinations);
 const stage = mkdtempSync(path.join(root, ".openapi-generation-"));
 const pnpm = process.env.npm_execpath || "pnpm";
@@ -34,21 +35,106 @@ function run(command, args, cwd = root) {
     timeout: 180000,
   });
   if (result.error) throw result.error;
-  if (result.status !== 0)
-    throw new Error(`${command} failed (${result.status})`);
+  if (result.status !== 0) throw new Error(`${command} failed (${result.status})`);
+}
+function makeTypeScriptStrict(output) {
+  const files = [
+    path.join(output, "runtime.ts"),
+    ...["apis", "models"].flatMap((directory) =>
+      readdirSync(path.join(output, directory))
+        .filter((file) => file.endsWith(".ts"))
+        .map((file) => path.join(output, directory, file))
+    ),
+  ];
+  for (const target of files) {
+    let source = readFileSync(target, "utf8");
+    source = source
+      .replace(
+        /^([ \t]*(?:readonly[ \t]+)?[A-Za-z_$][\w$]*\?:)([^;\n]+);([ \t]*(?:\/\/.*)?)$/gm,
+        "$1 ($2) | undefined;$3"
+      )
+      .replace(/^([ \t]*)(\w+)\?\(([^()\n]*)\): ([^;\n]+);$/gm, "$1$2?: (($3) => $4) | undefined;")
+      .replace(/\bignoreDiscriminator\b/g, "_ignoreDiscriminator")
+      .replace(
+        /(export function instanceOf\w+\()value(: object\): )value( is \w+ \{\s*return true;)/g,
+        "$1_value$2_value$3"
+      );
+    if (target === path.join(output, "runtime.ts"))
+      source = source
+        .replace(/public cause:/g, "public override cause:")
+        .replace(/headers\?: HTTPHeaders;/g, "headers?: HTTPHeaders | undefined;")
+        .replace(
+          /credentials\?: RequestCredentials;/g,
+          "credentials?: RequestCredentials | undefined;"
+        )
+        .replace(/body\?: HTTPBody;/g, "body?: HTTPBody | undefined;")
+        .replace(
+          /credentials: this\.configuration\.credentials,/g,
+          "...(this.configuration.credentials === undefined ? {} : { credentials: this.configuration.credentials }),"
+        );
+    writeFileSync(target, source);
+  }
+}
+function organizeTypeScriptImports(output) {
+  const files = [
+    path.join(output, "runtime.ts"),
+    ...["apis", "models"].flatMap((directory) =>
+      readdirSync(path.join(output, directory))
+        .filter((file) => file.endsWith(".ts"))
+        .map((file) => path.join(output, directory, file))
+    ),
+  ];
+  const compilerOptions = {
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    target: ts.ScriptTarget.ES2022,
+    verbatimModuleSyntax: true,
+  };
+  const service = ts.createLanguageService({
+    directoryExists: ts.sys.directoryExists,
+    fileExists: ts.sys.fileExists,
+    getCompilationSettings: () => compilerOptions,
+    getCurrentDirectory: () => output,
+    getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
+    getDirectories: ts.sys.getDirectories,
+    getScriptFileNames: () => files,
+    getScriptSnapshot: (file) => ts.ScriptSnapshot.fromString(readFileSync(file, "utf8")),
+    getScriptVersion: () => "1",
+    readDirectory: ts.sys.readDirectory,
+    readFile: ts.sys.readFile,
+  });
+  try {
+    for (const target of files) {
+      const changes = service.organizeImports(
+        { type: "file", fileName: target },
+        compilerOptions,
+        {}
+      );
+      const edits = changes
+        .flatMap((change) => change.textChanges)
+        .sort((left, right) => right.span.start - left.span.start);
+      let source = readFileSync(target, "utf8");
+      for (const edit of edits) {
+        source =
+          source.slice(0, edit.span.start) +
+          edit.newText +
+          source.slice(edit.span.start + edit.span.length);
+      }
+      writeFileSync(target, source);
+    }
+  } finally {
+    service.dispose();
+  }
 }
 function restoreUnionCompositions(document, language, output) {
   const schemas = document.components?.schemas || {};
   for (const [name, schema] of Object.entries(schemas)) {
     const reference = schema.allOf?.find(
-      (part) => schemas[part.$ref?.split("/").at(-1)]?.oneOf,
+      (part) => schemas[part.$ref?.split("/").at(-1)]?.oneOf
     )?.$ref;
     if (!reference) continue;
     const parent = reference.split("/").at(-1);
-    const properties = Object.assign(
-      {},
-      ...schema.allOf.map((part) => part.properties || {}),
-    );
+    const properties = Object.assign({}, ...schema.allOf.map((part) => part.properties || {}));
     const required = schema.allOf.flatMap((part) => part.required || []);
     const fields = Object.entries(properties).map(([field, property]) => {
       const model = property.$ref?.split("/").at(-1);
@@ -60,16 +146,13 @@ function restoreUnionCompositions(document, language, output) {
       const filename = name.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
       writeFileSync(
         path.join(output, "src/models", `${filename}.rs`),
-        `// Generated from the canonical allOf/oneOf composition.\nuse crate::models;\nuse serde::{Deserialize, Serialize};\n#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]\npub struct ${name} {\n    #[serde(flatten)]\n    pub parameters: models::${parent},\n${fields.map(({ field, model }) => `    #[serde(rename = "${field}")]\n    pub ${field === "use" ? "r#use" : field}: ${model ? `models::${model}` : "String"},`).join("\n")}\n}\n`,
+        `// Generated from the canonical allOf/oneOf composition.\nuse crate::models;\nuse serde::{Deserialize, Serialize};\n#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]\npub struct ${name} {\n    #[serde(flatten)]\n    pub parameters: models::${parent},\n${fields.map(({ field, model }) => `    #[serde(rename = "${field}")]\n    pub ${field === "use" ? "r#use" : field}: ${model ? `models::${model}` : "String"},`).join("\n")}\n}\n`
       );
     } else {
-      const imports = [
-        parent,
-        ...fields.flatMap(({ model }) => (model ? [model] : [])),
-      ];
+      const imports = [parent, ...fields.flatMap(({ model }) => (model ? [model] : []))];
       writeFileSync(
         path.join(output, "models", `${name}.ts`),
-        `// Generated from the canonical allOf/oneOf composition.\n${imports.map((model) => `import { type ${model}, ${model}FromJSON, ${model}ToJSON } from "./${model}.js";`).join("\n")}\nexport type ${name} = ${parent} & { ${fields.map(({ field, model }) => `${field}: ${model || "string"}`).join("; ")} };\nexport function instanceOf${name}(value: object): value is ${name} { return ${JSON.stringify(required)}.every(key => key in value); }\nexport function ${name}FromJSON(json: any): ${name} { return ${name}FromJSONTyped(json, false); }\nexport function ${name}FromJSONTyped(json: any, ignoreDiscriminator: boolean): ${name} {\n    if (json == null) return json;\n    const parameters = ${parent}FromJSON(json);\n    if (!parameters || !Object.keys(parameters).length) throw new Error("Invalid ${parent}");\n    return { ...parameters, ${fields.map(({ field, model }) => `${field}: ${model ? `${model}FromJSON(json["${field}"])` : `json["${field}"]`}`).join(", ")} };\n}\nexport function ${name}ToJSON(value: any): any { return ${name}ToJSONTyped(value); }\nexport function ${name}ToJSONTyped(value?: ${name} | null, ignoreDiscriminator = false): any {\n    if (value == null) return value;\n    return { ...${parent}ToJSON(value), ${fields.map(({ field, model }) => `${field}: ${model ? `${model}ToJSON(value["${field}"])` : `value["${field}"]`}`).join(", ")} };\n}\n`,
+        `// Generated from the canonical allOf/oneOf composition.\n${imports.map((model) => `import { type ${model}, ${model}FromJSON, ${model}ToJSON } from "./${model}.js";`).join("\n")}\nexport type ${name} = ${parent} & { ${fields.map(({ field, model }) => `${field}: ${model || "string"}`).join("; ")} };\nexport function instanceOf${name}(value: object): value is ${name} { return ${JSON.stringify(required)}.every(key => key in value); }\nexport function ${name}FromJSON(json: any): ${name} { return ${name}FromJSONTyped(json, false); }\nexport function ${name}FromJSONTyped(json: any, ignoreDiscriminator: boolean): ${name} {\n    if (json == null) return json;\n    const parameters = ${parent}FromJSON(json);\n    if (!parameters || !Object.keys(parameters).length) throw new Error("Invalid ${parent}");\n    return { ...parameters, ${fields.map(({ field, model }) => `${field}: ${model ? `${model}FromJSON(json["${field}"])` : `json["${field}"]`}`).join(", ")} };\n}\nexport function ${name}ToJSON(value: any): any { return ${name}ToJSONTyped(value); }\nexport function ${name}ToJSONTyped(value?: ${name} | null, ignoreDiscriminator = false): any {\n    if (value == null) return value;\n    return { ...${parent}ToJSON(value), ${fields.map(({ field, model }) => `${field}: ${model ? `${model}ToJSON(value["${field}"])` : `value["${field}"]`}`).join(", ")} };\n}\n`
       );
     }
   }
@@ -79,16 +162,12 @@ function generate(name, language, output) {
     ? path.resolve(process.env.OPENAPI_SPEC_FILE)
     : path.join(root, "openapi", `${name}.json`);
   const document = JSON.parse(readFileSync(spec, "utf8"));
-  if (
-    !document.openapi ||
-    !document.paths ||
-    !Object.keys(document.paths).length
-  )
+  if (!document.openapi || !document.paths || !Object.keys(document.paths).length)
     throw new Error("Invalid or empty OpenAPI document");
   run(
     pnpm,
     ["exec", "openapi-generator-cli", "validate", "-i", spec],
-    path.join(root, "packages/idp-client"),
+    path.join(root, "packages/idp-client")
   );
   const args = [
     "exec",
@@ -108,27 +187,22 @@ function generate(name, language, output) {
       path.join(root, "scripts/openapi-templates/config.json"),
       "-t",
       path.join(root, "scripts/openapi-templates"),
-      `--additional-properties=packageName=of-${name === "storage" ? "storage-api-client" : `${name}-client`},useSingleRequestParameter=true,useChrono=false`,
+      `--additional-properties=packageName=of-${name === "storage" ? "storage-api-client" : `${name}-client`},useSingleRequestParameter=true,useChrono=false`
     );
   else
     args.push(
       "--type-mappings=DateTime=Date",
-      "--additional-properties=supportsES6=true,typescriptThreePlus=true,withInterfaces=true,useSingleRequestParameter=true,importFileExtension=.js",
+      "--additional-properties=supportsES6=true,typescriptThreePlus=true,withInterfaces=true,useSingleRequestParameter=true,importFileExtension=.js"
     );
   run(pnpm, args, path.join(root, "packages/idp-client"));
   if (language === "typescript-fetch") {
     if (document.paths["/"]) {
       const apis = path.join(output, "apis");
-      for (const file of readdirSync(apis).filter((file) =>
-        file.endsWith("Api.ts"),
-      )) {
+      for (const file of readdirSync(apis).filter((file) => file.endsWith("Api.ts"))) {
         const target = path.join(apis, file);
         writeFileSync(
           target,
-          readFileSync(target, "utf8").replace(
-            "let urlPath = `/`;",
-            "let urlPath = ``;",
-          ),
+          readFileSync(target, "utf8").replace("let urlPath = `/`;", "let urlPath = ``;")
         );
       }
     }
@@ -143,31 +217,25 @@ function generate(name, language, output) {
         api,
         readFileSync(api, "utf8").replace(
           "export const TokenGrantTypeEnum = {",
-          `export const TokenGrantTypeEnum = {\n${grants.map((grant) => `${JSON.stringify(grant)}: ${JSON.stringify(grant)},`).join("\n")}`,
-        ),
+          `export const TokenGrantTypeEnum = {\n${grants.map((grant) => `${JSON.stringify(grant)}: ${JSON.stringify(grant)},`).join("\n")}`
+        )
       );
     }
     const models = path.join(output, "models");
-    for (const file of readdirSync(models).filter((file) =>
-      file.endsWith(".ts"),
-    )) {
+    for (const file of readdirSync(models).filter((file) => file.endsWith(".ts"))) {
       const target = path.join(models, file);
       let source = readFileSync(target, "utf8");
       source = source.replace(/instanceOf(\w+)\(json\)/g, (match, name) =>
         schemas[name]?.required?.length
           ? `${JSON.stringify(schemas[name].required)}.every(key => key in json)`
-          : match,
+          : match
       );
       const name = file.replace(/\.ts$/, "");
       if (schemas[name]?.additionalProperties === false) {
-        const keys = JSON.stringify(
-          Object.keys(schemas[name].properties || {}),
-        );
+        const keys = JSON.stringify(Object.keys(schemas[name].properties || {}));
         source = source.replace(
-          new RegExp(
-            `(export function ${name}FromJSONTyped\\([^]*?\\)\\s*:\\s*[^\\{]+\\{)`,
-          ),
-          `$1\n    if (json && typeof json === "object" && Object.keys(json).some(key => !${keys}.includes(key))) throw new Error("Unexpected ${name} field");`,
+          new RegExp(`(export function ${name}FromJSONTyped\\([^]*?\\)\\s*:\\s*[^\\{]+\\{)`),
+          `$1\n    if (json && typeof json === "object" && Object.keys(json).some(key => !${keys}.includes(key))) throw new Error("Unexpected ${name} field");`
         );
       }
       writeFileSync(target, source);
@@ -177,57 +245,48 @@ function generate(name, language, output) {
     const manifest = path.join(output, "Cargo.toml");
     let manifestSource = readFileSync(manifest, "utf8").replace(
       'of-model = { path = "../model", default-features = false }',
-      'of-model = { path = "../model", default-features = false, features = ["std"] }',
+      'of-model = { path = "../model", default-features = false, features = ["std"] }'
     );
-    if (!manifestSource.includes("[lints]"))
-      manifestSource += "\n[lints]\nworkspace = true\n";
+    if (!manifestSource.includes("[lints]")) manifestSource += "\n[lints]\nworkspace = true\n";
     writeFileSync(manifest, manifestSource);
     const closed = new Set(
       Object.entries(document.components?.schemas || {})
         .filter(([, schema]) => schema.additionalProperties === false)
-        .map(([name]) => name),
+        .map(([name]) => name)
     );
     const upgrades = new Set(
       Object.values(document.paths).flatMap((item) =>
         Object.values(item)
           .filter((operation) => operation.responses?.["101"])
           .map((operation) =>
-            operation.operationId.replace(
-              /[A-Z]/g,
-              (letter) => `_${letter.toLowerCase()}`,
-            ),
-          ),
-      ),
+            operation.operationId.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+          )
+      )
     );
     const apis = path.join(output, "src/apis");
     const apiIndex = path.join(apis, "mod.rs");
     writeFileSync(
       apiIndex,
-      readFileSync(apiIndex, "utf8").replace(
-        /^mod support;$/m,
-        "pub mod support;",
-      ),
+      readFileSync(apiIndex, "utf8").replace(/^mod support;$/m, "pub mod support;")
     );
-    for (const file of readdirSync(apis).filter((file) =>
-      file.endsWith("_api.rs"),
-    )) {
+    for (const file of readdirSync(apis).filter((file) => file.endsWith("_api.rs"))) {
       const target = path.join(apis, file);
       let source = readFileSync(target, "utf8").replace(
         "#[derive(Clone, Debug)]\npub struct TokenParams",
-        "#[derive(Clone, Debug, Default)]\npub struct TokenParams",
+        "#[derive(Clone, Debug, Default)]\npub struct TokenParams"
       );
       if (document.paths["/"])
         source = source.replace(
           'format!("{}/", configuration.base_path)',
-          'format!("{}", configuration.base_path)',
+          'format!("{}", configuration.base_path)'
         );
       source = source.replace(
-        /pub async fn (\w+)\(([^{}]*?)\) -> Result<\(\), Error<(\w+)>> \{([\s\S]*?)    let resp = configuration.client.execute\(req\).await\?;/g,
+        /pub async fn (\w+)\(([^{}]*?)\) -> Result<\(\), Error<(\w+)>> \{([\s\S]*?) {4}let resp = configuration.client.execute\(req\).await\?;/g,
         (operation, name, args, error, build) => {
           if (!upgrades.has(name)) return operation;
           const builder = `pub fn ${name}_request(${args}) -> Result<reqwest::Request, Error<${error}>> {${build}    Ok(req)\n}\n\n`;
           return `${builder}pub async fn ${name}(${args}) -> Result<reqwest::Response, Error<${error}>> {\n    let req = ${name}_request(configuration, params)?;\n    let resp = configuration.client.execute(req).await?;`;
-        },
+        }
       );
       for (const name of upgrades) {
         const start = source.indexOf(`pub async fn ${name}(`);
@@ -238,8 +297,8 @@ function generate(name, language, output) {
           operation,
           operation.replace(
             /if [^\n]*false \{\n\s*Ok\(\(\)\)/,
-            "if status == reqwest::StatusCode::SWITCHING_PROTOCOLS {\n        Ok(resp)",
-          ),
+            "if status == reqwest::StatusCode::SWITCHING_PROTOCOLS {\n        Ok(resp)"
+          )
         );
       }
       writeFileSync(target, source);
@@ -251,14 +310,13 @@ function generate(name, language, output) {
       writeFileSync(
         target,
         source.replace(/pub struct (\w+) \{/g, (declaration, name) =>
-          closed.has(name)
-            ? `#[serde(deny_unknown_fields)]\n${declaration}`
-            : declaration,
-        ),
+          closed.has(name) ? `#[serde(deny_unknown_fields)]\n${declaration}` : declaration
+        )
       );
     }
   }
   restoreUnionCompositions(document, language, output);
+  if (language === "typescript-fetch") makeTypeScriptStrict(output);
   for (const entry of readdirSync(output)) {
     if (
       entry !== "src" &&
@@ -270,6 +328,7 @@ function generate(name, language, output) {
     )
       rmSync(path.join(output, entry), { recursive: true, force: true });
   }
+  if (language === "typescript-fetch") organizeTypeScriptImports(output);
 }
 const replacements = [];
 try {
@@ -281,7 +340,7 @@ try {
     symlinkSync(
       path.join(root, `packages/${owner}-client/node_modules`),
       path.join(stage, `packages/${owner}-client/node_modules`),
-      "dir",
+      "dir"
     );
     replacements.push([staged, source]);
   }
@@ -306,30 +365,16 @@ try {
           recursive: true,
           force: true,
         });
-    run(pnpm, [
-      "exec",
-      "biome",
-      "format",
-      "--write",
-      "--format-with-errors=false",
-      ts,
-    ]);
+    run(pnpm, ["exec", "biome", "format", "--write", "--format-with-errors=false", ts]);
     cpSync(ts, target, { recursive: true });
     generate(name, "rust", path.join(rust, name));
     const modelOwner = name === "storage" ? "storage_api" : name;
     const shared = path.join(stage, "models", modelOwner);
     extractRustModels(path.join(rust, name), modelOwner, shared);
     run("rustfmt", ["--edition", "2024", path.join(shared, "mod.rs")]);
-    replacements.push([
-      shared,
-      path.join(root, "services/model/src/http", modelOwner),
-    ]);
-    const crateName =
-      name === "storage" ? "storage-api-client" : `${name}-client`;
-    replacements.push([
-      path.join(rust, name),
-      path.join(root, "services", crateName),
-    ]);
+    replacements.push([shared, path.join(root, "services/model/src/http", modelOwner)]);
+    const crateName = name === "storage" ? "storage-api-client" : `${name}-client`;
+    replacements.push([path.join(rust, name), path.join(root, "services", crateName)]);
   }
   for (const name of names) {
     const source = path.join(rust, name, "src");
@@ -343,12 +388,20 @@ try {
         "exec",
         "tsc",
         "--target",
-        "es2020",
+        "es2022",
         "--module",
         "es2020",
         "--moduleResolution",
         "bundler",
         "--strict",
+        "--exactOptionalPropertyTypes",
+        "--noUnusedLocals",
+        "--noUnusedParameters",
+        "--noImplicitOverride",
+        "--allowUnreachableCode",
+        "false",
+        "--allowUnusedLabels",
+        "false",
         "--skipLibCheck",
         "--outDir",
         path.join(stage, "build", owner),
@@ -356,12 +409,10 @@ try {
           .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"))
           .map((file) => path.join(source, file)),
         ...names
-          .filter(
-            (name) => destinations[name][0] === owner && destinations[name][1],
-          )
+          .filter((name) => destinations[name][0] === owner && destinations[name][1])
           .map((name) => path.join(source, destinations[name][1], "index.ts")),
       ],
-      path.join(root, "packages/idp-client"),
+      path.join(root, "packages/idp-client")
     );
   }
   const moved = [];
@@ -375,7 +426,7 @@ try {
       renameSync(from, to);
     }
     const crateNames = names.map((name) =>
-      name === "storage" ? "storage-api-client" : `${name}-client`,
+      name === "storage" ? "storage-api-client" : `${name}-client`
     );
     run("cargo", [
       "fmt",

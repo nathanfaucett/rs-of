@@ -10,8 +10,8 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: "list",
   use: {
-    baseURL: "https://sql-example.localhost:1355",
-    ignoreHTTPSErrors: true,
+    baseURL: "http://127.0.0.1:4174",
+    launchOptions: process.env.BROWSER_PATH ? { executablePath: process.env.BROWSER_PATH } : {},
     trace: "on-first-retry",
   },
   projects: [
@@ -19,8 +19,8 @@ export default defineConfig({
     { name: "firefox", use: { ...devices["Desktop Firefox"] } },
   ],
   webServer: {
-    command: "npx portless sql-example vite dev",
-    url: "https://sql-example.localhost:1355",
+    command: "pnpm exec vite dev --host 127.0.0.1 --port 4174 --strictPort",
+    url: "http://127.0.0.1:4174",
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },

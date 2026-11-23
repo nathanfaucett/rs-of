@@ -5,13 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
-import {
-  appURL,
-  backendURL,
-  freePort,
-  passwordManagerURL,
-  startBackend,
-} from "./backend.mjs";
+import { appURL, backendURL, freePort, passwordManagerURL, startBackend } from "./backend.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -60,13 +54,9 @@ test("shares explicit runner ports with subprocesses and validates them", async 
     E2E_APP_PORT: "41002",
     E2E_PASSWORD_MANAGER_PORT: "41003",
   };
-  const { stdout } = await execFileAsync(
-    process.execPath,
-    ["--input-type=module", "-e", code],
-    {
-      env,
-    },
-  );
+  const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", code], {
+    env,
+  });
   assert.deepEqual(JSON.parse(stdout), [
     "http://127.0.0.1:41001",
     "http://127.0.0.1:41002",
@@ -76,7 +66,7 @@ test("shares explicit runner ports with subprocesses and validates them", async 
     execFileAsync(process.execPath, ["--input-type=module", "-e", code], {
       env: { ...env, E2E_BACKEND_PORT: "0" },
     }),
-    /E2E_BACKEND_PORT must be an integer/,
+    /E2E_BACKEND_PORT must be an integer/
   );
 });
 
@@ -89,10 +79,7 @@ test("waits for all owners, allocates dynamic ports, isolates data, and stops th
     assert.notEqual(first.dataDir, second.dataDir);
     await access(`${first.dataDir}/started`);
     for (const owner of ["idp", "device", "storage", "management"]) {
-      assert.equal(
-        (await fetch(`${first.baseURL}/${owner}/health`)).status,
-        200,
-      );
+      assert.equal((await fetch(`${first.baseURL}/${owner}/health`)).status, 200);
     }
   } finally {
     await Promise.all([first.stop(), second.stop()]);
@@ -120,7 +107,7 @@ test("refuses an occupied port instead of accepting another backend's health", a
         port: Number(new URL(existing.baseURL).port),
         args: ["-e", "setTimeout(() => {}, 10000)"],
       }),
-      /already in use/,
+      /already in use/
     );
   } finally {
     await existing.stop();
@@ -136,7 +123,7 @@ test("reports a child exit without waiting for the health deadline", async () =>
 test("starts a prebuilt executable with the local CLI and an isolated data directory", async () => {
   const directory = await mkdtemp(join(tmpdir(), "of-launcher-test-"));
   const binary = join(directory, "server.cjs");
-  await writeFile(binary, `#!${process.execPath}\n` + fixture, { mode: 0o755 });
+  await writeFile(binary, `#!${process.execPath}\n${fixture}`, { mode: 0o755 });
   try {
     const backend = await startBackend({
       binary,
@@ -161,7 +148,7 @@ test("uses an explicit prebuilt binary without falling back to Cargo", async () 
       port: await freePort(),
       timeoutMs: 500,
     }),
-    /ENOENT/,
+    /ENOENT/
   );
 });
 

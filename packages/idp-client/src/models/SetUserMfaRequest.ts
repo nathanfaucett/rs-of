@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -44,7 +43,7 @@ export function SetUserMfaRequestFromJSON(json: any): SetUserMfaRequest {
 
 export function SetUserMfaRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): SetUserMfaRequest {
   if (
     json &&
@@ -67,7 +66,7 @@ export function SetUserMfaRequestToJSON(json: any): SetUserMfaRequest {
 
 export function SetUserMfaRequestToJSONTyped(
   value?: SetUserMfaRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

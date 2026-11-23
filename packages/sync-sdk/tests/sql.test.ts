@@ -1,5 +1,5 @@
-import { expect, it, vi } from "vitest";
 import type { Database, Result } from "@ofsdk/sql";
+import { expect, it, vi } from "vitest";
 import { execute } from "../src/sql";
 
 function stub(results: Result[]) {
@@ -24,13 +24,7 @@ it("uses executeRaw with tagged parameters and decodes the last result", async (
     },
   ]);
 
-  const result = await execute(database, "SELECT ?", [
-    null,
-    "text",
-    false,
-    7,
-    8n,
-  ]);
+  const result = await execute(database, "SELECT ?", [null, "text", false, 7, 8n]);
 
   expect(executeRaw).toHaveBeenCalledWith("SELECT ?", [
     { type: "null" },
@@ -59,7 +53,7 @@ it("rejects unsupported parameters before executing SQL", async () => {
   const { database, executeRaw } = stub([]);
 
   await expect(execute(database, "SELECT ?", [1.5])).rejects.toThrow(
-    "SQL parameters must be text, booleans, integers or null",
+    "SQL parameters must be text, booleans, integers or null"
   );
   expect(executeRaw).not.toHaveBeenCalled();
 });

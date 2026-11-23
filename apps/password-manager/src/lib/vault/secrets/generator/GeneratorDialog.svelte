@@ -1,7 +1,7 @@
 <script lang="ts">
 
-	import PasswordGenerator from "./PasswordGenerator.svelte";
 	import Dialog from "$lib/shared/components/Dialog.svelte";
+	import PasswordGenerator from "./PasswordGenerator.svelte";
 
 	let { onuse }: { onuse?: (value: string) => void } = $props();
 

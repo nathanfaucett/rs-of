@@ -18,6 +18,10 @@
     let { userInfo, client, disabled, onAllow, onDeny }: ClientProps = $props();
 
     let loading = $state(false);
+    const username = $derived.by(() => {
+        const { name } = userInfo;
+        return name ?? userInfo.sub;
+    });
 
     async function onAllowInternal() {
         try {
@@ -49,7 +53,7 @@
     </div>
 
     <p class="text-center">
-        {m.authorize_wants_to_access({ username: userInfo.name })}
+        {m.authorize_wants_to_access({ username })}
     </p>
 </div>
 

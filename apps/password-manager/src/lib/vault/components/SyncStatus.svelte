@@ -1,8 +1,9 @@
 <script lang="ts">
-import { Alert, Card } from "$lib/ui";
-import { vaultStateModule } from "$lib/shared/state/vault.svelte";
-import { syncStateModule } from "$lib/shared/state/sync.svelte";
+import { resolve } from "$app/paths";
 import { authState } from "$lib/auth/auth.svelte";
+import { syncStateModule } from "$lib/shared/state/sync.svelte";
+import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+import { Alert, Card } from "$lib/ui";
 </script>
 
 <Card class="w-full">
@@ -28,12 +29,14 @@ import { authState } from "$lib/auth/auth.svelte";
     </div>
 
     {#if vaultStateModule.vaultData?.isSynced}
-      <p class="text-sm text-muted-foreground">Select this vault through the Device service to replicate it to an approved Device.</p>
+      <p class="text-sm text-muted-foreground">
+        Select this vault through the Device service to replicate it to an approved Device.
+      </p>
     {:else if !authState.isAuthenticated}
       <p class="text-sm text-muted-foreground">
         Your vault is stored on this device. Sign in to your Sync Server to enable synchronization.
       </p>
-      <a class="btn btn-primary btn-md w-full" href="/login">Sign in to sync</a>
+      <a class="btn btn-primary btn-md w-full" href={resolve("/login")}>Sign in to sync</a>
     {:else if syncStateModule.isInitializing}
       <p class="text-sm text-muted-foreground">Connecting to the Sync Server…</p>
     {:else if syncStateModule.initError}

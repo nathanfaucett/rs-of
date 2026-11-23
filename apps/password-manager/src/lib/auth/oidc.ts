@@ -1,5 +1,9 @@
-import { OidcClient, type OidcClientOptions, type OidcTokenResponse, type OidcUserInfo } from "@ofsdk/oidc-client";
-
+import {
+  OidcClient,
+  type OidcClientOptions,
+  type OidcTokenResponse,
+  type OidcUserInfo,
+} from "@ofsdk/oidc-client";
 
 export interface OidcAuthConfig {
   authority: string;

@@ -12,17 +12,15 @@
  * Do not edit the class manually.
  */
 
-import * as runtime from "../runtime.js";
 import {
   type IntrospectionRequest,
-  IntrospectionRequestFromJSON,
   IntrospectionRequestToJSON,
 } from "../models/IntrospectionRequest.js";
 import {
   type IntrospectionResponse,
   IntrospectionResponseFromJSON,
-  IntrospectionResponseToJSON,
 } from "../models/IntrospectionResponse.js";
+import * as runtime from "../runtime.js";
 
 export interface IntrospectRequest {
   /**

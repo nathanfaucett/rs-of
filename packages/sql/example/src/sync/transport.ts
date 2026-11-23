@@ -7,7 +7,7 @@ export class LoopbackTransport {
   private pendingResolve: ((value: Uint8Array) => void) | null = null;
   private pendingReject: ((error: Error) => void) | null = null;
   private peer: LoopbackTransport | null = null;
-  closed = false;
+  closed: boolean = false;
 
   static pair(): [LoopbackTransport, LoopbackTransport] {
     const a = new LoopbackTransport();

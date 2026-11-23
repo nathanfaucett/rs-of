@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -39,7 +38,7 @@ export function UpdateDeviceRequestFromJSON(json: any): UpdateDeviceRequest {
 
 export function UpdateDeviceRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): UpdateDeviceRequest {
   if (json == null) {
     return json;
@@ -55,7 +54,7 @@ export function UpdateDeviceRequestToJSON(json: any): UpdateDeviceRequest {
 
 export function UpdateDeviceRequestToJSONTyped(
   value?: UpdateDeviceRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

@@ -12,35 +12,14 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
-import type { TokenUse } from "./TokenUse.js";
-import {
-  TokenUseFromJSON,
-  TokenUseFromJSONTyped,
-  TokenUseToJSON,
-  TokenUseToJSONTyped,
-} from "./TokenUse.js";
-import type { TokenType } from "./TokenType.js";
-import {
-  TokenTypeFromJSON,
-  TokenTypeFromJSONTyped,
-  TokenTypeToJSON,
-  TokenTypeToJSONTyped,
-} from "./TokenType.js";
 import type { AuthorizationDetail } from "./AuthorizationDetail.js";
-import {
-  AuthorizationDetailFromJSON,
-  AuthorizationDetailFromJSONTyped,
-  AuthorizationDetailToJSON,
-  AuthorizationDetailToJSONTyped,
-} from "./AuthorizationDetail.js";
+import { AuthorizationDetailFromJSON, AuthorizationDetailToJSON } from "./AuthorizationDetail.js";
 import type { PrincipalType } from "./PrincipalType.js";
-import {
-  PrincipalTypeFromJSON,
-  PrincipalTypeFromJSONTyped,
-  PrincipalTypeToJSON,
-  PrincipalTypeToJSONTyped,
-} from "./PrincipalType.js";
+import { PrincipalTypeFromJSON, PrincipalTypeToJSON } from "./PrincipalType.js";
+import type { TokenType } from "./TokenType.js";
+import { TokenTypeFromJSON, TokenTypeToJSON } from "./TokenType.js";
+import type { TokenUse } from "./TokenUse.js";
+import { TokenUseFromJSON, TokenUseToJSON } from "./TokenUse.js";
 
 /**
  *
@@ -55,7 +34,7 @@ export interface StandardClaims {
   /**
    *
    */
-  authorizationDetails?: Array<AuthorizationDetail> | null;
+  authorizationDetails?: (Array<AuthorizationDetail> | null) | undefined;
   /**
    *
    */
@@ -83,7 +62,7 @@ export interface StandardClaims {
   /**
    *
    */
-  resource?: string | null;
+  resource?: (string | null) | undefined;
   /**
    *
    */
@@ -138,7 +117,7 @@ export function StandardClaimsFromJSON(json: any): StandardClaims {
 
 export function StandardClaimsFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): StandardClaims {
   if (json == null) {
     return json;
@@ -176,7 +155,7 @@ export function StandardClaimsToJSON(json: any): StandardClaims {
 
 export function StandardClaimsToJSONTyped(
   value?: StandardClaims | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

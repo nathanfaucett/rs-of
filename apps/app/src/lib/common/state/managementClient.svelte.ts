@@ -1,8 +1,4 @@
-import {
-  Configuration,
-  type ConfigurationParameters,
-  DefaultApi,
-} from "@ofsdk/management-client";
+import { Configuration, type ConfigurationParameters, DefaultApi } from "@ofsdk/management-client";
 import { createStorage } from "@ofsdk/svelte-headless";
 import { isTauri } from "@tauri-apps/api/core";
 import { goto } from "$app/navigation";
@@ -10,13 +6,13 @@ import { resolve } from "$app/paths";
 import { page } from "$app/state";
 import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
-import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
 import { ownerAccessToken, usesRemoteApis } from "./idpClient.svelte";
+import { ensureLocalhostBaseUrl } from "./localhostBaseUrl.svelte";
 import { validateServiceApiUrl } from "./serviceApi";
 
 const managementApiUrl = createStorage<string | null>(
   "management-api-url",
-  env.PUBLIC_MANAGEMENT_BASE_URL ?? null,
+  env.PUBLIC_MANAGEMENT_BASE_URL ?? null
 );
 
 function readAccessToken(): Promise<string> {
@@ -61,9 +57,7 @@ const defaultConfigurationParameters: ConfigurationParameters = {
   credentials: "same-origin",
 };
 
-export const lidpManagementConfiguration = new Configuration(
-  defaultConfigurationParameters,
-);
+export const lidpManagementConfiguration = new Configuration(defaultConfigurationParameters);
 
 export const managementApi = new DefaultApi(lidpManagementConfiguration);
 
@@ -80,8 +74,6 @@ export function getManagementApiUrl(): string | null {
   return managementApiUrl.item;
 }
 
-export async function validateManagementApiUrl(
-  basePath: string,
-): Promise<boolean> {
+export async function validateManagementApiUrl(basePath: string): Promise<boolean> {
   return validateServiceApiUrl(basePath, "management");
 }

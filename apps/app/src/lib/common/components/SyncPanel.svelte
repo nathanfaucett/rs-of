@@ -1,11 +1,16 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { Alert, Card } from "$lib/ui";
     import { checkStorageSyncCapability } from "../state/deviceClient.svelte";
     import {
-        directions, ownerBlocker, saveSyncTarget, syncContext, syncTarget,
-        validateSyncTarget, type SyncDirection,
+        directions,
+        ownerBlocker,
+        type SyncDirection,
+        saveSyncTarget,
+        syncContext,
+        syncTarget,
+        validateSyncTarget,
     } from "../state/sync.svelte";
-    import { Alert, Card } from "$lib/ui";
 
     let busy = $state(true);
     let setup = $state(false);

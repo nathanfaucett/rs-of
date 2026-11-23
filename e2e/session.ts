@@ -1,19 +1,26 @@
 import { createHash, randomBytes } from "node:crypto";
-import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { type APIRequestContext, expect, type Page } from "@playwright/test";
 import { StorageClient } from "../packages/storage-client/src/index";
 import { backendURL } from "./backend.mjs";
 import { checkedFetch } from "./http";
 
-export async function json(response: Awaited<ReturnType<APIRequestContext["post"]>>) {
+export interface Session {
+  access_token: string;
+  id_token: string;
+}
+
+export async function json<T = unknown>(
+  response: Awaited<ReturnType<APIRequestContext["post"]>>
+): Promise<T> {
   expect(
     response.ok(),
     `${response.url()}: ${response.status()} ${await response.text()}`
   ).toBeTruthy();
-  return (await response.json()) as Record<string, string>;
+  return (await response.json()) as T;
 }
 
 export async function passwordSession(request: APIRequestContext) {
-  return json(
+  return json<Session>(
     await request.post(`${backendURL}/idp/oauth2/token`, {
       form: {
         grant_type: "password",
@@ -43,7 +50,7 @@ export async function frontendSession(
   );
   const verifier = randomBytes(32).toString("base64url");
   const state = randomBytes(16).toString("hex");
-  const authorization = await json(
+  const authorization = await json<{ state: string; code: string }>(
     await request.post(`${backendURL}/idp/oauth2/auth`, {
       headers,
       data: {
@@ -58,7 +65,7 @@ export async function frontendSession(
     })
   );
   expect(authorization.state).toBe(state);
-  const session = await json(
+  const session = await json<Session>(
     await request.post(`${backendURL}/idp/oauth2/token`, {
       form: {
         grant_type: "authorization_code",
@@ -71,7 +78,7 @@ export async function frontendSession(
   );
   expect(session.access_token).toEqual(expect.any(String));
   expect(session.id_token).toEqual(expect.any(String));
-  const user = await json(
+  const user = await json<{ email: string }>(
     await request.get(`${backendURL}/idp/userinfo`, {
       headers: { Authorization: `Bearer ${session.access_token}` },
     })

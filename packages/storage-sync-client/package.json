@@ -11,9 +11,12 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "lint": "biome lint .",
+    "lint": "biome check --error-on-warnings .",
+    "lint:fix": "biome check --write .",
     "format": "biome format .",
+    "format:fix": "biome format --write .",
     "fixtures": "python3 scripts/generate-fixtures.py",
     "fixtures:check": "python3 scripts/generate-fixtures.py --check"
   },

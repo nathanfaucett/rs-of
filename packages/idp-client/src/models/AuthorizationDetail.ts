@@ -12,13 +12,10 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { StorageAuthorizationAction } from "./StorageAuthorizationAction.js";
 import {
   StorageAuthorizationActionFromJSON,
-  StorageAuthorizationActionFromJSONTyped,
   StorageAuthorizationActionToJSON,
-  StorageAuthorizationActionToJSONTyped,
 } from "./StorageAuthorizationAction.js";
 
 /**
@@ -63,7 +60,7 @@ export function AuthorizationDetailFromJSON(json: any): AuthorizationDetail {
 
 export function AuthorizationDetailFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): AuthorizationDetail {
   if (json == null) {
     return json;
@@ -80,7 +77,7 @@ export function AuthorizationDetailToJSON(json: any): AuthorizationDetail {
 
 export function AuthorizationDetailToJSONTyped(
   value?: AuthorizationDetail | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

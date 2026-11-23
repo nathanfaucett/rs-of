@@ -1,14 +1,34 @@
 {
-  "extends": ["../../biome.json"],
+  "extends": "//",
   "files": {
     "ignoreUnknown": true,
     "includes": [
       "src/**/*",
+      "example/**/*",
       "biome.json",
       "package.json",
       "tsconfig.json",
       "rolldown.config.mjs",
-      "!example"
+      "!example/dist",
+      "!example/playwright-report",
+      "!example/test-results"
     ]
-  }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["example/**/*.svelte"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    }
+  ]
 }

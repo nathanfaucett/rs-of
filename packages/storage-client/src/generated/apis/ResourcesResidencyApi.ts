@@ -12,12 +12,12 @@
  * Do not edit the class manually.
  */
 
-import * as runtime from "../runtime.js";
 import {
   type ResourceResidency,
   ResourceResidencyFromJSON,
   ResourceResidencyToJSON,
 } from "../models/ResourceResidency.js";
+import * as runtime from "../runtime.js";
 
 export interface GetFileSystemResidencyRequest {
   /**

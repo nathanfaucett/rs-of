@@ -12,14 +12,9 @@
  * Do not edit the class manually.
  */
 
+import { type SqlRequest, SqlRequestToJSON } from "../models/SqlRequest.js";
+import { type SqlResponse, SqlResponseFromJSON } from "../models/SqlResponse.js";
 import * as runtime from "../runtime.js";
-import {
-  type DatabaseFailure,
-  DatabaseFailureFromJSON,
-  DatabaseFailureToJSON,
-} from "../models/DatabaseFailure.js";
-import { type SqlRequest, SqlRequestFromJSON, SqlRequestToJSON } from "../models/SqlRequest.js";
-import { type SqlResponse, SqlResponseFromJSON, SqlResponseToJSON } from "../models/SqlResponse.js";
 
 export interface ExecuteSqlRequest {
   /**

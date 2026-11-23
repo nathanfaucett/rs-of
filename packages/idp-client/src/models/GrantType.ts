@@ -40,7 +40,7 @@ export function GrantTypeFromJSON(json: any): GrantType {
   return GrantTypeFromJSONTyped(json, false);
 }
 
-export function GrantTypeFromJSONTyped(json: any, ignoreDiscriminator: boolean): GrantType {
+export function GrantTypeFromJSONTyped(json: any, _ignoreDiscriminator: boolean): GrantType {
   return json as GrantType;
 }
 
@@ -48,6 +48,6 @@ export function GrantTypeToJSON(value?: GrantType | null): any {
   return value as any;
 }
 
-export function GrantTypeToJSONTyped(value: any, ignoreDiscriminator: boolean): GrantType {
+export function GrantTypeToJSONTyped(value: any, _ignoreDiscriminator: boolean): GrantType {
   return value as GrantType;
 }

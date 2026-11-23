@@ -12,49 +12,24 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
-import type { ClientType } from "./ClientType.js";
-import {
-  ClientTypeFromJSON,
-  ClientTypeFromJSONTyped,
-  ClientTypeToJSON,
-  ClientTypeToJSONTyped,
-} from "./ClientType.js";
-import type { ClientProfile } from "./ClientProfile.js";
-import {
-  ClientProfileFromJSON,
-  ClientProfileFromJSONTyped,
-  ClientProfileToJSON,
-  ClientProfileToJSONTyped,
-} from "./ClientProfile.js";
-import type { TokenEndpointAuthMethod } from "./TokenEndpointAuthMethod.js";
-import {
-  TokenEndpointAuthMethodFromJSON,
-  TokenEndpointAuthMethodFromJSONTyped,
-  TokenEndpointAuthMethodToJSON,
-  TokenEndpointAuthMethodToJSONTyped,
-} from "./TokenEndpointAuthMethod.js";
-import type { GrantType } from "./GrantType.js";
-import {
-  GrantTypeFromJSON,
-  GrantTypeFromJSONTyped,
-  GrantTypeToJSON,
-  GrantTypeToJSONTyped,
-} from "./GrantType.js";
 import type { ApplicationRegistration } from "./ApplicationRegistration.js";
 import {
   ApplicationRegistrationFromJSON,
-  ApplicationRegistrationFromJSONTyped,
   ApplicationRegistrationToJSON,
-  ApplicationRegistrationToJSONTyped,
 } from "./ApplicationRegistration.js";
+import type { ClientProfile } from "./ClientProfile.js";
+import { ClientProfileFromJSON, ClientProfileToJSON } from "./ClientProfile.js";
+import type { ClientType } from "./ClientType.js";
+import { ClientTypeFromJSON, ClientTypeToJSON } from "./ClientType.js";
+import type { GrantType } from "./GrantType.js";
+import { GrantTypeFromJSON, GrantTypeToJSON } from "./GrantType.js";
 import type { ResponseType } from "./ResponseType.js";
+import { ResponseTypeFromJSON, ResponseTypeToJSON } from "./ResponseType.js";
+import type { TokenEndpointAuthMethod } from "./TokenEndpointAuthMethod.js";
 import {
-  ResponseTypeFromJSON,
-  ResponseTypeFromJSONTyped,
-  ResponseTypeToJSON,
-  ResponseTypeToJSONTyped,
-} from "./ResponseType.js";
+  TokenEndpointAuthMethodFromJSON,
+  TokenEndpointAuthMethodToJSON,
+} from "./TokenEndpointAuthMethod.js";
 
 /**
  *
@@ -65,15 +40,15 @@ export interface ClientRegistration {
   /**
    *
    */
-  allowedAudiences?: Array<string>;
+  allowedAudiences?: Array<string> | undefined;
   /**
    *
    */
-  allowedGrantTypes?: Array<GrantType>;
+  allowedGrantTypes?: Array<GrantType> | undefined;
   /**
    *
    */
-  allowedScopes?: Array<string>;
+  allowedScopes?: Array<string> | undefined;
   /**
    * Unique identifier for the application (assigned by the authorization server).
    */
@@ -81,11 +56,11 @@ export interface ClientRegistration {
   /**
    * Unique identifier for the client application (assigned by the authorization server).
    */
-  clientId?: string | null;
+  clientId?: (string | null) | undefined;
   /**
    * Time at which the client identifier was issued (Unix timestamp).
    */
-  clientIdIssuedAt?: number | null;
+  clientIdIssuedAt?: (number | null) | undefined;
   /**
    * Human-readable name of the client application.
    */
@@ -93,31 +68,31 @@ export interface ClientRegistration {
   /**
    * Optional or required depending on registration type (Public vs Confidential).
    */
-  clientSecret?: string | null;
+  clientSecret?: (string | null) | undefined;
   /**
    * Time at which the client secret will expire (0 or None for no expiration).
    */
-  clientSecretExpiresAt?: number | null;
+  clientSecretExpiresAt?: (number | null) | undefined;
   /**
    *
    */
-  clientType?: ClientType;
+  clientType?: ClientType | undefined;
   /**
    * URL of the home page of the client.
    */
-  clientUri?: string | null;
+  clientUri?: (string | null) | undefined;
   /**
    * Array of email addresses for people responsible for this client.
    */
-  contacts?: Array<string>;
+  contacts?: Array<string> | undefined;
   /**
    * URL that references a logo for the client application.
    */
-  logoUri?: string | null;
+  logoUri?: (string | null) | undefined;
   /**
    * URL for the application's privacy policy.
    */
-  policyUri?: string | null;
+  policyUri?: (string | null) | undefined;
   /**
    *
    */
@@ -125,23 +100,23 @@ export interface ClientRegistration {
   /**
    *
    */
-  redirectUris?: Array<string>;
+  redirectUris?: Array<string> | undefined;
   /**
    * Standard OAuth 2.0 response types (e.g., `["code"]`, `["token"]`).
    */
-  responseTypes?: Array<ResponseType>;
+  responseTypes?: Array<ResponseType> | undefined;
   /**
    * A unique identifier string assigned by the software issuer.
    */
-  softwareId?: string | null;
+  softwareId?: (string | null) | undefined;
   /**
    * A digitally signed JWT assertion containing verifiable client metadata.
    */
-  softwareStatement?: string | null;
+  softwareStatement?: (string | null) | undefined;
   /**
    * A version identifier string string assigned by the software issuer.
    */
-  softwareVersion?: string | null;
+  softwareVersion?: (string | null) | undefined;
   /**
    * Requested authentication method for the token endpoint
    * (e.g., `client_secret_basic`, `client_secret_post`, `private_key_jwt`).
@@ -150,7 +125,7 @@ export interface ClientRegistration {
   /**
    * URL for the application's terms of service.
    */
-  tosUri?: string | null;
+  tosUri?: (string | null) | undefined;
 }
 
 /**
@@ -182,7 +157,7 @@ export function ClientRegistrationFromJSON(json: any): ClientRegistration {
 
 export function ClientRegistrationFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): ClientRegistration {
   if (json == null) {
     return json;
@@ -276,7 +251,7 @@ export function ClientRegistrationToJSON(json: any): ClientRegistration {
 
 export function ClientRegistrationToJSONTyped(
   value?: ClientRegistration | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

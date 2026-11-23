@@ -37,7 +37,10 @@ export function SelectionKindFromJSON(json: any): SelectionKind {
   return SelectionKindFromJSONTyped(json, false);
 }
 
-export function SelectionKindFromJSONTyped(json: any, ignoreDiscriminator: boolean): SelectionKind {
+export function SelectionKindFromJSONTyped(
+  json: any,
+  _ignoreDiscriminator: boolean
+): SelectionKind {
   return json as SelectionKind;
 }
 
@@ -45,6 +48,6 @@ export function SelectionKindToJSON(value?: SelectionKind | null): any {
   return value as any;
 }
 
-export function SelectionKindToJSONTyped(value: any, ignoreDiscriminator: boolean): SelectionKind {
+export function SelectionKindToJSONTyped(value: any, _ignoreDiscriminator: boolean): SelectionKind {
   return value as SelectionKind;
 }

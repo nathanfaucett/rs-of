@@ -3,10 +3,7 @@
 interface WasmModule {
   default(): Promise<void>;
   WebServer: {
-    create(
-      secretKeyHex: string | null,
-      relayUrls: string[],
-    ): Promise<WasmWebServer>;
+    create(secretKeyHex: string | null, relayUrls: string[]): Promise<WasmWebServer>;
   };
 }
 
@@ -15,11 +12,7 @@ interface WasmWebServer {
   broadcast(payload: Uint8Array): Promise<void>;
   send(destinationId: string, payload: Uint8Array): Promise<void>;
   subscribe_messages(
-    cb: (
-      source: string,
-      destination: string | null,
-      payload: Uint8Array,
-    ) => void,
+    cb: (source: string, destination: string | null, payload: Uint8Array) => void
   ): number;
   unsubscribe_messages(handle: number): void;
   peers(): string[];
@@ -27,7 +20,7 @@ interface WasmWebServer {
   remove_peer(id: string): void;
   set_pairing_enabled(enabled: boolean): void;
   subscribe_pairing_offers(
-    cb: (handle: number, remote: string, payload: Uint8Array) => void,
+    cb: (handle: number, remote: string, payload: Uint8Array) => void
   ): number;
   unsubscribe_pairing_offers(handle: number): void;
   send_pairing_offer(dest: string, payload: Uint8Array): Promise<Uint8Array>;

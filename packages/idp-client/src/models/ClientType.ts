@@ -37,7 +37,7 @@ export function ClientTypeFromJSON(json: any): ClientType {
   return ClientTypeFromJSONTyped(json, false);
 }
 
-export function ClientTypeFromJSONTyped(json: any, ignoreDiscriminator: boolean): ClientType {
+export function ClientTypeFromJSONTyped(json: any, _ignoreDiscriminator: boolean): ClientType {
   return json as ClientType;
 }
 
@@ -45,6 +45,6 @@ export function ClientTypeToJSON(value?: ClientType | null): any {
   return value as any;
 }
 
-export function ClientTypeToJSONTyped(value: any, ignoreDiscriminator: boolean): ClientType {
+export function ClientTypeToJSONTyped(value: any, _ignoreDiscriminator: boolean): ClientType {
   return value as ClientType;
 }

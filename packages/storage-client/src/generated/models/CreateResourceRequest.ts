@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -22,13 +21,13 @@ export interface CreateResourceRequest {
   /**
    *
    */
-  name?: string | null;
+  name?: (string | null) | undefined;
 }
 
 /**
  * Check if a given object implements the CreateResourceRequest interface.
  */
-export function instanceOfCreateResourceRequest(value: object): value is CreateResourceRequest {
+export function instanceOfCreateResourceRequest(_value: object): _value is CreateResourceRequest {
   return true;
 }
 
@@ -38,7 +37,7 @@ export function CreateResourceRequestFromJSON(json: any): CreateResourceRequest 
 
 export function CreateResourceRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): CreateResourceRequest {
   if (json == null) {
     return json;
@@ -54,7 +53,7 @@ export function CreateResourceRequestToJSON(json: any): CreateResourceRequest {
 
 export function CreateResourceRequestToJSONTyped(
   value?: CreateResourceRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -54,7 +53,7 @@ export interface IndependentCreateRequest {
   /**
    *
    */
-  password?: string | null;
+  password?: (string | null) | undefined;
 }
 
 /**
@@ -86,7 +85,7 @@ export function IndependentCreateRequestFromJSON(json: any): IndependentCreateRe
 
 export function IndependentCreateRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IndependentCreateRequest {
   if (json == null) {
     return json;
@@ -115,7 +114,7 @@ export function IndependentCreateRequestToJSON(json: any): IndependentCreateRequ
 
 export function IndependentCreateRequestToJSONTyped(
   value?: IndependentCreateRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

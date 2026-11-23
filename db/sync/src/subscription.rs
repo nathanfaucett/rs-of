@@ -4,7 +4,7 @@ use btree::ChangeEvent;
 use futures::Stream;
 
 use crate::{
-    protocol::{PushResult, PushSynchronizeConfig, PushSynchronizeError},
+    protocol::{PushApplyResult, PushResult, PushSynchronizeConfig, PushSynchronizeError},
     transport::SyncTransport,
 };
 
@@ -74,7 +74,7 @@ impl ChangeSubscription {
     where
         T: SyncTransport,
         F: FnMut(ChangeEvent) -> Fut + Send,
-        Fut: Future<Output = Result<(), String>> + Send,
+        Fut: Future<Output = Result<PushApplyResult, String>> + Send,
     {
         push_synchronize(transport, self.events(), apply_inbound, config).await
     }
@@ -94,7 +94,7 @@ impl ChangeSubscription {
     where
         T: SyncTransport,
         F: FnMut(ChangeEvent) -> Fut,
-        Fut: Future<Output = Result<(), String>>,
+        Fut: Future<Output = Result<PushApplyResult, String>>,
     {
         push_synchronize(transport, self.events(), apply_inbound, config).await
     }

@@ -9,7 +9,9 @@
       "rolldown.config.mjs",
       "tsconfig.json",
       "!src/models",
-      "!src/apis"
+      "!src/apis",
+      "!src/runtime.ts",
+      "!src/index.ts"
     ]
   }
 }

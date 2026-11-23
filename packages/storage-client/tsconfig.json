@@ -3,14 +3,8 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "esm",
-    "declarationDir": "types",
-    "allowImportingTsExtensions": false,
-    "noEmit": false,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "exactOptionalPropertyTypes": false,
-    "noImplicitOverride": false,
+    "declarationDir": "types"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "esm", "types", "src/**/*.test.ts"],
+  "exclude": ["node_modules", "dist", "esm", "types", "src/**/*.test.ts"]
 }

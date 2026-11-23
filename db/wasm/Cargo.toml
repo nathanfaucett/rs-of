@@ -19,6 +19,9 @@ sync = ["ofdb-kv/wasm", "ofdb-sql/wasm", "indexeddb"]
 
 [dependencies]
 # Internal
+platform = { version = "0.1", path = "../platform", package = "ofdb-platform", default-features = false, features = [
+    "time",
+] }
 ofdb-kv = { version = "0.1", path = "../kv", package = "ofdb-kv", default-features = false }
 ofdb-sql = { version = "0.1", path = "../sql", package = "ofdb-sql", default-features = false, features = [
     "sql",

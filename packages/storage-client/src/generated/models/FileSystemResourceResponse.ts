@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -26,7 +25,7 @@ export interface FileSystemResourceResponse {
   /**
    *
    */
-  name?: string | null;
+  name?: (string | null) | undefined;
 }
 
 /**
@@ -45,7 +44,7 @@ export function FileSystemResourceResponseFromJSON(json: any): FileSystemResourc
 
 export function FileSystemResourceResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): FileSystemResourceResponse {
   if (json == null) {
     return json;
@@ -62,7 +61,7 @@ export function FileSystemResourceResponseToJSON(json: any): FileSystemResourceR
 
 export function FileSystemResourceResponseToJSONTyped(
   value?: FileSystemResourceResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

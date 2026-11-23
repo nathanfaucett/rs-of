@@ -10,7 +10,7 @@ export type {
 } from "./migration.js";
 export { MigrationError } from "./migration.js";
 export type { QueryParams, Result } from "./result.js";
-export type { Row, RowParser, ExecuteErrorReason } from "./select.js";
+export type { ExecuteErrorReason, Row, RowParser } from "./select.js";
 export { ExecuteError } from "./select.js";
 export { Transaction } from "./transaction.js";
 export type { DbValue, JsonValue, ValueType } from "./value.js";
@@ -18,26 +18,26 @@ export type { DbValue, JsonValue, ValueType } from "./value.js";
 // Sync exports - import to ensure they're included in bundle
 import {
   JsPushSyncTransport,
-  JsSqlSyncTransport,
   JsSqlSyncError,
+  JsSqlSyncTransport,
+  PushConfig,
+  PushSynchronizeResult,
   SqlHistoryResult,
   SqlHistoryRole,
+  SqlSessionConfig,
   SqlSyncDirection,
   SqlSyncRole,
-  PushConfig,
-  PushSynchronizeConfig,
-  PushSynchronizeResult,
 } from "./database.js";
 
 export {
   JsPushSyncTransport,
-  JsSqlSyncTransport,
   JsSqlSyncError,
+  JsSqlSyncTransport,
+  PushConfig,
+  PushSynchronizeResult,
   SqlHistoryResult,
   SqlHistoryRole,
+  SqlSessionConfig,
   SqlSyncDirection,
   SqlSyncRole,
-  PushConfig,
-  PushSynchronizeConfig,
-  PushSynchronizeResult,
 };

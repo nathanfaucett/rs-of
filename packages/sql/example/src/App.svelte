@@ -56,7 +56,7 @@ async function initSqlNetwork(): Promise<void> {
 }
 
 $effect(() => {
-  initSqlNetwork();
+  void initSqlNetwork();
 });
 
 const sqlActions = {

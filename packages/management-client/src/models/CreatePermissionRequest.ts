@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -22,7 +21,7 @@ export interface CreatePermissionRequest {
   /**
    *
    */
-  description?: string | null;
+  description?: (string | null) | undefined;
   /**
    *
    */
@@ -43,7 +42,7 @@ export function CreatePermissionRequestFromJSON(json: any): CreatePermissionRequ
 
 export function CreatePermissionRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): CreatePermissionRequest {
   if (json == null) {
     return json;
@@ -65,7 +64,7 @@ export function CreatePermissionRequestToJSON(json: any): CreatePermissionReques
 
 export function CreatePermissionRequestToJSONTyped(
   value?: CreatePermissionRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

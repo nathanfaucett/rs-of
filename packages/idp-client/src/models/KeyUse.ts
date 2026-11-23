@@ -37,7 +37,7 @@ export function KeyUseFromJSON(json: any): KeyUse {
   return KeyUseFromJSONTyped(json, false);
 }
 
-export function KeyUseFromJSONTyped(json: any, ignoreDiscriminator: boolean): KeyUse {
+export function KeyUseFromJSONTyped(json: any, _ignoreDiscriminator: boolean): KeyUse {
   return json as KeyUse;
 }
 
@@ -45,6 +45,6 @@ export function KeyUseToJSON(value?: KeyUse | null): any {
   return value as any;
 }
 
-export function KeyUseToJSONTyped(value: any, ignoreDiscriminator: boolean): KeyUse {
+export function KeyUseToJSONTyped(value: any, _ignoreDiscriminator: boolean): KeyUse {
   return value as KeyUse;
 }

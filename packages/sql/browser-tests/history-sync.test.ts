@@ -9,28 +9,33 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const {
-      Database,
-      JsSqlSyncTransport,
-      SqlHistoryRole,
-    } = (window as any).sql;
+    const { Database, JsSqlSyncTransport, SqlHistoryRole } = window.sql;
 
     function transportPair() {
-      const endpoints = [0, 1].map(() => ({
-        queue: [] as Uint8Array[],
-        waiting: undefined as ((data: Uint8Array) => void) | undefined,
-        peer: undefined as any,
+      interface TransportEndpoint {
+        queue: Uint8Array[];
+        waiting: ((data: Uint8Array) => void) | undefined;
+        peer: TransportEndpoint | undefined;
+      }
+      const endpoints: TransportEndpoint[] = [0, 1].map(() => ({
+        queue: [],
+        waiting: undefined,
+        peer: undefined,
       }));
-      endpoints[0].peer = endpoints[1];
-      endpoints[1].peer = endpoints[0];
+      const [first, second] = endpoints;
+      if (!first || !second) throw new Error("transport pair is required");
+      first.peer = second;
+      second.peer = first;
       return endpoints.map((endpoint) => ({
         send(data: Uint8Array) {
+          const peer = endpoint.peer;
+          if (!peer) return Promise.reject(new Error("transport peer is not connected"));
           const copy = new Uint8Array(data);
-          if (endpoint.peer.waiting) {
-            endpoint.peer.waiting(copy);
-            endpoint.peer.waiting = undefined;
+          if (peer.waiting) {
+            peer.waiting(copy);
+            peer.waiting = undefined;
           } else {
-            endpoint.peer.queue.push(copy);
+            peer.queue.push(copy);
           }
           return Promise.resolve();
         },
@@ -54,35 +59,23 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       a.close();
       b.close();
     };
-    const read = async (client: any) => {
-      const results = await client.executeRaw(
-        "SELECT id, value FROM entries ORDER BY id",
-      );
-      return results[0].rows.map((row: any[]) =>
-        row.map((value) => value.value),
+    const read = async (client: import("../src/index.js").Client) => {
+      const results = await client.executeRaw("SELECT id, value FROM entries ORDER BY id");
+      return results[0].rows.map((row) =>
+        row.map((value) => ("value" in value ? value.value : undefined))
       );
     };
     const sync = async () => {
       const [aTransport, bTransport] = transportPair();
       await Promise.all([
-        a.synchronizeHistory(
-          new JsSqlSyncTransport(aTransport),
-          SqlHistoryRole.Initiator,
-        ),
-        b.synchronizeHistory(
-          new JsSqlSyncTransport(bTransport),
-          SqlHistoryRole.Responder,
-        ),
+        a.synchronizeHistory(new JsSqlSyncTransport(aTransport), SqlHistoryRole.Initiator),
+        b.synchronizeHistory(new JsSqlSyncTransport(bTransport), SqlHistoryRole.Responder),
       ]);
     };
 
     try {
-      await aClient.executeRaw(
-        "CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)",
-      );
-      await bClient.executeRaw(
-        "CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)",
-      );
+      await aClient.executeRaw("CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)");
+      await bClient.executeRaw("CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)");
       await aClient.executeRaw("INSERT INTO entries VALUES (1, 'from-a')");
       await bClient.executeRaw("INSERT INTO entries VALUES (2, 'from-b')");
       await sync();
@@ -97,12 +90,8 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       bClient = b.client();
       const reopened = [await read(aClient), await read(bClient)];
 
-      await aClient.executeRaw(
-        "UPDATE entries SET value = 'updated-a' WHERE id = 1",
-      );
-      await bClient.executeRaw(
-        "UPDATE entries SET value = 'updated-b' WHERE id = 2",
-      );
+      await aClient.executeRaw("UPDATE entries SET value = 'updated-a' WHERE id = 1");
+      await bClient.executeRaw("UPDATE entries SET value = 'updated-b' WHERE id = 2");
       await sync();
       const updated = [await read(aClient), await read(bClient)];
 

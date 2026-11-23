@@ -4,35 +4,25 @@
       "CreatePermissionRequest": {
         "properties": {
           "description": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "name": {
             "type": "string"
           }
         },
-        "required": [
-          "name"
-        ],
+        "required": ["name"],
         "type": "object"
       },
       "CreateRoleRequest": {
         "properties": {
           "description": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "name": {
             "type": "string"
           }
         },
-        "required": [
-          "name"
-        ],
+        "required": ["name"],
         "type": "object"
       },
       "HealthResponse": {
@@ -41,17 +31,13 @@
             "$ref": "#/components/schemas/HealthStatus"
           }
         },
-        "required": [
-          "database"
-        ],
+        "required": ["database"],
         "type": "object"
       },
       "HealthStatus": {
         "oneOf": [
           {
-            "enum": [
-              "healthy"
-            ],
+            "enum": ["healthy"],
             "type": "string"
           },
           {
@@ -60,9 +46,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "unhealthy"
-            ],
+            "required": ["unhealthy"],
             "type": "object"
           }
         ]
@@ -113,85 +97,56 @@
           {
             "properties": {
               "clientId": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "type": {
-                "enum": [
-                  "client"
-                ],
+                "enum": ["client"],
                 "type": "string"
               }
             },
-            "required": [
-              "type"
-            ],
+            "required": ["type"],
             "type": "object"
           },
           {
             "properties": {
               "id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "type": {
-                "enum": [
-                  "application"
-                ],
+                "enum": ["application"],
                 "type": "string"
               }
             },
-            "required": [
-              "type"
-            ],
+            "required": ["type"],
             "type": "object"
           },
           {
             "properties": {
               "id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "type": {
-                "enum": [
-                  "user"
-                ],
+                "enum": ["user"],
                 "type": "string"
               }
             },
-            "required": [
-              "type"
-            ],
+            "required": ["type"],
             "type": "object"
           },
           {
             "properties": {
               "id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "type": {
-                "enum": [
-                  "consent"
-                ],
+                "enum": ["consent"],
                 "type": "string"
               },
               "userId": {
                 "type": "string"
               }
             },
-            "required": [
-              "userId",
-              "type"
-            ],
+            "required": ["userId", "type"],
             "type": "object"
           },
           {
@@ -200,78 +155,54 @@
                 "type": "string"
               },
               "type": {
-                "enum": [
-                  "clientKeys"
-                ],
+                "enum": ["clientKeys"],
                 "type": "string"
               }
             },
-            "required": [
-              "clientId",
-              "type"
-            ],
+            "required": ["clientId", "type"],
             "type": "object"
           },
           {
             "properties": {
               "id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "type": {
-                "enum": [
-                  "device"
-                ],
+                "enum": ["device"],
                 "type": "string"
               }
             },
-            "required": [
-              "type"
-            ],
+            "required": ["type"],
             "type": "object"
           },
           {
             "properties": {
               "type": {
-                "enum": [
-                  "devicePairing"
-                ],
+                "enum": ["devicePairing"],
                 "type": "string"
               }
             },
-            "required": [
-              "type"
-            ],
+            "required": ["type"],
             "type": "object"
           },
           {
             "properties": {
               "type": {
-                "enum": [
-                  "idpSecurity"
-                ],
+                "enum": ["idpSecurity"],
                 "type": "string"
               }
             },
-            "required": [
-              "type"
-            ],
+            "required": ["type"],
             "type": "object"
           },
           {
             "properties": {
               "type": {
-                "enum": [
-                  "managementSecurity"
-                ],
+                "enum": ["managementSecurity"],
                 "type": "string"
               }
             },
-            "required": [
-              "type"
-            ],
+            "required": ["type"],
             "type": "object"
           }
         ]
@@ -289,11 +220,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "serviceSubject",
-          "serviceClientId",
-          "actor"
-        ],
+        "required": ["serviceSubject", "serviceClientId", "actor"],
         "type": "object"
       },
       "PermissionEvaluationRequest": {
@@ -312,12 +239,7 @@
             "$ref": "#/components/schemas/PermissionTarget"
           }
         },
-        "required": [
-          "requestId",
-          "subject",
-          "action",
-          "target"
-        ],
+        "required": ["requestId", "subject", "action", "target"],
         "type": "object"
       },
       "PermissionEvaluationResponse": {
@@ -333,11 +255,7 @@
             "$ref": "#/components/schemas/PermissionEvaluationRequest"
           }
         },
-        "required": [
-          "request",
-          "audit",
-          "allowed"
-        ],
+        "required": ["request", "audit", "allowed"],
         "type": "object"
       },
       "PermissionResponse": {
@@ -350,10 +268,7 @@
             "type": "integer"
           },
           "description": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "id": {
             "type": "string"
@@ -366,13 +281,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "id",
-          "application_id",
-          "name",
-          "created_at",
-          "updated_at"
-        ],
+        "required": ["id", "application_id", "name", "created_at", "updated_at"],
         "type": "object"
       },
       "PermissionSubject": {
@@ -383,16 +292,11 @@
                 "type": "string"
               },
               "type": {
-                "enum": [
-                  "user"
-                ],
+                "enum": ["user"],
                 "type": "string"
               }
             },
-            "required": [
-              "id",
-              "type"
-            ],
+            "required": ["id", "type"],
             "type": "object"
           }
         ]
@@ -408,17 +312,11 @@
                 "$ref": "#/components/schemas/IdentityResource"
               },
               "scope": {
-                "enum": [
-                  "application"
-                ],
+                "enum": ["application"],
                 "type": "string"
               }
             },
-            "required": [
-              "applicationId",
-              "resource",
-              "scope"
-            ],
+            "required": ["applicationId", "resource", "scope"],
             "type": "object"
           },
           {
@@ -427,16 +325,11 @@
                 "$ref": "#/components/schemas/IdentityResource"
               },
               "scope": {
-                "enum": [
-                  "installation"
-                ],
+                "enum": ["installation"],
                 "type": "string"
               }
             },
-            "required": [
-              "resource",
-              "scope"
-            ],
+            "required": ["resource", "scope"],
             "type": "object"
           }
         ]
@@ -451,10 +344,7 @@
             "type": "integer"
           },
           "description": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "id": {
             "type": "string"
@@ -467,13 +357,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "id",
-          "application_id",
-          "name",
-          "created_at",
-          "updated_at"
-        ],
+        "required": ["id", "application_id", "name", "created_at", "updated_at"],
         "type": "object"
       },
       "UserApplicationRoleResponse": {
@@ -486,10 +370,7 @@
             "type": "integer"
           },
           "role_description": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "role_id": {
             "type": "string"
@@ -502,13 +383,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "role_id",
-          "application_id",
-          "role_name",
-          "created_at",
-          "updated_at"
-        ],
+        "required": ["role_id", "application_id", "role_name", "created_at", "updated_at"],
         "type": "object"
       },
       "VersionResponse": {
@@ -530,11 +405,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "name",
-          "version",
-          "build"
-        ],
+        "required": ["name", "version", "build"],
         "type": "object"
       }
     },

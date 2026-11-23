@@ -1,8 +1,8 @@
 <script lang="ts">
 import { onDestroy } from "svelte";
-import { Alert, Card, Field } from "$lib/ui";
+import { Alert, Card, Field, type FieldControl } from "$lib/ui";
 import type { VaultHandleLike } from "$lib/vault/types";
-import { preparePersonalJsonImport, type ImportPreview } from "./import";
+import { type ImportPreview, preparePersonalJsonImport } from "./import";
 import { IMPORT_MAX_BYTES } from "./personal-json";
 
 let { vault, active, oncancel, onimported }: {
@@ -114,7 +114,7 @@ async function commit() {
         {/if}
     {:else}
         <Field id="import-file" label="Personal JSON file">
-            {#snippet children(control)}<input {...control} type="file" accept=".json,application/json" disabled={busy} onchange={select} />{/snippet}
+            {#snippet children(control: FieldControl)}<input {...control} type="file" accept=".json,application/json" disabled={busy} onchange={select} />{/snippet}
         </Field>
         <button class="btn btn-primary btn-md" type="button" disabled={busy || !file} onclick={validate}>Validate import</button>
     {/if}

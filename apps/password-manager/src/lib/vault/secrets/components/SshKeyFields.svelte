@@ -1,5 +1,5 @@
 <script lang="ts">
-import { Field } from "$lib/ui";
+import { Field, type FieldControl } from "$lib/ui";
 import type { SshKeyDraft } from "../secret-draft";
 
 let { draft = $bindable(), disabled }: {
@@ -14,7 +14,7 @@ let revealed = $state(false);
     aria-pressed={revealed} onclick={() => revealed = !revealed}>{revealed ? "Hide" : "Show"} Private key</button>
 {#if revealed}
     <Field id="private-key" label="Private key" required>
-        {#snippet children(control)}
+        {#snippet children(control: FieldControl)}
             <textarea {...control} bind:value={draft.privateKey} rows="6" autocomplete="off" spellcheck="false" autocapitalize="off" {disabled}></textarea>
         {/snippet}
     </Field>
@@ -22,12 +22,12 @@ let revealed = $state(false);
     <p>Private key is hidden. Select Show Private key to enter or change it.</p>
 {/if}
 <Field id="public-key" label="Public key">
-    {#snippet children(control)}
+    {#snippet children(control: FieldControl)}
         <textarea {...control} bind:value={draft.publicKey} rows="3" autocomplete="off" spellcheck="false" autocapitalize="off" {disabled}></textarea>
     {/snippet}
 </Field>
 <Field id="key-fingerprint" label="Key fingerprint">
-    {#snippet children(control)}
+    {#snippet children(control: FieldControl)}
         <input {...control} bind:value={draft.keyFingerprint} autocomplete="off" spellcheck="false" autocapitalize="off" {disabled} />
     {/snippet}
 </Field>

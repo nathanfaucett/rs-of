@@ -2,12 +2,12 @@ import {
   CommitError,
   Database,
   type DbValue,
+  ExecuteError,
+  type ExecuteErrorReason,
   type QueryParams,
   type Result,
   type Row,
   type RowParser,
-  ExecuteError,
-  type ExecuteErrorReason,
 } from "@ofsdk/sql";
 
 export async function contract(): Promise<Result[]> {
@@ -29,10 +29,7 @@ export async function contract(): Promise<Result[]> {
   console.log(version, applied);
   const tx = await timed.transaction();
   try {
-    const result = await tx.executeRaw(
-      "SELECT id FROM items WHERE id = :id",
-      params,
-    );
+    const result = await tx.executeRaw("SELECT id FROM items WHERE id = :id", params);
     await tx.commit();
     return result;
   } catch (error) {
@@ -51,33 +48,27 @@ export async function contract(): Promise<Result[]> {
 }
 
 type Equal<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
-    ? true
-    : false;
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 type Assert<T extends true> = T;
 
 export async function typedReads(
-  client: import("@ofsdk/sql").Client | import("@ofsdk/sql").Transaction,
+  client: import("@ofsdk/sql").Client | import("@ofsdk/sql").Transaction
 ) {
   const parse = (row: Row) => {
-    if (row["id"]?.type !== "integer") throw new Error("expected integer id");
-    return { recordId: BigInt(row["id"].value) };
+    if (row.id?.type !== "integer") throw new Error("expected integer id");
+    return { recordId: BigInt(row.id.value) };
   };
   const parser: RowParser<{ recordId: bigint }> = parse;
-  const rows = await client.execute(
-    "SELECT id FROM items WHERE id = $1",
-    parser,
-    [{ type: "integer", value: "1" }],
-  );
+  const rows = await client.execute("SELECT id FROM items WHERE id = $1", parser, [
+    { type: "integer", value: "1" },
+  ]);
   const inferred: Assert<Equal<typeof rows, { recordId: bigint }[]>> = true;
   const inline = await client.execute("SELECT id FROM items", (row) => {
     const input: Assert<Equal<typeof row, Row>> = true;
     console.log(input);
     return { label: "entry", count: 1n };
   });
-  const inferredInline: Assert<
-    Equal<typeof inline, { label: string; count: bigint }[]>
-  > = true;
+  const inferredInline: Assert<Equal<typeof inline, { label: string; count: bigint }[]>> = true;
   try {
     await client.execute("SELECT id FROM items", parse);
   } catch (error) {
@@ -115,15 +106,15 @@ export async function rejectedTypes(): Promise<void> {
     // @ts-expect-error A parser cannot sometimes return a promise.
     await handle.execute("SELECT id FROM items", sometimesAsync);
     // @ts-expect-error Widened RowParser<unknown> cannot accept async callbacks.
-    await handle.execute("SELECT id FROM items", async (row: any) => row);
+    await handle.execute("SELECT id FROM items", async (row: import("../src/index.js").Row) => row);
     // @ts-expect-error Widened RowParser<object> cannot accept async callbacks.
-    await handle.execute("SELECT id FROM items", async (row: any) => ({}));
+    await handle.execute("SELECT id FROM items", async () => ({}));
     // @ts-expect-error Widened RowParser<void> cannot accept async callbacks.
     await handle.execute("SELECT id FROM items", async () => {});
     await handle.execute(
       "SELECT id FROM items",
       // @ts-expect-error A parser cannot require an application-specific input shape.
-      (row: { id: number }) => row.id,
+      (row: { id: number }) => row.id
     );
     // @ts-expect-error The output must match the parser; it is not an unchecked generic cast.
     await handle.execute<string>("SELECT id FROM items", () => 1);
@@ -132,7 +123,7 @@ export async function rejectedTypes(): Promise<void> {
     // @ts-expect-error The parser precedes parameters.
     await handle.execute("SELECT id FROM items", [], () => 1);
     await handle.execute("SELECT id FROM items", (row) => {
-      row["id"] = { type: "null" };
+      row.id = { type: "null" };
       return row;
     });
   }

@@ -44,12 +44,12 @@ impl SqlDatabase {
     pub async fn synchronize(
         &self,
         transport: &mut crate::sync::JsPushSyncTransport,
-        config: crate::sync::PushSynchronizeConfig,
+        config: crate::sync::SqlSessionConfig,
     ) -> Result<crate::sync::PushSynchronizeResult, crate::sync::JsPushSyncError> {
         self.database
             .synchronize(transport, config.into())
             .await
-            .map_err(|e| crate::sync::JsPushSyncError::from(e))
+            .map_err(crate::sync::JsPushSyncError::from)
             .map(crate::sync::PushSynchronizeResult::from)
     }
 

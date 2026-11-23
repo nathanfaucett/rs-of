@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { DeviceState } from "./DeviceState.js";
-import {
-  DeviceStateFromJSON,
-  DeviceStateFromJSONTyped,
-  DeviceStateToJSON,
-  DeviceStateToJSONTyped,
-} from "./DeviceState.js";
+import { DeviceStateFromJSON, DeviceStateToJSON } from "./DeviceState.js";
 
 /**
  *
@@ -50,7 +44,7 @@ export interface DeviceInfo {
   /**
    *
    */
-  revokedAt?: number | null;
+  revokedAt?: (number | null) | undefined;
   /**
    *
    */
@@ -79,7 +73,7 @@ export function DeviceInfoFromJSON(json: any): DeviceInfo {
   return DeviceInfoFromJSONTyped(json, false);
 }
 
-export function DeviceInfoFromJSONTyped(json: any, ignoreDiscriminator: boolean): DeviceInfo {
+export function DeviceInfoFromJSONTyped(json: any, _ignoreDiscriminator: boolean): DeviceInfo {
   if (json == null) {
     return json;
   }
@@ -106,7 +100,7 @@ export function DeviceInfoToJSON(json: any): DeviceInfo {
 
 export function DeviceInfoToJSONTyped(
   value?: DeviceInfo | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

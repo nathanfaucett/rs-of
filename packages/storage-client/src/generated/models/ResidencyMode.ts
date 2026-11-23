@@ -37,7 +37,10 @@ export function ResidencyModeFromJSON(json: any): ResidencyMode {
   return ResidencyModeFromJSONTyped(json, false);
 }
 
-export function ResidencyModeFromJSONTyped(json: any, ignoreDiscriminator: boolean): ResidencyMode {
+export function ResidencyModeFromJSONTyped(
+  json: any,
+  _ignoreDiscriminator: boolean
+): ResidencyMode {
   return json as ResidencyMode;
 }
 
@@ -45,6 +48,6 @@ export function ResidencyModeToJSON(value?: ResidencyMode | null): any {
   return value as any;
 }
 
-export function ResidencyModeToJSONTyped(value: any, ignoreDiscriminator: boolean): ResidencyMode {
+export function ResidencyModeToJSONTyped(value: any, _ignoreDiscriminator: boolean): ResidencyMode {
   return value as ResidencyMode;
 }

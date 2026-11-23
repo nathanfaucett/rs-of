@@ -1,7 +1,7 @@
 <script lang="ts">
-import { FolderKanban, Grid, Star, X, Funnel, Key, IdCard, CreditCard, HardDrive } from "@lucide/svelte";
+import { CreditCard, FolderKanban, Funnel, Grid, HardDrive, IdCard, Key, Star, X } from "@lucide/svelte";
 import type { Folder } from "$lib/vault/folder";
-import type { ItemTypeFilter, ItemSort } from "$lib/vault/secrets/search";
+import type { ItemSort, ItemTypeFilter } from "$lib/vault/secrets/search";
 
 interface Props {
 	folders: Folder[];
@@ -155,7 +155,7 @@ const hasActiveFilters = $derived(searchText || itemType !== "all" || favoritesO
 						onchange={(e) => onFavoritesOnlyChange(e.currentTarget.checked)}
 						class="sr-only peer"
 					/>
-					<span class="w-4 h-4 flex-shrink-0" class:fill-primary={favoritesOnly} class:text-primary={favoritesOnly}><Star class="w-4 h-4" /></span>
+					<span class={["w-4 h-4 flex-shrink-0", { "fill-primary": favoritesOnly, "text-primary": favoritesOnly }]}><Star class="w-4 h-4" /></span>
 					<span class="truncate">Favorites only</span>
 				</label>
 			</div>

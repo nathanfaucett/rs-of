@@ -1,7 +1,7 @@
 import {
   mkdirSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -28,7 +28,7 @@ export function extractRustModels(output, owner, shared) {
     .filter((name) => !(name in canonicalModels));
   if (!names.length) throw new Error("Generated Rust models are missing");
   for (const file of readdirSync(models).filter(
-    (file) => file.endsWith(".rs") && file !== "mod.rs",
+    (file) => file.endsWith(".rs") && file !== "mod.rs"
   )) {
     const target = path.join(models, file);
     const module = path.basename(file, ".rs");
@@ -37,15 +37,12 @@ export function extractRustModels(output, owner, shared) {
       const [namespace, name] = canonical;
       index = index.replace(
         `pub mod ${module};\npub use self::${module}::${name};`,
-        `pub use crate::${namespace}::${name};`,
+        `pub use crate::${namespace}::${name};`
       );
       unlinkSync(target);
       continue;
     }
-    let source = readFileSync(target, "utf8").replaceAll(
-      "std::fmt",
-      "core::fmt",
-    );
+    let source = readFileSync(target, "utf8").replaceAll("std::fmt", "core::fmt");
     const imports = [];
     for (const [symbol, imported] of [
       ["Box", "boxed::Box"],
@@ -57,15 +54,11 @@ export function extractRustModels(output, owner, shared) {
     if (source.includes(".to_string()")) imports.push("string::ToString");
     source = source.replace(
       "use crate::models;",
-      source.includes("models::") ? `use crate::http::${owner} as models;` : "",
+      source.includes("models::") ? `use crate::http::${owner} as models;` : ""
     );
     source = source.replaceAll("crate::models::", `crate::http::${owner}::`);
-    if (source.includes("std::"))
-      throw new Error(`Generated model requires std: ${file}`);
-    writeFileSync(
-      target,
-      (imports.length ? `use alloc::{${imports.join(", ")}};\n` : "") + source,
-    );
+    if (source.includes("std::")) throw new Error(`Generated model requires std: ${file}`);
+    writeFileSync(target, (imports.length ? `use alloc::{${imports.join(", ")}};\n` : "") + source);
   }
   writeFileSync(path.join(models, "mod.rs"), index);
   mkdirSync(path.dirname(shared), { recursive: true });
@@ -73,6 +66,6 @@ export function extractRustModels(output, owner, shared) {
   mkdirSync(models);
   writeFileSync(
     path.join(models, "mod.rs"),
-    `pub use of_model::http::${owner}::{${names.join(", ")}};\n`,
+    `pub use of_model::http::${owner}::{${names.join(", ")}};\n`
   );
 }

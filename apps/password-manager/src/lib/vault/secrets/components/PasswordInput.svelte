@@ -2,13 +2,29 @@
 import { onDestroy } from "svelte";
 import type { HTMLInputAttributes } from "svelte/elements";
 
-let { value = $bindable(), disabled = false, autocomplete = "current-password", ariaLabel = "Toggle password visibility", copyAriaLabel = "Copy to clipboard" }: {
-    value: string;
+type Props = Pick<
+    HTMLInputAttributes,
+    "id" | "required" | "spellcheck" | "aria-describedby" | "aria-invalid"
+> & {
+    value: string | null;
     disabled?: boolean;
     autocomplete?: HTMLInputAttributes["autocomplete"];
     ariaLabel?: string;
     copyAriaLabel?: string;
-} = $props();
+};
+
+let {
+    value = $bindable(),
+    disabled = false,
+    autocomplete = "current-password",
+    ariaLabel = "Toggle password visibility",
+    copyAriaLabel = "Copy to clipboard",
+    id,
+    required,
+    spellcheck,
+    "aria-describedby": ariaDescribedBy,
+    "aria-invalid": ariaInvalid,
+}: Props = $props();
 
 let revealed = $state(true);
 let copying = $state(false);
@@ -43,8 +59,12 @@ async function copy() {
         bind:value={value}
         {autocomplete}
         {disabled}
+        {id}
+        {required}
+        {spellcheck}
         class="flex-1 pr-20"
-        aria-describedby="pw-toggle-desc"
+        aria-describedby={ariaDescribedBy ?? "pw-toggle-desc"}
+        aria-invalid={ariaInvalid}
     />
     <div class="absolute inset-y-0 right-0 flex items-center gap-1 pr-1">
         <button

@@ -44,9 +44,9 @@
     const invalid = $derived(issues.length > 0);
     const control = $derived<FieldControl>({
         id: fieldId,
-        "aria-describedby": describedby,
-        "aria-invalid": invalid ? true : undefined,
-        required: required || undefined,
+        ...(describedby === undefined ? {} : { "aria-describedby": describedby }),
+        ...(invalid ? { "aria-invalid": true } : {}),
+        ...(required ? { required: true } : {}),
     });
 </script>
 

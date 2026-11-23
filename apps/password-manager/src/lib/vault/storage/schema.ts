@@ -1,5 +1,5 @@
-import * as v from "valibot";
 import type { DbValue } from "@ofsdk/sql";
+import * as v from "valibot";
 
 /**
  * Shared table DDL statements for the new architecture.

@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -39,7 +38,7 @@ export function DatabaseFailureFromJSON(json: any): DatabaseFailure {
 
 export function DatabaseFailureFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): DatabaseFailure {
   if (json == null) {
     return json;
@@ -55,7 +54,7 @@ export function DatabaseFailureToJSON(json: any): DatabaseFailure {
 
 export function DatabaseFailureToJSONTyped(
   value?: DatabaseFailure | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

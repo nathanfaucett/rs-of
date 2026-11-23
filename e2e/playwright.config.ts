@@ -2,6 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 import { appURL, passwordManagerURL, root } from "./backend.mjs";
 import { appEnv, frontendEnv } from "./frontend-env.mjs";
 
+const { CI } = process.env;
+
 export default defineConfig({
   testDir: ".",
   testMatch: "*.e2e.ts",
@@ -10,13 +12,10 @@ export default defineConfig({
   expect: { timeout: 15000 },
   workers: 1,
   fullyParallel: false,
-  forbidOnly: !!process.env.CI,
+  forbidOnly: Boolean(CI),
   retries: 0,
   outputDir: `${root}.tmp/e2e-results`,
-  reporter: [
-    ["list"],
-    ["html", { outputFolder: `${root}.tmp/e2e-report`, open: "never" }],
-  ],
+  reporter: [["list"], ["html", { outputFolder: `${root}.tmp/e2e-report`, open: "never" }]],
   use: { ...devices["Desktop Chrome"], trace: "retain-on-failure" },
   projects: [
     {

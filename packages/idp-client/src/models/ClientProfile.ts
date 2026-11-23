@@ -38,7 +38,10 @@ export function ClientProfileFromJSON(json: any): ClientProfile {
   return ClientProfileFromJSONTyped(json, false);
 }
 
-export function ClientProfileFromJSONTyped(json: any, ignoreDiscriminator: boolean): ClientProfile {
+export function ClientProfileFromJSONTyped(
+  json: any,
+  _ignoreDiscriminator: boolean
+): ClientProfile {
   return json as ClientProfile;
 }
 
@@ -46,6 +49,6 @@ export function ClientProfileToJSON(value?: ClientProfile | null): any {
   return value as any;
 }
 
-export function ClientProfileToJSONTyped(value: any, ignoreDiscriminator: boolean): ClientProfile {
+export function ClientProfileToJSONTyped(value: any, _ignoreDiscriminator: boolean): ClientProfile {
   return value as ClientProfile;
 }

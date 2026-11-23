@@ -7,15 +7,9 @@ const env = {
 };
 
 test("uses the explicitly configured browser login client only for the selected IdP", () => {
-  expect(configuredWebLoginClient(env, env.PUBLIC_IDP_BASE_URL, false)).toBe(
-    "local-login",
-  );
-  expect(
-    configuredWebLoginClient(env, `${env.PUBLIC_IDP_BASE_URL}/`, false),
-  ).toBe("local-login");
-  expect(
-    configuredWebLoginClient(env, "https://production.example/idp", false),
-  ).toBeUndefined();
+  expect(configuredWebLoginClient(env, env.PUBLIC_IDP_BASE_URL, false)).toBe("local-login");
+  expect(configuredWebLoginClient(env, `${env.PUBLIC_IDP_BASE_URL}/`, false)).toBe("local-login");
+  expect(configuredWebLoginClient(env, "https://production.example/idp", false)).toBeUndefined();
 });
 
 test.each([
@@ -27,11 +21,7 @@ test.each([
   "not-a-url",
 ])("rejects an unsafe configured browser issuer: %s", (issuer) => {
   expect(
-    configuredWebLoginClient(
-      { ...env, PUBLIC_IDP_BASE_URL: issuer },
-      issuer,
-      false,
-    ),
+    configuredWebLoginClient({ ...env, PUBLIC_IDP_BASE_URL: issuer }, issuer, false)
   ).toBeUndefined();
 });
 
@@ -41,40 +31,36 @@ test("supports an explicitly configured HTTPS browser client without a seeded fa
     configuredWebLoginClient(
       { PUBLIC_IDP_BASE_URL: issuer, PUBLIC_OIDC_CLIENT_ID: "company-login" },
       issuer,
-      false,
-    ),
+      false
+    )
   ).toBe("company-login");
 });
 
 test("never changes independent desktop login, including remote desktop selection", () => {
-  expect(
-    configuredWebLoginClient(env, env.PUBLIC_IDP_BASE_URL, true),
-  ).toBeUndefined();
+  expect(configuredWebLoginClient(env, env.PUBLIC_IDP_BASE_URL, true)).toBeUndefined();
   expect(
     configuredWebLoginClient(
       { ...env, PUBLIC_IDP_BASE_URL: "https://production.example/idp" },
       "https://production.example/idp",
-      true,
-    ),
+      true
+    )
   ).toBeUndefined();
 });
 
 test("does not infer a seeded server or client when browser configuration is absent", () => {
-  expect(
-    configuredWebLoginClient({}, env.PUBLIC_IDP_BASE_URL, false),
-  ).toBeUndefined();
+  expect(configuredWebLoginClient({}, env.PUBLIC_IDP_BASE_URL, false)).toBeUndefined();
   expect(
     configuredWebLoginClient(
       { PUBLIC_IDP_BASE_URL: env.PUBLIC_IDP_BASE_URL },
       env.PUBLIC_IDP_BASE_URL,
-      false,
-    ),
+      false
+    )
   ).toBeUndefined();
   expect(
     configuredWebLoginClient(
       { PUBLIC_OIDC_CLIENT_ID: "local-login" },
       env.PUBLIC_IDP_BASE_URL,
-      false,
-    ),
+      false
+    )
   ).toBeUndefined();
 });

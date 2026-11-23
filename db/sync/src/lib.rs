@@ -27,7 +27,7 @@ pub use wasm_sync::{
     PushConfig, PushMessage, PushSyncTransport, SynchronizeConfig, SynchronizeError, synchronize,
 };
 
-pub use protocol::{PushResult, PushSynchronizeConfig, PushSynchronizeError};
+pub use protocol::{PushApplyResult, PushResult, PushSynchronizeConfig, PushSynchronizeError};
 
 pub use subscription::ChangeSubscription;
 

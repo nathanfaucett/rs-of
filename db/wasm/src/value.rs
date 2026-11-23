@@ -74,7 +74,7 @@ pub(crate) fn value_from_json(value: &Json) -> Value {
             }
         }
         Json::Array(a) => {
-            let json_vals: Vec<JsonValue> = a.iter().map(|v| json_from_value(v)).collect();
+            let json_vals: Vec<JsonValue> = a.iter().map(json_from_value).collect();
             Value::Json(JsonValue::Array(json_vals))
         }
         Json::Object(o) => {

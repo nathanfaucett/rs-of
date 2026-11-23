@@ -1,8 +1,4 @@
-import type {
-  SqlClient,
-  SqlDatabase,
-  SqlTransaction,
-} from "../pkg/ofdb_wasm.js";
+import type { SqlClient, SqlDatabase, SqlTransaction } from "../pkg/ofdb_wasm.js";
 
 export type WasmSqlDatabase = SqlDatabase;
 export type WasmSqlClient = SqlClient;

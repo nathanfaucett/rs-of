@@ -12,13 +12,10 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { ApplicationRegistration } from "./ApplicationRegistration.js";
 import {
   ApplicationRegistrationFromJSON,
-  ApplicationRegistrationFromJSONTyped,
   ApplicationRegistrationToJSON,
-  ApplicationRegistrationToJSONTyped,
 } from "./ApplicationRegistration.js";
 
 /**
@@ -46,15 +43,15 @@ export interface ClientConsentMetadata {
   /**
    *
    */
-  clientUri?: string | null;
+  clientUri?: (string | null) | undefined;
   /**
    *
    */
-  logoUri?: string | null;
+  logoUri?: (string | null) | undefined;
   /**
    *
    */
-  policyUri?: string | null;
+  policyUri?: (string | null) | undefined;
   /**
    *
    */
@@ -62,7 +59,7 @@ export interface ClientConsentMetadata {
   /**
    *
    */
-  tosUri?: string | null;
+  tosUri?: (string | null) | undefined;
 }
 
 /**
@@ -107,7 +104,7 @@ export function ClientConsentMetadataFromJSON(json: any): ClientConsentMetadata 
 
 export function ClientConsentMetadataFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): ClientConsentMetadata {
   if (json == null) {
     return json;
@@ -147,7 +144,7 @@ export function ClientConsentMetadataToJSON(json: any): ClientConsentMetadata {
 
 export function ClientConsentMetadataToJSONTyped(
   value?: ClientConsentMetadata | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

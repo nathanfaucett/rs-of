@@ -1,3 +1,5 @@
+#[cfg(feature = "sync")]
+use std::collections::BTreeMap;
 #[cfg(any(
     feature = "redb",
     feature = "server",
@@ -5,12 +7,16 @@
     feature = "wasm"
 ))]
 use std::io;
+#[cfg(feature = "redb")]
+use std::path::Path;
 #[cfg(all(feature = "server", unix))]
 use std::path::PathBuf;
+#[cfg(any(feature = "redb", feature = "sync"))]
+use std::sync::Arc;
+#[cfg(feature = "sync")]
+use std::sync::Mutex;
 #[cfg(feature = "server")]
 use std::{error::Error as StdError, net::SocketAddr};
-#[cfg(feature = "redb")]
-use std::{path::Path, sync::Arc};
 
 #[cfg(feature = "redb")]
 use btree_redb::{
@@ -544,11 +550,34 @@ impl Database {
 
         // Clone storage for the closure
         let storage = self.storage.clone();
+        let pending = Arc::new(Mutex::new(BTreeMap::new()));
+        let inbound_pending = Arc::clone(&pending);
 
         // Apply inbound events by importing changes into the store
         let apply_inbound = move |event: ChangeEvent| {
             let storage = storage.clone();
+            let pending = Arc::clone(&inbound_pending);
             async move {
+                let key = event.key.clone();
+                let change =
+                    automerge::Change::from_bytes(event.blob).map_err(|error| error.to_string())?;
+                let change = kv_store::NativeChange {
+                    hash: change.hash().0,
+                    deps: change.deps().iter().map(|hash| hash.0).collect(),
+                    payload: change.raw_bytes().to_vec(),
+                };
+                #[allow(
+                    unused_variables,
+                    reason = "only IndexedDB currently applies inbound changes"
+                )]
+                let changes = {
+                    let mut pending = pending.lock().map_err(|error| error.to_string())?;
+                    let changes = pending.entry(key.clone()).or_insert_with(Vec::new);
+                    changes.push(change);
+                    let changes = changes.clone();
+                    drop(pending);
+                    changes
+                };
                 match &storage {
                     #[cfg(all(
                         feature = "indexeddb",
@@ -556,36 +585,47 @@ impl Database {
                         target_os = "unknown"
                     ))]
                     Storage::IndexedDb(store) => {
-                        let doc_id = event.key.key.clone(); // StorageKey.key = document ID for KV
-                        let change = kv_store::NativeChange {
-                            hash: [0u8; 32], // dummy hash, import_changes only uses payload
-                            deps: Vec::new(),
-                            payload: event.blob,
-                        };
+                        let doc_id = key.key.clone(); // StorageKey.key = document ID for KV
                         let mut tx = store.transaction().await.map_err(|e| e.to_string())?;
-                        tx.import_changes(&doc_id, &[change])
+                        let result = tx
+                            .import_changes(&doc_id, &changes)
                             .await
-                            .map_err(|e| e.to_string())?;
+                            .map_err(|error| error.to_string())?;
+                        if result == kv_store::ChangeApply::MissingDependencies {
+                            return Ok(sync::PushApplyResult::Deferred);
+                        }
                         tx.commit().await.map_err(|e| e.to_string())?;
-                        Ok(())
+                        pending
+                            .lock()
+                            .map_err(|error| error.to_string())?
+                            .remove(&key);
+                        Ok(sync::PushApplyResult::Applied)
                     }
                     #[cfg(feature = "in-memory")]
                     Storage::Memory(_store) => Err(format!(
-                        "In-memory storage not yet supported for synchronize (key {:?})",
-                        event.key
+                        "In-memory storage not yet supported for synchronize (key {key:?})"
                     )),
                     #[cfg(feature = "redb")]
                     Storage::Redb(_store) => Err(format!(
-                        "Redb storage not yet supported for synchronize (key {:?})",
-                        event.key
+                        "Redb storage not yet supported for synchronize (key {key:?})"
                     )),
                 }
             }
         };
 
-        subscription
+        let result = subscription
             .push_synchronize(transport, apply_inbound, config)
-            .await
+            .await?;
+        let pending = pending
+            .lock()
+            .map_err(|error| PushSynchronizeError::Apply(error.to_string()))?;
+        if pending.is_empty() {
+            Ok(result)
+        } else {
+            Err(PushSynchronizeError::Apply(
+                "inbound changes have unresolved dependencies".into(),
+            ))
+        }
     }
 }
 

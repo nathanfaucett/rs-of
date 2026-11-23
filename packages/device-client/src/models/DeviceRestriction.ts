@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -39,7 +38,7 @@ export function DeviceRestrictionFromJSON(json: any): DeviceRestriction {
 
 export function DeviceRestrictionFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): DeviceRestriction {
   if (
     json &&
@@ -61,7 +60,7 @@ export function DeviceRestrictionToJSON(json: any): DeviceRestriction {
 
 export function DeviceRestrictionToJSONTyped(
   value?: DeviceRestriction | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

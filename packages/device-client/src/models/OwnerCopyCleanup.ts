@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  * Exact current Management binding; only an authenticated Storage service may acknowledge it.
  * @export
@@ -59,7 +58,7 @@ export function OwnerCopyCleanupFromJSON(json: any): OwnerCopyCleanup {
 
 export function OwnerCopyCleanupFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): OwnerCopyCleanup {
   if (
     json &&
@@ -88,7 +87,7 @@ export function OwnerCopyCleanupToJSON(json: any): OwnerCopyCleanup {
 
 export function OwnerCopyCleanupToJSONTyped(
   value?: OwnerCopyCleanup | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

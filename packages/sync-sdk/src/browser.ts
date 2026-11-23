@@ -1,20 +1,20 @@
 // Browser implementation of @ofsdk/sync-sdk
 
-import { BehaviorSubject, type Observable, Subject } from "rxjs";
-import { StorageClient } from "@ofsdk/storage-client";
-import { SyncClient, type StoreIdentity } from "@ofsdk/storage-sync-client";
 import { Database } from "@ofsdk/sql";
+import { StorageClient } from "@ofsdk/storage-client";
+import { type StoreIdentity, SyncClient } from "@ofsdk/storage-sync-client";
+import { BehaviorSubject, type Observable, Subject } from "rxjs";
 import type {
-  SyncConfig,
-  SyncSDK,
-  DatabaseHandle,
-  KvStoreHandle,
-  FilesystemHandle,
   ChangeEvent,
-  SyncState,
-  SyncOptions,
-  QueryResult,
+  DatabaseHandle,
   FileEntry,
+  FilesystemHandle,
+  KvStoreHandle,
+  QueryResult,
+  SyncConfig,
+  SyncOptions,
+  SyncSDK,
+  SyncState,
 } from "./core";
 import { execute } from "./sql";
 import { SqlSyncLifecycle } from "./sql-sync-lifecycle";
@@ -46,18 +46,15 @@ export class BrowserSyncSDK implements SyncSDK {
     });
     // Provide Storage capability token exchange using the StorageClient
     const storageClient = this.storageClient;
-    config.getStorageToken = async (
-      resource: string,
-      actions: ("read" | "write")[],
-    ) => storageClient.getStorageToken(resource, actions);
+    config.getStorageToken = async (resource: string, actions: ("read" | "write")[]) =>
+      storageClient.getStorageToken(resource, actions);
   }
 
   /** SQL database sync */
   sql = {
     open: async (databaseId: string): Promise<DatabaseHandle> => {
-      if (this.databases.has(databaseId)) {
-        return this.databases.get(databaseId)!;
-      }
+      const existing = this.databases.get(databaseId);
+      if (existing) return existing;
 
       const handle = await this.storageClient.openSqlDatabase(databaseId);
       // Open local WASM database with the resourceId as name
@@ -74,7 +71,7 @@ export class BrowserSyncSDK implements SyncSDK {
           resourceId: handle.id,
           storeIdentity,
         },
-        this.config,
+        this.config
       );
       this.databases.set(databaseId, dbHandle);
       return dbHandle;
@@ -95,7 +92,7 @@ export class BrowserSyncSDK implements SyncSDK {
           resourceId: handle.id,
           storeIdentity,
         },
-        this.config,
+        this.config
       );
       this.databases.set(handle.id, dbHandle);
       return dbHandle;
@@ -110,37 +107,18 @@ export class BrowserSyncSDK implements SyncSDK {
   /** KV store sync */
   kv = {
     open: async (storeId: string): Promise<KvStoreHandle> => {
-      if (this.kvStores.has(storeId)) {
-        return this.kvStores.get(storeId)!;
-      }
+      const existing = this.kvStores.get(storeId);
+      if (existing) return existing;
 
-      const handle = await this.storageClient.openKvStore(storeId);
-      const storeIdentity: StoreIdentity = {
-        storeId: handle.id,
-        replicaId: crypto.randomUUID(),
-        creationEpoch: 0n,
-        schemaFingerprint: new Uint8Array(32),
-      };
-      const kvHandle = new BrowserKvStoreHandle(
-        { resourceId: handle.id, storeIdentity },
-        this.config,
-      );
+      await this.storageClient.openKvStore(storeId);
+      const kvHandle = new BrowserKvStoreHandle();
       this.kvStores.set(storeId, kvHandle);
       return kvHandle;
     },
 
     create: async (name: string): Promise<KvStoreHandle> => {
       const handle = await this.storageClient.createKvStore(name);
-      const storeIdentity: StoreIdentity = {
-        storeId: handle.id,
-        replicaId: crypto.randomUUID(),
-        creationEpoch: 0n,
-        schemaFingerprint: new Uint8Array(32),
-      };
-      const kvHandle = new BrowserKvStoreHandle(
-        { resourceId: handle.id, storeIdentity },
-        this.config,
-      );
+      const kvHandle = new BrowserKvStoreHandle();
       this.kvStores.set(handle.id, kvHandle);
       return kvHandle;
     },
@@ -153,37 +131,18 @@ export class BrowserSyncSDK implements SyncSDK {
   /** Filesystem sync */
   fs = {
     open: async (fsId: string): Promise<FilesystemHandle> => {
-      if (this.filesystems.has(fsId)) {
-        return this.filesystems.get(fsId)!;
-      }
+      const existing = this.filesystems.get(fsId);
+      if (existing) return existing;
 
-      const handle = await this.storageClient.openFilesystem(fsId);
-      const storeIdentity: StoreIdentity = {
-        storeId: handle.id,
-        replicaId: crypto.randomUUID(),
-        creationEpoch: 0n,
-        schemaFingerprint: new Uint8Array(32),
-      };
-      const fsHandle = new BrowserFilesystemHandle(
-        { resourceId: handle.id, storeIdentity },
-        this.config,
-      );
+      await this.storageClient.openFilesystem(fsId);
+      const fsHandle = new BrowserFilesystemHandle();
       this.filesystems.set(fsId, fsHandle);
       return fsHandle;
     },
 
     create: async (name: string): Promise<FilesystemHandle> => {
       const handle = await this.storageClient.createFilesystem(name);
-      const storeIdentity: StoreIdentity = {
-        storeId: handle.id,
-        replicaId: crypto.randomUUID(),
-        creationEpoch: 0n,
-        schemaFingerprint: new Uint8Array(32),
-      };
-      const fsHandle = new BrowserFilesystemHandle(
-        { resourceId: handle.id, storeIdentity },
-        this.config,
-      );
+      const fsHandle = new BrowserFilesystemHandle();
       this.filesystems.set(handle.id, fsHandle);
       return fsHandle;
     },
@@ -236,7 +195,7 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
       resourceId: string;
       storeIdentity: StoreIdentity;
     },
-    config: SyncConfig,
+    config: SyncConfig
   ) {
     this.handle = handle;
     this.config = config;
@@ -293,21 +252,19 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
     if (this.lifecycle) return this.lifecycle;
     const client = this.getSyncClient();
     this.lifecycle = new SqlSyncLifecycle(
-      this.sqlDatabase as Database,
+      this.handle.sqlDatabase,
       client,
       this.handle.storeIdentity,
       {
-        connecting: () =>
-          this._state$.next({ ...this._state$.value, status: "connecting" }),
-        synced: () =>
-          this._state$.next({ ...this._state$.value, status: "synced" }),
+        connecting: () => this._state$.next({ ...this._state$.value, status: "connecting" }),
+        synced: () => this._state$.next({ ...this._state$.value, status: "synced" }),
         failed: (error) =>
           this._state$.next({
             ...this._state$.value,
             status: "error",
             error,
           }),
-      },
+      }
     );
     return this.lifecycle;
   }
@@ -316,8 +273,7 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
     if (this.syncClient) return this.syncClient;
     this.syncClient = new SyncClient({
       storageApiUrl: this.config.apiUrl,
-      tokenProvider: () =>
-        this.config.getStorageToken("storage:sync", ["read", "write"]),
+      tokenProvider: () => this.config.getStorageToken("storage:sync", ["read", "write"]),
     });
     return this.syncClient;
   }
@@ -331,11 +287,6 @@ class BrowserKvStoreHandle<T = unknown> implements KvStoreHandle<T> {
     version: 0,
     vectorClock: {},
   });
-
-  constructor(
-    _handle: { resourceId: string; storeIdentity: StoreIdentity },
-    _config: SyncConfig,
-  ) {}
 
   async get(_key: string): Promise<T | undefined> {
     return undefined;
@@ -380,11 +331,6 @@ class BrowserFilesystemHandle implements FilesystemHandle {
     version: 0,
     vectorClock: {},
   });
-
-  constructor(
-    _handle: { resourceId: string; storeIdentity: StoreIdentity },
-    _config: SyncConfig,
-  ) {}
 
   async read(_path: string): Promise<Uint8Array> {
     throw new Error("Filesystem not initialized");

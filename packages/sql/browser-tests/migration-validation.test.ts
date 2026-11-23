@@ -11,12 +11,12 @@ test("invalid inputs and statement-free tails reject before any migration commit
   page,
 }) => {
   const results = await page.evaluate(async () => {
-    const { Database, MigrationError } = (window as any).sql;
+    const { Database, MigrationError } = window.sql;
     const db = await Database.open("migration-invalid-plans");
     const client = db.client();
     try {
       await client.executeRaw(
-        "CREATE TABLE items (id INTEGER PRIMARY KEY, amount INTEGER); INSERT INTO items VALUES (1,10)",
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, amount INTEGER); INSERT INTO items VALUES (1,10)"
       );
       const first = {
         version: 1,
@@ -29,9 +29,7 @@ test("invalid inputs and statement-free tails reject before any migration commit
         [null],
         [{ version: 1 }],
         [{ version: 1, description: "m1", sql: 123 }],
-        ...[-1, 1.5, NaN, Infinity, 4294967296, "1"].map((version) => [
-          { ...first, version },
-        ]),
+        ...[-1, 1.5, NaN, Infinity, 4294967296, "1"].map((version) => [{ ...first, version }]),
         [first, { ...first }],
         [first, { ...first, version: 0 }],
         [first, { ...first, version: 1 }, { ...first }],
@@ -47,35 +45,29 @@ test("invalid inputs and statement-free tails reject before any migration commit
       const snapshot = async () =>
         Promise.all([
           client.executeRaw("SELECT * FROM tables ORDER BY name"),
-          client.executeRaw(
-            "SELECT * FROM table_fields ORDER BY table, position",
-          ),
+          client.executeRaw("SELECT * FROM table_fields ORDER BY table, position"),
           client.executeRaw("SELECT * FROM items"),
         ]);
       const before = await snapshot();
       const results = [];
       for (const plan of plans) {
-        let failure;
-        try {
-          await client.migrate(plan);
-        } catch (error) {
-          failure = {
-            typed: error instanceof MigrationError,
-            version: (error as any).version,
-            phase: (error as any).phase,
-            kind: (error as any).queryKind,
-            message: [
-              String(error),
-              String((error as any).cause),
-              JSON.stringify(error),
-            ].join(" "),
-            outcome: (error as any).outcome,
-          };
-        }
+        const failure = await client.migrate(plan).then(
+          () => undefined,
+          (error) => {
+            if (!(error instanceof MigrationError)) throw error;
+            return {
+              typed: true,
+              version: error.version,
+              phase: error.phase,
+              kind: error.queryKind,
+              message: [String(error), String(error.cause), JSON.stringify(error)].join(" "),
+              outcome: error.outcome,
+            };
+          }
+        );
         results.push({
           failure,
-          unchanged:
-            JSON.stringify(await snapshot()) === JSON.stringify(before),
+          unchanged: JSON.stringify(await snapshot()) === JSON.stringify(before),
         });
       }
       return results;
@@ -106,7 +98,7 @@ test("post-execution history failures identify the active version and roll back"
   page,
 }) => {
   const results = await page.evaluate(async () => {
-    const { Database, MigrationError } = (window as any).sql;
+    const { Database, MigrationError } = window.sql;
     const db = await Database.open("migration-record-context");
     const client = db.client();
     const timed = client.withDeadline(5000n);
@@ -117,9 +109,7 @@ test("post-execution history failures identify the active version and roll back"
     };
     const snapshot = async () =>
       Promise.all([
-        client.executeRaw(
-          "SELECT * FROM table_fields ORDER BY table, position",
-        ),
+        client.executeRaw("SELECT * FROM table_fields ORDER BY table, position"),
         client.executeRaw("SELECT * FROM items"),
         client.executeRaw("SELECT * FROM _ofdb_migrations ORDER BY version"),
       ]);
@@ -131,39 +121,36 @@ test("post-execution history failures identify the active version and roll back"
         "ALTER TABLE _ofdb_migrations ADD COLUMN extra TEXT",
         "UPDATE _ofdb_migrations SET description = 'private-value' WHERE version = 1",
       ]) {
-        let failure;
-        try {
-          await timed.migrate([
+        const failure = await timed
+          .migrate([
             first,
             {
               version: 2,
               description: "m2",
               sql: `UPDATE items SET amount = 99; ${sql}`,
             },
-          ]);
-        } catch (error) {
-          failure = {
-            typed: error instanceof MigrationError,
-            phase: (error as any).phase,
-            version: (error as any).version,
-            kind: (error as any).queryKind,
-            outcome: (error as any).outcome,
-            message: [
-              String(error),
-              String((error as any).cause),
-              JSON.stringify(error),
-            ].join(" "),
-          };
-        }
+          ])
+          .then(
+            () => undefined,
+            (error) => {
+              if (!(error instanceof MigrationError)) throw error;
+              return {
+                typed: true,
+                phase: error.phase,
+                version: error.version,
+                kind: error.queryKind,
+                outcome: error.outcome,
+                message: [String(error), String(error.cause), JSON.stringify(error)].join(" "),
+              };
+            }
+          );
         results.push({
           failure,
-          unchanged:
-            JSON.stringify(before) === JSON.stringify(await snapshot()),
+          unchanged: JSON.stringify(before) === JSON.stringify(await snapshot()),
         });
       }
       const repeated = await timed.migrate([first]);
-      if (repeated.appliedVersions.length !== 0)
-        throw new Error("history was changed");
+      if (repeated.appliedVersions.length !== 0) throw new Error("history was changed");
       return results;
     } finally {
       timed.close();
@@ -186,11 +173,9 @@ test("post-execution history failures identify the active version and roll back"
   }
 });
 
-test("exact SQL, complete history and metadata are validated without repair", async ({
-  page,
-}) => {
+test("exact SQL, complete history and metadata are validated without repair", async ({ page }) => {
   const results = await page.evaluate(async () => {
-    const { Database, MigrationError } = (window as any).sql;
+    const { Database, MigrationError } = window.sql;
     const db = await Database.open("migration-invalid-history");
     const client = db.client();
     const initial = {
@@ -208,31 +193,33 @@ test("exact SQL, complete history and metadata are validated without repair", as
       description: "m3",
       sql: "UPDATE items SET amount = 99; CREATE TABLE forbidden (id INTEGER PRIMARY KEY)",
     };
-    const results: any[] = [];
+    const results = [];
     const snapshot = async () =>
       Promise.all([
         client.executeRaw("SELECT * FROM tables ORDER BY name"),
-        client.executeRaw(
-          "SELECT * FROM table_fields ORDER BY table, position",
-        ),
+        client.executeRaw("SELECT * FROM table_fields ORDER BY table, position"),
         client.executeRaw("SELECT * FROM items"),
         client.executeRaw("SELECT * FROM _ofdb_migrations ORDER BY version"),
       ]);
-    const reject = async (plan: any, version?: number) => {
+    const reject = async (
+      plan: readonly import("../src/index.js").Migration[],
+      version?: number
+    ) => {
       const before = await snapshot();
-      let failure;
-      try {
-        await client.migrate(plan);
-      } catch (error) {
-        failure = {
-          typed: error instanceof MigrationError,
-          phase: (error as any).phase,
-          kind: (error as any).queryKind,
-          version: (error as any).version,
-          message: String(error),
-          outcome: (error as any).outcome,
-        };
-      }
+      const failure = await client.migrate(plan).then(
+        () => undefined,
+        (error) => {
+          if (!(error instanceof MigrationError)) throw error;
+          return {
+            typed: true,
+            phase: error.phase,
+            kind: error.queryKind,
+            version: error.version,
+            message: String(error),
+            outcome: error.outcome,
+          };
+        }
+      );
       results.push({
         failure,
         version,
@@ -241,12 +228,11 @@ test("exact SQL, complete history and metadata are validated without repair", as
     };
     const fixture = async () => {
       await client.executeRaw(
-        "CREATE TABLE items (id INTEGER PRIMARY KEY, amount INTEGER); INSERT INTO items VALUES (1,10)",
+        "CREATE TABLE items (id INTEGER PRIMARY KEY, amount INTEGER); INSERT INTO items VALUES (1,10)"
       );
       await client.migrate([initial, second]);
     };
-    const reset = async () =>
-      client.executeRaw("DROP TABLE items; DROP TABLE _ofdb_migrations");
+    const reset = async () => client.executeRaw("DROP TABLE items; DROP TABLE _ofdb_migrations");
     try {
       await fixture();
       await reject([], 1);
@@ -259,8 +245,7 @@ test("exact SQL, complete history and metadata are validated without repair", as
         await reject([{ ...initial, sql }, second, pending], 1);
       }
       const original = await client.migrate([initial, second]);
-      if (original.appliedVersions.length !== 0)
-        throw new Error("replayed original plan");
+      if (original.appliedVersions.length !== 0) throw new Error("replayed original plan");
       await reset();
       // Tamper loop disabled due to WASM SQL parser limitations
       // for (const [tamper, version] of [
@@ -298,11 +283,11 @@ test("exact SQL, complete history and metadata are validated without repair", as
         "version INTEGER, description TEXT, fingerprint BLOB, execution_time INTEGER, PRIMARY KEY (version, fingerprint)",
       ]) {
         await client.executeRaw(
-          `CREATE TABLE items (id INTEGER PRIMARY KEY, amount INTEGER); INSERT INTO items VALUES (1,10); CREATE TABLE _ofdb_migrations (${schema})`,
+          `CREATE TABLE items (id INTEGER PRIMARY KEY, amount INTEGER); INSERT INTO items VALUES (1,10); CREATE TABLE _ofdb_migrations (${schema})`
         );
         if (schema === "version INTEGER, fingerprint TEXT PRIMARY KEY") {
           await client.executeRaw(
-            "INSERT INTO _ofdb_migrations VALUES (1,'private-value'),(1,'other-private-value')",
+            "INSERT INTO _ofdb_migrations VALUES (1,'private-value'),(1,'other-private-value')"
           );
         }
         await reject([{ version: 1, description: "m1", sql: pending.sql }]);

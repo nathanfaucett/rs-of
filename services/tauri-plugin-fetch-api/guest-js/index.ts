@@ -17,10 +17,7 @@ interface InitStreamResponse {
   stream_id: string;
 }
 
-export async function fetch(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Response> {
+export async function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   try {
     let path: string;
     let method = init?.method;
@@ -43,17 +40,14 @@ export async function fetch(
     const requestMethod = method || "GET";
 
     if (signal?.aborted) {
-      console.warn(
-        `Abort error triggered early before initializing stream context for: "${path}"`,
-      );
+      console.warn(`Abort error triggered early before initializing stream context for: "${path}"`);
       throw new DOMException("The user aborted a request.", "AbortError");
     }
 
     // Set up a channel expecting structured StreamFrames instead of raw binary chunks
     const responseChannel = new Channel<StreamFrame>();
     let registeredStreamId: string | null = null;
-    let streamController: ReadableStreamDefaultController<Uint8Array> | null =
-      null;
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
     let isResponseResolved = false;
 
     // Create the stream body container early, but control it asynchronously via channel messages
@@ -69,10 +63,7 @@ export async function fetch(
     if (isFormData(body)) {
       normalizedHeaders.set("Content-Type", "multipart/form-data");
     } else if (isURLSearchParams(body)) {
-      normalizedHeaders.set(
-        "Content-Type",
-        "application/x-www-form-urlencoded",
-      );
+      normalizedHeaders.set("Content-Type", "application/x-www-form-urlencoded");
     }
 
     const payload = {
@@ -94,7 +85,7 @@ export async function fetch(
               new Response(browserReadableStream, {
                 status: frame.payload.status,
                 headers: new Headers(frame.payload.headers),
-              }),
+              })
             );
             break;
 
@@ -105,16 +96,13 @@ export async function fetch(
               streamController.enqueue(bytes);
             } else {
               console.error(
-                `[Channel Message] Missed target runtime: Stream controller uninitialized during data packet processing`,
+                `[Channel Message] Missed target runtime: Stream controller uninitialized during data packet processing`
               );
             }
             break;
 
           case "Error": {
-            const errorException = new DOMException(
-              frame.payload,
-              "NetworkError",
-            );
+            const errorException = new DOMException(frame.payload, "NetworkError");
             if (!isResponseResolved) {
               reject(errorException);
             } else if (streamController) {
@@ -130,7 +118,7 @@ export async function fetch(
               } catch (err) {
                 console.debug(
                   `[Channel Message] Exception suppressed during stream closure handling:`,
-                  err,
+                  err
                 );
                 // The controller might already be in an error state or closed
               }
@@ -147,17 +135,11 @@ export async function fetch(
                 streamId: registeredStreamId,
               });
             } catch (e) {
-              console.error(
-                "[Abort Trigger] Failed to notify stream cancel route:",
-                e,
-              );
+              console.error("[Abort Trigger] Failed to notify stream cancel route:", e);
             }
           }
 
-          const abortError = new DOMException(
-            "The user aborted a request.",
-            "AbortError",
-          );
+          const abortError = new DOMException("The user aborted a request.", "AbortError");
           if (!isResponseResolved) {
             reject(abortError);
           } else if (streamController) {
@@ -167,13 +149,12 @@ export async function fetch(
       }
 
       // Isolate the asynchronous orchestration pipeline into an immediate invoked async function expression
-      (async () => {
+      void (async () => {
         try {
           // 2. Invoke the initialization command (returns an ArrayBuffer of the response bytes)
-          const rawHeadBytes = await invoke<ArrayBuffer>(
-            "plugin:fetch-api|init_plugin_stream",
-            { request: payload },
-          );
+          const rawHeadBytes = await invoke<ArrayBuffer>("plugin:fetch-api|init_plugin_stream", {
+            request: payload,
+          });
 
           // Decode the binary response buffer into a string and extract the stream identification token
           const headString = TEXT_DECODER.decode(rawHeadBytes);
@@ -185,9 +166,7 @@ export async function fetch(
             await invoke("plugin:fetch-api|cancel_plugin_stream", {
               streamId: registeredStreamId,
             });
-            reject(
-              new DOMException("The user aborted a request.", "AbortError"),
-            );
+            reject(new DOMException("The user aborted a request.", "AbortError"));
             return;
           }
 
@@ -196,8 +175,7 @@ export async function fetch(
             const uploadReader = ensureReadableStream(body).getReader();
 
             try {
-              let iterationIndex = 0;
-              while (true) {
+              for (;;) {
                 const { value, done } = await uploadReader.read();
                 const chunkData = value ?? EMPTY_CHUNK;
 
@@ -211,12 +189,11 @@ export async function fetch(
                 if (done || signal?.aborted) {
                   break;
                 }
-                iterationIndex++;
               }
             } catch (uploadError) {
               console.error(
                 "[Async Orchestrator] [Upload Loop] Error broken inside core processing streaming execution track:",
-                uploadError,
+                uploadError
               );
               await invoke("plugin:fetch-api|upload_plugin_chunk", {
                 streamId: registeredStreamId,
@@ -237,7 +214,7 @@ export async function fetch(
         } catch (initError) {
           console.error(
             `[Async Orchestrator] Initialization lifecycle failure block captured:`,
-            initError,
+            initError
           );
           if (!isResponseResolved) {
             reject(initError);
@@ -259,27 +236,21 @@ function ensureReadableStream(body: BodyInit): ReadableStream<Uint8Array> {
   if (!stream) {
     throw new DOMException(
       "failed to generate a readable stream from the provided body.",
-      "InvalidStateError",
+      "InvalidStateError"
     );
   }
   return stream;
 }
 
-function isFormData(body?: any): body is FormData {
-  if (!body) {
-    return false;
-  }
+function isFormData(body: unknown): body is FormData {
   return body instanceof FormData;
 }
 
-function isURLSearchParams(body: any): body is URLSearchParams {
-  if (!body) {
-    return false;
-  }
-
+function isURLSearchParams(body: unknown): body is URLSearchParams {
   return (
     body instanceof URLSearchParams ||
     (typeof body === "object" &&
+      body !== null &&
       "append" in body &&
       typeof body.append === "function")
   );

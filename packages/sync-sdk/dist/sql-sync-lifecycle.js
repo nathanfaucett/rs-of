@@ -4,12 +4,12 @@ const ATTACH_TIMEOUT_MS = 10_000;
 const INACTIVITY_TIMEOUT_MS = 30_000;
 /** Owns one handle's attach, transport, deadline, and close lifecycle. */
 export class SqlSyncLifecycle {
+    active;
+    closed = false;
     database;
     client;
     identity;
     callbacks;
-    active;
-    closed = false;
     constructor(database, client, identity, callbacks) {
         this.database = database;
         this.client = client;
@@ -54,23 +54,22 @@ export class SqlSyncLifecycle {
         this.callbacks.connecting();
         try {
             arm("attach");
-            session = await this.client.attach({
+            const attached = await this.client.attach({
                 identity: this.identity,
                 direction: "Bidirectional",
                 signal: controller.signal,
             });
+            session = attached;
             arm("inactivity");
             const transport = new JsSqlSyncTransport({
                 send: (data) => {
-                    session?.send(data);
+                    attached.send(data);
                     arm("inactivity");
                     return Promise.resolve();
                 },
                 receive: async () => {
-                    const data = await session?.receive();
+                    const data = await attached.receive();
                     arm("inactivity");
-                    if (!data)
-                        throw new SyncError("transport", "Sync receive returned no frame");
                     return data;
                 },
             });
@@ -82,10 +81,10 @@ export class SqlSyncLifecycle {
         }
         catch (cause) {
             const error = timeout
-                ? new SyncError("transport", timeout === "attach"
-                    ? "Sync attach timed out"
-                    : "Sync receive timed out")
-                : cause;
+                ? new SyncError("transport", timeout === "attach" ? "Sync attach timed out" : "Sync receive timed out")
+                : cause instanceof Error
+                    ? cause
+                    : new Error("SQL synchronization failed");
             this.callbacks.failed(error);
             throw error;
         }
@@ -98,3 +97,4 @@ export class SqlSyncLifecycle {
         }
     }
 }
+//# sourceMappingURL=sql-sync-lifecycle.js.map

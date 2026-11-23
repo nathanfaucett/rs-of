@@ -1,8 +1,8 @@
 <script lang="ts">
-import { Field } from "$lib/ui";
-import PasswordInput from "./PasswordInput.svelte";
+import { Field, type FieldControl } from "$lib/ui";
 import { identityFields } from "../identity-fields";
 import type { IdentityDraft } from "../secret-draft";
+import PasswordInput from "./PasswordInput.svelte";
 
 let { draft = $bindable(), disabled }: { draft: IdentityDraft; disabled: boolean } = $props();
 </script>
@@ -12,7 +12,7 @@ let { draft = $bindable(), disabled }: { draft: IdentityDraft; disabled: boolean
     <p>All Identity fields are optional. Values are stored as entered.</p>
     {#each identityFields as [key, label] (key)}
         <Field id={`identity-${key}`} {label}>
-            {#snippet children(control)}
+            {#snippet children(control: FieldControl)}
                 {#if key === "ssn" || key === "passportNumber" || key === "licenseNumber"}
                     <PasswordInput {...control} bind:value={draft[key]} autocomplete="off" spellcheck="false" />
                 {:else}

@@ -12,21 +12,10 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
-import type { SelectedResource } from "./SelectedResource.js";
-import {
-  SelectedResourceFromJSON,
-  SelectedResourceFromJSONTyped,
-  SelectedResourceToJSON,
-  SelectedResourceToJSONTyped,
-} from "./SelectedResource.js";
 import type { OwnerCopyCleanup } from "./OwnerCopyCleanup.js";
-import {
-  OwnerCopyCleanupFromJSON,
-  OwnerCopyCleanupFromJSONTyped,
-  OwnerCopyCleanupToJSON,
-  OwnerCopyCleanupToJSONTyped,
-} from "./OwnerCopyCleanup.js";
+import { OwnerCopyCleanupFromJSON, OwnerCopyCleanupToJSON } from "./OwnerCopyCleanup.js";
+import type { SelectedResource } from "./SelectedResource.js";
+import { SelectedResourceFromJSON, SelectedResourceToJSON } from "./SelectedResource.js";
 
 /**
  * Current policy for an IdP-approved endpoint with an active owner.
@@ -54,7 +43,7 @@ export interface SelectedResourcesResponse {
   /**
    *
    */
-  pendingCleanup?: OwnerCopyCleanup | null;
+  pendingCleanup?: (OwnerCopyCleanup | null) | undefined;
   /**
    *
    */
@@ -81,7 +70,7 @@ export function SelectedResourcesResponseFromJSON(json: any): SelectedResourcesR
 
 export function SelectedResourcesResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): SelectedResourcesResponse {
   if (json == null) {
     return json;
@@ -107,7 +96,7 @@ export function SelectedResourcesResponseToJSON(json: any): SelectedResourcesRes
 
 export function SelectedResourcesResponseToJSONTyped(
   value?: SelectedResourcesResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

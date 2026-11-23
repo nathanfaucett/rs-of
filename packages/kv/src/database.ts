@@ -1,16 +1,17 @@
-import { Client } from "./client.js";
-import type { WasmKvDatabase } from "./wasm.js";
-import { loadWasm } from "./wasm.js";
-import { wrapError, KvError } from "./error.js";
 import {
+  JsChangeEvent,
+  JsKvSyncError,
   JsPushSyncTransport,
+  KvChangeSubscription,
+  KvSyncRole,
   PushConfig,
   PushSynchronizeConfig,
   PushSynchronizeResult,
-  KvChangeSubscription,
-  JsChangeEvent,
-  JsKvSyncError,
 } from "../pkg/ofdb_wasm.js";
+import { Client } from "./client.js";
+import { KvError, wrapError } from "./error.js";
+import type { WasmKvDatabase } from "./wasm.js";
+import { loadWasm } from "./wasm.js";
 
 /** Embedded KV database handle. Opens the store and creates query handles. */
 export class Database {
@@ -39,7 +40,7 @@ export class Database {
   /** Synchronize with a remote peer using the given transport. */
   async synchronize(
     transport: JsPushSyncTransport,
-    config: PushSynchronizeConfig,
+    config: PushSynchronizeConfig
   ): Promise<PushSynchronizeResult> {
     try {
       return await this.wasm.synchronize(transport, config);
@@ -52,7 +53,7 @@ export class Database {
   async synchronize_checked(
     transport: JsPushSyncTransport,
     config: PushSynchronizeConfig,
-    check: () => Promise<void>,
+    check: () => Promise<void>
   ): Promise<PushSynchronizeResult> {
     try {
       return await this.wasm.synchronize_checked(transport, config, check);
@@ -73,11 +74,12 @@ export class Database {
 
 // Re-export sync types and values
 export {
+  JsChangeEvent,
+  JsKvSyncError,
   JsPushSyncTransport,
+  KvChangeSubscription,
+  KvSyncRole,
   PushConfig,
   PushSynchronizeConfig,
   PushSynchronizeResult,
-  KvChangeSubscription,
-  JsChangeEvent,
-  JsKvSyncError,
 };

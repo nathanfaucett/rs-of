@@ -49,7 +49,7 @@ export function ErrorCodeFromJSON(json: any): ErrorCode {
   return ErrorCodeFromJSONTyped(json, false);
 }
 
-export function ErrorCodeFromJSONTyped(json: any, ignoreDiscriminator: boolean): ErrorCode {
+export function ErrorCodeFromJSONTyped(json: any, _ignoreDiscriminator: boolean): ErrorCode {
   return json as ErrorCode;
 }
 
@@ -57,6 +57,6 @@ export function ErrorCodeToJSON(value?: ErrorCode | null): any {
   return value as any;
 }
 
-export function ErrorCodeToJSONTyped(value: any, ignoreDiscriminator: boolean): ErrorCode {
+export function ErrorCodeToJSONTyped(value: any, _ignoreDiscriminator: boolean): ErrorCode {
   return value as ErrorCode;
 }

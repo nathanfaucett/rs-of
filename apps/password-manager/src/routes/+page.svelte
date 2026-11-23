@@ -1,12 +1,13 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { Eye, EyeOff } from "@lucide/svelte";
 import { isRedirect } from "@sveltejs/kit";
+import { onMount } from "svelte";
+import { resolve } from "$app/paths";
+import { authState } from "$lib/auth/auth.svelte";
+import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
 import type { VaultIdentity } from "$lib/vault/vault";
-import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
-import { Eye, EyeOff } from "@lucide/svelte";
-import { vaultStateModule } from "$lib/shared/state/vault.svelte";
-import { authState } from "$lib/auth/auth.svelte";
 
 let password = $state("");
 let confirmPassword = $state("");
@@ -113,7 +114,7 @@ async function restored(identity: { id: string; name: string }) {
             <Card>
                 <div class="flex flex-col gap-4">
                     {#if !authState.isAuthenticated}
-                        <a class="btn btn-secondary btn-md" href="/login">Sign in to sync</a>
+                        <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
                         <hr class="my-2" />
                     {/if}
                     <button class="btn btn-secondary btn-md" type="button" onclick={() => { notice = ""; vaultStateModule.state = { status: "restore-vault" }; }}>Restore encrypted backup</button>

@@ -39,7 +39,7 @@ export function CodeChallengeMethodFromJSON(json: any): CodeChallengeMethod {
 
 export function CodeChallengeMethodFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): CodeChallengeMethod {
   return json as CodeChallengeMethod;
 }
@@ -50,7 +50,7 @@ export function CodeChallengeMethodToJSON(value?: CodeChallengeMethod | null): a
 
 export function CodeChallengeMethodToJSONTyped(
   value: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): CodeChallengeMethod {
   return value as CodeChallengeMethod;
 }

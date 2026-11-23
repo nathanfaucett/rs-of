@@ -12,25 +12,21 @@
  * Do not edit the class manually.
  */
 
-import { parseDate, parseDateTime, serializeDate, serializeDateTime } from "../runtime.js";
 import type { JwkPublicParametersOneOf } from "./JwkPublicParametersOneOf.js";
 import {
   instanceOfJwkPublicParametersOneOf,
-  JwkPublicParametersOneOfFromJSON,
   JwkPublicParametersOneOfFromJSONTyped,
   JwkPublicParametersOneOfToJSON,
 } from "./JwkPublicParametersOneOf.js";
 import type { JwkPublicParametersOneOf1 } from "./JwkPublicParametersOneOf1.js";
 import {
   instanceOfJwkPublicParametersOneOf1,
-  JwkPublicParametersOneOf1FromJSON,
   JwkPublicParametersOneOf1FromJSONTyped,
   JwkPublicParametersOneOf1ToJSON,
 } from "./JwkPublicParametersOneOf1.js";
 import type { JwkPublicParametersOneOf2 } from "./JwkPublicParametersOneOf2.js";
 import {
   instanceOfJwkPublicParametersOneOf2,
-  JwkPublicParametersOneOf2FromJSON,
   JwkPublicParametersOneOf2FromJSONTyped,
   JwkPublicParametersOneOf2ToJSON,
 } from "./JwkPublicParametersOneOf2.js";
@@ -51,7 +47,7 @@ export function JwkPublicParametersFromJSON(json: any): JwkPublicParameters {
 
 export function JwkPublicParametersFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): JwkPublicParameters {
   if (json == null) {
     return json;
@@ -77,7 +73,7 @@ export function JwkPublicParametersToJSON(json: any): any {
 
 export function JwkPublicParametersToJSONTyped(
   value?: JwkPublicParameters | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

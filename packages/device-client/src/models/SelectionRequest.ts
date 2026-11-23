@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { SelectionKind } from "./SelectionKind.js";
-import {
-  SelectionKindFromJSON,
-  SelectionKindFromJSONTyped,
-  SelectionKindToJSON,
-  SelectionKindToJSONTyped,
-} from "./SelectionKind.js";
+import { SelectionKindFromJSON, SelectionKindToJSON } from "./SelectionKind.js";
 
 /**
  *
@@ -62,7 +56,7 @@ export function SelectionRequestFromJSON(json: any): SelectionRequest {
 
 export function SelectionRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): SelectionRequest {
   if (
     json &&
@@ -89,7 +83,7 @@ export function SelectionRequestToJSON(json: any): SelectionRequest {
 
 export function SelectionRequestToJSONTyped(
   value?: SelectionRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

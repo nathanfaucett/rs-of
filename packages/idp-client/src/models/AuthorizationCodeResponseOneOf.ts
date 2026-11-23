@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -26,11 +25,11 @@ export interface AuthorizationCodeResponseOneOf {
   /**
    *
    */
-  iss?: string | null;
+  iss?: (string | null) | undefined;
   /**
    *
    */
-  state?: string | null;
+  state?: (string | null) | undefined;
 }
 
 /**
@@ -49,7 +48,7 @@ export function AuthorizationCodeResponseOneOfFromJSON(json: any): Authorization
 
 export function AuthorizationCodeResponseOneOfFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): AuthorizationCodeResponseOneOf {
   if (json == null) {
     return json;
@@ -67,7 +66,7 @@ export function AuthorizationCodeResponseOneOfToJSON(json: any): AuthorizationCo
 
 export function AuthorizationCodeResponseOneOfToJSONTyped(
   value?: AuthorizationCodeResponseOneOf | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

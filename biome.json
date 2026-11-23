@@ -10,9 +10,11 @@
         "useConst": "error",
         "noParameterProperties": "error",
         "useAsConstAssertion": "error",
-        "useEnumInitializers": "error"
+        "useEnumInitializers": "error",
+        "noNonNullAssertion": "error"
       },
       "correctness": {
+        "noUndeclaredDependencies": "error",
         "noUnusedVariables": "error",
         "noUnusedImports": "error",
         "noUnusedFunctionParameters": "error",
@@ -34,7 +36,8 @@
         "noPrototypeBuiltins": "error",
         "noSparseArray": "error",
         "noThenProperty": "error",
-        "noUnsafeNegation": "error"
+        "noUnsafeNegation": "error",
+        "noUnnecessaryConditions": "error"
       },
       "complexity": {
         "noThisInStatic": "error",
@@ -46,6 +49,8 @@
       },
       "nursery": {
         "useAwaitThenable": "error",
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error",
         "useSortedClasses": "error"
       },
       "performance": {
@@ -79,17 +84,21 @@
     "ignoreUnknown": true,
     "includes": [
       "**",
-      "!**/node_modules/**",
-      "!**/dist/**",
-      "!**/build/**",
-      "!**/.svelte-kit/**",
-      "!**/esm/**",
-      "!**/types/**",
-      "!**/pkg/**",
-      "!**/browser/**",
-      "!**/coverage/**",
-      "!**/generated/**",
-      "!**/paraglide/**"
+      "!**/node_modules",
+      "!**/dist",
+      "!**/dist-js",
+      "!**/build",
+      "!**/.svelte-kit",
+      "!**/.tmp",
+      "!**/.data",
+      "!**/target",
+      "!**/esm",
+      "!**/types",
+      "!**/pkg",
+      "!**/browser",
+      "!**/coverage",
+      "!**/generated",
+      "!**/paraglide"
     ]
   }
 }

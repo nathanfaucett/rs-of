@@ -3,10 +3,11 @@
     import { resolve } from "$app/paths";
     import IndependentSetup from "$lib/common/components/IndependentSetup.svelte";
     import {
-        observeOnboarding,
         type OnboardingObservation,
+        observeOnboarding,
     } from "$lib/common/state/onboarding";
     import { Alert, Card, Page, PageHeader } from "$lib/ui";
+
     let { data }: { data: { observation: OnboardingObservation } } = $props();
     let refreshed = $state.raw<{
         source: typeof data;

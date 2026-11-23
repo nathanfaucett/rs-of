@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -62,7 +61,7 @@ export function JwkPublicParametersOneOfFromJSON(json: any): JwkPublicParameters
 
 export function JwkPublicParametersOneOfFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): JwkPublicParametersOneOf {
   if (json == null) {
     return json;
@@ -80,7 +79,7 @@ export function JwkPublicParametersOneOfToJSON(json: any): JwkPublicParametersOn
 
 export function JwkPublicParametersOneOfToJSONTyped(
   value?: JwkPublicParametersOneOf | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

@@ -1,12 +1,12 @@
 import { goto } from "$app/navigation";
-import { oidcAuth, type OidcAuthConfig } from "./oidc";
 import { env } from "$env/dynamic/public";
+import { type OidcAuthConfig, oidcAuth } from "./oidc";
 
 interface UserInfo {
   sub: string;
-  email?: string;
-  name?: string;
-  preferred_username?: string;
+  email?: string | undefined;
+  name?: string | undefined;
+  preferred_username?: string | undefined;
 }
 
 const DEFAULT_IDP_BASE = "https://idp.localhost:1355";
@@ -19,15 +19,18 @@ let isLoading = $state(true);
 let error = $state<string | null>(null);
 
 function getIdpBaseUrl(): string {
-  return env.PUBLIC_IDP_BASE_URL ?? DEFAULT_IDP_BASE;
+  const { PUBLIC_IDP_BASE_URL: baseUrl } = env;
+  return baseUrl ?? DEFAULT_IDP_BASE;
 }
 
 function getClientId(): string {
-  return env.PUBLIC_OIDC_CLIENT_ID ?? DEFAULT_CLIENT_ID;
+  const { PUBLIC_OIDC_CLIENT_ID: clientId } = env;
+  return clientId ?? DEFAULT_CLIENT_ID;
 }
 
 function getRedirectUri(): string {
-  return env.PUBLIC_OIDC_REDIRECT_URI ?? DEFAULT_REDIRECT_URI;
+  const { PUBLIC_OIDC_REDIRECT_URI: redirectUri } = env;
+  return redirectUri ?? DEFAULT_REDIRECT_URI;
 }
 
 async function initialize(): Promise<void> {
@@ -35,12 +38,16 @@ async function initialize(): Promise<void> {
   error = null;
 
   try {
+    const {
+      PUBLIC_OIDC_APPLICATION_URI: applicationUri,
+      PUBLIC_OIDC_SCOPES: scopes = DEFAULT_SCOPES,
+    } = env;
     const config: OidcAuthConfig = {
       authority: getIdpBaseUrl(),
-      applicationUri: env.PUBLIC_OIDC_APPLICATION_URI,
+      ...(applicationUri === undefined ? {} : { applicationUri }),
       clientId: getClientId(),
       redirectUri: getRedirectUri(),
-      scopes: env.PUBLIC_OIDC_SCOPES ?? DEFAULT_SCOPES,
+      scopes,
     };
 
     await oidcAuth.initialize(config);
@@ -63,11 +70,12 @@ async function initialize(): Promise<void> {
     if (oidcAuth.isAuthenticated()) {
       const userInfo = await oidcAuth.getUserInfo();
       if (userInfo) {
+        const { email, name, preferred_username } = userInfo as Record<string, unknown>;
         user = {
           sub: userInfo.sub,
-          email: (userInfo as Record<string, unknown>).email as string | undefined,
-          name: (userInfo as Record<string, unknown>).name as string | undefined,
-          preferred_username: (userInfo as Record<string, unknown>).preferred_username as string | undefined,
+          email: email as string | undefined,
+          name: name as string | undefined,
+          preferred_username: preferred_username as string | undefined,
         };
       }
     }

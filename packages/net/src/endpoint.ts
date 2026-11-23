@@ -1,10 +1,10 @@
 // ── Endpoint ────────────────────────────────────────────────────────────────
 
+import { Mesh } from "./mesh.js";
+import type { EndpointId, EndpointOptions, PairingOffer, Unsubscribe } from "./types.js";
+import { ClosedError, NotReadyError } from "./types.js";
 import type { WasmWebServer } from "./wasm.js";
 import { loadWasm } from "./wasm.js";
-import type { EndpointId, EndpointOptions, Unsubscribe, PairingOffer } from "./types.js";
-import { ClosedError, NotReadyError } from "./types.js";
-import { Mesh } from "./mesh.js";
 
 /** A browser mesh endpoint. */
 export class Endpoint {
@@ -15,8 +15,8 @@ export class Endpoint {
   readonly mesh: Mesh;
 
   private server!: WasmWebServer;
-  private closed = false;
-  private readyResolved = false;
+  private closed: boolean = false;
+  private readyResolved: boolean = false;
 
   private pendingListeners: Array<() => void> = [];
   private pendingPeerAdds: EndpointId[] = [];
@@ -36,10 +36,7 @@ export class Endpoint {
 
   private async init(options: EndpointOptions): Promise<void> {
     const { WebServer } = await loadWasm();
-    this.server = await WebServer.create(
-      options.secretKey ?? null,
-      options.relayUrls ?? [],
-    );
+    this.server = await WebServer.create(options.secretKey ?? null, options.relayUrls ?? []);
   }
 
   private assertNotClosed(): void {
@@ -122,16 +119,13 @@ export class Endpoint {
   onPairingOffer(listener: (offer: PairingOffer) => void): Unsubscribe {
     this.assertNotClosed();
     const register = () => {
-      const handle = this.server.subscribe_pairing_offers(
-        (offerHandle, remote, payload) => {
-          listener({
-            remote: remote as EndpointId,
-            payload,
-            reply: (replyPayload) =>
-              this.server.reply_to_pairing_offer(offerHandle, replyPayload),
-          });
-        },
-      );
+      const handle = this.server.subscribe_pairing_offers((offerHandle, remote, payload) => {
+        listener({
+          remote: remote as EndpointId,
+          payload,
+          reply: (replyPayload) => this.server.reply_to_pairing_offer(offerHandle, replyPayload),
+        });
+      });
       return () => this.server.unsubscribe_pairing_offers(handle);
     };
     if (this.readyResolved) return register();

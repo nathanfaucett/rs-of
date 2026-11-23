@@ -12,12 +12,8 @@
  * Do not edit the class manually.
  */
 
+import { type VersionResponse, VersionResponseFromJSON } from "../models/VersionResponse.js";
 import * as runtime from "../runtime.js";
-import {
-  type VersionResponse,
-  VersionResponseFromJSON,
-  VersionResponseToJSON,
-} from "../models/VersionResponse.js";
 
 export interface UpgradeSocketRequest {
   /**

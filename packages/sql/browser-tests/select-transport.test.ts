@@ -12,11 +12,7 @@ for (const handle of ["Client", "Transaction"]) {
       page,
     }) => {
       const results = await page.evaluate(async (handle) => {
-        const {
-          [handle]: Client,
-          ExecuteError,
-          Error: SqlError,
-        } = (window as any).sql;
+        const { [handle]: Client, ExecuteError, Error: SqlError } = window.sql;
         const malformed = [
           "not json",
           "{}",
@@ -36,20 +32,21 @@ for (const handle of ["Client", "Transaction"]) {
               freed++;
             },
           });
-          let failure;
-          try {
-            await client.execute("private-sql", () => {
+          const failure = await client
+            .execute("private-sql", () => {
               calls++;
+            })
+            .then(
+              () => undefined,
+              (error) => ({
+                typed: error instanceof SqlError,
+                mapping: error instanceof ExecuteError,
+                reason: error instanceof ExecuteError ? error.reason : undefined,
+              })
+            )
+            .finally(() => {
+              client.close();
             });
-          } catch (error: any) {
-            failure = {
-              typed: error instanceof SqlError,
-              mapping: error instanceof ExecuteError,
-              reason: error.reason,
-            };
-          } finally {
-            client.close();
-          }
           results.push({ calls, freed, failure });
         }
         return results;
@@ -72,15 +69,8 @@ for (const handle of ["Client", "Transaction"]) {
       page,
     }) => {
       const result = await page.evaluate(async (handle) => {
-        const {
-          [handle]: Client,
-          Error: SqlError,
-          ExecuteError,
-        } = (window as any).sql;
-        const executionError = new SqlError(
-          "timeout",
-          "existing execution failure",
-        );
+        const { [handle]: Client, Error: SqlError, ExecuteError } = window.sql;
+        const executionError = new SqlError("timeout", "existing execution failure");
         const failedClient = new Client({
           execute: async () => {
             throw executionError;
@@ -95,12 +85,7 @@ for (const handle of ["Client", "Transaction"]) {
         } finally {
           failedClient.close();
         }
-        const causes = [
-          undefined,
-          null,
-          "private-cell",
-          { secret: "private-cell" },
-        ];
+        const causes = [undefined, null, "private-cell", { secret: "private-cell" }];
         const failures = [];
         for (const cause of causes) {
           const client = new Client({
@@ -111,13 +96,13 @@ for (const handle of ["Client", "Transaction"]) {
             await client.execute("private-sql", () => {
               throw cause;
             });
-          } catch (error: any) {
+          } catch (error) {
             failures.push(
               error instanceof ExecuteError &&
                 error.reason === "parser" &&
                 error.rowIndex === 0 &&
                 error.cause === cause &&
-                !/private/.test(error.message),
+                !/private/.test(error.message)
             );
           } finally {
             client.close();

@@ -3,19 +3,15 @@ import { isTauri } from "@tauri-apps/api/core";
 import { env } from "$env/dynamic/public";
 import icon256x256Png from "$lib/assets/icon256x256.png";
 import { getIdpApiUrl } from "./idpClient.svelte";
-import { observeOnboarding, type OnboardingObservation } from "./onboarding";
+import { type OnboardingObservation, observeOnboarding } from "./onboarding";
 
 let storedClient: OidcClient | undefined;
 let webLogin = $state.raw<{ base: string; clientId: string }>();
 const CLIENT_ID = $derived(
-  webLogin && webLogin.base === getIdpApiUrl()?.replace(/\/$/, "")
-    ? webLogin.clientId
-    : undefined,
+  webLogin && webLogin.base === getIdpApiUrl()?.replace(/\/$/, "") ? webLogin.clientId : undefined
 );
 
-export async function ensureOidcClientId(
-  observation?: OnboardingObservation,
-): Promise<string> {
+export async function ensureOidcClientId(observation?: OnboardingObservation): Promise<string> {
   webLogin = undefined;
   const snapshot = observation ?? (await observeOnboarding());
   const base = getIdpApiUrl()?.replace(/\/$/, "");
@@ -25,42 +21,44 @@ export async function ensureOidcClientId(
   return webLogin.clientId;
 }
 
-const oidcClient = $derived.by(
-  () =>
-    new OidcClient({
-      projectOwned: true,
-      clientConfig: {
-        authority: getIdpApiUrl(),
-        redirectUri: `${env.PUBLIC_URL}/callback`,
-        clientId: CLIENT_ID,
-        responseType: "code",
-        registration: {
-          application: {
-            uri: env.PUBLIC_OIDC_APPLICATION_URI ?? "local.aicacia.com",
-          },
-          clientId: CLIENT_ID,
-          clientName: "IdP",
-          scope: "openid profile address offline email phone",
-          redirectUris: [`${env.PUBLIC_URL}/callback`],
-          postLogoutRedirectUris: [`${env.PUBLIC_URL}/logout`],
-          logoUri: `${env.PUBLIC_URL}${icon256x256Png}`,
-          clientUri: `${env.PUBLIC_URL}`,
-          policyUri: `${env.PUBLIC_URL}/policy`,
-          tosUri: `${env.PUBLIC_URL}/terms`,
-          profile: "web_application",
-          clientType: "public",
-          tokenEndpointAuthMethod: "none",
-          grantTypes: ["authorization_code", "refresh_token"],
-          responseTypes: ["code"],
-          accessTokenExpiry: 3600,
-          refreshTokenExpiry: 604800,
+const oidcClient = $derived.by(() => {
+  const authority = getIdpApiUrl();
+  const { PUBLIC_OIDC_APPLICATION_URI: applicationUri = "local.aicacia.com" } = env;
+  if (!authority) throw new Error("An IdP endpoint is required");
+  return new OidcClient({
+    projectOwned: true,
+    clientConfig: {
+      authority,
+      redirectUri: `${env.PUBLIC_URL}/callback`,
+      ...(CLIENT_ID === undefined ? {} : { clientId: CLIENT_ID }),
+      responseType: "code",
+      registration: {
+        application: {
+          uri: applicationUri,
         },
+        ...(CLIENT_ID === undefined ? {} : { clientId: CLIENT_ID }),
+        clientName: "IdP",
+        scope: "openid profile address offline email phone",
+        redirectUris: [`${env.PUBLIC_URL}/callback`],
+        postLogoutRedirectUris: [`${env.PUBLIC_URL}/logout`],
+        logoUri: `${env.PUBLIC_URL}${icon256x256Png}`,
+        clientUri: `${env.PUBLIC_URL}`,
+        policyUri: `${env.PUBLIC_URL}/policy`,
+        tosUri: `${env.PUBLIC_URL}/terms`,
+        profile: "web_application",
+        clientType: "public",
+        tokenEndpointAuthMethod: "none",
+        grantTypes: ["authorization_code", "refresh_token"],
+        responseTypes: ["code"],
+        accessTokenExpiry: 3600,
+        refreshTokenExpiry: 604800,
       },
-      fetch,
-      disableNativeRequests: true,
-      storage: isTauri() ? "memory" : "local",
-    }),
-);
+    },
+    fetch,
+    disableNativeRequests: true,
+    storage: isTauri() ? "memory" : "local",
+  });
+});
 
 export function getOidcClient() {
   storedClient = oidcClient;

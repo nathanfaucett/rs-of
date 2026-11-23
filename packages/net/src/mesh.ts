@@ -1,8 +1,8 @@
 // ── Mesh ────────────────────────────────────────────────────────────────────
 
-import type { WasmWebServer } from "./wasm.js";
-import type { EndpointId, Message, Unsubscribe } from "./types.js";
 import { Stream } from "./stream.js";
+import type { EndpointId, Message, Unsubscribe } from "./types.js";
+import type { WasmWebServer } from "./wasm.js";
 
 /** Mesh communication handle. Obtain via `endpoint.mesh`. */
 export class Mesh {
@@ -10,11 +10,7 @@ export class Mesh {
   private readonly ready: Promise<void>;
   private readonly closed: () => boolean;
 
-  constructor(
-    server: WasmWebServer,
-    ready: Promise<void>,
-    closed: () => boolean,
-  ) {
+  constructor(server: WasmWebServer, ready: Promise<void>, closed: () => boolean) {
     this.server = server;
     this.ready = ready;
     this.closed = closed;
@@ -52,16 +48,13 @@ export class Mesh {
   onMessage(listener: (msg: Message) => void): Unsubscribe {
     this.assertNotClosed();
     const register = () => {
-      const handle = this.server.subscribe_messages(
-        (source, destination, payload) => {
-          listener({
-            source: source as EndpointId,
-            destination:
-              destination === null ? null : (destination as EndpointId),
-            payload,
-          });
-        },
-      );
+      const handle = this.server.subscribe_messages((source, destination, payload) => {
+        listener({
+          source: source as EndpointId,
+          destination: destination === null ? null : (destination as EndpointId),
+          payload,
+        });
+      });
       return () => this.server.unsubscribe_messages(handle);
     };
     // Note: we don't buffer here because Mesh is only available after ready

@@ -12,52 +12,31 @@
  * Do not edit the class manually.
  */
 
-import * as runtime from "../runtime.js";
 import {
   type CreatePermissionRequest,
-  CreatePermissionRequestFromJSON,
   CreatePermissionRequestToJSON,
 } from "../models/CreatePermissionRequest.js";
-import {
-  type CreateRoleRequest,
-  CreateRoleRequestFromJSON,
-  CreateRoleRequestToJSON,
-} from "../models/CreateRoleRequest.js";
-import {
-  type HealthResponse,
-  HealthResponseFromJSON,
-  HealthResponseToJSON,
-} from "../models/HealthResponse.js";
+import { type CreateRoleRequest, CreateRoleRequestToJSON } from "../models/CreateRoleRequest.js";
+import { type HealthResponse, HealthResponseFromJSON } from "../models/HealthResponse.js";
 import {
   type PermissionEvaluationRequest,
-  PermissionEvaluationRequestFromJSON,
   PermissionEvaluationRequestToJSON,
 } from "../models/PermissionEvaluationRequest.js";
 import {
   type PermissionEvaluationResponse,
   PermissionEvaluationResponseFromJSON,
-  PermissionEvaluationResponseToJSON,
 } from "../models/PermissionEvaluationResponse.js";
 import {
   type PermissionResponse,
   PermissionResponseFromJSON,
-  PermissionResponseToJSON,
 } from "../models/PermissionResponse.js";
-import {
-  type RoleResponse,
-  RoleResponseFromJSON,
-  RoleResponseToJSON,
-} from "../models/RoleResponse.js";
+import { type RoleResponse, RoleResponseFromJSON } from "../models/RoleResponse.js";
 import {
   type UserApplicationRoleResponse,
   UserApplicationRoleResponseFromJSON,
-  UserApplicationRoleResponseToJSON,
 } from "../models/UserApplicationRoleResponse.js";
-import {
-  type VersionResponse,
-  VersionResponseFromJSON,
-  VersionResponseToJSON,
-} from "../models/VersionResponse.js";
+import { type VersionResponse, VersionResponseFromJSON } from "../models/VersionResponse.js";
+import * as runtime from "../runtime.js";
 
 export interface AssignPermissionToRoleRequest {
   /**
@@ -148,11 +127,11 @@ export interface ListPermissionsRequest {
   /**
    *
    */
-  offset?: number;
+  offset?: number | undefined;
   /**
    *
    */
-  limit?: number;
+  limit?: number | undefined;
 }
 
 export interface ListRolePermissionsRequest {
@@ -174,11 +153,11 @@ export interface ListRolesRequest {
   /**
    *
    */
-  offset?: number;
+  offset?: number | undefined;
   /**
    *
    */
-  limit?: number;
+  limit?: number | undefined;
 }
 
 export interface ListUserRolesRequest {

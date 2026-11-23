@@ -120,6 +120,15 @@ pub struct PushResult {
     pub conflicts_resolved: usize,
 }
 
+/// Inbound change durability used to control acknowledgment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PushApplyResult {
+    /// The change or its complete pending document is durable and can be acknowledged.
+    Applied,
+    /// The change is buffered pending dependencies and must not be acknowledged.
+    Deferred,
+}
+
 /// Error from push synchronization.
 #[derive(Debug, Clone, Error, Serialize, Deserialize)]
 pub enum PushSynchronizeError<E> {

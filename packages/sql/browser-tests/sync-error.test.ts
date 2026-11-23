@@ -9,11 +9,7 @@ test("SQL errors retain a WASM object's message and cause without logging payloa
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const {
-      Database,
-      Error: SqlError,
-      JsSqlSyncTransport,
-    } = (window as any).sql;
+    const { Database, Error: SqlError, JsSqlSyncTransport } = window.sql;
     const database = await Database.open("sync-error");
     const logged: string[] = [];
     const original = {
@@ -31,16 +27,15 @@ test("SQL errors retain a WASM object's message and cause without logging payloa
             throw { message: "representative-transport-error" };
           },
           receive: async () => new Uint8Array(),
-        }),
+        })
       );
       return { unexpectedSuccess: true };
-    } catch (error: any) {
+    } catch (error) {
       return {
         typed: error instanceof SqlError,
         message: error.message,
         causeMessage: error.cause?.message,
-        causeIsObject:
-          typeof error.cause === "object" && error.cause !== null,
+        causeIsObject: typeof error.cause === "object" && error.cause !== null,
         logged,
       };
     } finally {
@@ -53,10 +48,8 @@ test("SQL errors retain a WASM object's message and cause without logging payloa
 
   expect(result).toEqual({
     typed: true,
-    message:
-      "transport error: transport send failed: representative-transport-error",
-    causeMessage:
-      "transport error: transport send failed: representative-transport-error",
+    message: "transport error: transport send failed: representative-transport-error",
+    causeMessage: "transport error: transport send failed: representative-transport-error",
     causeIsObject: true,
     logged: [],
   });

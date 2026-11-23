@@ -1,10 +1,10 @@
 use core::fmt;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     ops::{Bound, Range},
 };
 
-use automerge::AutoCommit;
+use automerge::{AutoCommit, ROOT, ReadDoc};
 use btree::{
     BTree, BTreeError, BTreeRead, BTreeResult, BTreeTransaction, ChangeEvent, ChangeSignal,
     StorageKey,
@@ -411,20 +411,39 @@ where
                 .into_iter()
                 .map(|change| change.hash())
                 .collect::<BTreeSet<_>>();
-            for change in &parsed {
-                if change.deps().iter().any(|dep| !available.contains(dep)) {
-                    return Ok(ChangeApply::MissingDependencies);
+            let mut pending = VecDeque::from(parsed);
+            let mut ordered = Vec::with_capacity(pending.len());
+            let mut deferred = 0;
+            while let Some(change) = pending.pop_front() {
+                if change.deps().iter().all(|dep| available.contains(dep)) {
+                    available.insert(change.hash());
+                    ordered.push(change);
+                    deferred = 0;
+                } else {
+                    deferred += 1;
+                    pending.push_back(change);
+                    if deferred == pending.len() {
+                        return Ok(ChangeApply::MissingDependencies);
+                    }
                 }
-                available.insert(change.hash());
             }
-            document.apply_changes(parsed).map_err(BTreeError::custom)?;
+            document
+                .apply_changes(ordered)
+                .map_err(BTreeError::custom)?;
+            if document
+                .get(ROOT, "value")
+                .map_err(BTreeError::custom)?
+                .is_none()
+            {
+                return Ok(ChangeApply::MissingDependencies);
+            }
             read_document(&document)?;
             self.import_snapshot(snapshot_parts(id.to_vec(), document))
                 .await?;
             Ok(ChangeApply::Applied)
         }
         .await;
-        if result.is_ok()
+        if matches!(result, Ok(ChangeApply::Applied))
             && self.history(&logical_key).await? != before
             && let Some(after) = self.history(&logical_key).await?
         {
@@ -535,7 +554,8 @@ where
         for key in &self.modified_keys {
             if let Some(mut document) = self.inner.get(key).await? {
                 read_document(&document)?;
-                if let Some(change) = document.get_changes(&[]).last() {
+                // New peers need every dependency, not only the latest change.
+                for change in document.get_changes(&[]) {
                     events.push(ChangeEvent {
                         key: StorageKey::kv(key.clone()),
                         blob: change.raw_bytes().to_vec(),
@@ -684,5 +704,50 @@ mod tests {
         let provider = || uuid::Timestamp::from_unix(uuid::NoContext, 0, 0);
         let store = KvStore::new(InMemoryBTree::new(), provider);
         let _tx = block_on(store.transaction()).unwrap();
+    }
+
+    #[test]
+    fn published_changes_build_a_readable_value_in_an_empty_peer_out_of_order() {
+        let provider = || uuid::Timestamp::from_unix(uuid::NoContext, 0, 0);
+        let store = KvStore::new(InMemoryBTree::new(), provider);
+        let mut subscription = store.change_signal().subscribe();
+        let mut transaction = block_on(store.transaction()).unwrap();
+        block_on(transaction.set("key", Value::Text("value".into()), None)).unwrap();
+        block_on(transaction.commit()).unwrap();
+
+        let mut stream = subscription.events();
+        let mut events = Vec::new();
+        while let Some(event) = block_on(stream.next()) {
+            events.push(event);
+        }
+        assert_ne!(events, Vec::new());
+
+        let id = events[0].key.key.clone();
+        let mut changes = events
+            .into_iter()
+            .map(|event| {
+                assert_eq!(event.key.key, id);
+                let change = automerge::Change::from_bytes(event.blob).unwrap();
+                NativeChange {
+                    hash: change.hash().0,
+                    deps: change.deps().iter().map(|hash| hash.0).collect(),
+                    payload: change.raw_bytes().to_vec(),
+                }
+            })
+            .collect::<Vec<_>>();
+        changes.reverse();
+
+        let target = KvStore::new(InMemoryBTree::new(), provider);
+        let mut target_transaction = block_on(target.transaction()).unwrap();
+        assert_eq!(
+            block_on(target_transaction.import_changes(&id, &changes)).unwrap(),
+            ChangeApply::Applied
+        );
+        block_on(target_transaction.commit()).unwrap();
+        let reader = block_on(target.transaction()).unwrap();
+        assert_eq!(
+            block_on(reader.scan_all(i64::MAX)).unwrap(),
+            vec![("key".into(), Value::Text("value".into()))]
+        );
     }
 }

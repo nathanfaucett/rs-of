@@ -16,16 +16,12 @@ const server = createServer(async (request, response) => {
   }
   const fixture =
     /^\/fixtures\/(indexeddb_helpers|storage_lifecycle_helpers|deadline_helpers)\.js$/.test(
-      pathname,
+      pathname
     );
   const path = fixture
-    ? resolve("../../tests/browser/src", pathname.slice("/fixtures/".length))
+    ? resolve(root, "browser-tests/fixtures", pathname.slice("/fixtures/".length))
     : pathname.startsWith("/consumer/")
-      ? resolve(
-          root,
-          "artifacts/consumer/dist",
-          pathname.slice("/consumer/".length),
-        )
+      ? resolve(root, "artifacts/consumer/dist", pathname.slice("/consumer/".length))
       : resolve(root, `.${pathname}`);
   if (!fixture && !path.startsWith(`${root}/`)) {
     response.writeHead(403).end();

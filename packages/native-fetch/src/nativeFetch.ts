@@ -41,9 +41,7 @@ export type NativeRequest = NativeRequestJSON;
 /** Alias for {@link NativeResponseJSON}. */
 export type NativeResponse = NativeResponseJSON;
 
-async function bodyInitToString(
-  body: BodyInit | null | undefined,
-): Promise<string | null> {
+async function bodyInitToString(body: BodyInit | null | undefined): Promise<string | null> {
   if (body == null) {
     return null;
   }
@@ -55,7 +53,7 @@ async function bodyInitToString(
 
 function mergeHeaders(
   requestHeaders: HeadersInit | undefined,
-  initHeaders: HeadersInit | undefined,
+  initHeaders: HeadersInit | undefined
 ): Record<string, string> {
   const headers = new Headers(requestHeaders);
   if (initHeaders) {
@@ -69,7 +67,7 @@ function mergeHeaders(
 
 function inputLooksLikeHost(input: string): boolean {
   return /^(localhost|(\d{1,3}\.){3}\d{1,3}|[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+)(:\d+)?([/?#]|$)/.test(
-    input,
+    input
   );
 }
 
@@ -104,7 +102,7 @@ function resolveRequestUrl(input: string | URL | Request, baseUrl: URL): URL {
 export function toNativeRequestUrl(
   nativeUri: string | URL,
   input: string | URL | Request,
-  requestBaseUrl: string | URL,
+  requestBaseUrl: string | URL
 ): URL {
   const nativeBaseUrl = toBaseUrl(nativeUri);
   const baseUrl = toBaseUrl(requestBaseUrl);
@@ -128,14 +126,11 @@ async function requestBodyToString(request: Request): Promise<string | null> {
   return request.clone().text();
 }
 
-export type NativeFetch = (
-  input: URL | RequestInfo,
-  init?: NativeFetchInit,
-) => Promise<Response>;
+export type NativeFetch = (input: URL | RequestInfo, init?: NativeFetchInit) => Promise<Response>;
 
 type NativeFetchImplementation = (
   input: string | URL | Request,
-  init?: NativeFetchInit,
+  init?: NativeFetchInit
 ) => Promise<Response>;
 
 /**
@@ -144,26 +139,18 @@ type NativeFetchImplementation = (
  */
 export function createNativeFetch(
   nativeUri: string | URL,
-  options: CreateNativeFetchOptions = {},
+  options: CreateNativeFetchOptions = {}
 ): NativeFetch {
   const requestBaseUrl =
     options.requestBaseUrl ??
-    (typeof window !== "undefined"
-      ? window.location.origin
-      : "http://localhost");
+    (typeof window !== "undefined" ? window.location.origin : "http://localhost");
 
-  const implementation: NativeFetchImplementation = async (
-    input,
-    init,
-  ): Promise<Response> => {
+  const implementation: NativeFetchImplementation = async (input, init): Promise<Response> => {
     const request = input instanceof Request ? input : undefined;
     const baseUrl = toBaseUrl(requestBaseUrl);
     const requestUrl = resolveRequestUrl(input, baseUrl);
     const url = toNativeRequestUrl(nativeUri, requestUrl, baseUrl);
-    const originUrl =
-      typeof window !== "undefined"
-        ? window.location.origin
-        : "http://localhost";
+    const originUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost";
     const state = generateState();
     const callbackUrl = init?.callbackUrl ?? `${originUrl}/native-callback`;
     const timeout = init?.timeout;
@@ -219,8 +206,7 @@ export function createNativeFetch(
         if (event.data?.type !== NATIVE_FETCH_RESPONSE_EVENT) {
           return;
         }
-        const nativeResponse = event.data.data as
-          NativeResponseJSON | undefined;
+        const nativeResponse = event.data.data as NativeResponseJSON | undefined;
         if (nativeResponse?.state !== state) {
           return;
         }
@@ -230,7 +216,7 @@ export function createNativeFetch(
             headers: nativeResponse.headers,
             status: nativeResponse.status,
             statusText: nativeResponse.statusText,
-          }),
+          })
         );
       };
 
@@ -251,9 +237,7 @@ export function createNativeFetch(
  */
 export function handleNativeFetchCallback(
   searchParams: URLSearchParams,
-  {
-    channelName = NATIVE_FETCH_CHANNEL_NAME,
-  }: HandleNativeFetchCallbackOptions = {},
+  { channelName = NATIVE_FETCH_CHANNEL_NAME }: HandleNativeFetchCallbackOptions = {}
 ): void {
   const native = searchParams.get("native");
   if (!native) {
@@ -276,7 +260,7 @@ export function handleNativeFetchCallback(
 
 export async function handleNativeCallbackRequestUrl(
   requestUrlOrString: URL | string,
-  callback: (request: Request) => Response | Promise<Response>,
+  callback: (request: Request) => Response | Promise<Response>
 ): Promise<URL> {
   const requestUrl = new URL(requestUrlOrString);
   const nativeRequestParam = requestUrl.searchParams.get("native");
@@ -289,7 +273,7 @@ export async function handleNativeCallbackRequestUrl(
 
 export async function handleNativeCallbackRequest(
   nativeRequest: NativeRequestJSON,
-  callback: (request: Request) => Response | Promise<Response>,
+  callback: (request: Request) => Response | Promise<Response>
 ): Promise<URL> {
   const request = new Request(nativeRequest.url, {
     method: nativeRequest.method,

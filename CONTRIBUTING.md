@@ -62,7 +62,7 @@ Do not duplicate route tables, method inventories, or implementation-status tabl
 | -------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | Documentation only   | `git diff --check`                                                | Render or execute changed examples where practical                          |
 | Rust crate           | Focused crate tests, `cargo fmt --all -- --check`, focused Clippy | `cargo hack test --feature-powerset --workspace --all-targets`, `just crap` |
-| TypeScript package   | Filtered build, test, lint, and type check                        | `pnpm test`, dependent package checks                                       |
+| TypeScript package   | Filtered build, test, lint, and type check                        | `pnpm check`, `pnpm lint`, `pnpm test`, dependent package checks            |
 | Public HTTP contract | OpenAPI generation/checks and generated-client tests              | Real-backend owner and browser tests                                        |
 | Browser/WASM         | Filtered WASM build and browser tests                             | `pnpm test:backend`, `pnpm test:e2e`, supported browser matrix              |
 | Deployment/lifecycle | Focused process tests                                             | Independent Create, restart, and Device admission and platform qualification                  |
@@ -83,7 +83,11 @@ just build
 just test
 just clippy
 just crap
+pnpm check
+pnpm lint
 pnpm test
 pnpm test:backend
 pnpm test:e2e
 ```
+
+For an affected package, run its `lint`, `check`, `test`, and `build` scripts through `pnpm --filter <package> run <script>`. Use `lint:fix` only for safe Biome fixes. `pnpm check` covers all TypeScript, Svelte, example, service, and E2E type checks. `pnpm lint` checks the full tree with Biome and fails on warnings. Run whole-package checks before completion; changed-file checks do not prove dependent code is safe. Do not suppress broad error classes or use unsafe automatic fixes.

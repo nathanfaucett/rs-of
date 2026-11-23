@@ -12,13 +12,7 @@
  * Do not edit the class manually.
  */
 
-import {
-  mapValues,
-  parseDate,
-  parseDateTime,
-  serializeDate,
-  serializeDateTime,
-} from "../runtime.js";
+import { parseDateTime, serializeDateTime } from "../runtime.js";
 /**
  *
  * @export
@@ -32,7 +26,7 @@ export interface VersionResponse {
   /**
    *
    */
-  features?: Array<string>;
+  features?: Array<string> | undefined;
   /**
    *
    */
@@ -59,7 +53,7 @@ export function VersionResponseFromJSON(json: any): VersionResponse {
 
 export function VersionResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): VersionResponse {
   if (json == null) {
     return json;
@@ -78,7 +72,7 @@ export function VersionResponseToJSON(json: any): VersionResponse {
 
 export function VersionResponseToJSONTyped(
   value?: VersionResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

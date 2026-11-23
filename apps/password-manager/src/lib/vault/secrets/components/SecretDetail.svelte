@@ -1,8 +1,8 @@
 <script lang="ts">
 import { Card } from "$lib/ui";
+import { identityFields } from "../identity-fields";
 import type { Secret } from "../secret";
 import ProtectedValue from "./ProtectedValue.svelte";
-import { identityFields } from "../identity-fields";
 import TotpCode from "./TotpCode.svelte";
 
 let { record, canEdit, onedit, onclose }: {

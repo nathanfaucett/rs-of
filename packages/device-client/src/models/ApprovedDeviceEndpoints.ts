@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -39,7 +38,7 @@ export function ApprovedDeviceEndpointsFromJSON(json: any): ApprovedDeviceEndpoi
 
 export function ApprovedDeviceEndpointsFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): ApprovedDeviceEndpoints {
   if (
     json &&
@@ -61,7 +60,7 @@ export function ApprovedDeviceEndpointsToJSON(json: any): ApprovedDeviceEndpoint
 
 export function ApprovedDeviceEndpointsToJSONTyped(
   value?: ApprovedDeviceEndpoints | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

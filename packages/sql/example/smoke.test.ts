@@ -1,73 +1,47 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-const DISTINCTIVE =
-  '<img src=x onerror="window.unsafeMarkup=true"> ofdb; \' persistent ✓';
+const DISTINCTIVE = '<img src=x onerror="window.unsafeMarkup=true"> ofdb; \' persistent ✓';
+
+async function expectReady(page: import("@playwright/test").Page): Promise<void> {
+  await expect(page.getByRole("status")).toHaveText(/^Ready\./, {
+    timeout: 15000,
+  });
+}
 
 test.describe("ofdb SQL browser example", () => {
-  test.beforeEach(async ({ page }) => {
+  test("SQL add and reload retains committed records", async ({ page }) => {
     await page.goto("/");
-    await page.waitForSelector("#sql-controls:not([disabled])", {
-      timeout: 15000,
-    });
-  });
+    await expectReady(page);
+    const input = page.locator("input[placeholder='Enter record text...']");
+    await input.fill(DISTINCTIVE);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Added (sync runs automatically).");
 
-  test("SQL add, commit, duplicate, reload", async ({ page }) => {
-    // Initial state
-    await expect(page.locator("#sql-result")).toHaveText("No records yet.");
+    await input.fill(`${DISTINCTIVE} second`);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Added (sync runs automatically).");
 
-    // Add first record
-    await page.fill("#record", DISTINCTIVE);
-    await page.click("#add");
-    await expect(page.locator("#sql-status")).toHaveText(
-      "Added and committed.",
-      { timeout: 15000 },
-    );
-
-    // Add second record (duplicate test)
-    await page.fill("#record", DISTINCTIVE + " second");
-    await page.click("#add");
-    await expect(page.locator("#sql-status")).toHaveText(
-      "Added and committed.",
-      { timeout: 15000 },
-    );
-
-    // Reload and list
     await page.reload();
-    await page.waitForSelector("#sql-controls:not([disabled])", {
-      timeout: 15000,
-    });
-    await page.click("#list");
-    await expect(page.locator("#sql-status")).toHaveText(
-      "Listed committed records.",
-      { timeout: 15000 },
-    );
-
-    const rows = page.locator("#sql-result li");
-    await expect(rows).toHaveCount(2);
-    await expect(rows.nth(0)).toHaveText(DISTINCTIVE);
-    await expect(rows.nth(1)).toHaveText(DISTINCTIVE + " second");
-    await expect(page.locator("#sql-result img")).toHaveCount(0);
+    await expectReady(page);
+    const records = page.locator("ol li");
+    await expect(records).toHaveCount(2);
+    await expect(page.locator("ol")).toContainText(DISTINCTIVE);
+    await expect(page.locator("ol")).toContainText(`${DISTINCTIVE} second`);
+    await expect(page.locator("main img")).toHaveCount(0);
   });
 
-  test("storage denied shows error with recovery guidance", async ({
-    page,
-  }) => {
-    // Block IndexedDB
+  test("storage denied shows an error and keeps controls disabled", async ({ page }) => {
     await page.addInitScript(() => {
-      const original = indexedDB.open.bind(indexedDB);
       indexedDB.open = () => {
-        throw new DOMException(
-          "Storage denied by smoke check",
-          "SecurityError",
-        );
+        throw new DOMException("Storage denied by smoke check", "SecurityError");
       };
     });
 
-    await page.reload();
-    await expect(page.locator("#sql-status")).toHaveText(
-      /Error:.*storage.*reload/i,
-      { timeout: 15000 },
+    await page.goto("/");
+    await expect(page.getByRole("status")).toHaveText(
+      /^Error:.*IndexedDB open: SecurityError; allow storage access/i,
+      { timeout: 15000 }
     );
-    await expect(page.locator("#sql-controls")).toBeDisabled();
+    await expect(page.getByRole("button", { name: /Add Peer/ })).toBeDisabled();
   });
 });

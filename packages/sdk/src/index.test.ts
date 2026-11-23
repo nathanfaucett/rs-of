@@ -12,8 +12,7 @@ const metadata = {
 let subject = "alice";
 const service = vi.fn(async (input: URL | RequestInfo, _init?: RequestInit) => {
   const url = String(input);
-  if (url.endsWith("/.well-known/openid-configuration"))
-    return Response.json(metadata);
+  if (url.endsWith("/.well-known/openid-configuration")) return Response.json(metadata);
   if (url.endsWith("/userinfo")) return Response.json({ sub: subject });
   if (url.includes("/oauth2/client/"))
     return Response.json({
@@ -30,15 +29,15 @@ const service = vi.fn(async (input: URL | RequestInfo, _init?: RequestInit) => {
     return Response.json(
       _init?.method === "POST"
         ? { id: "created", name: "Vault" }
-        : [{ id: "fs-one", name: "Vault" }],
+        : [{ id: "fs-one", name: "Vault" }]
     );
   throw new Error("Unexpected service request");
 });
-const options = (clientId = "web") => ({
+const options = (clientId: string | null = "web") => ({
   idpBaseUrl: "https://node.test/idp",
   storageBaseUrl: "https://files.test/storage",
   client: {
-    clientId,
+    ...(clientId === null ? {} : { clientId }),
     redirectUri: "https://app.test/callback",
     responseType: "code",
     registration: {
@@ -71,16 +70,10 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 async function callback(sdk: ApplicationSdk) {
   const url = await sdk.getAuthorizationUrl();
-  return new URL(
-    `https://app.test/callback?code=one&state=${url.searchParams.get("state")}`,
-  );
+  return new URL(`https://app.test/callback?code=one&state=${url.searchParams.get("state")}`);
 }
 it("uses the IdP-issued client ID across onboarding, reload, refresh, and real Storage exchange", async () => {
-  const configured = options();
-  const dynamic = {
-    ...configured,
-    client: { ...configured.client, clientId: undefined },
-  };
+  const dynamic = options(null);
   const first = new ApplicationSdk(dynamic);
   const authorization = await first.getAuthorizationUrl();
   expect(authorization.searchParams.has("client_id")).toBe(false);
@@ -114,9 +107,7 @@ it("uses the IdP-issued client ID across onboarding, reload, refresh, and real S
       "refresh_token",
       "urn:ietf:params:oauth:grant-type:token-exchange",
     ]);
-    expect(
-      grants.every((body) => body.get("client_id") === "generated-client"),
-    ).toBe(true);
+    expect(grants.every((body) => body.get("client_id") === "generated-client")).toBe(true);
   } finally {
     vi.restoreAllMocks();
   }
@@ -125,17 +116,15 @@ it("uses the IdP-issued client ID across onboarding, reload, refresh, and real S
 it.each(["restore", "storage"])(
   "rejects server-owned Application mismatches in established %s contexts",
   async (operation) => {
-    let mismatch = false;
-    const controlled = vi.fn(
-      async (input: URL | RequestInfo, init?: RequestInit) => {
-        if (mismatch && String(input).includes("/oauth2/client/"))
-          return Response.json({
-            client_id: "web",
-            application: { uri: "other.test" },
-          });
-        return service(input, init);
-      },
-    );
+    let mismatch: boolean = false;
+    const controlled = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+      if (mismatch && String(input).includes("/oauth2/client/"))
+        return Response.json({
+          client_id: "web",
+          application: { uri: "other.test" },
+        });
+      return service(input, init);
+    });
     const configured = { ...options(), fetch: controlled };
     const sdk = new ApplicationSdk(configured);
     await sdk.handleSigninCallback(await callback(sdk));
@@ -151,15 +140,9 @@ it.each(["restore", "storage"])(
       expect(sdk.session.status).toBe("ended");
       expect(sdk.session.identity).toBeUndefined();
     }
-    expect(
-      controlled.mock.calls.some(([url]) =>
-        String(url).includes("/filesystems"),
-      ),
-    ).toBe(false);
-    expect([...values.keys()].some((key) => key.endsWith(":response"))).toBe(
-      false,
-    );
-  },
+    expect(controlled.mock.calls.some(([url]) => String(url).includes("/filesystems"))).toBe(false);
+    expect([...values.keys()].some((key) => key.endsWith(":response"))).toBe(false);
+  }
 );
 
 it("establishes a verified identity across full-page redirect and reload, keeping Application, client and issuer distinct", async () => {
@@ -185,21 +168,17 @@ it("establishes a verified identity across full-page redirect and reload, keepin
   });
 });
 
-it.each([
-  "",
-  "?code=one",
-  "?code=one&state=unknown",
-  "#access_token=untrusted",
-])("does not authenticate an invalid/no-op callback %s", async (query) => {
-  const sdk = new ApplicationSdk(options());
-  await expect(
-    sdk.handleSigninCallback(new URL(`https://app.test/callback${query}`)),
-  ).rejects.toThrow("callback");
-  expect(sdk.session.status).toBe("unauthenticated");
-  expect(
-    service.mock.calls.some(([url]) => String(url).endsWith("/userinfo")),
-  ).toBe(false);
-});
+it.each(["", "?code=one", "?code=one&state=unknown", "#access_token=untrusted"])(
+  "does not authenticate an invalid/no-op callback %s",
+  async (query) => {
+    const sdk = new ApplicationSdk(options());
+    await expect(
+      sdk.handleSigninCallback(new URL(`https://app.test/callback${query}`))
+    ).rejects.toThrow("callback");
+    expect(sdk.session.status).toBe("unauthenticated");
+    expect(service.mock.calls.some(([url]) => String(url).endsWith("/userinfo"))).toBe(false);
+  }
+);
 it("isolates tokens and PKCE across clients on the same authority, including scoped clearing", async () => {
   const a = new ApplicationSdk(options("a"));
   const pendingA = await callback(a);
@@ -229,9 +208,8 @@ it("refreshes through OIDC without retiring the same verified context, but ends 
     expect(
       service.mock.calls.some(
         ([, init]) =>
-          new URLSearchParams(init?.body as string).get("grant_type") ===
-          "refresh_token",
-      ),
+          new URLSearchParams(init?.body as string).get("grant_type") === "refresh_token"
+      )
     ).toBe(true);
     subject = "bob";
     await expect(list()).rejects.toThrow("ended");
@@ -255,9 +233,7 @@ it("retries stale userinfo after overlapping same-User renewal without retiring 
   await vi.waitFor(() => expect(service.mock.results.at(-1)?.value).toBe(held));
   const date = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3600000);
   try {
-    await expect(storage.listFileSystems()).resolves.toEqual([
-      { id: "fs-one", name: "Vault" },
-    ]);
+    await expect(storage.listFileSystems()).resolves.toEqual([{ id: "fs-one", name: "Vault" }]);
     release(Response.json({ sub: "alice" }));
     await expect(first).resolves.toEqual([{ id: "fs-one", name: "Vault" }]);
     expect(sdk.session).toBe(snapshot);
@@ -271,9 +247,7 @@ it("retries stale userinfo after overlapping same-User renewal without retiring 
 it.each([200, 401])(
   "does not retry stale userinfo (%s) or read replacement credentials after disposal",
   async (status) => {
-    const oldFetch = vi.fn((url: URL | RequestInfo, init?: RequestInit) =>
-      service(url, init),
-    );
+    const oldFetch = vi.fn((url: URL | RequestInfo, init?: RequestInit) => service(url, init));
     const sdk = new ApplicationSdk({ ...options(), fetch: oldFetch });
     await sdk.handleSigninCallback(await callback(sdk));
     let release!: (response: Response) => void;
@@ -283,18 +257,13 @@ it.each([200, 401])(
     oldFetch.mockImplementationOnce(() => held);
     const pending = sdk.storage().listFileSystems();
     const rejected = expect(pending).rejects.toThrow("ended");
-    await vi.waitFor(() =>
-      expect(oldFetch.mock.results.at(-1)?.value).toBe(held),
-    );
+    await vi.waitFor(() => expect(oldFetch.mock.results.at(-1)?.value).toBe(held));
     sdk.dispose();
     subject = "bob";
     const replacement = new ApplicationSdk({
       ...options(),
       fetch: async (url, init) => {
-        if (
-          new URLSearchParams(init?.body as string).get("grant_type") ===
-          "authorization_code"
-        )
+        if (new URLSearchParams(init?.body as string).get("grant_type") === "authorization_code")
           return Response.json({
             access_token: "replacement-token",
             refresh_token: "replacement-refresh",
@@ -309,11 +278,7 @@ it.each([200, 401])(
     const requests = oldFetch.mock.calls.length;
     const reads = vi.spyOn(window.localStorage, "getItem");
     try {
-      release(
-        status === 200
-          ? Response.json({ sub: "alice" })
-          : new Response(null, { status }),
-      );
+      release(status === 200 ? Response.json({ sub: "alice" }) : new Response(null, { status }));
       await rejected;
       expect(oldFetch).toHaveBeenCalledTimes(requests);
       expect(reads).not.toHaveBeenCalled();
@@ -330,7 +295,7 @@ it.each([200, 401])(
     const reload = new ApplicationSdk(options());
     await reload.restore();
     expect(reload.session.identity?.subject).toBe("bob");
-  },
+  }
 );
 it("exchanges only the exact userinfo-verified token and retires a rotated different User before Storage", async () => {
   let issued = 0;
@@ -339,17 +304,13 @@ it("exchanges only the exact userinfo-verified token and retires a rotated diffe
   const controlled = async (url: URL | RequestInfo, init?: RequestInit) => {
     const grant = new URLSearchParams(init?.body as string);
     if (String(url).endsWith("/userinfo")) {
-      const token =
-        new Headers(init?.headers).get("Authorization")?.slice(7) ?? "";
+      const token = new Headers(init?.headers).get("Authorization")?.slice(7) ?? "";
       verified.push(token);
       return Response.json({
         sub: token === "token-4" ? "bob" : "alice",
       });
     }
-    if (
-      grant.get("grant_type") ===
-      "urn:ietf:params:oauth:grant-type:token-exchange"
-    ) {
+    if (grant.get("grant_type") === "urn:ietf:params:oauth:grant-type:token-exchange") {
       exchanged.push(grant.get("subject_token") ?? "");
       return Response.json({ access_token: "storage-token" });
     }
@@ -401,9 +362,7 @@ it("unsubscribes and disposes idempotently; a late callback cannot revive or per
   const pending = sdk.handleSigninCallback(url);
   const rejected = expect(pending).rejects.toThrow("callback");
   await vi.waitFor(() =>
-    expect(
-      service.mock.calls.some(([url]) => String(url).endsWith("/oauth2/token")),
-    ).toBe(true),
+    expect(service.mock.calls.some(([url]) => String(url).endsWith("/oauth2/token"))).toBe(true)
   );
   sdk.dispose();
   sdk.dispose();
@@ -427,9 +386,7 @@ it("does not erase a verified context on transient userinfo failure, but rejects
   await expect(list()).resolves.toEqual([{ id: "fs-one", name: "Vault" }]);
   const failing = new ApplicationSdk(options("other"));
   const url = await callback(failing);
-  service.mockResolvedValueOnce(
-    Response.json({ access_token: "unverified", expires_in: 3600 }),
-  );
+  service.mockResolvedValueOnce(Response.json({ access_token: "unverified", expires_in: 3600 }));
   service.mockResolvedValueOnce(Response.json({ name: "Not an identity" }));
   await expect(failing.handleSigninCallback(url)).rejects.toThrow("callback");
   expect(failing.session.status).not.toBe("authenticated");
@@ -487,10 +444,9 @@ it("isolates a late refresh from a new sign-in after disposal", async () => {
     expect(
       service.mock.calls.some(
         ([, init]) =>
-          new URLSearchParams(init?.body as string).get("grant_type") ===
-          "refresh_token",
-      ),
-    ).toBe(true),
+          new URLSearchParams(init?.body as string).get("grant_type") === "refresh_token"
+      )
+    ).toBe(true)
   );
   sdk.dispose();
   const next = new ApplicationSdk(options());
@@ -515,7 +471,7 @@ it("preserves immutable configuration and emits no sensitive sign-in diagnostics
   try {
     await sdk.signin();
     expect(assign).toHaveBeenCalledOnce();
-    const url = new URL(assign.mock.calls[0]![0]);
+    const url = new URL(assign.mock.calls[0]?.[0] ?? "");
     expect(url.searchParams.get("client_id")).toBe("web");
     expect(url.pathname).toBe("/idp/oauth2/authorize");
     expect(
@@ -523,7 +479,7 @@ it("preserves immutable configuration and emits no sensitive sign-in diagnostics
         JSON.parse(url.searchParams.get("registration") ?? "null") as {
           application: { uri: string };
         }
-      ).application!.uri,
+      ).application.uri
     ).toBe("app.test");
     expect(debug).not.toHaveBeenCalled();
   } finally {
@@ -566,27 +522,18 @@ it.each([
   "https://user:secret@files.test/storage",
   "https://files.test/storage?token=private",
   "https://files.test/storage#fragment",
-])(
-  "rejects malformed/ambiguous service configuration at the owning clients: %s",
-  (base) => {
-    expect(
-      () => new ApplicationSdk({ ...options(), storageBaseUrl: base }),
-    ).toThrow();
-    expect(
-      () => new ApplicationSdk({ ...options(), idpBaseUrl: base }),
-    ).toThrow();
-  },
-);
+])("rejects malformed/ambiguous service configuration at the owning clients: %s", (base) => {
+  expect(() => new ApplicationSdk({ ...options(), storageBaseUrl: base })).toThrow();
+  expect(() => new ApplicationSdk({ ...options(), idpBaseUrl: base })).toThrow();
+});
 it("retires visible authentication even when persistent credential removal fails", async () => {
   const sdk = new ApplicationSdk(options());
   await sdk.handleSigninCallback(await callback(sdk));
   const listener = vi.fn();
   sdk.subscribe(listener);
-  const remove = vi
-    .spyOn(window.localStorage, "removeItem")
-    .mockImplementation(() => {
-      throw new Error("untrusted storage details");
-    });
+  const remove = vi.spyOn(window.localStorage, "removeItem").mockImplementation(() => {
+    throw new Error("untrusted storage details");
+  });
   try {
     await expect(sdk.signout()).rejects.toThrow("clear browser site data");
     expect(sdk.session.status).toBe("ended");
@@ -607,9 +554,7 @@ it("keeps a newer callback authenticated when an older exchange finishes late", 
   const pending = sdk.handleSigninCallback(first);
   const rejected = expect(pending).rejects.toThrow("callback");
   await vi.waitFor(() =>
-    expect(
-      service.mock.calls.some(([url]) => String(url).endsWith("/oauth2/token")),
-    ).toBe(true),
+    expect(service.mock.calls.some(([url]) => String(url).endsWith("/oauth2/token"))).toBe(true)
   );
   await sdk.handleSigninCallback(second);
   const snapshot = sdk.session;
@@ -628,22 +573,18 @@ it("does not let late identity establishment retire a newer successful callback"
     release = resolve;
   });
   service
-    .mockResolvedValueOnce(
-      Response.json({ access_token: "first", expires_in: 3600 }),
-    )
+    .mockResolvedValueOnce(Response.json({ access_token: "first", expires_in: 3600 }))
     .mockResolvedValueOnce(
       Response.json({
         client_id: "web",
         application: { uri: "app.test" },
-      }),
+      })
     )
     .mockImplementationOnce(() => held);
   const pending = sdk.handleSigninCallback(first);
   const rejected = expect(pending).rejects.toThrow("callback");
   await vi.waitFor(() =>
-    expect(
-      service.mock.calls.some(([url]) => String(url).endsWith("/userinfo")),
-    ).toBe(true),
+    expect(service.mock.calls.some(([url]) => String(url).endsWith("/userinfo"))).toBe(true)
   );
   await sdk.handleSigninCallback(second);
   const snapshot = sdk.session;
@@ -658,9 +599,7 @@ it("discovers and creates through captured Storage access with explicit service 
   expect(() => sdk.storage()).toThrow("Sign in");
   await sdk.handleSigninCallback(await callback(sdk));
   const storage = sdk.storage();
-  expect(await storage.listFileSystems()).toEqual([
-    { id: "fs-one", name: "Vault" },
-  ]);
+  expect(await storage.listFileSystems()).toEqual([{ id: "fs-one", name: "Vault" }]);
   expect(await storage.createFileSystem("Vault")).toEqual({
     id: "created",
     name: "Vault",
@@ -668,13 +607,9 @@ it("discovers and creates through captured Storage access with explicit service 
   const exchanges = service.mock.calls.filter(
     ([, init]) =>
       new URLSearchParams(init?.body as string).get("grant_type") ===
-      "urn:ietf:params:oauth:grant-type:token-exchange",
+      "urn:ietf:params:oauth:grant-type:token-exchange"
   );
-  expect(
-    exchanges.map(([, init]) =>
-      Object.fromEntries(init?.body as URLSearchParams),
-    ),
-  ).toEqual([
+  expect(exchanges.map(([, init]) => Object.fromEntries(init?.body as URLSearchParams))).toEqual([
     expect.objectContaining({
       client_id: "web",
       subject_token: "access",
@@ -696,7 +631,7 @@ it("discovers and creates through captured Storage access with explicit service 
 class BrowserSocket extends EventTarget {
   static OPEN = 1;
   static instances: BrowserSocket[] = [];
-  static connecting = false;
+  static connecting: boolean = false;
   readonly url: string;
   readyState = BrowserSocket.connecting ? 0 : 1;
   sent: unknown[] = [];
@@ -718,9 +653,14 @@ class BrowserSocket extends EventTarget {
     this.dispatchEvent(
       new MessageEvent("message", {
         data: '{"type":"listed","entries":[]}',
-      }),
+      })
     );
   }
+}
+function socket(index: number): BrowserSocket {
+  const endpoint = BrowserSocket.instances[index];
+  if (!endpoint) throw new Error(`Missing browser socket ${index}`);
+  return endpoint;
 }
 function sockets() {
   BrowserSocket.instances = [];
@@ -732,7 +672,7 @@ it("isolates lifecycle event target, currentTarget and listener receiver from th
   const sdk = new ApplicationSdk(options());
   await sdk.handleSigninCallback(await callback(sdk));
   const connection = await sdk.storage().openSocket("fs-one");
-  const endpoint = BrowserSocket.instances[0]!;
+  const endpoint = socket(0);
   const observed: unknown[] = [];
   const listener = function (this: unknown, event: Event) {
     observed.push(this, event.target, event.currentTarget);
@@ -744,9 +684,7 @@ it("isolates lifecycle event target, currentTarget and listener receiver from th
   connection.socket.addEventListener("error", removed);
   connection.socket.removeEventListener("error", removed);
   connection.socket.addEventListener("error", listener, { once: true });
-  endpoint.dispatchEvent(
-    Object.assign(new Event("error"), { error: endpoint }),
-  );
+  endpoint.dispatchEvent(Object.assign(new Event("error"), { error: endpoint }));
   endpoint.dispatchEvent(new Event("error"));
   expect(observed).toHaveLength(3);
   expect(removed).not.toHaveBeenCalled();
@@ -761,9 +699,7 @@ it("isolates lifecycle event target, currentTarget and listener receiver from th
   }
   endpoint.dispatchEvent(new Event("error"));
   expect(observed).toHaveLength(6);
-  await expect(connection.request({ type: "list", path: "" })).rejects.toThrow(
-    "ended",
-  );
+  await expect(connection.request({ type: "list", path: "" })).rejects.toThrow("ended");
   expect(endpoint.sent).toHaveLength(0);
 });
 it("guards adopted requests and queued work after retirement; only the recipient closes an adopted connection, once", async () => {
@@ -771,23 +707,19 @@ it("guards adopted requests and queued work after retirement; only the recipient
   const sdk = new ApplicationSdk(options());
   await sdk.handleSigninCallback(await callback(sdk));
   const connection = await sdk.storage().openSocket("fs-one");
-  const endpoint = BrowserSocket.instances[0]!;
+  const endpoint = socket(0);
   expect("send" in connection.socket).toBe(false);
-  expect(endpoint.url).toBe(
-    "wss://files.test/storage?access_token=access&filesystem_id=fs-one",
-  );
+  expect(endpoint.url).toBe("wss://files.test/storage?access_token=access&filesystem_id=fs-one");
   const exchange = [...service.mock.calls]
     .reverse()
     .find(
       ([, init]) =>
         new URLSearchParams(init?.body as string).get("grant_type") ===
-        "urn:ietf:params:oauth:grant-type:token-exchange",
+        "urn:ietf:params:oauth:grant-type:token-exchange"
     );
-  expect(
-    new URLSearchParams(exchange?.[1]?.body as string).get(
-      "authorization_details",
-    ),
-  ).toBe('[{"type":"storage","actions":["read","write"]}]');
+  expect(new URLSearchParams(exchange?.[1]?.body as string).get("authorization_details")).toBe(
+    '[{"type":"storage","actions":["read","write"]}]'
+  );
   const first = connection.request({ type: "list", path: "" });
   const second = connection.request({ type: "list", path: "secrets" });
   const rejectedFirst = expect(first).rejects.toThrow("ended");
@@ -799,9 +731,7 @@ it("guards adopted requests and queued work after retirement; only the recipient
   endpoint.reply();
   await rejectedFirst;
   await rejectedSecond;
-  await expect(connection.request({ type: "list", path: "" })).rejects.toThrow(
-    "ended",
-  );
+  await expect(connection.request({ type: "list", path: "" })).rejects.toThrow("ended");
   expect(endpoint.sent).toHaveLength(1);
   connection.close();
   connection.close();
@@ -815,7 +745,7 @@ it("closes an obsolete successful open before handoff", async () => {
   const pending = sdk.storage().openSocket("fs-one");
   const rejected = expect(pending).rejects.toThrow("ended");
   await vi.waitFor(() => expect(BrowserSocket.instances).toHaveLength(1));
-  const endpoint = BrowserSocket.instances[0]!;
+  const endpoint = socket(0);
   endpoint.readyState = 1;
   endpoint.dispatchEvent(new Event("open"));
   sdk.dispose();
@@ -833,7 +763,7 @@ it("disposal cancels an untransferred opening socket even when the server never 
   const rejected = expect(pending).rejects.toThrow();
   await vi.waitFor(() => expect(BrowserSocket.instances).toHaveLength(1));
   sdk.dispose();
-  await vi.waitFor(() => expect(BrowserSocket.instances[0]!.closes).toBe(1));
+  await vi.waitFor(() => expect(socket(0).closes).toBe(1));
   await rejected;
 });
 
@@ -849,19 +779,15 @@ it.each(["list", "create"])(
       release = resolve;
     });
     controlled.mockImplementation((url, init) =>
-      String(url).endsWith("/storage/filesystems") ? held : service(url, init),
+      String(url).endsWith("/storage/filesystems") ? held : service(url, init)
     );
     const pending =
-      operation === "list"
-        ? access.listFileSystems()
-        : access.createFileSystem("Vault");
+      operation === "list" ? access.listFileSystems() : access.createFileSystem("Vault");
     const rejected = expect(pending).rejects.toThrow("ended");
     await vi.waitFor(() =>
       expect(
-        controlled.mock.calls.some(([url]) =>
-          String(url).endsWith("/storage/filesystems"),
-        ),
-      ).toBe(true),
+        controlled.mock.calls.some(([url]) => String(url).endsWith("/storage/filesystems"))
+      ).toBe(true)
     );
     sdk.dispose();
     const next = new ApplicationSdk(options());
@@ -869,43 +795,36 @@ it.each(["list", "create"])(
     const snapshot = next.session;
     release(
       Response.json(
-        operation === "list"
-          ? [{ id: "obsolete", name: "Old" }]
-          : { id: "obsolete", name: "Old" },
-      ),
+        operation === "list" ? [{ id: "obsolete", name: "Old" }] : { id: "obsolete", name: "Old" }
+      )
     );
     await rejected;
     expect(next.session).toBe(snapshot);
-    expect(await next.storage().listFileSystems()).toEqual([
-      { id: "fs-one", name: "Vault" },
-    ]);
-  },
+    expect(await next.storage().listFileSystems()).toEqual([{ id: "fs-one", name: "Vault" }]);
+  }
 );
 it.each([401, 403, "offline"])(
   "does not end authentication on Storage denial/transient failure: %s",
   async (failure) => {
-    const controlled = vi.fn(service.getMockImplementation())!;
+    const implementation = service.getMockImplementation();
+    if (!implementation) throw new Error("Missing service implementation");
+    const controlled = vi.fn(implementation);
     const sdk = new ApplicationSdk({ ...options(), fetch: controlled });
     await sdk.handleSigninCallback(await callback(sdk));
     const snapshot = sdk.session;
     const access = sdk.storage();
     controlled.mockImplementation((url, init) => {
-      if (!String(url).endsWith("/storage/filesystems"))
-        return service(url, init);
+      if (!String(url).endsWith("/storage/filesystems")) return service(url, init);
       if (failure === "offline") throw new Error("Network unavailable");
       return Promise.resolve(new Response(null, { status: Number(failure) }));
     });
     await expect(access.listFileSystems()).rejects.toThrow(
-      failure === "offline"
-        ? "request failed"
-        : `Filesystem list failed: ${failure}`,
+      failure === "offline" ? "request failed" : `Filesystem list failed: ${failure}`
     );
     expect(sdk.session).toBe(snapshot);
-    controlled!.mockImplementation(service.getMockImplementation()!);
-    await expect(access.listFileSystems()).resolves.toEqual([
-      { id: "fs-one", name: "Vault" },
-    ]);
-  },
+    controlled.mockImplementation(implementation);
+    await expect(access.listFileSystems()).resolves.toEqual([{ id: "fs-one", name: "Vault" }]);
+  }
 );
 it("caller cancellation closes a failed open, and closing an adopted handle rejects new requests without transport work", async () => {
   sockets();
@@ -919,16 +838,14 @@ it("caller cancellation closes a failed open, and closing an adopted handle reje
   await vi.waitFor(() => expect(BrowserSocket.instances).toHaveLength(1));
   controller.abort();
   await rejected;
-  expect(BrowserSocket.instances[0]!.closes).toBe(1);
+  expect(socket(0).closes).toBe(1);
   BrowserSocket.connecting = false;
   const adopted = await access.openSocket("fs-one");
   adopted.close();
   adopted.close();
-  await expect(adopted.request({ type: "list", path: "" })).rejects.toThrow(
-    "closed",
-  );
-  expect(BrowserSocket.instances[1]!.closes).toBe(1);
-  expect(BrowserSocket.instances[1]!.sent).toEqual([]);
+  await expect(adopted.request({ type: "list", path: "" })).rejects.toThrow("closed");
+  expect(socket(1).closes).toBe(1);
+  expect(socket(1).sent).toEqual([]);
 });
 
 it("rejects newly requested work immediately after retirement even behind an outstanding request", async () => {
@@ -938,16 +855,12 @@ it("rejects newly requested work immediately after retirement even behind an out
   const connection = await sdk.storage().openSocket("fs-one");
   const pending = connection.request({ type: "list", path: "" });
   const rejected = expect(pending).rejects.toThrow("ended");
-  await vi.waitFor(() =>
-    expect(BrowserSocket.instances[0]!.sent).toHaveLength(1),
-  );
+  await vi.waitFor(() => expect(socket(0).sent).toHaveLength(1));
   await sdk.signout();
   let denied = false;
-  const next = connection
-    .request({ type: "list", path: "secrets" })
-    .catch(() => {
-      denied = true;
-    });
+  const next = connection.request({ type: "list", path: "secrets" }).catch(() => {
+    denied = true;
+  });
   try {
     await vi.waitFor(() => expect(denied).toBe(true));
   } finally {
@@ -955,7 +868,7 @@ it("rejects newly requested work immediately after retirement even behind an out
     await rejected;
     await next;
   }
-  expect(BrowserSocket.instances[0]!.sent).toHaveLength(1);
+  expect(socket(0).sent).toHaveLength(1);
 });
 
 it.each(["list", "create", "open", "ensure", "sql"])(
@@ -994,7 +907,7 @@ it.each(["list", "create", "open", "ensure", "sql"])(
                   {
                     statements: [{ sql: "DELETE FROM records", params: [] }],
                   },
-                  ["write"],
+                  ["write"]
                 )
               : access.openSocket("fs-one");
     const rejected = expect(pending).rejects.toThrow("ended");
@@ -1009,7 +922,7 @@ it.each(["list", "create", "open", "ensure", "sql"])(
     expect(controlled).toHaveBeenCalledTimes(requests);
     expect(BrowserSocket.instances).toHaveLength(0);
     expect(next.session).toBe(snapshot);
-  },
+  }
 );
 it("replaces callback generations without letting retained Storage access follow the new User", async () => {
   sockets();
@@ -1022,15 +935,11 @@ it("replaces callback generations without letting retained Storage access follow
   await sdk.handleSigninCallback(next);
   const calls = service.mock.calls.length;
   await expect(old.listFileSystems()).rejects.toThrow("ended");
-  await expect(connection.request({ type: "list", path: "" })).rejects.toThrow(
-    "ended",
-  );
+  await expect(connection.request({ type: "list", path: "" })).rejects.toThrow("ended");
   expect(service).toHaveBeenCalledTimes(calls);
   expect(sdk.session.identity?.subject).toBe("bob");
   connection.close();
-  await expect(sdk.storage().listFileSystems()).resolves.toEqual([
-    { id: "fs-one", name: "Vault" },
-  ]);
+  await expect(sdk.storage().listFileSystems()).resolves.toEqual([{ id: "fs-one", name: "Vault" }]);
 });
 
 it("SQL capability is explicit, sends no provisioning on restore, and suppresses retired completions", async () => {
@@ -1041,37 +950,31 @@ it("SQL capability is explicit, sends no provisioning on restore, and suppresses
   await restored.restore();
   restored.storage();
   const storage = sdk.storage();
-  expect(
-    controlled.mock.calls.every(([url]) => !String(url).includes("/databases")),
-  ).toBe(true);
+  expect(controlled.mock.calls.every(([url]) => !String(url).includes("/databases"))).toBe(true);
   let release!: (response: Response) => void;
   const held = new Promise<Response>((resolve) => {
     release = resolve;
   });
   controlled.mockImplementation((url, init) =>
-    String(url).endsWith("/databases/ensure") ? held : service(url, init),
+    String(url).endsWith("/databases/ensure") ? held : service(url, init)
   );
   const pending = storage.ensureDatabase({
     creationKey: "application-owned-key",
   });
   const rejected = expect(pending).rejects.toThrow("ended");
   await vi.waitFor(() =>
-    expect(
-      controlled.mock.calls.some(([url]) =>
-        String(url).endsWith("/databases/ensure"),
-      ),
-    ).toBe(true),
+    expect(controlled.mock.calls.some(([url]) => String(url).endsWith("/databases/ensure"))).toBe(
+      true
+    )
   );
   sdk.dispose();
   release(Response.json({ id: "old", name: null }));
   await rejected;
   const sent = controlled.mock.calls.length;
   await expect(
-    storage.executeSql(
-      "old",
-      { statements: [{ sql: "DELETE FROM records", params: [] }] },
-      ["write"],
-    ),
+    storage.executeSql("old", { statements: [{ sql: "DELETE FROM records", params: [] }] }, [
+      "write",
+    ])
   ).rejects.toThrow("ended");
   expect(controlled.mock.calls).toHaveLength(sent);
   restored.dispose();
@@ -1089,27 +992,23 @@ it("same-identity SQL renewal keeps capabilities and database denial does not en
       ? Promise.resolve(
           denied
             ? Response.json({ code: "forbidden" }, { status: 403 })
-            : Response.json({ results: [{ columns: [], rows: [] }] }),
+            : Response.json({ results: [{ columns: [], rows: [] }] })
         )
-      : service(url, init),
+      : service(url, init)
   );
   const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 3600000);
   try {
     await expect(
-      storage.executeSql(
-        "db",
-        { statements: [{ sql: "SELECT id FROM records", params: [] }] },
-        ["read"],
-      ),
+      storage.executeSql("db", { statements: [{ sql: "SELECT id FROM records", params: [] }] }, [
+        "read",
+      ])
     ).resolves.toMatchObject({ results: [{ rows: [] }] });
     expect(sdk.session).toBe(snapshot);
     denied = true;
     await expect(
-      storage.executeSql(
-        "db",
-        { statements: [{ sql: "SELECT id FROM records", params: [] }] },
-        ["read"],
-      ),
+      storage.executeSql("db", { statements: [{ sql: "SELECT id FROM records", params: [] }] }, [
+        "read",
+      ])
     ).rejects.toThrow("403");
     expect(sdk.session).toBe(snapshot);
   } finally {

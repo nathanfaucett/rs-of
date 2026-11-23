@@ -1,8 +1,9 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
-import { Alert, Card, Page, PageHeader } from "$lib/ui";
+import { resolve } from "$app/paths";
 import { authState } from "$lib/auth/auth.svelte";
+import { Alert, Card, Page, PageHeader } from "$lib/ui";
 
 let status = $state<"processing" | "success" | "error">("processing");
 let message = $state("");
@@ -13,7 +14,7 @@ onMount(async () => {
     if (authState.isAuthenticated) {
       status = "success";
       message = "Sign in successful. Redirecting…";
-      await goto("/");
+      await goto(resolve("/"));
     } else {
       status = "error";
       message = authState.error || "Authentication failed";
@@ -43,7 +44,7 @@ onMount(async () => {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
           <Alert tone="danger">{message}</Alert>
-          <a href="/login" class="btn btn-secondary btn-md">Try again</a>
+          <a href={resolve("/login")} class="btn btn-secondary btn-md">Try again</a>
         {/if}
       </div>
     </Card>

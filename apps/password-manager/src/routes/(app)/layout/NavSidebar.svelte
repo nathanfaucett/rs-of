@@ -1,14 +1,15 @@
 <script lang="ts">
+
+import { ChevronLeft, ChevronRight, Key, Lock, Menu, Settings, Trash2, Vault } from "@lucide/svelte";
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { page } from "$app/state";
-
+import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 import NavSidebarItem from "./NavSidebarItem.svelte";
 
-import { Vault, Key, Settings, Trash2, ChevronLeft, ChevronRight, Menu, Lock } from "@lucide/svelte";
-import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+type NavigationView = "vault" | "generator" | "settings" | "trash";
 
-let { onNavigate }: { onNavigate: (view: string) => void } = $props();
+let { onNavigate }: { onNavigate: (view: NavigationView) => void } = $props();
 
 const currentView = $derived(page.url.pathname.split("/")[1] || "vault");
 const isUnlocked = $derived(vaultStateModule.vaultData !== null);
@@ -37,7 +38,7 @@ function toggleCollapse() {
 	}
 }
 
-function handleNavigate(view: string) {
+function handleNavigate(view: NavigationView) {
 	onNavigate(view);
 	if (drawerOpen) drawerOpen = false;
 }

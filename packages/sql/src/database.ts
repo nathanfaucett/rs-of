@@ -1,19 +1,19 @@
+import {
+  JsPushSyncTransport,
+  JsSqlSyncError,
+  JsSqlSyncTransport,
+  PushConfig,
+  PushSynchronizeResult,
+  SqlHistoryResult,
+  SqlHistoryRole,
+  SqlSessionConfig,
+  SqlSyncRole,
+} from "../pkg/ofdb_wasm.js";
 import { Client } from "./client.js";
+import { Error as SqlError, wrapError } from "./error.js";
 import { Handle } from "./handle.js";
 import type { WasmSqlDatabase } from "./wasm.js";
 import { loadWasm } from "./wasm.js";
-import { wrapError, Error as SqlError } from "./error.js";
-import {
-  JsPushSyncTransport,
-  JsSqlSyncTransport,
-  SqlHistoryResult,
-  SqlHistoryRole,
-  SqlSyncRole,
-  JsSqlSyncError,
-  PushConfig,
-  PushSynchronizeConfig,
-  PushSynchronizeResult,
-} from "../pkg/ofdb_wasm.js";
 
 /** Embedded SQL database handle. Opens the store and creates query handles. */
 export class Database {
@@ -47,12 +47,10 @@ export class Database {
   /** Synchronize with a remote peer using the given transport. */
   async synchronize(
     transport: JsPushSyncTransport,
-    config: PushSynchronizeConfig
+    config: SqlSessionConfig
   ): Promise<PushSynchronizeResult> {
     try {
-      return await this.handle.run((wasm) =>
-        wasm.synchronize(transport, config),
-      );
+      return await this.handle.run((wasm) => wasm.synchronize(transport, config));
     } catch (error) {
       throw wrapError(error, SqlError);
     }
@@ -67,25 +65,23 @@ export class Database {
     role: SqlHistoryRole = SqlHistoryRole.Initiator
   ): Promise<SqlHistoryResult> {
     try {
-      return await this.handle.run((wasm) =>
-        wasm.synchronize_history(transport, role),
-      );
+      return await this.handle.run((wasm) => wasm.synchronize_history(transport, role));
     } catch (error) {
       throw wrapError(error, SqlError);
     }
   }
 }
 
+export { SqlSyncDirection } from "../pkg/ofdb_wasm.js";
 // Re-export sync types and values
 export {
   JsPushSyncTransport,
+  JsSqlSyncError,
   JsSqlSyncTransport,
+  PushConfig,
+  PushSynchronizeResult,
   SqlHistoryResult,
   SqlHistoryRole,
+  SqlSessionConfig,
   SqlSyncRole,
-  JsSqlSyncError,
-  PushConfig,
-  PushSynchronizeConfig,
-  PushSynchronizeResult,
 };
-export { SqlSyncDirection } from "../pkg/ofdb_wasm.js";

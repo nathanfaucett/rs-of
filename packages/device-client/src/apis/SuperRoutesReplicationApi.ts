@@ -12,22 +12,16 @@
  * Do not edit the class manually.
  */
 
-import * as runtime from "../runtime.js";
-import {
-  type OwnerCopyCleanup,
-  OwnerCopyCleanupFromJSON,
-  OwnerCopyCleanupToJSON,
-} from "../models/OwnerCopyCleanup.js";
+import { type OwnerCopyCleanup, OwnerCopyCleanupToJSON } from "../models/OwnerCopyCleanup.js";
 import {
   type ReplicationAdmissionRequest,
-  ReplicationAdmissionRequestFromJSON,
   ReplicationAdmissionRequestToJSON,
 } from "../models/ReplicationAdmissionRequest.js";
 import {
   type SelectedResourcesResponse,
   SelectedResourcesResponseFromJSON,
-  SelectedResourcesResponseToJSON,
 } from "../models/SelectedResourcesResponse.js";
+import * as runtime from "../runtime.js";
 
 export interface OwnerCleanupRequest {
   /**

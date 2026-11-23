@@ -1,13 +1,15 @@
 import { readFile } from "node:fs/promises";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { indexedDB } from "fake-indexeddb";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initSync } from "../../sql/pkg/ofdb_wasm.js";
 import fixtures from "../../storage-sync-client/src/wire-fixtures.json";
 import { BrowserSyncSDK } from "../src/browser";
-import { NodeSyncSDK } from "../src/node";
 import type { SyncConfig, SyncSDK } from "../src/core";
+import { NodeSyncSDK } from "../src/node";
 
-initSync({ module: await readFile(new URL("../../sql/pkg/ofdb_wasm_bg.wasm", import.meta.url)) });
+initSync({
+  module: await readFile(new URL("../../sql/pkg/ofdb_wasm_bg.wasm", import.meta.url)),
+});
 
 const bytes = (hex: string) =>
   Uint8Array.from(hex.match(/../g) ?? [], (value) => Number.parseInt(value, 16));
@@ -43,11 +45,7 @@ class StalledSocket extends EventTarget {
   }
 
   receiveBytes(data: Uint8Array) {
-    queueMicrotask(() =>
-      this.dispatchEvent(
-        new MessageEvent("message", { data: data.buffer }),
-      ),
-    );
+    queueMicrotask(() => this.dispatchEvent(new MessageEvent("message", { data: data.buffer })));
   }
 
   close() {
@@ -109,9 +107,9 @@ describe.each(["browser", "node"] as const)("%s SQL sync lifecycle", (kind) => {
     vi.useFakeTimers();
     const states: string[] = [];
     handle.state$.subscribe((state) => states.push(state.status));
-      const outcome = handle.sync().then(
+    const outcome = handle.sync().then(
       () => "unexpected success",
-      (error: unknown) => String(error),
+      (error: unknown) => String(error)
     );
     await flush();
     const socket = StalledSocket.latest;
@@ -136,7 +134,7 @@ describe.each(["browser", "node"] as const)("%s SQL sync lifecycle", (kind) => {
     handle.state$.subscribe((state) => states.push(state.status));
     const outcome = handle.sync().then(
       () => "unexpected success",
-      (error: unknown) => String(error),
+      (error: unknown) => String(error)
     );
     await flush();
     const socket = StalledSocket.latest;
@@ -161,7 +159,7 @@ describe.each(["browser", "node"] as const)("%s SQL sync lifecycle", (kind) => {
     vi.useFakeTimers();
     const outcome = handle.sync().then(
       () => "unexpected success",
-      (error: unknown) => String(error),
+      (error: unknown) => String(error)
     );
     await handle.close();
     await vi.advanceTimersByTimeAsync(0);
@@ -193,10 +191,7 @@ describe.each(["browser", "node"] as const)("%s SQL sync lifecycle", (kind) => {
     await handle.close();
     await sdk.close();
     expect(sockets).toHaveLength(1);
-    expect(sockets[0].closeCount).toBe(1);
-    expect(results.map((result) => result.status)).toEqual([
-      "rejected",
-      "rejected",
-    ]);
+    expect(sockets[0]?.closeCount).toBe(1);
+    expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
   });
 });

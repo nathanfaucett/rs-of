@@ -12,28 +12,12 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
-import type { PermissionSubject } from "./PermissionSubject.js";
-import {
-  PermissionSubjectFromJSON,
-  PermissionSubjectFromJSONTyped,
-  PermissionSubjectToJSON,
-  PermissionSubjectToJSONTyped,
-} from "./PermissionSubject.js";
 import type { IdentityAction } from "./IdentityAction.js";
-import {
-  IdentityActionFromJSON,
-  IdentityActionFromJSONTyped,
-  IdentityActionToJSON,
-  IdentityActionToJSONTyped,
-} from "./IdentityAction.js";
+import { IdentityActionFromJSON, IdentityActionToJSON } from "./IdentityAction.js";
+import type { PermissionSubject } from "./PermissionSubject.js";
+import { PermissionSubjectFromJSON, PermissionSubjectToJSON } from "./PermissionSubject.js";
 import type { PermissionTarget } from "./PermissionTarget.js";
-import {
-  PermissionTargetFromJSON,
-  PermissionTargetFromJSONTyped,
-  PermissionTargetToJSON,
-  PermissionTargetToJSONTyped,
-} from "./PermissionTarget.js";
+import { PermissionTargetFromJSON, PermissionTargetToJSON } from "./PermissionTarget.js";
 
 /**
  *
@@ -78,7 +62,7 @@ export function PermissionEvaluationRequestFromJSON(json: any): PermissionEvalua
 
 export function PermissionEvaluationRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): PermissionEvaluationRequest {
   if (
     json &&
@@ -103,7 +87,7 @@ export function PermissionEvaluationRequestToJSON(json: any): PermissionEvaluati
 
 export function PermissionEvaluationRequestToJSONTyped(
   value?: PermissionEvaluationRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

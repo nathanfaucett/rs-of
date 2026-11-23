@@ -37,7 +37,7 @@ export function ResponseTypeFromJSON(json: any): ResponseType {
   return ResponseTypeFromJSONTyped(json, false);
 }
 
-export function ResponseTypeFromJSONTyped(json: any, ignoreDiscriminator: boolean): ResponseType {
+export function ResponseTypeFromJSONTyped(json: any, _ignoreDiscriminator: boolean): ResponseType {
   return json as ResponseType;
 }
 
@@ -45,6 +45,6 @@ export function ResponseTypeToJSON(value?: ResponseType | null): any {
   return value as any;
 }
 
-export function ResponseTypeToJSONTyped(value: any, ignoreDiscriminator: boolean): ResponseType {
+export function ResponseTypeToJSONTyped(value: any, _ignoreDiscriminator: boolean): ResponseType {
   return value as ResponseType;
 }

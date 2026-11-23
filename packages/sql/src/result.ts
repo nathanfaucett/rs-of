@@ -10,15 +10,12 @@ export interface Result {
 /** Positional or named query parameters. */
 export type QueryParams = DbValue[] | { [name: string]: DbValue };
 
-export function encodeParams(
-  params: QueryParams | undefined,
-): string | undefined {
+export function encodeParams(params: QueryParams | undefined): string | undefined {
   if (params === undefined) return undefined;
   if (
     params === null ||
     typeof params !== "object" ||
-    (!Array.isArray(params) &&
-      Object.getPrototypeOf(params) !== Object.prototype)
+    (!Array.isArray(params) && Object.getPrototypeOf(params) !== Object.prototype)
   ) {
     throw new TypeError("parameters must be an array or named object");
   }

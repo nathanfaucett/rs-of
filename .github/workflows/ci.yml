@@ -144,6 +144,24 @@ jobs:
       - name: Test feature combinations
         run: just crap-summary
 
+  typescript:
+    name: TypeScript and Biome
+    needs: ci-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    container: *ci-container
+    steps:
+      - *checkout
+
+      - *cache-pnpm
+
+      - *install-frontend-dependencies
+
+      - name: Check TypeScript, Svelte, Biome, and formatting
+        run: pnpm check && pnpm lint
+
   password-manager:
     name: Password manager frontend
     needs: ci-image

@@ -951,6 +951,7 @@ dependencies = [
  "js-sys",
  "ofdb-btree",
  "ofdb-kv",
+ "ofdb-platform",
  "ofdb-sql",
  "ofdb-sync",
  "ofdb-value",

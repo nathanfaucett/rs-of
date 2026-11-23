@@ -1,7 +1,7 @@
 export {
-    createNotifications,
-    type DefaultNotificationType,
-    type Notification,
+  createNotifications,
+  type DefaultNotificationType,
+  type Notification,
 } from "$lib/state/notifications.svelte";
 export { isOnline } from "$lib/state/online.svelte";
 export { createStorage } from "$lib/state/storage.svelte";

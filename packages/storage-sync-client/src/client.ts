@@ -50,7 +50,7 @@ export class SyncClient {
     )
       throw new SyncError(
         "protocol",
-        "Expected an HTTP(S) storage API URL without credentials, query, or fragment",
+        "Expected an HTTP(S) storage API URL without credentials, query, or fragment"
       );
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     url.pathname = `${url.pathname.replace(/\/+$/, "")}/sync/ws`;
@@ -74,12 +74,9 @@ export class SyncClient {
         socket?.close();
         reject(error);
       };
-      const cancelled = () =>
-        stop(new SyncError("cancelled", "Sync attach cancelled"));
-      const failed = () =>
-        stop(new SyncError("transport", "Sync WebSocket failed"));
-      const closed = () =>
-        stop(new SyncError("transport", "Sync WebSocket closed before attach"));
+      const cancelled = () => stop(new SyncError("cancelled", "Sync attach cancelled"));
+      const failed = () => stop(new SyncError("transport", "Sync WebSocket failed"));
+      const closed = () => stop(new SyncError("transport", "Sync WebSocket closed before attach"));
       let helloPayload: Uint8Array;
       let attachPayload: Uint8Array;
       let echoedHello = false;
@@ -87,8 +84,7 @@ export class SyncClient {
       const send = (payload: Uint8Array) => {
         const bytes = frame(payload);
         usedBytes += BigInt(bytes.length);
-        if (usedBytes > MAX_SESSION_BYTES)
-          throw new Error("Sync session exceeds byte limit");
+        if (usedBytes > MAX_SESSION_BYTES) throw new Error("Sync session exceeds byte limit");
         socket?.send(bytes);
       };
       const opened = () => {
@@ -103,8 +99,7 @@ export class SyncClient {
         try {
           const payload = unframe(event.data, MAX_FRAME_BYTES);
           usedBytes += BigInt(event.data.byteLength);
-          if (usedBytes > MAX_SESSION_BYTES)
-            throw new Error("Sync session exceeds byte limit");
+          if (usedBytes > MAX_SESSION_BYTES) throw new Error("Sync session exceeds byte limit");
           if (
             !echoedHello &&
             payload.length === helloPayload.length &&
@@ -122,8 +117,7 @@ export class SyncClient {
             stop(serverAbort(message.reason));
             return;
           }
-          if (message.type !== "attach")
-            throw new Error("Expected attach response");
+          if (message.type !== "attach") throw new Error("Expected attach response");
           if (!message.accepted) {
             stop(new SyncError("auth", "Sync attach rejected"));
             return;
@@ -152,20 +146,13 @@ export class SyncClient {
           if (!socket) throw new Error("Missing attached socket");
           cleanup();
           settled = true;
-          resolve(
-            createSession(
-              socket,
-              Object.freeze(result),
-              options.signal,
-              usedBytes,
-            ),
-          );
+          resolve(createSession(socket, Object.freeze(result), options.signal, usedBytes));
         } catch (error) {
           stop(
             new SyncError(
               "protocol",
-              error instanceof Error ? error.message : "Invalid sync response",
-            ),
+              error instanceof Error ? error.message : "Invalid sync response"
+            )
           );
         }
       };
@@ -193,12 +180,7 @@ export class SyncClient {
           helloPayload = hello(options.identity);
           attachPayload = attach(options.identity, token, options.direction);
         } catch {
-          stop(
-            new SyncError(
-              "protocol",
-              "Invalid sync store identity or direction",
-            ),
-          );
+          stop(new SyncError("protocol", "Invalid sync store identity or direction"));
           return;
         }
         try {

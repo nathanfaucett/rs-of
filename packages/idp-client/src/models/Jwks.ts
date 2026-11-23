@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { JwkPublic } from "./JwkPublic.js";
-import {
-  JwkPublicFromJSON,
-  JwkPublicFromJSONTyped,
-  JwkPublicToJSON,
-  JwkPublicToJSONTyped,
-} from "./JwkPublic.js";
+import { JwkPublicFromJSON, JwkPublicToJSON } from "./JwkPublic.js";
 
 /**
  *
@@ -45,7 +39,7 @@ export function JwksFromJSON(json: any): Jwks {
   return JwksFromJSONTyped(json, false);
 }
 
-export function JwksFromJSONTyped(json: any, ignoreDiscriminator: boolean): Jwks {
+export function JwksFromJSONTyped(json: any, _ignoreDiscriminator: boolean): Jwks {
   if (json == null) {
     return json;
   }
@@ -58,7 +52,7 @@ export function JwksToJSON(json: any): Jwks {
   return JwksToJSONTyped(json, false);
 }
 
-export function JwksToJSONTyped(value?: Jwks | null, ignoreDiscriminator: boolean = false): any {
+export function JwksToJSONTyped(value?: Jwks | null, _ignoreDiscriminator: boolean = false): any {
   if (value == null) {
     return value;
   }

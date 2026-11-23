@@ -12,8 +12,7 @@
  * Do not edit the class manually.
  */
 
-import * as runtime from "../runtime.js";
-import { type Challenge, ChallengeFromJSON, ChallengeToJSON } from "../models/Challenge.js";
+import { type Challenge, ChallengeToJSON } from "../models/Challenge.js";
 import {
   type IndependentCreateIntent,
   IndependentCreateIntentFromJSON,
@@ -21,24 +20,15 @@ import {
 } from "../models/IndependentCreateIntent.js";
 import {
   type IndependentCreateRequest,
-  IndependentCreateRequestFromJSON,
   IndependentCreateRequestToJSON,
 } from "../models/IndependentCreateRequest.js";
 import {
   type IndependentOwnerPublic,
   IndependentOwnerPublicFromJSON,
-  IndependentOwnerPublicToJSON,
 } from "../models/IndependentOwnerPublic.js";
-import {
-  type OwnerSetupStatus,
-  OwnerSetupStatusFromJSON,
-  OwnerSetupStatusToJSON,
-} from "../models/OwnerSetupStatus.js";
-import {
-  type Registration,
-  RegistrationFromJSON,
-  RegistrationToJSON,
-} from "../models/Registration.js";
+import { type OwnerSetupStatus, OwnerSetupStatusFromJSON } from "../models/OwnerSetupStatus.js";
+import { type Registration, RegistrationToJSON } from "../models/Registration.js";
+import * as runtime from "../runtime.js";
 
 export interface OwnerSetupCancelRequest {
   /**

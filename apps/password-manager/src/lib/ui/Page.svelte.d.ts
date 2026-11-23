@@ -2,8 +2,8 @@
 export type PageWidth = "wide" | "narrow";
 
 export interface PageProps {
-    width?: PageWidth;
-    children: import("svelte").Snippet;
+  width?: PageWidth;
+  children: import("svelte").Snippet;
 }
 
 export default Page;

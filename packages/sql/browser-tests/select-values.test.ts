@@ -43,33 +43,31 @@ for (const handle of ["Client", "Transaction"]) {
       ];
       const result = await page.evaluate(
         async ({ values, handle }) => {
-          const db = await (window as any).sql.Database.open("typed-values");
+          const db = await window.sql.Database.open("typed-values");
           const owner = db.client();
-          const client =
-            handle === "Client" ? owner : await owner.transaction();
+          const client = handle === "Client" ? owner : await owner.transaction();
           try {
             await client.executeRaw(
-              "CREATE TABLE typed_values (id UUID PRIMARY KEY, ref UUID, text TEXT, empty_text TEXT, cipher BLOB, empty_blob BLOB, lo INTEGER, hi INTEGER, f FLOAT, b BOOLEAN, n TEXT, j JSON)",
+              "CREATE TABLE typed_values (id UUID PRIMARY KEY, ref UUID, text TEXT, empty_text TEXT, cipher BLOB, empty_blob BLOB, lo INTEGER, hi INTEGER, f FLOAT, b BOOLEAN, n TEXT, j JSON)"
             );
             await client.executeRaw(
               "INSERT INTO typed_values (ref,text,empty_text,cipher,empty_blob,lo,hi,f,b,n,j) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
-              values,
+              values
             );
             const rows = await client.execute(
               "SELECT ref,text,empty_text,cipher,empty_blob,lo,hi,f,b,n,j FROM typed_values",
-              (row: any) => row,
+              (row: import("../src/index.js").Row) => row
             );
             const converted = await client.execute(
               "SELECT hi FROM typed_values",
-              (row: any) => {
-                if (row.hi?.type !== "integer")
-                  throw new Error("expected integer");
+              (row: import("../src/index.js").Row) => {
+                if (row.hi?.type !== "integer") throw new Error("expected integer");
                 return BigInt(row.hi.value);
-              },
+              }
             );
             const types = await client.execute(
               "SELECT type FROM table_fields WHERE table = 'typed_values' AND name = 'cipher'",
-              (row: any) => row.type,
+              (row: import("../src/index.js").Row) => row.type
             );
             return { rows, converted: converted.map(String), types };
           } finally {
@@ -78,7 +76,7 @@ for (const handle of ["Client", "Transaction"]) {
             db.close();
           }
         },
-        { values, handle },
+        { values, handle }
       );
       expect(result.rows).toEqual([
         {
@@ -103,28 +101,28 @@ for (const handle of ["Client", "Transaction"]) {
       page,
     }) => {
       const result = await page.evaluate(async (handle) => {
-        const db = await (window as any).sql.Database.open("typed-names");
+        const db = await window.sql.Database.open("typed-names");
         const owner = db.client();
         const client = handle === "Client" ? owner : await owner.transaction();
         try {
           await client.executeRaw(
-            'CREATE TABLE names (id INTEGER PRIMARY KEY, "Name" TEXT, "name" TEXT, "__proto__" TEXT, "constructor" TEXT, "prototype" TEXT)',
+            'CREATE TABLE names (id INTEGER PRIMARY KEY, "Name" TEXT, "name" TEXT, "__proto__" TEXT, "constructor" TEXT, "prototype" TEXT)'
           );
           await client.executeRaw(
-            "INSERT INTO names VALUES (1, 'upper', 'lower', 'proto-data', 'ctor-data', 'prototype-data')",
+            "INSERT INTO names VALUES (1, 'upper', 'lower', 'proto-data', 'ctor-data', 'prototype-data')"
           );
           const rows = await client.execute(
             'SELECT "Name", "name", "__proto__", "constructor", "prototype" FROM names',
-            (row: any) => ({
+            (row: import("../src/index.js").Row) => ({
               entries: Object.entries(row),
               safe: Object.getPrototypeOf(row) === Object.prototype,
               own: Object.hasOwn(row, "__proto__"),
               missing: !Object.hasOwn(row, "missing"),
-            }),
+            })
           );
           const alias = await client.execute(
             "SELECT \"name\" || '!' AS decorated FROM names",
-            (row: any) => row.decorated,
+            (row: import("../src/index.js").Row) => row.decorated
           );
           return { rows, alias };
         } finally {
@@ -158,7 +156,7 @@ test("execute reuses parameters and handle ownership and skips parsers for empty
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const { Database, ExecuteError, Error: SqlError } = (window as any).sql;
+    const { Database, ExecuteError, Error: SqlError } = window.sql;
     const db = await Database.open("typed-parameters");
     const client = db.client();
     const clone = client.clone();
@@ -169,22 +167,18 @@ test("execute reuses parameters and handle ownership and skips parsers for empty
       await timed.executeRaw("CREATE TABLE items (id INTEGER PRIMARY KEY)");
       await timed.executeRaw("INSERT INTO items VALUES (1)");
       let calls = 0;
-      const empty =
-        await timed.execute("SELECT id FROM items WHERE id = $1", () => {
-          calls++;
-          throw new Error("must not run");
-        }, [{ type: "integer", value: "2" }]);
-      const parseCount = (row: any) => {
-        const cells = Object.values(row) as any[];
-        if (cells.length !== 1 || cells[0]?.type !== "integer")
-          throw new Error("expected count");
+      const empty = await timed.execute("SELECT id FROM items WHERE id = $1", () => {
+        calls++;
+        throw new Error("must not run");
+      }, [{ type: "integer", value: "2" }]);
+      const parseCount = (row: import("../src/index.js").Row) => {
+        const cells = Object.values(row);
+        if (cells.length !== 1 || cells[0]?.type !== "integer") throw new Error("expected count");
         return { count: BigInt(cells[0].value).toString() };
       };
-      const count = await timed.execute(
-        "SELECT COUNT(*) FROM items WHERE id = :id",
-        parseCount,
-        { id: { type: "integer", value: "1" } },
-      );
+      const count = await timed.execute("SELECT COUNT(*) FROM items WHERE id = :id", parseCount, {
+        id: { type: "integer", value: "1" },
+      });
       const errors = [];
       for (const operation of [
         () =>
@@ -202,10 +196,8 @@ test("execute reuses parameters and handle ownership and skips parsers for empty
       ]) {
         try {
           await operation();
-        } catch (error: any) {
-          errors.push(
-            error instanceof SqlError && !(error instanceof ExecuteError),
-          );
+        } catch (error) {
+          errors.push(error instanceof SqlError && !(error instanceof ExecuteError));
         }
       }
       return { empty, calls, count, errors };

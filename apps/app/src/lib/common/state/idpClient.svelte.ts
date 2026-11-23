@@ -12,18 +12,12 @@ import { resolve } from "$app/paths";
 import { page } from "$app/state";
 import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
-import {
-  ensureLocalhostBaseUrl,
-  getLocalhostBaseUrlCached,
-} from "./localhostBaseUrl.svelte";
-import { getOidcClient } from "./oidc.svelte";
 import { getDeviceApiUrl } from "./deviceClient.svelte";
+import { ensureLocalhostBaseUrl, getLocalhostBaseUrlCached } from "./localhostBaseUrl.svelte";
+import { getOidcClient } from "./oidc.svelte";
 import { validateServiceApiUrl } from "./serviceApi";
 
-const idpApiUrl = createStorage<string | null>(
-  "idp-api-url",
-  env.PUBLIC_IDP_BASE_URL ?? null,
-);
+const idpApiUrl = createStorage<string | null>("idp-api-url", env.PUBLIC_IDP_BASE_URL ?? null);
 
 function readAccessToken(): string {
   const oidcClient = getOidcClient();
@@ -71,24 +65,18 @@ export const defaultConfigurationParameters: ConfigurationParameters = {
   credentials: "same-origin",
 };
 
-export const lidpConfiguration = new Configuration(
-  defaultConfigurationParameters,
-);
+export const lidpConfiguration = new Configuration(defaultConfigurationParameters);
 
 export const idpApi = new DefaultApi(lidpConfiguration);
 
-export async function passwordToken(
-  clientId: string,
-  username: string,
-  password: string,
-) {
+export async function passwordToken(clientId: string, username: string, password: string) {
   const base = await ensureTauriIdpApiUrl();
   if (!base) throw new Error("An IdP endpoint is required");
   const owner = new DefaultApi(
     new Configuration({
       basePath: base.replace(/\/$/, ""),
       fetchApi: fetch,
-    }),
+    })
   );
   return owner.token(
     {
@@ -98,7 +86,7 @@ export async function passwordToken(
       password,
       scope: "openid profile email",
     },
-    { redirect: "error" },
+    { redirect: "error" }
   );
 }
 
@@ -108,16 +96,10 @@ export async function ownerAccessToken(resource: string): Promise<string> {
   if (!subjectToken) return "";
   if (
     !base ||
-    (resource !== base &&
-      resource !== "idp-management" &&
-      resource !== getDeviceApiUrl())
+    (resource !== base && resource !== "idp-management" && resource !== getDeviceApiUrl())
   )
-    throw new Error(
-      "A current IdP, Device or Management owner audience is required",
-    );
-  const owner = new DefaultApi(
-    new Configuration({ basePath: base, fetchApi: fetch }),
-  );
+    throw new Error("A current IdP, Device or Management owner audience is required");
+  const owner = new DefaultApi(new Configuration({ basePath: base, fetchApi: fetch }));
   const token = await owner.token({
     grantType: TokenGrantTypeEnum.UrnIetfParamsOauthGrantTypeTokenExchange,
     subjectToken,
@@ -140,9 +122,7 @@ export function usesRemoteApis(): boolean {
   if (!isTauri()) return true;
   const base = idpApiUrl.item?.replace(/\/$/, "");
   const local = getLocalhostBaseUrlCached();
-  return Boolean(
-    env.PUBLIC_IDP_BASE_URL || (base && (!local || base !== `${local}/idp`)),
-  );
+  return Boolean(env.PUBLIC_IDP_BASE_URL || (base && (!local || base !== `${local}/idp`)));
 }
 
 export function getIdpApiUrl(): string | null {

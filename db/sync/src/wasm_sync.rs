@@ -2,9 +2,11 @@
 // Does not require tokio runtime.
 
 use crate::protocol::{
-    Config, HelloConfig, Message, PushResult, PushSynchronizeConfig, PushSynchronizeError,
+    Config, HelloConfig, Message, PushApplyResult, PushResult, PushSynchronizeConfig,
+    PushSynchronizeError,
 };
 use btree::{ChangeEvent, StorageKey};
+use core::cell::Cell;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use futures::FutureExt;
@@ -14,6 +16,7 @@ use futures::future::{pending, ready};
 use futures::select;
 use std::collections::HashMap;
 use std::mem::take;
+use std::rc::Rc;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 use web_sys::window;
@@ -30,15 +33,15 @@ pub use crate::transport::SyncTransport as PushSyncTransport;
 struct WasmSleep {
     duration: Duration,
     handle: Option<i32>,
-    done: bool,
+    done: Rc<Cell<bool>>,
 }
 
 impl WasmSleep {
-    const fn new(duration: Duration) -> Self {
+    fn new(duration: Duration) -> Self {
         Self {
             duration,
             handle: None,
-            done: false,
+            done: Rc::new(Cell::new(false)),
         }
     }
 }
@@ -47,17 +50,19 @@ impl Future for WasmSleep {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.done {
+        if self.done.get() {
             return Poll::Ready(());
         }
 
         if self.handle.is_none() {
             let window = window().expect("no window available");
             let waker = cx.waker().clone();
+            let done = Rc::clone(&self.done);
             let millis = i32::try_from(self.duration.as_millis().min(i32::MAX as u128))
                 .expect("duration is clamped to i32::MAX");
 
             let closure = Closure::once_into_js(move || {
+                done.set(true);
                 waker.wake();
             });
 
@@ -138,7 +143,7 @@ where
     T: PushSyncTransport,
     S: Stream<Item = ChangeEvent> + Unpin,
     F: FnMut(ChangeEvent) -> Fut,
-    Fut: Future<Output = Result<(), String>>,
+    Fut: Future<Output = Result<PushApplyResult, String>>,
 {
     let handshake_timeout = Duration::from_millis(config.handshake_timeout_ms);
     let message_timeout = Duration::from_millis(config.message_timeout_ms);
@@ -210,6 +215,9 @@ where
         .await;
         let _ = handshake_result.map_err(|()| PushSynchronizeError::SessionTimeout)?;
 
+        let incoming = transport.receive().fuse();
+        futures::pin_mut!(incoming);
+
         // Main bidirectional loop using futures::select!
         loop {
             select! {
@@ -217,6 +225,9 @@ where
                 event = async {
                     if outbound_exhausted {
                         pending().await
+                    } else if config.send_done_on_exhaust {
+                        // One-shot sessions treat an idle subscription as exhausted.
+                        outbound.next().now_or_never().flatten()
                     } else {
                         outbound.next().await
                     }
@@ -247,9 +258,12 @@ where
                     if inbound_closed {
                         pending().await
                     } else {
-                        wasm_timeout(message_timeout, transport.receive()).await
+                        wasm_timeout(message_timeout, incoming.as_mut()).await
                     }
                 }.fuse() => {
+                    if msg.is_ok() {
+                        incoming.set(transport.receive().fuse());
+                    }
                     match msg {
                         Ok(Ok(message)) => {
                             match message {
@@ -258,15 +272,16 @@ where
                                     let key = event.key.clone();
 
                                     // Apply to local storage
-                                    apply_inbound(event).await
+                                    let applied = apply_inbound(event).await
                                         .map_err(PushSynchronizeError::Apply)?;
                                     result.received += 1;
 
-                                    // Queue acknowledgment
-                                    pending_acks.insert(key, generation);
+                                    if applied == PushApplyResult::Applied {
+                                        pending_acks.insert(key, generation);
+                                    }
 
                                     // Send ACK if immediate
-                                    if config.protocol.immediate_ack {
+                                    if config.protocol.immediate_ack && !pending_acks.is_empty() {
                                         let ack = Message::Ack {
                                             acknowledgments: take(&mut pending_acks),
                                         };
@@ -289,14 +304,19 @@ where
                                 }
                                 Message::Ack { acknowledgments } => {
                                     // Peer acknowledged our events
-                                    for (key, _generation) in acknowledgments {
-                                        pending_acks.remove(&key);
+                                    for (key, generation) in acknowledgments {
+                                        if outstanding.get(&key).is_some_and(|pending| *pending <= generation) {
+                                            outstanding.remove(&key);
+                                        }
                                     }
                                 }
                                 Message::Done { .. } => {
                                     received_done = true;
                                 }
                                 Message::Close => {
+                                    if !outstanding.is_empty() {
+                                        return Err(PushSynchronizeError::PeerClosed);
+                                    }
                                     inbound_closed = true;
                                 }
                                 Message::HelloAck { .. } | Message::Hello { .. } => {
@@ -330,7 +350,7 @@ where
 
                 // Termination check
                 () = async {
-                    if outbound_exhausted && outstanding.is_empty() && (received_done || inbound_closed) {
+                    if outbound_exhausted && outstanding.is_empty() && pending_acks.is_empty() && (received_done || inbound_closed) {
                         ready(()).await;
                     } else {
                         pending::<()>().await;
@@ -338,10 +358,6 @@ where
                 }.fuse() => {
                     break;
                 }
-            }
-
-            if sent_done && received_done {
-                break;
             }
         }
 
@@ -381,7 +397,7 @@ where
     T: PushSyncTransport,
     S: Stream<Item = ChangeEvent> + Unpin,
     F: FnMut(ChangeEvent) -> Fut,
-    Fut: Future<Output = Result<(), String>>,
+    Fut: Future<Output = Result<PushApplyResult, String>>,
 {
     push_synchronize(transport, outbound, apply_inbound, config)
 }

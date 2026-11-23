@@ -19,10 +19,7 @@ import { OidcClientError } from "./OidcClientError.js";
 import type { OidcClientMetadata } from "./OidcClientMetadata.js";
 import type { OidcClientRegistrationResponse } from "./OidcClientRegistrationResponse.js";
 import type { OidcConfiguration } from "./OidcConfiguration.js";
-import {
-  createFetchWithTimeout,
-  type Fetch,
-} from "./util/createFetchWithTimeout.js";
+import { createFetchWithTimeout, type Fetch } from "./util/createFetchWithTimeout.js";
 import { generatePkcePair } from "./util/generatePkcePair.js";
 import { snakeCase, snakeCaseKeys } from "./util/snakeCaseKeys.js";
 
@@ -83,15 +80,28 @@ export type OidcUserInfo = {
 };
 
 export type OidcTokenResponse = {
-  access_token?: string;
-  id_token?: string;
-  refresh_token?: string;
-  token_type?: string;
-  expires_in?: number | string;
-  access_token_expires_at?: number;
-  refresh_token_expires_in?: number | string;
-  scope?: string;
-  state?: string;
+  access_token?: string | undefined;
+  id_token?: string | undefined;
+  refresh_token?: string | undefined;
+  token_type?: string | undefined;
+  expires_in?: number | string | undefined;
+  access_token_expires_at?: number | undefined;
+  refresh_token_expires_in?: number | string | undefined;
+  scope?: string | undefined;
+  state?: string | undefined;
+  [key: string]: unknown;
+};
+
+type OidcTokenResponseInput = {
+  access_token?: unknown;
+  id_token?: unknown;
+  refresh_token?: unknown;
+  token_type?: unknown;
+  expires_in?: unknown;
+  access_token_expires_at?: unknown;
+  refresh_token_expires_in?: unknown;
+  scope?: unknown;
+  state?: unknown;
   [key: string]: unknown;
 };
 
@@ -128,7 +138,7 @@ export class OidcClient<
         this.config.clientId ?? this.config.registration,
         this.getRedirectUri(),
         this.config.registration,
-      ]),
+      ])
     );
     this.pkceStoragePrefix = `${PKCE_STORAGE_PREFIX}:${namespace}`;
     this.tokenStoragePrefix = `${TOKEN_STORAGE_PREFIX}:${namespace}`;
@@ -137,18 +147,13 @@ export class OidcClient<
     this.disableNativeRequests = options.disableNativeRequests ?? false;
     this.nativeFetch = createNativeFetch(this.config.authority);
     this.fetch = this.config.requestTimeoutInSeconds
-      ? createFetchWithTimeout(
-          this.config.requestTimeoutInSeconds * 1000,
-          options.fetch,
-        )
+      ? createFetchWithTimeout(this.config.requestTimeoutInSeconds * 1000, options.fetch)
       : (options.fetch ?? fetch);
   }
 
   private getIssuedClient(): { clientId: string; issuer: string } | undefined {
     if (this.memoryOnly) return this.issuedClient;
-    const value = this.getStorage()?.getItem(
-      `${this.tokenStoragePrefix}:client`,
-    );
+    const value = this.getStorage()?.getItem(`${this.tokenStoragePrefix}:client`);
     if (!value) return undefined;
     try {
       const client = JSON.parse(value);
@@ -169,11 +174,7 @@ export class OidcClient<
   private rememberIssuedClient(clientId: string, issuer: string): void {
     const client = { clientId, issuer };
     if (this.memoryOnly) this.issuedClient = client;
-    else
-      this.getStorage()?.setItem(
-        `${this.tokenStoragePrefix}:client`,
-        JSON.stringify(client),
-      );
+    else this.getStorage()?.setItem(`${this.tokenStoragePrefix}:client`, JSON.stringify(client));
   }
 
   private ownerApi(headers: Record<string, string> = {}): DefaultApi {
@@ -183,7 +184,7 @@ export class OidcClient<
         fetchApi: this.fetch,
         headers,
         credentials: this.config.fetchRequestCredentials ?? "same-origin",
-      }),
+      })
     );
   }
 
@@ -256,8 +257,7 @@ export class OidcClient<
     storage.removeItem(this.getTokenStorageKey());
     for (let index = storage.length - 1; index >= 0; index--) {
       const key = storage.key(index);
-      if (key?.startsWith(`${this.pkceStoragePrefix}:`))
-        storage.removeItem(key);
+      if (key?.startsWith(`${this.pkceStoragePrefix}:`)) storage.removeItem(key);
     }
   }
 
@@ -288,7 +288,7 @@ export class OidcClient<
   private readCallbackParam(
     queryParams: URLSearchParams,
     hashParams: URLSearchParams,
-    name: string,
+    name: string
   ): string | null {
     return queryParams.get(name) ?? hashParams.get(name);
   }
@@ -307,7 +307,7 @@ export class OidcClient<
     return new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
   }
 
-  private normalizeTokenResponse(input: OidcTokenResponse): OidcTokenResponse {
+  private normalizeTokenResponse(input: OidcTokenResponseInput): OidcTokenResponse {
     const expiresInRaw = input.expires_in;
     const expiresIn =
       typeof expiresInRaw === "number"
@@ -325,15 +325,10 @@ export class OidcClient<
 
     return {
       ...input,
-      access_token:
-        typeof input.access_token === "string" ? input.access_token : undefined,
+      access_token: typeof input.access_token === "string" ? input.access_token : undefined,
       id_token: typeof input.id_token === "string" ? input.id_token : undefined,
-      refresh_token:
-        typeof input.refresh_token === "string"
-          ? input.refresh_token
-          : undefined,
-      token_type:
-        typeof input.token_type === "string" ? input.token_type : undefined,
+      refresh_token: typeof input.refresh_token === "string" ? input.refresh_token : undefined,
+      token_type: typeof input.token_type === "string" ? input.token_type : undefined,
       expires_in: Number.isNaN(expiresIn ?? Number.NaN) ? undefined : expiresIn,
       access_token_expires_at:
         typeof input.access_token_expires_at === "number"
@@ -341,9 +336,7 @@ export class OidcClient<
           : typeof expiresIn === "number"
             ? Date.now() + expiresIn * 1000
             : undefined,
-      refresh_token_expires_in: Number.isNaN(
-        refreshTokenExpiresIn ?? Number.NaN,
-      )
+      refresh_token_expires_in: Number.isNaN(refreshTokenExpiresIn ?? Number.NaN)
         ? undefined
         : refreshTokenExpiresIn,
       scope: typeof input.scope === "string" ? input.scope : undefined,
@@ -354,7 +347,7 @@ export class OidcClient<
   private buildTokenRequest(
     clientId: string,
     code: string,
-    codeVerifier?: string,
+    codeVerifier?: string
   ): { headers: Record<string, string>; body: URLSearchParams } {
     const body = new URLSearchParams();
     const headers = this.addClientAuthentication(clientId, body);
@@ -369,29 +362,21 @@ export class OidcClient<
     return { headers, body };
   }
 
-  private addClientAuthentication(
-    clientId: string,
-    body: URLSearchParams,
-  ): Record<string, string> {
-    const headers: Record<string, string> = {
+  private addClientAuthentication(clientId: string, body: URLSearchParams): Record<string, string> {
+    const headers: Record<string, string> & { Authorization?: string } = {
       "Content-Type": "application/x-www-form-urlencoded",
     };
-    const tokenEndpointAuthMethod =
-      this.config.registration?.tokenEndpointAuthMethod;
+    const tokenEndpointAuthMethod = this.config.registration.tokenEndpointAuthMethod;
 
     if (tokenEndpointAuthMethod === "client_secret_post") {
       body.set("client_id", clientId);
       if (this.config.clientSecret) {
         body.set("client_secret", this.config.clientSecret);
       }
-    } else if (
-      tokenEndpointAuthMethod === "none" ||
-      !this.config.clientSecret
-    ) {
+    } else if (tokenEndpointAuthMethod === "none" || !this.config.clientSecret) {
       body.set("client_id", clientId);
     } else {
-      headers["Authorization"] =
-        `Basic ${this.encodeBasicAuth(clientId, this.config.clientSecret)}`;
+      headers.Authorization = `Basic ${this.encodeBasicAuth(clientId, this.config.clientSecret)}`;
     }
 
     return headers;
@@ -405,10 +390,7 @@ export class OidcClient<
     const bufferCtor = (
       globalThis as {
         Buffer?: {
-          from(
-            data: string,
-            encoding: string,
-          ): { toString(encoding: string): string };
+          from(data: string, encoding: string): { toString(encoding: string): string };
         };
       }
     ).Buffer;
@@ -432,10 +414,7 @@ export class OidcClient<
     const tokenResponse = this.getStoredTokenResponse();
     const accessToken = tokenResponse?.access_token;
     if (!accessToken) {
-      throw new OidcClientError(
-        "NO_ACCESS_TOKEN",
-        "Missing access token in stored token response",
-      );
+      throw new OidcClientError("NO_ACCESS_TOKEN", "Missing access token in stored token response");
     }
 
     return this.requestUserInfo(accessToken);
@@ -447,7 +426,7 @@ export class OidcClient<
       throw new OidcClientError(
         "NO_USERINFO_ENDPOINT",
         "Provider does not support userinfo endpoint",
-        { endpoint: this.config.authority },
+        { endpoint: this.config.authority }
       );
     }
     const userInfoUrl = new URL(config.userinfo_endpoint);
@@ -456,25 +435,23 @@ export class OidcClient<
       const api = this.ownerApi({
         Authorization: `Bearer ${accessToken}`,
       });
-      this.requireOwnerEndpoint(
-        userInfoUrl,
-        (await api.userinfoRequestOpts()).path,
-      );
-      const userInfo = UserInfoToJSON(
-        await api.userinfo({ redirect: "error" }),
-      ) as unknown as UserInfo;
-      if (!userInfo || typeof userInfo.sub !== "string")
+      this.requireOwnerEndpoint(userInfoUrl, (await api.userinfoRequestOpts()).path);
+      const userInfo: unknown = UserInfoToJSON(await api.userinfo({ redirect: "error" }));
+      if (
+        !userInfo ||
+        typeof userInfo !== "object" ||
+        typeof (userInfo as OidcUserInfo).sub !== "string"
+      )
         throw new OidcClientError(
           "INVALID_USERINFO_RESPONSE",
-          "Userinfo response did not include a valid sub claim",
+          "Userinfo response did not include a valid sub claim"
         );
-      return userInfo;
+      return userInfo as UserInfo;
     }
 
     let userInfoResponse: Response;
     try {
-      const isNative =
-        !this.disableNativeRequests && isNativeProtocol(userInfoUrl);
+      const isNative = !this.disableNativeRequests && isNativeProtocol(userInfoUrl);
       if (isNative) {
         userInfoResponse = await this.nativeFetch(userInfoUrl, {
           method: "GET",
@@ -483,9 +460,9 @@ export class OidcClient<
             Authorization: `Bearer ${accessToken}`,
           },
           credentials: this.config.fetchRequestCredentials ?? "same-origin",
-          timeout: this.config.requestTimeoutInSeconds
-            ? this.config.requestTimeoutInSeconds * 1000
-            : undefined,
+          ...(this.config.requestTimeoutInSeconds
+            ? { timeout: this.config.requestTimeoutInSeconds * 1000 }
+            : {}),
         });
       } else {
         userInfoResponse = await this.fetch(userInfoUrl, {
@@ -499,14 +476,10 @@ export class OidcClient<
       }
     } catch (error: unknown) {
       if (this.isTimeoutError(error)) {
-        throw new OidcClientError(
-          "NETWORK_TIMEOUT",
-          "Userinfo request timed out",
-          {
-            endpoint: userInfoUrl.toString(),
-            cause: error,
-          },
-        );
+        throw new OidcClientError("NETWORK_TIMEOUT", "Userinfo request timed out", {
+          endpoint: userInfoUrl.toString(),
+          cause: error,
+        });
       }
       throw new OidcClientError("NETWORK_ERROR", "Userinfo request failed", {
         endpoint: userInfoUrl.toString(),
@@ -521,22 +494,18 @@ export class OidcClient<
           status: userInfoResponse.status,
           statusText: userInfoResponse.statusText,
           endpoint: userInfoUrl.toString(),
-        },
+        }
       );
     }
 
-    let userInfo: UserInfo;
+    let userInfo: unknown;
     try {
-      userInfo = (await userInfoResponse.json()) as unknown as UserInfo;
+      userInfo = await userInfoResponse.json();
     } catch (error: unknown) {
-      throw new OidcClientError(
-        "JSON_PARSE_ERROR",
-        "Failed to parse userinfo response",
-        {
-          endpoint: userInfoUrl.toString(),
-          cause: error,
-        },
-      );
+      throw new OidcClientError("JSON_PARSE_ERROR", "Failed to parse userinfo response", {
+        endpoint: userInfoUrl.toString(),
+        cause: error,
+      });
     }
 
     if (
@@ -549,44 +518,31 @@ export class OidcClient<
         "Userinfo response did not include a valid sub claim",
         {
           endpoint: userInfoUrl.toString(),
-        },
+        }
       );
     }
 
-    return userInfo;
+    return userInfo as UserInfo;
   }
 
-  private async verifyProjectClient(
-    clientId: string,
-    accessToken?: string,
-  ): Promise<void> {
+  private async verifyProjectClient(clientId: string, accessToken?: string): Promise<void> {
     if (!this.projectOwned) return;
     if (!accessToken)
-      throw new OidcClientError(
-        "NO_ACCESS_TOKEN",
-        "Token exchange returned no access token",
-      );
-    const application = this.config.registration?.application as
-      { uri?: string } | undefined;
+      throw new OidcClientError("NO_ACCESS_TOKEN", "Token exchange returned no access token");
+    const application = this.config.registration.application as { uri?: string } | undefined;
     if (!application?.uri)
-      throw new OidcClientError(
-        "INVALID_CLIENT_METADATA",
-        "Missing expected Application URI",
-      );
+      throw new OidcClientError("INVALID_CLIENT_METADATA", "Missing expected Application URI");
     const api = this.ownerApi({ Authorization: `Bearer ${accessToken}` });
     const parameters = { clientId };
     this.requireOwnerEndpoint(
       `${this.config.authority}/oauth2/client/${encodeURIComponent(clientId)}`,
-      (await api.getClientRequestOpts(parameters)).path,
+      (await api.getClientRequestOpts(parameters)).path
     );
     const client = await api.getClient(parameters, { redirect: "error" });
-    if (
-      client?.clientId !== clientId ||
-      client?.application?.uri !== application.uri
-    )
+    if (client?.clientId !== clientId || client?.application?.uri !== application.uri)
       throw new OidcClientError(
         "INVALID_CLIENT_METADATA",
-        "Client metadata does not match the configured Application",
+        "Client metadata does not match the configured Application"
       );
   }
 
@@ -601,10 +557,10 @@ export class OidcClient<
       if (context !== this.identityContext)
         throw new OidcClientError(
           "NO_ACCESS_TOKEN",
-          "Session changed during identity establishment",
+          "Session changed during identity establishment"
         );
     };
-    while (true) {
+    for (;;) {
       active();
       const token = await this.getAccessToken();
       active();
@@ -624,7 +580,7 @@ export class OidcClient<
         if (!userInfo.sub)
           throw new OidcClientError(
             "INVALID_USERINFO_RESPONSE",
-            "Userinfo response did not include a valid sub claim",
+            "Userinfo response did not include a valid sub claim"
           );
         if (this.projectOwned) {
           const clientId = await this.getClientId(config);
@@ -647,7 +603,7 @@ export class OidcClient<
   private async requestToken(
     tokenEndpointUrlOrString: URL | string,
     headers: Record<string, string>,
-    body: URLSearchParams,
+    body: URLSearchParams
   ): Promise<OidcTokenResponse> {
     const tokenEndpointUrl =
       typeof tokenEndpointUrlOrString === "string"
@@ -657,14 +613,12 @@ export class OidcClient<
       const grantType = body.get("grant_type");
       if (
         !Object.values(TokenGrantTypeEnum).includes(
-          grantType as (typeof TokenGrantTypeEnum)[keyof typeof TokenGrantTypeEnum],
+          grantType as (typeof TokenGrantTypeEnum)[keyof typeof TokenGrantTypeEnum]
         )
       )
         throw new Error("Unsupported owner token grant");
       const parameters: NonNullable<Parameters<DefaultApi["token"]>[0]> = {
-        grantType: grantType as NonNullable<
-          Parameters<DefaultApi["token"]>[0]
-        >["grantType"],
+        grantType: grantType as NonNullable<Parameters<DefaultApi["token"]>[0]>["grantType"],
         clientId: body.get("client_id") ?? undefined,
         clientSecret: body.get("client_secret") ?? undefined,
         code: body.get("code") ?? undefined,
@@ -674,16 +628,12 @@ export class OidcClient<
         scope: body.get("scope") ?? undefined,
       };
       const api = this.ownerApi(headers);
-      this.requireOwnerEndpoint(
-        tokenEndpointUrl,
-        (await api.tokenRequestOpts(parameters)).path,
-      );
+      this.requireOwnerEndpoint(tokenEndpointUrl, (await api.tokenRequestOpts(parameters)).path);
       return TokenResponseToJSON(
-        await api.token(parameters, { redirect: "error" }),
+        await api.token(parameters, { redirect: "error" })
       ) as unknown as OidcTokenResponse;
     }
-    const isNative =
-      !this.disableNativeRequests && isNativeProtocol(tokenEndpointUrl);
+    const isNative = !this.disableNativeRequests && isNativeProtocol(tokenEndpointUrl);
 
     if (isNative) {
       const response = await this.nativeFetch(tokenEndpointUrl, {
@@ -691,14 +641,12 @@ export class OidcClient<
         headers,
         body: body.toString(),
         credentials: this.config.fetchRequestCredentials ?? "same-origin",
-        timeout: this.config.requestTimeoutInSeconds
-          ? this.config.requestTimeoutInSeconds * 1000
-          : undefined,
+        ...(this.config.requestTimeoutInSeconds
+          ? { timeout: this.config.requestTimeoutInSeconds * 1000 }
+          : {}),
       });
       if (!response.ok) {
-        throw new Error(
-          `Failed token request: ${response.status} ${response.statusText}`,
-        );
+        throw new Error(`Failed token request: ${response.status} ${response.statusText}`);
       }
       return (await response.json()) as unknown as OidcTokenResponse;
     }
@@ -711,9 +659,7 @@ export class OidcClient<
     });
 
     if (!response.ok) {
-      throw new Error(
-        `Failed token request: ${response.status} ${response.statusText}`,
-      );
+      throw new Error(`Failed token request: ${response.status} ${response.statusText}`);
     }
 
     return (await response.json()) as unknown as OidcTokenResponse;
@@ -726,77 +672,41 @@ export class OidcClient<
 
     const expected = new URL(this.getRedirectUri());
     if (url.origin !== expected.origin || url.pathname !== expected.pathname)
-      throw new OidcClientError(
-        "INVALID_STATE",
-        "Callback destination does not match",
-      );
+      throw new OidcClientError("INVALID_STATE", "Callback destination does not match");
     const queryParams = url.searchParams;
     const hashParams = this.getHashParams(url);
 
-    const callbackError = this.readCallbackParam(
-      queryParams,
-      hashParams,
-      "error",
-    );
+    const callbackError = this.readCallbackParam(queryParams, hashParams, "error");
     if (callbackError) {
       throw new Error("Authorization was rejected by the provider");
     }
 
-    const callbackState = this.readCallbackParam(
-      queryParams,
-      hashParams,
-      "state",
-    );
+    const callbackState = this.readCallbackParam(queryParams, hashParams, "state");
 
-    const accessToken = this.readCallbackParam(
-      queryParams,
-      hashParams,
-      "access_token",
-    );
+    const accessToken = this.readCallbackParam(queryParams, hashParams, "access_token");
     const idToken = this.readCallbackParam(queryParams, hashParams, "id_token");
     if (accessToken || idToken)
-      throw new OidcClientError(
-        "INVALID_STATE",
-        "Expected an authorization-code callback",
-      );
+      throw new OidcClientError("INVALID_STATE", "Expected an authorization-code callback");
 
-    const authorizationCode = this.readCallbackParam(
-      queryParams,
-      hashParams,
-      "code",
-    );
+    const authorizationCode = this.readCallbackParam(queryParams, hashParams, "code");
     if (!authorizationCode) {
       return null;
     }
 
     if (!callbackState) {
-      throw new OidcClientError(
-        "MISSING_STATE",
-        "Signin callback is missing state",
-      );
+      throw new OidcClientError("MISSING_STATE", "Signin callback is missing state");
     }
 
     const codeVerifier = this.consumePkceVerifier(callbackState);
     if (!codeVerifier) {
-      throw new OidcClientError(
-        "INVALID_STATE",
-        "Signin callback state is unknown or has expired",
-      );
+      throw new OidcClientError("INVALID_STATE", "Signin callback state is unknown or has expired");
     }
 
     this.identityContext += 1;
     const generation = ++this.sessionGeneration;
     const config = await this.getOidcConfiguration();
-    const callbackIssuer = this.readCallbackParam(
-      queryParams,
-      hashParams,
-      "iss",
-    );
-    const callbackClientId = this.readCallbackParam(
-      queryParams,
-      hashParams,
-      "client_id",
-    );
+    const callbackIssuer = this.readCallbackParam(queryParams, hashParams, "iss");
+    const callbackClientId = this.readCallbackParam(queryParams, hashParams, "client_id");
     const knownClientId = this.registeredClientId;
     const onboarding = this.projectOwned && !knownClientId;
     // A configured client ID is a trust anchor and never changes. A
@@ -814,32 +724,19 @@ export class OidcClient<
         callbackClientId !== knownClientId) ||
       (onboarding && !callbackClientId?.trim())
     )
-      throw new OidcClientError(
-        "INVALID_STATE",
-        "Callback issuer or client ID does not match",
-      );
+      throw new OidcClientError("INVALID_STATE", "Callback issuer or client ID does not match");
     const clientId = callbackClientId ?? (await this.getClientId(config));
-    const { headers, body } = this.buildTokenRequest(
-      clientId,
-      authorizationCode,
-      codeVerifier,
-    );
+    const { headers, body } = this.buildTokenRequest(clientId, authorizationCode, codeVerifier);
     const json = await this.requestToken(config.token_endpoint, headers, body);
     const tokenResponse = this.normalizeTokenResponse({
       ...json,
       state: callbackState ?? json.state,
     });
     if (generation !== this.sessionGeneration)
-      throw new OidcClientError(
-        "NO_ACCESS_TOKEN",
-        "Session ended during callback",
-      );
+      throw new OidcClientError("NO_ACCESS_TOKEN", "Session ended during callback");
     await this.verifyProjectClient(clientId, tokenResponse.access_token);
     if (generation !== this.sessionGeneration)
-      throw new OidcClientError(
-        "NO_ACCESS_TOKEN",
-        "Session ended during callback",
-      );
+      throw new OidcClientError("NO_ACCESS_TOKEN", "Session ended during callback");
     if (onboarding || clientId !== knownClientId)
       this.rememberIssuedClient(clientId, config.issuer);
     this.rememberTokenResponse(tokenResponse);
@@ -869,7 +766,7 @@ export class OidcClient<
     if (!storedToken?.refresh_token) {
       throw new OidcClientError(
         "NO_REFRESH_TOKEN",
-        "Missing refresh token in stored token response",
+        "Missing refresh token in stored token response"
       );
     }
 
@@ -891,20 +788,14 @@ export class OidcClient<
       generation !== this.sessionGeneration ||
       snapshot !== JSON.stringify(this.getStoredTokenResponse())
     ) {
-      throw new OidcClientError(
-        "NO_ACCESS_TOKEN",
-        "Session changed during token refresh",
-      );
+      throw new OidcClientError("NO_ACCESS_TOKEN", "Session changed during token refresh");
     }
     await this.verifyProjectClient(clientId, refreshed.access_token);
     if (
       generation !== this.sessionGeneration ||
       snapshot !== JSON.stringify(this.getStoredTokenResponse())
     )
-      throw new OidcClientError(
-        "NO_ACCESS_TOKEN",
-        "Session changed during token refresh",
-      );
+      throw new OidcClientError("NO_ACCESS_TOKEN", "Session changed during token refresh");
     this.rememberTokenResponse(refreshed);
     return refreshed;
   }
@@ -912,10 +803,7 @@ export class OidcClient<
   async getAccessToken(): Promise<string> {
     const storedToken = this.getStoredTokenResponse();
     if (!storedToken?.access_token && !storedToken?.refresh_token) {
-      throw new OidcClientError(
-        "NO_ACCESS_TOKEN",
-        "Missing access token in stored token response",
-      );
+      throw new OidcClientError("NO_ACCESS_TOKEN", "Missing access token in stored token response");
     }
 
     if (
@@ -933,10 +821,7 @@ export class OidcClient<
       }
     }
 
-    throw new OidcClientError(
-      "NO_ACCESS_TOKEN",
-      "Missing refreshed access token",
-    );
+    throw new OidcClientError("NO_ACCESS_TOKEN", "Missing refreshed access token");
   }
 
   static validateConfig(config: OidcClientConfig): OidcClientConfig {
@@ -953,21 +838,14 @@ export class OidcClient<
       authority.hash
     )
       throw new Error("Invalid authority URL");
-    config.authority = authority.href.endsWith("/")
-      ? authority.href.slice(0, -1)
-      : authority.href;
+    config.authority = authority.href.endsWith("/") ? authority.href.slice(0, -1) : authority.href;
 
-    if (
-      config.redirectUri !== undefined &&
-      typeof config.redirectUri !== "string"
-    ) {
+    if (config.redirectUri !== undefined && typeof config.redirectUri !== "string") {
       throw new Error("Invalid redirectUri");
     }
 
     if (!OidcClient.resolveRedirectUri(config)) {
-      throw new Error(
-        "Missing redirectUri: set redirectUri or registration.redirectUris[0]",
-      );
+      throw new Error("Missing redirectUri: set redirectUri or registration.redirectUris[0]");
     }
 
     const redirect = new URL(OidcClient.resolveRedirectUri(config) ?? "");
@@ -977,10 +855,8 @@ export class OidcClient<
     return config;
   }
 
-  private static resolveRedirectUri(
-    config: OidcClientConfig,
-  ): string | undefined {
-    return config.redirectUri ?? config.registration?.redirectUris?.[0];
+  private static resolveRedirectUri(config: OidcClientConfig): string | undefined {
+    return config.redirectUri ?? config.registration.redirectUris[0];
   }
 
   private getRedirectUri(): string {
@@ -988,12 +864,11 @@ export class OidcClient<
   }
 
   private getRegistrationMetadata(): OidcClientMetadata {
-    if (!this.config.registration) {
-      throw new Error(
-        "Missing registration metadata for dynamic client registration",
-      );
+    const registration: OidcClientMetadata | undefined = this.config.registration;
+    if (!registration) {
+      throw new Error("Missing registration metadata for dynamic client registration");
     }
-    return this.config.registration;
+    return registration;
   }
 
   private async fetchOidcConfiguration(): Promise<OidcConfiguration> {
@@ -1001,7 +876,7 @@ export class OidcClient<
       return AuthorizationServerMetadataToJSON(
         await this.ownerApi().openidConfiguration({
           redirect: "error",
-        }),
+        })
       ) as OidcConfiguration;
     }
 
@@ -1014,13 +889,13 @@ export class OidcClient<
         headers: {
           "Content-Type": "application/json;charset=UTF-8",
         },
-        timeout: this.config.requestTimeoutInSeconds
-          ? this.config.requestTimeoutInSeconds * 1000
-          : undefined,
+        ...(this.config.requestTimeoutInSeconds
+          ? { timeout: this.config.requestTimeoutInSeconds * 1000 }
+          : {}),
       });
       if (!response.ok) {
         throw new Error(
-          `Failed to fetch OIDC configuration: ${response.status} ${response.statusText}`,
+          `Failed to fetch OIDC configuration: ${response.status} ${response.statusText}`
         );
       }
       return (await response.json()) as OidcConfiguration;
@@ -1030,9 +905,7 @@ export class OidcClient<
       credentials: this.config.fetchRequestCredentials ?? "same-origin",
     });
     if (!res.ok) {
-      throw new Error(
-        `Failed to fetch OIDC configuration: ${res.status} ${res.statusText}`,
-      );
+      throw new Error(`Failed to fetch OIDC configuration: ${res.status} ${res.statusText}`);
     }
     return res.json() as Promise<OidcConfiguration>;
   }
@@ -1063,10 +936,7 @@ export class OidcClient<
   async signin(options: SigninOptions = {}): Promise<void> {
     const url = await this.getAuthorizationUrl(options);
 
-    await openUrl(url, {
-      popup: options.popup,
-      windowFeatures: options.windowFeatures,
-    });
+    await openUrl(url, options);
   }
 
   async signout(options: SignoutOptions = {}): Promise<void> {
@@ -1075,8 +945,7 @@ export class OidcClient<
     const config = await this.getOidcConfiguration();
     if (generation !== this.sessionGeneration)
       throw new Error("Session ended during provider logout");
-    if (!config.end_session_endpoint)
-      throw new Error("Provider does not support logout");
+    if (!config.end_session_endpoint) throw new Error("Provider does not support logout");
     if (config.end_session_endpoint) {
       const url = new URL(config.end_session_endpoint);
       if (options.extraParams) {
@@ -1088,10 +957,7 @@ export class OidcClient<
         url.searchParams.set("post_logout_redirect_uri", options.redirectUri);
       }
 
-      await openUrl(url, {
-        popup: options.popup,
-        windowFeatures: options.windowFeatures,
-      });
+      await openUrl(url, options);
     }
   }
 
@@ -1102,15 +968,9 @@ export class OidcClient<
     }
 
     const url = new URL(config.registration_endpoint);
-    url.searchParams.set(
-      "redirect_uri",
-      options.redirectUri ?? this.getRedirectUri(),
-    );
+    url.searchParams.set("redirect_uri", options.redirectUri ?? this.getRedirectUri());
     if (options.registration) {
-      url.searchParams.set(
-        "registration",
-        JSON.stringify(snakeCaseKeys(options.registration)),
-      );
+      url.searchParams.set("registration", JSON.stringify(snakeCaseKeys(options.registration)));
     }
     return url;
   }
@@ -1118,26 +978,19 @@ export class OidcClient<
   async startRegistration(options: RegistrationOptions = {}): Promise<URL> {
     const generation = this.sessionGeneration;
     const url = await this.getRegistrationUrl(options);
-    if (generation !== this.sessionGeneration)
-      throw new Error("Session ended during registration");
-    await openUrl(url, {
-      popup: options.popup,
-      windowFeatures: options.windowFeatures,
-    });
+    if (generation !== this.sessionGeneration) throw new Error("Session ended during registration");
+    await openUrl(url, options);
     return url;
   }
 
   private async registerClient(config: OidcConfiguration): Promise<string> {
     const endpointUrlString = config.registration_endpoint;
     if (!endpointUrlString) {
-      throw new Error(
-        "registration_endpoint is required for dynamic client registration",
-      );
+      throw new Error("registration_endpoint is required for dynamic client registration");
     }
 
     const endpointUrl = new URL(endpointUrlString);
-    const isNative =
-      !this.disableNativeRequests && isNativeProtocol(endpointUrl);
+    const isNative = !this.disableNativeRequests && isNativeProtocol(endpointUrl);
 
     if (isNative) {
       const nativeFetch = createNativeFetch(endpointUrl);
@@ -1145,7 +998,7 @@ export class OidcClient<
       endpointUrl.searchParams.set("redirect_uri", this.getRedirectUri());
       endpointUrl.searchParams.set(
         "registration",
-        JSON.stringify(snakeCaseKeys(registrationMetadata)),
+        JSON.stringify(snakeCaseKeys(registrationMetadata))
       );
       const response = await nativeFetch(endpointUrl, {
         headers: {
@@ -1153,12 +1006,9 @@ export class OidcClient<
         },
       });
       if (!response.ok) {
-        throw new Error(
-          `Failed dynamic client registration: ${response.status}`,
-        );
+        throw new Error(`Failed dynamic client registration: ${response.status}`);
       }
-      const json =
-        (await response.json()) as unknown as OidcClientRegistrationResponse;
+      const json = (await response.json()) as unknown as OidcClientRegistrationResponse;
       if (!json.client_id) {
         throw new Error("registration response missing client_id");
       }
@@ -1179,8 +1029,7 @@ export class OidcClient<
       throw new Error(`Failed dynamic client registration: ${res.status}`);
     }
 
-    const json =
-      (await res.json()) as unknown as OidcClientRegistrationResponse;
+    const json = (await res.json()) as unknown as OidcClientRegistrationResponse;
     if (!json.client_id) {
       throw new Error("registration response missing client_id");
     }
@@ -1196,10 +1045,7 @@ export class OidcClient<
   private async getClientId(config: OidcConfiguration): Promise<string> {
     const issued = this.getIssuedClient();
     if (issued && issued.issuer !== config.issuer)
-      throw new OidcClientError(
-        "INVALID_STATE",
-        "Registered client issuer does not match",
-      );
+      throw new OidcClientError("INVALID_STATE", "Registered client issuer does not match");
     const clientId = this.registeredClientId;
     if (clientId) return clientId;
     if (this.projectOwned || !config.registration_endpoint) {
@@ -1209,15 +1055,11 @@ export class OidcClient<
     return await this.registerClient(config);
   }
 
-  async getAuthorizationUrl(
-    options: AuthorizationUrlOptions = {},
-  ): Promise<URL> {
+  async getAuthorizationUrl(options: AuthorizationUrlOptions = {}): Promise<URL> {
     const generation = this.sessionGeneration;
     const config = await this.getOidcConfiguration();
     const clientId =
-      this.projectOwned && !this.registeredClientId
-        ? undefined
-        : await this.getClientId(config);
+      this.projectOwned && !this.registeredClientId ? undefined : await this.getClientId(config);
     const url = new URL(config.authorization_endpoint);
 
     if (this.config.extraQueryParams) {
@@ -1233,32 +1075,23 @@ export class OidcClient<
     }
 
     const responseType =
-      this.config.responseType ??
-      this.config.registration?.responseTypes?.[0] ??
-      "code";
+      this.config.responseType ?? this.config.registration.responseTypes?.[0] ?? "code";
 
     if (clientId) url.searchParams.set("client_id", clientId);
     else url.searchParams.delete("client_id");
     // The application URI identifies the onboarding target. It is required for
     // a new client and lets the IdP re-register a client whose ID was deleted.
-    if (!clientId || this.config.registration) {
-      const application = this.getRegistrationMetadata()["application"] as
-        { uri?: string } | undefined;
-      if (!application?.uri?.trim()) {
-        if (!clientId)
-          throw new Error("Application URI is required for onboarding");
-      } else {
-        url.searchParams.set("application_id", application.uri);
-      }
+    const application = this.getRegistrationMetadata().application as { uri?: string } | undefined;
+    if (!application?.uri?.trim()) {
+      if (!clientId) throw new Error("Application URI is required for onboarding");
+    } else {
+      url.searchParams.set("application_id", application.uri);
     }
     url.searchParams.set("redirect_uri", this.getRedirectUri());
     url.searchParams.set("response_type", responseType);
 
     if (!this.config.omitScopeWhenRequesting) {
-      url.searchParams.set(
-        "scope",
-        this.config.registration?.scope ?? "openid",
-      );
+      url.searchParams.set("scope", this.config.registration.scope ?? "openid");
     }
 
     const state = options.state ?? generateState();
@@ -1269,10 +1102,7 @@ export class OidcClient<
       url.searchParams.set("code_challenge_method", "S256");
       url.searchParams.set("code_challenge", pkcePair.codeChallenge);
       if (generation !== this.sessionGeneration)
-        throw new OidcClientError(
-          "NO_ACCESS_TOKEN",
-          "Session ended during authorization",
-        );
+        throw new OidcClientError("NO_ACCESS_TOKEN", "Session ended during authorization");
       this.rememberPkceVerifier(state, pkcePair.codeVerifier);
     }
 
@@ -1280,9 +1110,9 @@ export class OidcClient<
       const value =
         this.config[key] ??
         (key === "maxAge"
-          ? this.config.registration?.defaultMaxAge
+          ? this.config.registration.defaultMaxAge
           : key === "acrValues"
-            ? this.config.registration?.defaultAcrValues?.join(" ")
+            ? this.config.registration.defaultAcrValues?.join(" ")
             : key === "responseMode"
               ? "query"
               : undefined);
@@ -1291,20 +1121,18 @@ export class OidcClient<
       }
     }
 
-    if (this.config.registration) {
-      url.searchParams.set(
-        "registration",
-        JSON.stringify(
-          this.projectOwned
-            ? Object.fromEntries(
-                Object.entries(snakeCaseKeys(this.config.registration)).filter(
-                  ([key]) => key !== "client_id",
-                ),
+    url.searchParams.set(
+      "registration",
+      JSON.stringify(
+        this.projectOwned
+          ? Object.fromEntries(
+              Object.entries(snakeCaseKeys(this.config.registration)).filter(
+                ([key]) => key !== "client_id"
               )
-            : snakeCaseKeys(this.config.registration),
-        ),
-      );
-    }
+            )
+          : snakeCaseKeys(this.config.registration)
+      )
+    );
 
     return url;
   }

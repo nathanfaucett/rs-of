@@ -11,18 +11,15 @@
  * ```
  */
 
-export type {
-  EndpointId,
-  Message,
-  PairingOffer,
-  EndpointOptions,
-  Unsubscribe,
-} from "./types.js";
-
-export { ClosedError, NotReadyError } from "./types.js";
-
-export { Stream } from "./stream.js";
-
+export { Endpoint } from "./endpoint.js";
 export { Mesh } from "./mesh.js";
 
-export { Endpoint } from "./endpoint.js";
+export { Stream } from "./stream.js";
+export type {
+  EndpointId,
+  EndpointOptions,
+  Message,
+  PairingOffer,
+  Unsubscribe,
+} from "./types.js";
+export { ClosedError, NotReadyError } from "./types.js";

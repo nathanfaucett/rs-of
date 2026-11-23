@@ -108,6 +108,9 @@ importers:
       '@types/qrcode':
         specifier: ^1.5.6
         version: 1.5.6
+      '@vitest/browser-playwright':
+        specifier: 4.1.10
+        version: 4.1.10(playwright@1.64.1)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))(vitest@4.1.10)
       globals:
         specifier: ^17.7.0
         version: 17.8.0
@@ -178,9 +181,6 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.3
         version: 2.5.6
-      '@inlang/paraglide-js':
-        specifier: ^2.21.0
-        version: 2.23.0(typescript@5.9.3)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))
       '@ofsdk/native-fetch':
         specifier: workspace:*
         version: link:../../packages/native-fetch
@@ -211,6 +211,9 @@ importers:
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.2
+      '@vitest/browser-playwright':
+        specifier: 4.1.10
+        version: 4.1.10(playwright@1.64.1)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))(vitest@4.1.10)
       fake-indexeddb:
         specifier: ^6.2.7
         version: 6.2.7
@@ -389,8 +392,8 @@ importers:
         specifier: 2.5.6
         version: 2.5.6
       '@playwright/test':
-        specifier: 1.49.0
-        version: 1.49.0
+        specifier: 1.64.1
+        version: 1.64.1
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.2.0
         version: 7.2.0(svelte@5.56.8)(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
@@ -596,8 +599,8 @@ importers:
         specifier: 2.5.6
         version: 2.5.6
       '@playwright/test':
-        specifier: 1.49.0
-        version: 1.49.0
+        specifier: 1.64.1
+        version: 1.64.1
       rolldown:
         specifier: 1.2.16
         version: 1.2.16
@@ -624,8 +627,8 @@ importers:
         specifier: 2.5.6
         version: 2.5.6
       '@playwright/test':
-        specifier: 1.49.0
-        version: 1.49.0
+        specifier: 1.64.1
+        version: 1.64.1
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.2.0
         version: 7.2.0(svelte@5.56.8)(vite@8.3.5(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.0))
@@ -1154,11 +1157,6 @@ packages:
 
   '@oxc-project/types@0.156.0':
     resolution: {integrity: sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw==}
-
-  '@playwright/test@1.49.0':
-    resolution: {integrity: sha512-DMulbwQURa8rNIQrf94+jPJQ4FmOVdpE5ZppRNvWVjvhC+6sOeo28r8MgIpQRYouXRtt/FCCXU7zn20jnHR4Qw==}
-    engines: {node: '>=18'}
-    hasBin: true
 
   '@playwright/test@1.64.1':
     resolution: {integrity: sha512-IaYGml/nSOiZWROfPtuIL7neuu9qDOZ3TNvNljUIrhDMxiGTgPjzj/g9p9RxpS2tSepPDRY+UwAaEeiKtUvIAg==}
@@ -2394,11 +2392,6 @@ packages:
   fs.realpath@1.0.0:
     resolution: {integrity: sha512-OO0pH2lK6a0hZnAdau5ItzHPI6pUlvI7jMVnxUQRtw4owF2wk8lOSabtGDCTP4Ggrg2MbGnWO9X8K1t4+fGMDw==}
 
-  fsevents@2.3.2:
-    resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
-    engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
-    os: [darwin]
-
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -2996,19 +2989,9 @@ packages:
   platform@1.3.6:
     resolution: {integrity: sha512-fnWVljUchTro6RiCFvCXBbNhJc2NijN7oIQxbwsyL0buWJPG85v81ehlHI9fXrJsMNgTofEoWIQeClKpgxFLrg==}
 
-  playwright-core@1.49.0:
-    resolution: {integrity: sha512-R+3KKTQF3npy5GTiKH/T+kdhoJfJojjHESR1YEWhYuEKRVfVaxH3+4+GvXE5xyCngCxhxnykk0Vlah9v8fs3jA==}
-    engines: {node: '>=18'}
-    hasBin: true
-
   playwright-core@1.64.1:
     resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
     engines: {node: '>=20'}
-    hasBin: true
-
-  playwright@1.49.0:
-    resolution: {integrity: sha512-eKpmys0UFDnfNb3vfsf8Vx2LEOtflgRebl0Im2eQQnYMA4Aqd+Zw8bEOB+7ZKvN76901mRnqdsiOGKxzVTbi7A==}
-    engines: {node: '>=18'}
     hasBin: true
 
   playwright@1.64.1:
@@ -4065,10 +4048,6 @@ snapshots:
 
   '@oxc-project/types@0.156.0': {}
 
-  '@playwright/test@1.49.0':
-    dependencies:
-      playwright: 1.49.0
-
   '@playwright/test@1.64.1':
     dependencies:
       playwright: 1.64.1
@@ -4596,7 +4575,6 @@ snapshots:
       - msw
       - utf-8-validate
       - vite
-    optional: true
 
   '@vitest/browser-playwright@4.1.10(playwright@1.64.1)(vite@8.3.5(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))(vitest@4.1.10)':
     dependencies:
@@ -4641,7 +4619,6 @@ snapshots:
       - msw
       - utf-8-validate
       - vite
-    optional: true
 
   '@vitest/browser@4.1.10(vite@8.3.5(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))(vitest@4.1.10)':
     dependencies:
@@ -5175,9 +5152,6 @@ snapshots:
 
   fs.realpath@1.0.0: {}
 
-  fsevents@2.3.2:
-    optional: true
-
   fsevents@2.3.3:
     optional: true
 
@@ -5693,15 +5667,7 @@ snapshots:
 
   platform@1.3.6: {}
 
-  playwright-core@1.49.0: {}
-
   playwright-core@1.64.1: {}
-
-  playwright@1.49.0:
-    dependencies:
-      playwright-core: 1.49.0
-    optionalDependencies:
-      fsevents: 2.3.2
 
   playwright@1.64.1:
     dependencies:

@@ -1,13 +1,9 @@
-import tailwindcss from "@tailwindcss/vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
-function parseInteger(value?: string, defaultValue?: number): number {
-  try {
-    return Number.parseInt(value, 10);
-  } catch {
-    return defaultValue;
-  }
+function parseInteger(value: string | undefined, defaultValue: number): number {
+  return value === undefined ? defaultValue : Number.parseInt(value, 10);
 }
 
 export default defineConfig({

@@ -32,7 +32,10 @@ use query::QueryError;
 use query::{QueryParams, QueryResult, Statement, Translator};
 
 #[cfg(feature = "sync")]
-use sync::{ChangeEvent, PushResult, PushSynchronizeConfig, PushSynchronizeError, SyncTransport};
+use sync::{
+    ChangeEvent, PushApplyResult, PushResult, PushSynchronizeConfig, PushSynchronizeError,
+    SyncTransport,
+};
 
 use value::{FromRow, Row, Value};
 
@@ -788,7 +791,7 @@ impl Database {
                 let change_id = engine::DocumentChangeId(change_hash.0.to_vec());
 
                 let backend = backend; // move ownership into async block
-                let result: Result<(), String> = (async move {
+                let result: Result<PushApplyResult, String> = (async move {
                     match &backend {
                         #[cfg(feature = "redb")]
                         DatabaseBackend::File(resource) => {
@@ -798,7 +801,7 @@ impl Database {
                                 .await
                                 .map_err(|e| e.to_string())?;
                             drop(engine);
-                            Ok(())
+                            Ok(PushApplyResult::Applied)
                         }
                         #[cfg(all(
                             feature = "indexeddb",
@@ -810,7 +813,7 @@ impl Database {
                                 .apply_inbound_change(&table, row_uuid, &change_id, &blob)
                                 .await
                                 .map_err(|e| e.to_string())?;
-                            Ok(())
+                            Ok(PushApplyResult::Applied)
                         }
                         #[cfg(feature = "in-memory")]
                         DatabaseBackend::InMemory(engine) => {
@@ -818,7 +821,7 @@ impl Database {
                                 .apply_inbound_change(&table, row_uuid, &change_id, &blob)
                                 .await
                                 .map_err(|e| e.to_string())?;
-                            Ok(())
+                            Ok(PushApplyResult::Applied)
                         }
                     }
                 })

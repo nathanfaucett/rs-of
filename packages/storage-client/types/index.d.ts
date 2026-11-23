@@ -73,7 +73,7 @@ export declare class SqlDatabaseHandle {
         replicaId: string;
     });
     /** Execute SQL query */
-    execute(sql: string, params?: unknown[]): Promise<any>;
+    execute(sql: string, params?: unknown[]): Promise<SqlResponse>;
     /** Synchronize with remote peer */
     synchronize(): Promise<void>;
     /** Get the database ID */
@@ -86,10 +86,8 @@ export declare class SqlDatabaseHandle {
 }
 /** KV Store handle with built-in sync transport */
 export declare class KvStoreHandle {
-    private readonly storageClient;
     private readonly storeId;
-    private readonly storeIdentity;
-    constructor(storageClient: StorageClient, storeId: string, storeIdentity: {
+    constructor(_storageClient: StorageClient, storeId: string, _storeIdentity: {
         storeId: string;
         replicaId: string;
     });
@@ -100,8 +98,7 @@ export declare class KvStoreHandle {
 export declare class FilesystemHandle {
     private readonly storageClient;
     private readonly filesystemId;
-    private readonly storeIdentity;
-    constructor(storageClient: StorageClient, filesystemId: string, storeIdentity: {
+    constructor(storageClient: StorageClient, filesystemId: string, _storeIdentity: {
         storeId: string;
         replicaId: string;
     });
@@ -116,7 +113,7 @@ export type StorageClientOptions = {
     storageBaseUrl: URL | string;
     clientId: string;
     bearerToken: () => string | Promise<string>;
-    fetch?: FetchFunction;
+    fetch?: FetchFunction | undefined;
 };
 export type StorageConnection = Readonly<{
     socket: Pick<EventTarget, "addEventListener" | "removeEventListener">;
@@ -137,9 +134,9 @@ export declare class StorageClient {
     createSqlDatabase(name?: string): Promise<SqlDatabaseHandle>;
     openSqlDatabase(databaseId: string): Promise<SqlDatabaseHandle>;
     listSqlDatabases(signal?: AbortSignal): Promise<DatabaseResource[]>;
-    createKvStore(name?: string): Promise<KvStoreHandle>;
+    createKvStore(_name?: string): Promise<KvStoreHandle>;
     openKvStore(storeId: string): Promise<KvStoreHandle>;
-    listKvStores(signal?: AbortSignal): Promise<{
+    listKvStores(_signal?: AbortSignal): Promise<{
         id: string;
         name: string | null;
     }[]>;

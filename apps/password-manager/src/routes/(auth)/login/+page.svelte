@@ -1,8 +1,9 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
-import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
+import { resolve } from "$app/paths";
 import { authState } from "$lib/auth/auth.svelte";
+import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
 let busy = $state(false);
 
@@ -20,7 +21,7 @@ async function handleLogin() {
 
 onMount(() => {
   if (authState.isAuthenticated) {
-    goto("/");
+    void goto(resolve("/"));
   }
 });</script>
 
@@ -35,16 +36,14 @@ onMount(() => {
           <Alert tone="danger">{authState.error}</Alert>
         {/if}
         <Field id="login" label="Sign in with your identity provider">
-          {#snippet children()}
-            <div class="flex flex-col gap-3">
-              <button class="btn btn-primary btn-md w-full" type="button" disabled={busy} onclick={handleLogin}>
-                {busy ? "Redirecting…" : "Sign in with IdP"}
-              </button>
-              <p class="text-sm text-muted-foreground text-center">
-                You will be redirected to your identity provider to authenticate.
-              </p>
-            </div>
-          {/snippet}
+          <div class="flex flex-col gap-3">
+            <button class="btn btn-primary btn-md w-full" type="button" disabled={busy} onclick={handleLogin}>
+              {busy ? "Redirecting…" : "Sign in with IdP"}
+            </button>
+            <p class="text-sm text-muted-foreground text-center">
+              You will be redirected to your identity provider to authenticate.
+            </p>
+          </div>
         </Field>
       </div>
     </Card>

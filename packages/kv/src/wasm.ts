@@ -1,9 +1,9 @@
 // WASM module types (loaded dynamically)
 import type {
   JsPushSyncTransport,
+  KvChangeSubscription,
   PushSynchronizeConfig,
   PushSynchronizeResult,
-  KvChangeSubscription,
 } from "../pkg/ofdb_wasm.js";
 
 interface WasmModule {

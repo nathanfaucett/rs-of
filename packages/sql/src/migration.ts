@@ -12,8 +12,7 @@ export interface MigrationResult {
   readonly appliedVersions: number[];
 }
 
-export type MigrationPhase =
-  "Plan" | "Begin" | "History" | "Execute" | "Record" | "Commit";
+export type MigrationPhase = "Plan" | "Begin" | "History" | "Execute" | "Record" | "Commit";
 export type MigrationQueryKind =
   | "Validation"
   | "Rejected"
@@ -39,11 +38,7 @@ export class MigrationError extends SqlError {
       queryKind: MigrationQueryKind;
       outcome: "unknown" | null;
     };
-    super(
-      details.queryKind === "Timeout" ? "timeout" : "query",
-      cause.message,
-      { cause },
-    );
+    super(details.queryKind === "Timeout" ? "timeout" : "query", cause.message, { cause });
     this.name = "MigrationError";
     this.version = details.version ?? undefined;
     this.phase = details.phase;

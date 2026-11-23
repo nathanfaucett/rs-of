@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
-import config from "./vitest.config.ts";
 import { passwordManagerURL } from "../../e2e/backend.mjs";
 import { frontendEnv } from "../../e2e/frontend-env.mjs";
+import config from "./vitest.config.ts";
 
 Object.assign(process.env, frontendEnv);
 

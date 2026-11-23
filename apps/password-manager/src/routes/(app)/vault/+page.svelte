@@ -1,13 +1,13 @@
 <script lang="ts">
 
 import { goto } from "$app/navigation";
-import LocalSecretEditor from "$lib/vault/secrets/components/LocalSecretEditor.svelte";
-import FilterSidebar from "../layout/FilterSidebar.svelte";
-import SyncStatus from "$lib/vault/components/SyncStatus.svelte";
-import { Alert } from "$lib/ui";
-
+import { resolve } from "$app/paths";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+import { Alert } from "$lib/ui";
+import SyncStatus from "$lib/vault/components/SyncStatus.svelte";
+import LocalSecretEditor from "$lib/vault/secrets/components/LocalSecretEditor.svelte";
 import { createFilterState } from "$lib/vault/secrets/filter-state.svelte";
+import FilterSidebar from "../layout/FilterSidebar.svelte";
 
 let error = $state("");
 let notice = $state("");
@@ -22,7 +22,7 @@ const filters = createFilterState();
 // Redirect to vault selector if vault is not unlocked
 $effect(() => {
     if (vaultStatus !== "loading" && vaultStatus !== "select-vault" && !vaultData) {
-        goto("/");
+        void goto(resolve("/"));
     }
 });
 </script>

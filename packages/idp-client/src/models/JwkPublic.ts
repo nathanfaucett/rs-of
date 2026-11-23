@@ -13,7 +13,7 @@ export function instanceOfJwkPublic(value: object): value is JwkPublic {
 export function JwkPublicFromJSON(json: any): JwkPublic {
   return JwkPublicFromJSONTyped(json, false);
 }
-export function JwkPublicFromJSONTyped(json: any, ignoreDiscriminator: boolean): JwkPublic {
+export function JwkPublicFromJSONTyped(json: any, _ignoreDiscriminator: boolean): JwkPublic {
   if (json == null) return json;
   const parameters = JwkPublicParametersFromJSON(json);
   if (!parameters || !Object.keys(parameters).length)
@@ -28,7 +28,7 @@ export function JwkPublicFromJSONTyped(json: any, ignoreDiscriminator: boolean):
 export function JwkPublicToJSON(value: any): any {
   return JwkPublicToJSONTyped(value);
 }
-export function JwkPublicToJSONTyped(value?: JwkPublic | null, ignoreDiscriminator = false): any {
+export function JwkPublicToJSONTyped(value?: JwkPublic | null, _ignoreDiscriminator = false): any {
   if (value == null) return value;
   return {
     ...JwkPublicParametersToJSON(value),

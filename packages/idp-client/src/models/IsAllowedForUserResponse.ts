@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -41,7 +40,7 @@ export function IsAllowedForUserResponseFromJSON(json: any): IsAllowedForUserRes
 
 export function IsAllowedForUserResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): IsAllowedForUserResponse {
   if (json == null) {
     return json;
@@ -57,7 +56,7 @@ export function IsAllowedForUserResponseToJSON(json: any): IsAllowedForUserRespo
 
 export function IsAllowedForUserResponseToJSONTyped(
   value?: IsAllowedForUserResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

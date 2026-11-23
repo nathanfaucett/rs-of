@@ -7,8 +7,8 @@
         independentOwners,
         type OwnerCodes,
     } from "../state/independentSetupApi";
-    import { readNativeSetupCode } from "../state/setupClient.svelte";
     import type { SetupHost } from "../state/setupApi";
+    import { readNativeSetupCode } from "../state/setupClient.svelte";
 
     let { hosts, bundled = false }: {
         hosts: SetupHost[];

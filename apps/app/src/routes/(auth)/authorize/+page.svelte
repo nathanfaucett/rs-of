@@ -1,8 +1,8 @@
 <script lang="ts">
     import type {
         AuthorizationRequest,
-        CodeChallengeMethod,
         ClientRegistration,
+        CodeChallengeMethod,
     } from "@ofsdk/idp-client";
     import { page } from "$app/state";
     import { m } from "$lib/paraglide/messages";

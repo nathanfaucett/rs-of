@@ -4,6 +4,7 @@ import {
   type KvChangeSubscription,
   type Client as KvClient,
   Database as KvDatabase,
+  KvSyncRole,
   PushConfig,
   PushSynchronizeConfig,
 } from "@ofsdk/kv";
@@ -142,7 +143,7 @@ export class KvPeerNetwork {
 
           // Get all available events
           const events: KvChangeEvent[] = [];
-          while (true) {
+          for (;;) {
             const event = await peer.subscription.next_event();
             if (!event) break;
             events.push(event);
@@ -216,8 +217,9 @@ export class KvPeerNetwork {
     b.error = "";
     this.onChange();
 
-    const makeConfig = () => {
+    const makeConfig = (role: KvSyncRole) => {
       const c = new PushSynchronizeConfig();
+      c.role = role;
       const proto = new PushConfig();
       proto.maxFrameBytes = 8 * 1024 * 1024; // 8 MiB
       proto.maxPendingPerKey = 1024;
@@ -230,8 +232,8 @@ export class KvPeerNetwork {
 
     try {
       await Promise.all([
-        a.db.synchronize(new JsPushSyncTransport(tA), makeConfig()),
-        b.db.synchronize(new JsPushSyncTransport(tB), makeConfig()),
+        a.db.synchronize(new JsPushSyncTransport(tA), makeConfig(KvSyncRole.Initiator)),
+        b.db.synchronize(new JsPushSyncTransport(tB), makeConfig(KvSyncRole.Acceptor)),
       ]);
       const now = new Date().toLocaleTimeString();
       a.lastSync = `Synced at ${now}`;

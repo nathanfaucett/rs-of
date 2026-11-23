@@ -12,13 +12,10 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { IndependentCreateIntent } from "./IndependentCreateIntent.js";
 import {
   IndependentCreateIntentFromJSON,
-  IndependentCreateIntentFromJSONTyped,
   IndependentCreateIntentToJSON,
-  IndependentCreateIntentToJSONTyped,
 } from "./IndependentCreateIntent.js";
 
 /**
@@ -60,7 +57,7 @@ export function ChallengeFromJSON(json: any): Challenge {
   return ChallengeFromJSONTyped(json, false);
 }
 
-export function ChallengeFromJSONTyped(json: any, ignoreDiscriminator: boolean): Challenge {
+export function ChallengeFromJSONTyped(json: any, _ignoreDiscriminator: boolean): Challenge {
   if (
     json &&
     typeof json === "object" &&
@@ -86,7 +83,7 @@ export function ChallengeToJSON(json: any): Challenge {
 
 export function ChallengeToJSONTyped(
   value?: Challenge | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

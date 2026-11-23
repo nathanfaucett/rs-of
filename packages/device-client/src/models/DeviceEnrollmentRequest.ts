@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -49,7 +48,7 @@ export function DeviceEnrollmentRequestFromJSON(json: any): DeviceEnrollmentRequ
 
 export function DeviceEnrollmentRequestFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): DeviceEnrollmentRequest {
   if (json == null) {
     return json;
@@ -67,7 +66,7 @@ export function DeviceEnrollmentRequestToJSON(json: any): DeviceEnrollmentReques
 
 export function DeviceEnrollmentRequestToJSONTyped(
   value?: DeviceEnrollmentRequest | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

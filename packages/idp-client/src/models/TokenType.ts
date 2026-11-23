@@ -37,7 +37,7 @@ export function TokenTypeFromJSON(json: any): TokenType {
   return TokenTypeFromJSONTyped(json, false);
 }
 
-export function TokenTypeFromJSONTyped(json: any, ignoreDiscriminator: boolean): TokenType {
+export function TokenTypeFromJSONTyped(json: any, _ignoreDiscriminator: boolean): TokenType {
   return json as TokenType;
 }
 
@@ -45,6 +45,6 @@ export function TokenTypeToJSON(value?: TokenType | null): any {
   return value as any;
 }
 
-export function TokenTypeToJSONTyped(value: any, ignoreDiscriminator: boolean): TokenType {
+export function TokenTypeToJSONTyped(value: any, _ignoreDiscriminator: boolean): TokenType {
   return value as TokenType;
 }

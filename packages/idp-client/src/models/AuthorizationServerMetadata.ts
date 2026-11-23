@@ -12,42 +12,19 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { CodeChallengeMethod } from "./CodeChallengeMethod.js";
-import {
-  CodeChallengeMethodFromJSON,
-  CodeChallengeMethodFromJSONTyped,
-  CodeChallengeMethodToJSON,
-  CodeChallengeMethodToJSONTyped,
-} from "./CodeChallengeMethod.js";
+import { CodeChallengeMethodFromJSON, CodeChallengeMethodToJSON } from "./CodeChallengeMethod.js";
+import type { GrantType } from "./GrantType.js";
+import { GrantTypeFromJSON, GrantTypeToJSON } from "./GrantType.js";
 import type { ResponseMode } from "./ResponseMode.js";
-import {
-  ResponseModeFromJSON,
-  ResponseModeFromJSONTyped,
-  ResponseModeToJSON,
-  ResponseModeToJSONTyped,
-} from "./ResponseMode.js";
+import { ResponseModeFromJSON, ResponseModeToJSON } from "./ResponseMode.js";
+import type { ResponseType } from "./ResponseType.js";
+import { ResponseTypeFromJSON, ResponseTypeToJSON } from "./ResponseType.js";
 import type { TokenEndpointAuthMethod } from "./TokenEndpointAuthMethod.js";
 import {
   TokenEndpointAuthMethodFromJSON,
-  TokenEndpointAuthMethodFromJSONTyped,
   TokenEndpointAuthMethodToJSON,
-  TokenEndpointAuthMethodToJSONTyped,
 } from "./TokenEndpointAuthMethod.js";
-import type { GrantType } from "./GrantType.js";
-import {
-  GrantTypeFromJSON,
-  GrantTypeFromJSONTyped,
-  GrantTypeToJSON,
-  GrantTypeToJSONTyped,
-} from "./GrantType.js";
-import type { ResponseType } from "./ResponseType.js";
-import {
-  ResponseTypeFromJSON,
-  ResponseTypeFromJSONTyped,
-  ResponseTypeToJSON,
-  ResponseTypeToJSONTyped,
-} from "./ResponseType.js";
 
 /**
  *
@@ -59,32 +36,32 @@ export interface AuthorizationServerMetadata {
    * URL of the authorization endpoint.
    * REQUIRED unless no grant types use it.
    */
-  authorizationEndpoint?: string | null;
+  authorizationEndpoint?: (string | null) | undefined;
   /**
    * PKCE code challenge methods supported (S256 is strongly recommended in 2.1).
    */
-  codeChallengeMethodsSupported?: Array<CodeChallengeMethod>;
+  codeChallengeMethodsSupported?: Array<CodeChallengeMethod> | undefined;
   /**
    *
    */
-  dpopSigningAlgValuesSupported?: Array<string>;
+  dpopSigningAlgValuesSupported?: Array<string> | undefined;
   /**
    * List of supported grant types.
    * In OAuth 2.1: `authorization_code`, `client_credentials`, `refresh_token` (no implicit/password).
    */
-  grantTypesSupported?: Array<GrantType>;
+  grantTypesSupported?: Array<GrantType> | undefined;
   /**
    * URL of the token introspection endpoint (RFC 7662).
    */
-  introspectionEndpoint?: string | null;
+  introspectionEndpoint?: (string | null) | undefined;
   /**
    * Client authentication methods supported by the introspection endpoint.
    */
-  introspectionEndpointAuthMethodsSupported?: Array<TokenEndpointAuthMethod>;
+  introspectionEndpointAuthMethodsSupported?: Array<TokenEndpointAuthMethod> | undefined;
   /**
    * JWS signing algorithms supported for JWT auth at the introspection endpoint.
    */
-  introspectionEndpointAuthSigningAlgValuesSupported?: Array<string>;
+  introspectionEndpointAuthSigningAlgValuesSupported?: Array<string> | undefined;
   /**
    * REQUIRED. The authorization server's issuer identifier.
    * URL using https scheme with no query or fragment.
@@ -93,83 +70,83 @@ export interface AuthorizationServerMetadata {
   /**
    * URL of the JWK Set document containing the server's public keys.
    */
-  jwksUri?: string | null;
+  jwksUri?: (string | null) | undefined;
   /**
    * URL for the authorization server's policy on client use of data.
    */
-  opPolicyUri?: string | null;
+  opPolicyUri?: (string | null) | undefined;
   /**
    * URL for the authorization server's terms of service.
    */
-  opTosUri?: string | null;
+  opTosUri?: (string | null) | undefined;
   /**
    * List of supported revocation endpoint authentication signing algorithms (additional).
    */
-  pushedAuthorizationRequestEndpoint?: string | null;
+  pushedAuthorizationRequestEndpoint?: (string | null) | undefined;
   /**
    * URL of the Dynamic Client Registration endpoint.
    */
-  registrationEndpoint?: string | null;
+  registrationEndpoint?: (string | null) | undefined;
   /**
    * Whether the server requires PKCE for all clients (OAuth 2.1 best practice).
    */
-  requirePkce?: boolean;
+  requirePkce?: boolean | undefined;
   /**
    * List of supported `response_mode` values.
    * Defaults to ["query", "fragment"] if omitted.
    */
-  responseModesSupported?: Array<ResponseMode>;
+  responseModesSupported?: Array<ResponseMode> | undefined;
   /**
    * REQUIRED. List of supported `response_type` values.
    * In OAuth 2.1 this should primarily be ["code"].
    */
-  responseTypesSupported?: Array<ResponseType>;
+  responseTypesSupported?: Array<ResponseType> | undefined;
   /**
    * URL of the token revocation endpoint (RFC 7009).
    */
-  revocationEndpoint?: string | null;
+  revocationEndpoint?: (string | null) | undefined;
   /**
    * Client authentication methods supported by the revocation endpoint.
    */
-  revocationEndpointAuthMethodsSupported?: Array<TokenEndpointAuthMethod>;
+  revocationEndpointAuthMethodsSupported?: Array<TokenEndpointAuthMethod> | undefined;
   /**
    * JWS signing algorithms supported for JWT auth at the revocation endpoint.
    */
-  revocationEndpointAuthSigningAlgValuesSupported?: Array<string>;
+  revocationEndpointAuthSigningAlgValuesSupported?: Array<string> | undefined;
   /**
    * RECOMMENDED. List of supported OAuth 2.0 scope values.
    */
-  scopesSupported?: Array<string>;
+  scopesSupported?: Array<string> | undefined;
   /**
    * Human-readable service documentation URL.
    */
-  serviceDocumentation?: string | null;
+  serviceDocumentation?: (string | null) | undefined;
   /**
    * Signed metadata as a JWT (optional).
    */
-  signedMetadata?: string | null;
+  signedMetadata?: (string | null) | undefined;
   /**
    * URL of the token endpoint.
    * REQUIRED in most cases (especially for OAuth 2.1).
    */
-  tokenEndpoint?: string | null;
+  tokenEndpoint?: (string | null) | undefined;
   /**
    * List of client authentication methods supported by the token endpoint.
    */
-  tokenEndpointAuthMethodsSupported?: Array<TokenEndpointAuthMethod>;
+  tokenEndpointAuthMethodsSupported?: Array<TokenEndpointAuthMethod> | undefined;
   /**
    * JWS signing algorithms supported for JWT client authentication
    * at the token endpoint (`private_key_jwt`, `client_secret_jwt`).
    */
-  tokenEndpointAuthSigningAlgValuesSupported?: Array<string>;
+  tokenEndpointAuthSigningAlgValuesSupported?: Array<string> | undefined;
   /**
    * Languages and scripts supported for the user interface (BCP 47).
    */
-  uiLocalesSupported?: Array<string>;
+  uiLocalesSupported?: Array<string> | undefined;
   /**
    * URL of the `UserInfo` endpoint.
    */
-  userinfoEndpoint?: string | null;
+  userinfoEndpoint?: (string | null) | undefined;
 }
 
 /**
@@ -188,7 +165,7 @@ export function AuthorizationServerMetadataFromJSON(json: any): AuthorizationSer
 
 export function AuthorizationServerMetadataFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): AuthorizationServerMetadata {
   if (json == null) {
     return json;
@@ -330,7 +307,7 @@ export function AuthorizationServerMetadataToJSON(json: any): AuthorizationServe
 
 export function AuthorizationServerMetadataToJSONTyped(
   value?: AuthorizationServerMetadata | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

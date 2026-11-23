@@ -12,14 +12,8 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { PermissionSubject } from "./PermissionSubject.js";
-import {
-  PermissionSubjectFromJSON,
-  PermissionSubjectFromJSONTyped,
-  PermissionSubjectToJSON,
-  PermissionSubjectToJSONTyped,
-} from "./PermissionSubject.js";
+import { PermissionSubjectFromJSON, PermissionSubjectToJSON } from "./PermissionSubject.js";
 
 /**
  *
@@ -57,7 +51,7 @@ export function PermissionAuditIdentityFromJSON(json: any): PermissionAuditIdent
 
 export function PermissionAuditIdentityFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): PermissionAuditIdentity {
   if (
     json &&
@@ -81,7 +75,7 @@ export function PermissionAuditIdentityToJSON(json: any): PermissionAuditIdentit
 
 export function PermissionAuditIdentityToJSONTyped(
   value?: PermissionAuditIdentity | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

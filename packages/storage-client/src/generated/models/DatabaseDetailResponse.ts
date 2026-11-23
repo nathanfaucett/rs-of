@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -30,7 +29,7 @@ export interface DatabaseDetailResponse {
   /**
    *
    */
-  name?: string | null;
+  name?: (string | null) | undefined;
 }
 
 /**
@@ -48,7 +47,7 @@ export function DatabaseDetailResponseFromJSON(json: any): DatabaseDetailRespons
 
 export function DatabaseDetailResponseFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): DatabaseDetailResponse {
   if (json == null) {
     return json;
@@ -66,7 +65,7 @@ export function DatabaseDetailResponseToJSON(json: any): DatabaseDetailResponse 
 
 export function DatabaseDetailResponseToJSONTyped(
   value?: DatabaseDetailResponse | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

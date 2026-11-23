@@ -1,245 +1,216 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
 const root = path.resolve(import.meta.dirname, "..");
 const pnpm = process.env.npm_execpath || "pnpm";
 function run(command, args, filteredTest = false) {
-    const result = spawnSync(command, args, {
-        cwd: root,
-        stdio: filteredTest ? ["inherit", "pipe", "pipe"] : "inherit",
-        encoding: filteredTest ? "utf8" : undefined,
-        timeout: 600000,
-    });
-    if (result.error) throw result.error;
-    if (filteredTest) {
-        process.stdout.write(result.stdout);
-        process.stderr.write(result.stderr);
-    }
-    assert.equal(result.status, 0, command + " " + args.join(" "));
-    if (filteredTest)
-        assert.match(
-            result.stdout,
-            /^running [1-9]\d* tests?$/m,
-            command + " " + args.join(" ") + " selected zero tests",
-        );
+  const result = spawnSync(command, args, {
+    cwd: root,
+    stdio: filteredTest ? ["inherit", "pipe", "pipe"] : "inherit",
+    encoding: filteredTest ? "utf8" : undefined,
+    timeout: 600000,
+  });
+  if (result.error) throw result.error;
+  if (filteredTest) {
+    process.stdout.write(result.stdout);
+    process.stderr.write(result.stderr);
+  }
+  assert.equal(result.status, 0, `${command} ${args.join(" ")}`);
+  if (filteredTest)
+    assert.match(
+      result.stdout,
+      /^running [1-9]\d* tests?$/m,
+      `${command} ${args.join(" ")} selected zero tests`
+    );
 }
 function digest(directory) {
-    const hash = createHash("sha256");
-    function visit(dir) {
-        for (const entry of readdirSync(dir, { withFileTypes: true }).sort(
-            (a, b) => a.name.localeCompare(b.name),
-        )) {
-            const file = path.join(dir, entry.name);
-            if (entry.isDirectory()) visit(file);
-            else
-                hash.update(path.relative(directory, file)).update(
-                    readFileSync(file),
-                );
-        }
+  const hash = createHash("sha256");
+  function visit(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    )) {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) visit(file);
+      else hash.update(path.relative(directory, file)).update(readFileSync(file));
     }
-    visit(directory);
-    return hash.digest("hex");
+  }
+  visit(directory);
+  return hash.digest("hex");
 }
 process.env.RUST_MIN_STACK ??= "67108864";
-assert.ok(
-    !process.env.OPENAPI_SPEC_FILE,
-    "qualification requires canonical documents",
-);
+assert.ok(!process.env.OPENAPI_SPEC_FILE, "qualification requires canonical documents");
 const temp = mkdtempSync(path.join(tmpdir(), "of-openapi-export-"));
 try {
-    for (const directory of ["first", "second"])
-        run("cargo", [
-            "run",
-            "-p",
-            "unified-server",
-            "--features",
-            "independent-contracts",
-            "--example",
-            "export-openapi",
-            "--",
-            path.join(temp, directory),
-        ]);
-    assert.equal(
-        digest(path.join(temp, "first")),
-        digest(path.join(temp, "second")),
-        "exports must be byte-identical",
+  for (const directory of ["first", "second"])
+    run("cargo", [
+      "run",
+      "-p",
+      "unified-server",
+      "--features",
+      "independent-contracts",
+      "--example",
+      "export-openapi",
+      "--",
+      path.join(temp, directory),
+    ]);
+  run(pnpm, ["exec", "biome", "format", "--write", temp]);
+  assert.equal(
+    digest(path.join(temp, "first")),
+    digest(path.join(temp, "second")),
+    "exports must be byte-identical"
+  );
+  assert.equal(
+    digest(path.join(temp, "first")),
+    digest(path.join(root, "openapi")),
+    "committed contracts must match production definitions"
+  );
+  for (const file of readdirSync(path.join(root, "openapi"))) {
+    const doc = JSON.parse(readFileSync(path.join(root, "openapi", file)));
+    const ids = new Set();
+    for (const [route, item] of Object.entries(doc.paths))
+      for (const operation of Object.values(item)) {
+        assert.ok(operation.operationId, `${file}: ${route} operation ID`);
+        assert.ok(!ids.has(operation.operationId), `${file}: duplicate operation ID`);
+        ids.add(operation.operationId);
+        for (const parameter of operation.parameters || [])
+          if (parameter.in === "path") assert.ok(route.includes(`{${parameter.name}}`));
+        for (const name of route.matchAll(/\{([^}]+)\}/g))
+          assert.ok(operation.parameters?.some((p) => p.in === "path" && p.name === name[1]));
+        for (const security of operation.security || [])
+          for (const scheme of Object.keys(security))
+            assert.ok(doc.components.securitySchemes[scheme]);
+      }
+  }
+  run(pnpm, [
+    "--filter",
+    "@ofsdk/idp-client",
+    "--filter",
+    "@ofsdk/management-client",
+    "--filter",
+    "@ofsdk/device-client",
+    "--filter",
+    "@ofsdk/storage-client",
+    "run",
+    "build:esm",
+  ]);
+  const artifacts = [
+    "packages/idp-client/src",
+    "packages/management-client/src",
+    "packages/device-client/src",
+    "packages/storage-client/src",
+    ...readdirSync(path.join(root, "openapi")).map((file) => {
+      const owner = file.replace(/\.json$/, "");
+      return `services/${owner === "storage" ? "storage-api" : owner}-client`;
+    }),
+    "services/model/src/http",
+  ];
+  const before = artifacts.map((dir) => digest(path.join(root, dir)));
+  for (let pass = 1; pass <= 2; pass++) {
+    run(process.execPath, ["scripts/generate-openapi-client.mjs"]);
+    assert.deepEqual(
+      artifacts.map((dir) => digest(path.join(root, dir))),
+      before,
+      `both SDK families must regenerate without drift (pass ${pass})`
     );
-    assert.equal(
-        digest(path.join(temp, "first")),
-        digest(path.join(root, "openapi")),
-        "committed contracts must match production definitions",
+  }
+  if (process.argv.includes("--committed")) {
+    run("git", [
+      "--no-pager",
+      "diff",
+      "--exit-code",
+      "HEAD",
+      "--",
+      "openapi",
+      ...artifacts,
+      "Cargo.toml",
+      "Cargo.lock",
+    ]);
+    const untracked = spawnSync(
+      "git",
+      ["--no-pager", "ls-files", "--others", "--exclude-standard", "--", "openapi", ...artifacts],
+      { cwd: root, encoding: "utf8" }
     );
-    for (const file of readdirSync(path.join(root, "openapi"))) {
-        const doc = JSON.parse(readFileSync(path.join(root, "openapi", file)));
-        const ids = new Set();
-        for (const [route, item] of Object.entries(doc.paths))
-            for (const operation of Object.values(item)) {
-                assert.ok(
-                    operation.operationId,
-                    `${file}: ${route} operation ID`,
-                );
-                assert.ok(
-                    !ids.has(operation.operationId),
-                    `${file}: duplicate operation ID`,
-                );
-                ids.add(operation.operationId);
-                for (const parameter of operation.parameters || [])
-                    if (parameter.in === "path")
-                        assert.ok(route.includes(`{${parameter.name}}`));
-                for (const name of route.matchAll(/\{([^}]+)\}/g))
-                    assert.ok(
-                        operation.parameters?.some(
-                            (p) => p.in === "path" && p.name === name[1],
-                        ),
-                    );
-                for (const security of operation.security || [])
-                    for (const scheme of Object.keys(security))
-                        assert.ok(doc.components.securitySchemes[scheme]);
-            }
-    }
-    run(pnpm, [
-        "--filter",
-        "@ofsdk/idp-client",
-        "--filter",
-        "@ofsdk/management-client",
-        "--filter",
-        "@ofsdk/device-client",
-        "--filter",
-        "@ofsdk/storage-client",
-        "run",
-        "build:esm",
-    ]);
-    const artifacts = [
-        "packages/idp-client/src",
-        "packages/management-client/src",
-        "packages/device-client/src",
-        "packages/storage-client/src",
-        ...readdirSync(path.join(root, "openapi")).map((file) => {
-            const owner = file.replace(/\.json$/, "");
-            return "services/" + (owner === "storage" ? "storage-api" : owner) + "-client";
-        }),
-        "services/model/src/http",
-    ];
-    const before = artifacts.map((dir) => digest(path.join(root, dir)));
-    for (let pass = 1; pass <= 2; pass++) {
-        run(process.execPath, ["scripts/generate-openapi-client.mjs"]);
-        assert.deepEqual(
-            artifacts.map((dir) => digest(path.join(root, dir))),
-            before,
-            "both SDK families must regenerate without drift (pass " +
-                pass +
-                ")",
-        );
-    }
-    if (process.argv.includes("--committed")) {
-        run("git", [
-            "--no-pager",
-            "diff",
-            "--exit-code",
-            "HEAD",
-            "--",
-            "openapi",
-            ...artifacts,
-            "Cargo.toml",
-            "Cargo.lock",
-        ]);
-        const untracked = spawnSync(
-            "git",
-            [
-                "--no-pager",
-                "ls-files",
-                "--others",
-                "--exclude-standard",
-                "--",
-                "openapi",
-                ...artifacts,
-            ],
-            { cwd: root, encoding: "utf8" },
-        );
-        assert.equal(untracked.status, 0, untracked.stderr);
-        assert.equal(
-            untracked.stdout,
-            "",
-            "generated artifacts must be committed",
-        );
-    }
-    run(pnpm, [
-        "--filter",
-        "@ofsdk/idp-client",
-        "--filter",
-        "@ofsdk/management-client",
-        "--filter",
-        "@ofsdk/device-client",
-        "--filter",
-        "@ofsdk/storage-client",
-        "run",
-        "build:esm",
-    ]);
-    run(process.execPath, [
-        "--test",
-        ...readdirSync(path.join(root, "scripts"))
-            .filter((file) =>
-                /^(owner-contracts|generate-openapi-client|generated-.*)\.test\.mjs$/.test(
-                    file,
-                ),
-            )
-            .map((file) => `scripts/${file}`),
-    ]);
-    run("cargo", [
-        "check",
-        "--locked",
-        "-p",
-        "unified-server",
-        "-p",
-        "storage-server",
-        "-p",
-        "idp-server",
-        "-p",
-        "management-server",
-        "-p",
-        "device-server",
-    ]);
-    run("cargo", [
-        "test",
-        "-p",
-        "idp-server",
-        "-p",
-        "management-server",
-        "-p",
-        "device-server",
-        "-p",
-        "storage-server",
-        "--lib",
-        "openapi",
-    ], true);
-    run("cargo", [
-        "test",
-        "-p",
-        "setup",
-        "--lib",
-        "complete_routes_include_operation_bound_handoffs",
-    ], true);
-    run(
-        "cargo",
-        ["test", "-p", "setup", "--lib", "canonical_openapi"],
-        true,
-    );
-    run("cargo", [
-        "test",
-        "-p",
-        "unified-server",
-        "--features",
-        "independent-contracts",
-        "--example",
-        "export-openapi",
-        "tests::canonical_exports_keep_all_published_paths_and_oauth_request_schemas",
-        "--",
-        "--exact",
-    ], true);
+    assert.equal(untracked.status, 0, untracked.stderr);
+    assert.equal(untracked.stdout, "", "generated artifacts must be committed");
+  }
+  run(pnpm, [
+    "--filter",
+    "@ofsdk/idp-client",
+    "--filter",
+    "@ofsdk/management-client",
+    "--filter",
+    "@ofsdk/device-client",
+    "--filter",
+    "@ofsdk/storage-client",
+    "run",
+    "build:esm",
+  ]);
+  run(process.execPath, [
+    "--test",
+    ...readdirSync(path.join(root, "scripts"))
+      .filter((file) =>
+        /^(owner-contracts|generate-openapi-client|generated-.*)\.test\.mjs$/.test(file)
+      )
+      .map((file) => `scripts/${file}`),
+  ]);
+  run("cargo", [
+    "check",
+    "--locked",
+    "-p",
+    "unified-server",
+    "-p",
+    "storage-server",
+    "-p",
+    "idp-server",
+    "-p",
+    "management-server",
+    "-p",
+    "device-server",
+  ]);
+  run(
+    "cargo",
+    [
+      "test",
+      "-p",
+      "idp-server",
+      "-p",
+      "management-server",
+      "-p",
+      "device-server",
+      "-p",
+      "storage-server",
+      "--lib",
+      "openapi",
+    ],
+    true
+  );
+  run(
+    "cargo",
+    ["test", "-p", "setup", "--lib", "complete_routes_include_operation_bound_handoffs"],
+    true
+  );
+  run("cargo", ["test", "-p", "setup", "--lib", "canonical_openapi"], true);
+  run(
+    "cargo",
+    [
+      "test",
+      "-p",
+      "unified-server",
+      "--features",
+      "independent-contracts",
+      "--example",
+      "export-openapi",
+      "tests::canonical_exports_keep_all_published_paths_and_oauth_request_schemas",
+      "--",
+      "--exact",
+    ],
+    true
+  );
 } finally {
-    rmSync(temp, { recursive: true, force: true });
+  rmSync(temp, { recursive: true, force: true });
 }
 console.log("Offline deterministic contracts and both SDK families qualified");

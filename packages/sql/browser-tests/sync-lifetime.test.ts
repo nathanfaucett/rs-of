@@ -6,32 +6,25 @@ test.beforeEach(async ({ page }) => {
 });
 
 for (const operationKind of ["history", "legacy"] as const) {
-  test(`close during deferred ${operationKind} receive defers the Rust free`, async ({
-    page,
-  }) => {
+  test(`close during deferred ${operationKind} receive defers the Rust free`, async ({ page }) => {
     const result = await page.evaluate(async (kind) => {
       const wasm = await import("/pkg/ofdb_wasm.js");
       const originalFree = wasm.SqlDatabase.prototype.free;
       let freeCalls = 0;
       let closeError: string | undefined;
       try {
-        wasm.SqlDatabase.prototype.free = function (this: any) {
+        wasm.SqlDatabase.prototype.free = function (this: InstanceType<typeof wasm.SqlDatabase>) {
           freeCalls++;
           return originalFree.call(this);
         };
-        const {
-          Database,
-          JsPushSyncTransport,
-          JsSqlSyncTransport,
-          PushSynchronizeConfig,
-        } = (window as any).sql;
+        const { Database, JsPushSyncTransport, JsSqlSyncTransport, SqlSessionConfig } = window.sql;
         const database = await Database.open(`close-during-${kind}`);
         let started!: () => void;
         const receiveStarted = new Promise<void>((resolve) => {
           started = resolve;
         });
         let rejectReceive!: (error: Error) => void;
-        let closed = false;
+        let closed: boolean = false;
         let closeFailure: Error | undefined;
         const transport = {
           send: async () => undefined,
@@ -46,13 +39,10 @@ for (const operationKind of ["history", "legacy"] as const) {
         const operation =
           kind === "history"
             ? database.synchronizeHistory(new JsSqlSyncTransport(transport))
-            : database.synchronize(
-                new JsPushSyncTransport(transport),
-                new PushSynchronizeConfig(),
-              );
+            : database.synchronize(new JsPushSyncTransport(transport), new SqlSessionConfig());
         const settled = operation.then(
           () => "unexpected success",
-          (error: unknown) => String(error),
+          (error: unknown) => String(error)
         );
         await receiveStarted;
         try {
@@ -88,26 +78,50 @@ for (const operationKind of ["history", "legacy"] as const) {
   });
 }
 
+test("legacy push times out a stalled handshake", async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { Database, JsPushSyncTransport, SqlSessionConfig } = window.sql;
+    const database = await Database.open("stalled-legacy-handshake");
+    try {
+      const config = Object.assign(new SqlSessionConfig(), {
+        handshakeTimeoutMs: 20n,
+        messageTimeoutMs: 20n,
+      });
+      await database.synchronize(
+        new JsPushSyncTransport({
+          send: async () => undefined,
+          receive: () => new Promise<Uint8Array>(() => {}),
+        }),
+        config
+      );
+      return "unexpected success";
+    } catch (error) {
+      return String(error);
+    } finally {
+      database.close();
+    }
+  });
+
+  expect(result).toContain("session timeout");
+});
+
 test("history rejects an oversized or non-byte receive without exposing payloads", async ({
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const { Database, JsSqlSyncTransport } = (window as any).sql;
+    const { Database, JsSqlSyncTransport } = window.sql;
     const errors: string[] = [];
-    for (const received of [
-      new Uint8Array(1024 * 1024 + 1).fill(65),
-      { payload: "not bytes" },
-    ]) {
+    for (const received of [new Uint8Array(1024 * 1024 + 1).fill(65), { payload: "not bytes" }]) {
       const database = await Database.open("oversized-history-frame");
       try {
         await database.synchronizeHistory(
           new JsSqlSyncTransport({
             send: async () => undefined,
             receive: async () => received,
-          }),
+          })
         );
         errors.push("unexpected success");
-      } catch (error: any) {
+      } catch (error) {
         errors.push(error.message);
       } finally {
         database.close();

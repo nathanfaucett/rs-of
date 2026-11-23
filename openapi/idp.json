@@ -7,24 +7,16 @@
       "ApplicationRegistration": {
         "properties": {
           "description": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "uri": {
             "type": "string"
           }
         },
-        "required": [
-          "uri"
-        ],
+        "required": ["uri"],
         "type": "object"
       },
       "ApproveForUserRequest": {
@@ -39,20 +31,13 @@
             "type": "string"
           }
         },
-        "required": [
-          "client_id",
-          "redirect_uri",
-          "scope"
-        ],
+        "required": ["client_id", "redirect_uri", "scope"],
         "type": "object"
       },
       "AuthorizationCodeGrantRequest": {
         "properties": {
           "client_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "code": {
             "description": "The authorization code received from the authorization server.",
@@ -63,16 +48,10 @@
             "type": "string"
           },
           "redirect_uri": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "code",
-          "code_verifier"
-        ],
+        "required": ["code", "code_verifier"],
         "type": "object"
       },
       "AuthorizationCodeResponse": {
@@ -83,21 +62,13 @@
                 "type": "string"
               },
               "iss": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "state": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               }
             },
-            "required": [
-              "code"
-            ],
+            "required": ["code"],
             "type": "object"
           },
           {
@@ -111,9 +82,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "state"
-                ],
+                "required": ["state"],
                 "type": "object"
               }
             ]
@@ -130,15 +99,11 @@
               {
                 "properties": {
                   "type": {
-                    "enum": [
-                      "storage"
-                    ],
+                    "enum": ["storage"],
                     "type": "string"
                   }
                 },
-                "required": [
-                  "type"
-                ],
+                "required": ["type"],
                 "type": "object"
               }
             ]
@@ -152,10 +117,7 @@
           },
           "code_challenge": {
             "description": "PKCE parameters (RFC 7636) for public clients and enhanced security",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "code_challenge_method": {
             "oneOf": [
@@ -169,42 +131,24 @@
             ]
           },
           "id_token_hint": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "login_hint": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "nonce": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "prompt": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "redirect_uri": {
             "description": "redirect URI is optional if the client has only one registered redirect URI",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "resource": {
             "description": "Audience parameter (RFC 8707) to specify the intended recipients of the token.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "response_mode": {
             "oneOf": [
@@ -220,38 +164,23 @@
             "$ref": "#/components/schemas/ResponseType"
           },
           "scope": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "state": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "ui_locales": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "response_type",
-          "client_id"
-        ],
+        "required": ["response_type", "client_id"],
         "type": "object"
       },
       "AuthorizationServerMetadata": {
         "properties": {
           "authorization_endpoint": {
             "description": "URL of the authorization endpoint.\nREQUIRED unless no grant types use it.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "code_challenge_methods_supported": {
             "description": "PKCE code challenge methods supported (S256 is strongly recommended in 2.1).",
@@ -275,10 +204,7 @@
           },
           "introspection_endpoint": {
             "description": "URL of the token introspection endpoint (RFC 7662).",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "introspection_endpoint_auth_methods_supported": {
             "description": "Client authentication methods supported by the introspection endpoint.",
@@ -300,38 +226,23 @@
           },
           "jwks_uri": {
             "description": "URL of the JWK Set document containing the server's public keys.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "op_policy_uri": {
             "description": "URL for the authorization server's policy on client use of data.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "op_tos_uri": {
             "description": "URL for the authorization server's terms of service.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "pushed_authorization_request_endpoint": {
             "description": "List of supported revocation endpoint authentication signing algorithms (additional).",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "registration_endpoint": {
             "description": "URL of the Dynamic Client Registration endpoint.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "require_pkce": {
             "description": "Whether the server requires PKCE for all clients (OAuth 2.1 best practice).",
@@ -353,10 +264,7 @@
           },
           "revocation_endpoint": {
             "description": "URL of the token revocation endpoint (RFC 7009).",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "revocation_endpoint_auth_methods_supported": {
             "description": "Client authentication methods supported by the revocation endpoint.",
@@ -381,24 +289,15 @@
           },
           "service_documentation": {
             "description": "Human-readable service documentation URL.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "signed_metadata": {
             "description": "Signed metadata as a JWT (optional).",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "token_endpoint": {
             "description": "URL of the token endpoint.\nREQUIRED in most cases (especially for OAuth 2.1).",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "token_endpoint_auth_methods_supported": {
             "description": "List of client authentication methods supported by the token endpoint.",
@@ -423,15 +322,10 @@
           },
           "userinfo_endpoint": {
             "description": "URL of the `UserInfo` endpoint.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "issuer"
-        ],
+        "required": ["issuer"],
         "type": "object"
       },
       "Challenge": {
@@ -448,12 +342,7 @@
           },
           "registration": {}
         },
-        "required": [
-          "operation",
-          "recipient",
-          "registration",
-          "challenge"
-        ],
+        "required": ["operation", "recipient", "registration", "challenge"],
         "type": "object"
       },
       "ClientConsentMetadata": {
@@ -474,22 +363,13 @@
             "type": "string"
           },
           "client_uri": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "logo_uri": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "policy_uri": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "redirect_uris": {
             "items": {
@@ -498,28 +378,16 @@
             "type": "array"
           },
           "tos_uri": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "application",
-          "client_id",
-          "client_name",
-          "redirect_uris",
-          "allowed_scopes"
-        ],
+        "required": ["application", "client_id", "client_name", "redirect_uris", "allowed_scopes"],
         "type": "object"
       },
       "ClientCredentialsGrantRequest": {
         "properties": {
           "audience": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "client_id": {
             "type": "string"
@@ -528,30 +396,17 @@
             "type": "string"
           },
           "resource": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "scope": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "client_id",
-          "client_secret"
-        ],
+        "required": ["client_id", "client_secret"],
         "type": "object"
       },
       "ClientProfile": {
-        "enum": [
-          "web_application",
-          "user_agent_based_application",
-          "native_application"
-        ],
+        "enum": ["web_application", "user_agent_based_application", "native_application"],
         "type": "string"
       },
       "ClientRegistration": {
@@ -580,18 +435,12 @@
           },
           "client_id": {
             "description": "Unique identifier for the client application (assigned by the authorization server).",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "client_id_issued_at": {
             "description": "Time at which the client identifier was issued (Unix timestamp).",
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": ["integer", "null"]
           },
           "client_name": {
             "description": "Human-readable name of the client application.",
@@ -599,28 +448,19 @@
           },
           "client_secret": {
             "description": "Optional or required depending on registration type (Public vs Confidential).",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "client_secret_expires_at": {
             "description": "Time at which the client secret will expire (0 or None for no expiration).",
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": ["integer", "null"]
           },
           "client_type": {
             "$ref": "#/components/schemas/ClientType"
           },
           "client_uri": {
             "description": "URL of the home page of the client.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "contacts": {
             "description": "Array of email addresses for people responsible for this client.",
@@ -631,17 +471,11 @@
           },
           "logo_uri": {
             "description": "URL that references a logo for the client application.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "policy_uri": {
             "description": "URL for the application's privacy policy.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "profile": {
             "$ref": "#/components/schemas/ClientProfile"
@@ -661,24 +495,15 @@
           },
           "software_id": {
             "description": "A unique identifier string assigned by the software issuer.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "software_statement": {
             "description": "A digitally signed JWT assertion containing verifiable client metadata.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "software_version": {
             "description": "A version identifier string string assigned by the software issuer.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "token_endpoint_auth_method": {
             "$ref": "#/components/schemas/TokenEndpointAuthMethod",
@@ -686,32 +511,19 @@
           },
           "tos_uri": {
             "description": "URL for the application's terms of service.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "application",
-          "client_name",
-          "profile",
-          "token_endpoint_auth_method"
-        ],
+        "required": ["application", "client_name", "profile", "token_endpoint_auth_method"],
         "type": "object"
       },
       "ClientType": {
-        "enum": [
-          "confidential",
-          "public"
-        ],
+        "enum": ["confidential", "public"],
         "type": "string"
       },
       "CodeChallengeMethod": {
         "description": "PKCE code challenge methods (RFC 7636).\nthe `plain` method is not included as it is not recommended in OAuth 2.1 due to security weaknesses. Only `S256` is supported for better security.",
-        "enum": [
-          "S256"
-        ],
+        "enum": ["S256"],
         "type": "string"
       },
       "CreateUserRequest": {
@@ -721,10 +533,7 @@
             "type": "string"
           },
           "email_verified": {
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": ["boolean", "null"]
           },
           "name": {
             "type": "string"
@@ -733,52 +542,30 @@
             "type": "string"
           }
         },
-        "required": [
-          "name",
-          "email",
-          "password"
-        ],
+        "required": ["name", "email", "password"],
         "type": "object"
       },
       "DeviceAuthorization": {
         "properties": {
           "device_code": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "expires_in": {
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": ["integer", "null"]
           },
           "interval": {
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": ["integer", "null"]
           },
           "user_code": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "verification_uri": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "verification_uri_complete": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
         "type": "object"
@@ -786,16 +573,10 @@
       "DeviceAuthorizationRequest": {
         "properties": {
           "client_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "scope": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
         "type": "object"
@@ -827,21 +608,13 @@
             "$ref": "#/components/schemas/ErrorCode"
           },
           "error_description": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "error_uri": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "error"
-        ],
+        "required": ["error"],
         "type": "object"
       },
       "GrantType": {
@@ -860,17 +633,13 @@
             "$ref": "#/components/schemas/HealthStatus"
           }
         },
-        "required": [
-          "database"
-        ],
+        "required": ["database"],
         "type": "object"
       },
       "HealthStatus": {
         "oneOf": [
           {
-            "enum": [
-              "healthy"
-            ],
+            "enum": ["healthy"],
             "type": "string"
           },
           {
@@ -879,9 +648,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "unhealthy"
-            ],
+            "required": ["unhealthy"],
             "type": "object"
           }
         ]
@@ -937,10 +704,7 @@
           {
             "properties": {
               "password": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               }
             },
             "type": "object"
@@ -968,13 +732,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "operation",
-          "owner",
-          "clients",
-          "facts",
-          "registered"
-        ],
+        "required": ["operation", "owner", "clients", "facts", "registered"],
         "type": "object"
       },
       "IntrospectionRequest": {
@@ -983,15 +741,10 @@
             "type": "string"
           },
           "token_type_hint": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "token"
-        ],
+        "required": ["token"],
         "type": "object"
       },
       "IntrospectionResponse": {
@@ -1004,10 +757,7 @@
             "$ref": "#/components/schemas/StandardClaims"
           }
         },
-        "required": [
-          "claims",
-          "applicationId"
-        ],
+        "required": ["claims", "applicationId"],
         "type": "object"
       },
       "IsAllowedForUserRequest": {
@@ -1022,11 +772,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "client_id",
-          "redirect_uri",
-          "scope"
-        ],
+        "required": ["client_id", "redirect_uri", "scope"],
         "type": "object"
       },
       "IsAllowedForUserResponse": {
@@ -1035,9 +781,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "allowed"
-        ],
+        "required": ["allowed"],
         "type": "object"
       },
       "JwkPublic": {
@@ -1060,11 +804,7 @@
                 "description": "Key use (sig, enc)"
               }
             },
-            "required": [
-              "use",
-              "kid",
-              "alg"
-            ],
+            "required": ["use", "kid", "alg"],
             "type": "object"
           }
         ]
@@ -1077,20 +817,14 @@
                 "type": "string"
               },
               "kty": {
-                "enum": [
-                  "Rsa"
-                ],
+                "enum": ["Rsa"],
                 "type": "string"
               },
               "n": {
                 "type": "string"
               }
             },
-            "required": [
-              "n",
-              "e",
-              "kty"
-            ],
+            "required": ["n", "e", "kty"],
             "type": "object"
           },
           {
@@ -1099,9 +833,7 @@
                 "type": "string"
               },
               "kty": {
-                "enum": [
-                  "Ec"
-                ],
+                "enum": ["Ec"],
                 "type": "string"
               },
               "x": {
@@ -1111,12 +843,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "crv",
-              "x",
-              "y",
-              "kty"
-            ],
+            "required": ["crv", "x", "y", "kty"],
             "type": "object"
           },
           {
@@ -1125,20 +852,14 @@
                 "type": "string"
               },
               "kty": {
-                "enum": [
-                  "Opk"
-                ],
+                "enum": ["Opk"],
                 "type": "string"
               },
               "x": {
                 "type": "string"
               }
             },
-            "required": [
-              "crv",
-              "x",
-              "kty"
-            ],
+            "required": ["crv", "x", "kty"],
             "type": "object"
           }
         ]
@@ -1152,9 +873,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "keys"
-        ],
+        "required": ["keys"],
         "type": "object"
       },
       "JwsAlgorithm": {
@@ -1174,10 +893,7 @@
         "type": "string"
       },
       "KeyUse": {
-        "enum": [
-          "sig",
-          "enc"
-        ],
+        "enum": ["sig", "enc"],
         "type": "string"
       },
       "OwnerSetupStatus": {
@@ -1198,12 +914,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "stage",
-          "state",
-          "ready",
-          "owners"
-        ],
+        "required": ["stage", "state", "ready", "owners"],
         "type": "object"
       },
       "PasswordGrantRequest": {
@@ -1215,33 +926,20 @@
             "type": "string"
           },
           "resource": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "scope": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "username": {
             "type": "string"
           }
         },
-        "required": [
-          "client_id",
-          "username",
-          "password"
-        ],
+        "required": ["client_id", "username", "password"],
         "type": "object"
       },
       "PrincipalType": {
-        "enum": [
-          "user",
-          "client"
-        ],
+        "enum": ["user", "client"],
         "type": "string"
       },
       "RefreshToken": {
@@ -1253,15 +951,10 @@
             "$ref": "#/components/schemas/RefreshToken"
           },
           "scope": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "refresh_token"
-        ],
+        "required": ["refresh_token"],
         "type": "object"
       },
       "Registration": {
@@ -1278,12 +971,7 @@
           },
           "registration": {}
         },
-        "required": [
-          "operation",
-          "recipient",
-          "registration",
-          "challenge"
-        ],
+        "required": ["operation", "recipient", "registration", "challenge"],
         "type": "object"
       },
       "ResetPassword": {
@@ -1293,23 +981,16 @@
             "type": "string"
           }
         },
-        "required": [
-          "password"
-        ],
+        "required": ["password"],
         "type": "object"
       },
       "ResponseMode": {
-        "enum": [
-          "query",
-          "form_post"
-        ],
+        "enum": ["query", "form_post"],
         "type": "string"
       },
       "ResponseType": {
         "description": "Valid OAuth 2.0 response types for the authorization endpoint.\nwe do not support the `token` or `id_token` response type (implicit flow) as it is not recommended in OAuth 2.1 and has security weaknesses.",
-        "enum": [
-          "code"
-        ],
+        "enum": ["code"],
         "type": "string"
       },
       "RevocationRequest": {
@@ -1318,15 +999,10 @@
             "type": "string"
           },
           "token_type_hint": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "token"
-        ],
+        "required": ["token"],
         "type": "object"
       },
       "SetUserBlockedRequest": {
@@ -1336,9 +1012,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "blocked"
-        ],
+        "required": ["blocked"],
         "type": "object"
       },
       "SetUserMfaRequest": {
@@ -1351,10 +1025,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "method",
-          "enable"
-        ],
+        "required": ["method", "enable"],
         "type": "object"
       },
       "StandardClaims": {
@@ -1366,10 +1037,7 @@
             "items": {
               "$ref": "#/components/schemas/AuthorizationDetail"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": ["array", "null"]
           },
           "client_id": {
             "type": "string"
@@ -1393,10 +1061,7 @@
             "$ref": "#/components/schemas/PrincipalType"
           },
           "resource": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "scope": {
             "type": "string"
@@ -1427,10 +1092,7 @@
         "type": "object"
       },
       "StorageAuthorizationAction": {
-        "enum": [
-          "read",
-          "write"
-        ],
+        "enum": ["read", "write"],
         "type": "string"
       },
       "StorageAuthorizationDetail": {
@@ -1442,9 +1104,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "actions"
-        ],
+        "required": ["actions"],
         "type": "object"
       },
       "SubjectTokenType": {
@@ -1472,47 +1132,26 @@
       "TokenExchangeGrantRequest": {
         "properties": {
           "actor_token": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "actor_token_type": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "audience": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "authorization_details": {
             "description": "JSON-encoded authorization details array in the OAuth form field.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "requested_token_type": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "resource": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "scope": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "subject_token": {
             "type": "string"
@@ -1521,10 +1160,7 @@
             "$ref": "#/components/schemas/SubjectTokenType"
           }
         },
-        "required": [
-          "subject_token",
-          "subject_token_type"
-        ],
+        "required": ["subject_token", "subject_token_type"],
         "type": "object"
       },
       "TokenRequest": {
@@ -1537,15 +1173,11 @@
               {
                 "properties": {
                   "grant_type": {
-                    "enum": [
-                      "password"
-                    ],
+                    "enum": ["password"],
                     "type": "string"
                   }
                 },
-                "required": [
-                  "grant_type"
-                ],
+                "required": ["grant_type"],
                 "type": "object"
               }
             ]
@@ -1558,15 +1190,11 @@
               {
                 "properties": {
                   "grant_type": {
-                    "enum": [
-                      "authorization_code"
-                    ],
+                    "enum": ["authorization_code"],
                     "type": "string"
                   }
                 },
-                "required": [
-                  "grant_type"
-                ],
+                "required": ["grant_type"],
                 "type": "object"
               }
             ]
@@ -1579,15 +1207,11 @@
               {
                 "properties": {
                   "grant_type": {
-                    "enum": [
-                      "client_credentials"
-                    ],
+                    "enum": ["client_credentials"],
                     "type": "string"
                   }
                 },
-                "required": [
-                  "grant_type"
-                ],
+                "required": ["grant_type"],
                 "type": "object"
               }
             ]
@@ -1600,15 +1224,11 @@
               {
                 "properties": {
                   "grant_type": {
-                    "enum": [
-                      "refresh_token"
-                    ],
+                    "enum": ["refresh_token"],
                     "type": "string"
                   }
                 },
-                "required": [
-                  "grant_type"
-                ],
+                "required": ["grant_type"],
                 "type": "object"
               }
             ]
@@ -1621,15 +1241,11 @@
               {
                 "properties": {
                   "grant_type": {
-                    "enum": [
-                      "urn:ietf:params:oauth:grant-type:token-exchange"
-                    ],
+                    "enum": ["urn:ietf:params:oauth:grant-type:token-exchange"],
                     "type": "string"
                   }
                 },
-                "required": [
-                  "grant_type"
-                ],
+                "required": ["grant_type"],
                 "type": "object"
               }
             ]
@@ -1646,10 +1262,7 @@
             "description": "The lifetime in seconds of the id/access token.",
             "format": "int64",
             "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": ["integer", "null"]
           },
           "id_token": {
             "oneOf": [
@@ -1663,10 +1276,7 @@
           },
           "iss": {
             "description": "The identifier of the authorization server that issued the token.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "refresh_token": {
             "oneOf": [
@@ -1683,142 +1293,78 @@
             "description": "The lifetime in seconds of the refresh token.",
             "format": "int64",
             "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": ["integer", "null"]
           },
           "scope": {
             "description": "The scope of the access token as described by the authorization server.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "token_type": {
             "$ref": "#/components/schemas/TokenType",
             "description": "The type of the token issued."
           }
         },
-        "required": [
-          "access_token",
-          "token_type"
-        ],
+        "required": ["access_token", "token_type"],
         "type": "object"
       },
       "TokenType": {
-        "enum": [
-          "Bearer",
-          "DPoP"
-        ],
+        "enum": ["Bearer", "DPoP"],
         "type": "string"
       },
       "TokenUse": {
-        "enum": [
-          "Id",
-          "Access",
-          "Refresh"
-        ],
+        "enum": ["Id", "Access", "Refresh"],
         "type": "string"
       },
       "UpdateUserInfoRequest": {
         "additionalProperties": false,
         "properties": {
           "birthdate": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "email": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "email_verified": {
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": ["boolean", "null"]
           },
           "family_name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "given_name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "locale": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "middle_name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "nickname": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "phone_number": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "phone_number_verified": {
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": ["boolean", "null"]
           },
           "picture": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "profile": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "sex": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "website": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "zoneinfo": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
         "type": "object"
@@ -1826,73 +1372,40 @@
       "UserInfo": {
         "properties": {
           "birthdate": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "blocked": {
             "type": "boolean"
           },
           "email": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "email_verified": {
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": ["boolean", "null"]
           },
           "family_name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "gender": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "given_name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "locale": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "mfa_totp_enabled": {
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": ["boolean", "null"]
           },
           "middle_name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "nickname": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "permissions": {
             "items": {
@@ -1901,34 +1414,19 @@
             "type": "array"
           },
           "phone_number": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "phone_number_verified": {
-            "type": [
-              "boolean",
-              "null"
-            ]
+            "type": ["boolean", "null"]
           },
           "picture": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "preferred_username": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "profile": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "sub": {
             "type": "string"
@@ -1938,22 +1436,13 @@
             "type": "string"
           },
           "website": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "zoneinfo": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "sub",
-          "updated_at"
-        ],
+        "required": ["sub", "updated_at"],
         "type": "object"
       },
       "VersionResponse": {
@@ -1975,11 +1464,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "name",
-          "version",
-          "build"
-        ],
+        "required": ["name", "version", "build"],
         "type": "object"
       }
     },
@@ -2678,9 +2163,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "super_routes_oauth2_introspect"
-        ]
+        "tags": ["super_routes_oauth2_introspect"]
       }
     },
     "/oauth2/register": {
@@ -2850,10 +2333,7 @@
             "name": "Authorization",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": ["string", "null"]
             }
           }
         ],
@@ -2930,9 +2410,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/cancel": {
@@ -2967,9 +2445,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/challenge": {
@@ -3003,12 +2479,8 @@
             "description": "Owner unavailable"
           }
         },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "owner_setup"
-        ]
+        "security": [{}],
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/create": {
@@ -3046,9 +2518,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/intent": {
@@ -3080,9 +2550,7 @@
             "setup_code": []
           }
         ],
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/public": {
@@ -3103,9 +2571,7 @@
             "description": "Public owner metadata not yet available"
           }
         },
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/register": {
@@ -3139,12 +2605,8 @@
             "description": "Owner unavailable"
           }
         },
-        "security": [
-          {}
-        ],
-        "tags": [
-          "owner_setup"
-        ]
+        "security": [{}],
+        "tags": ["owner_setup"]
       }
     },
     "/setup/owner/status": {
@@ -3165,9 +2627,7 @@
             "description": "Admission unavailable (empty body), or current owner readiness failed (nonsecret status with ready:false)"
           }
         },
-        "tags": [
-          "owner_setup"
-        ]
+        "tags": ["owner_setup"]
       }
     },
     "/userinfo": {
@@ -3396,9 +2856,7 @@
             "authorization": []
           }
         ],
-        "tags": [
-          "super_routes_active_user"
-        ]
+        "tags": ["super_routes_active_user"]
       }
     },
     "/users/{user_id}/block": {

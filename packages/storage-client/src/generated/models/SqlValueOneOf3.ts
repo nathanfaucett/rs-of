@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -55,7 +54,7 @@ export function SqlValueOneOf3FromJSON(json: any): SqlValueOneOf3 {
 
 export function SqlValueOneOf3FromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): SqlValueOneOf3 {
   if (json == null) {
     return json;
@@ -72,7 +71,7 @@ export function SqlValueOneOf3ToJSON(json: any): SqlValueOneOf3 {
 
 export function SqlValueOneOf3ToJSONTyped(
   value?: SqlValueOneOf3 | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

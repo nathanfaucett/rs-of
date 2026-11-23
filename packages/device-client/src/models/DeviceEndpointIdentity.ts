@@ -12,7 +12,6 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 /**
  *
  * @export
@@ -49,7 +48,7 @@ export function DeviceEndpointIdentityFromJSON(json: any): DeviceEndpointIdentit
 
 export function DeviceEndpointIdentityFromJSONTyped(
   json: any,
-  ignoreDiscriminator: boolean
+  _ignoreDiscriminator: boolean
 ): DeviceEndpointIdentity {
   if (json == null) {
     return json;
@@ -67,7 +66,7 @@ export function DeviceEndpointIdentityToJSON(json: any): DeviceEndpointIdentity 
 
 export function DeviceEndpointIdentityToJSONTyped(
   value?: DeviceEndpointIdentity | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

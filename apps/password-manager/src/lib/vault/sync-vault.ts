@@ -1,19 +1,29 @@
 import type { DatabaseHandle, SyncOptions } from "@ofsdk/sync-sdk";
+import * as v from "valibot";
 import {
+  type Folder,
+  FolderSchema,
+  type ItemMutation,
+  type ItemSnapshot,
+  validateItemSnapshot,
+} from "$lib/vault/folder";
+import {
+  DEFAULT_LOCK_SETTINGS,
+  decryptLockSettings,
+  encryptLockSettings,
+  type LockSettings,
+} from "$lib/vault/lock";
+import { type Secret, SecretSchema } from "$lib/vault/secrets/secret";
+import {
+  createAuthentication,
+  decrypt,
   deriveKey,
   encrypt,
-  decrypt,
-  toBase64,
   fromBase64,
-  createAuthentication,
+  toBase64,
   verifyAuthentication,
 } from "$lib/vault/storage/crypto";
-import { type LockSettings, DEFAULT_LOCK_SETTINGS, encryptLockSettings, decryptLockSettings } from "$lib/vault/lock";
-import { type Secret, SecretSchema } from "$lib/vault/secrets/secret";
-import { type Folder, FolderSchema } from "$lib/vault/folder";
-import { type ItemMutation, validateItemSnapshot, type ItemSnapshot } from "$lib/vault/folder";
 import type { VaultHandleLike } from "$lib/vault/types";
-import * as v from "valibot";
 
 interface VaultMeta {
   id: string;
@@ -67,81 +77,89 @@ export class SyncVaultHandle implements VaultHandleLike {
     return this.handle.state$;
   }
 
-  async execute(sql: string, params?: unknown[]): Promise<{ columns: string[]; rows: unknown[][] }> {
+  async execute(
+    sql: string,
+    params?: unknown[]
+  ): Promise<{ columns: string[]; rows: unknown[][] }> {
     return this.handle.execute(sql, params);
   }
 
   async loadSecrets(): Promise<Secret[]> {
     const rows = await this.handle.execute(
       `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM secrets WHERE vault_id = ?`,
-      [this.meta.id],
+      [this.meta.id]
     );
 
-    return Promise.all(rows.rows.map(async (row: unknown[]) => {
-      const secret = {
-        id: row[0] as string,
-        vault_id: row[1] as string,
-        ciphertext: row[2] as string,
-        nonce: row[3] as string,
-        createdAt: row[4] as string,
-        updatedAt: row[5] as string,
-      } as EncryptedSecret;
+    return Promise.all(
+      rows.rows.map(async (row: unknown[]) => {
+        const secret = {
+          id: row[0] as string,
+          vault_id: row[1] as string,
+          ciphertext: row[2] as string,
+          nonce: row[3] as string,
+          createdAt: row[4] as string,
+          updatedAt: row[5] as string,
+        } as EncryptedSecret;
 
-      const plaintext = await decrypt(this.key, secret.ciphertext, secret.nonce);
-      try {
-        const parsed = v.parse(SecretSchema, JSON.parse(plaintext));
-        if (parsed.id !== secret.id) {
-          throw new Error("Malformed vault snapshot. No partial records or folders were loaded. Check the complete backup; do not clear browser data.");
+        const plaintext = await decrypt(this.key, secret.ciphertext, secret.nonce);
+        try {
+          const parsed = v.parse(SecretSchema, JSON.parse(plaintext));
+          if (parsed.id !== secret.id) {
+            throw new Error(
+              "Malformed vault snapshot. No partial records or folders were loaded. Check the complete backup; do not clear browser data."
+            );
+          }
+          return parsed;
+        } catch (e) {
+          if (e instanceof Error && e.message.includes("Malformed vault snapshot")) throw e;
+          return {
+            id: secret.id,
+            kind: "secureNote",
+            type: 0,
+            name: "",
+            notes: plaintext,
+            favorite: false,
+            fields: [],
+            history: [],
+            createdAt: secret.createdAt,
+            updatedAt: secret.updatedAt,
+          } as Secret;
         }
-        return parsed;
-      } catch (e) {
-        if (e instanceof Error && e.message.includes("Malformed vault snapshot")) throw e;
-        return {
-          id: secret.id,
-          kind: "secureNote",
-          type: 0,
-          name: "",
-          notes: plaintext,
-          favorite: false,
-          fields: [],
-          history: [],
-          createdAt: secret.createdAt,
-          updatedAt: secret.updatedAt,
-        } as Secret;
-      }
-    }));
+      })
+    );
   }
 
   async loadFolders(): Promise<Folder[]> {
     const rows = await this.handle.execute(
       `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ?`,
-      [this.meta.id],
+      [this.meta.id]
     );
 
-    return Promise.all(rows.rows.map(async (row: unknown[]) => {
-      const folderRow = {
-        id: row[0] as string,
-        vault_id: row[1] as string,
-        ciphertext: row[2] as string,
-        nonce: row[3] as string,
-        createdAt: row[4] as string,
-        updatedAt: row[5] as string,
-      } as EncryptedSecret;
+    return Promise.all(
+      rows.rows.map(async (row: unknown[]) => {
+        const folderRow = {
+          id: row[0] as string,
+          vault_id: row[1] as string,
+          ciphertext: row[2] as string,
+          nonce: row[3] as string,
+          createdAt: row[4] as string,
+          updatedAt: row[5] as string,
+        } as EncryptedSecret;
 
-      const plaintext = await decrypt(this.key, folderRow.ciphertext, folderRow.nonce);
-      const folder = v.parse(FolderSchema, JSON.parse(plaintext));
-      if (folder.id !== folderRow.id) {
-        throw new Error("Malformed vault snapshot. No partial records or folders were loaded. Check the complete backup; do not clear browser data.");
-      }
-      return folder;
-    }));
+        const plaintext = await decrypt(this.key, folderRow.ciphertext, folderRow.nonce);
+        const folder = v.parse(FolderSchema, JSON.parse(plaintext));
+        if (folder.id !== folderRow.id) {
+          throw new Error(
+            "Malformed vault snapshot. No partial records or folders were loaded. Check the complete backup; do not clear browser data."
+          );
+        }
+        return folder;
+      })
+    );
   }
 
   private async itemSnapshot(): Promise<ItemSnapshot> {
-    const [items, folders] = await Promise.all([
-      this.loadSecrets(),
-      this.loadFolders(),
-    ]);
+    const [items, folders] = await Promise.all([this.loadSecrets(), this.loadFolders()]);
     return { items, folders };
   }
 
@@ -164,18 +182,32 @@ export class SyncVaultHandle implements VaultHandleLike {
       const encrypted = await encrypt(this.key, JSON.stringify(folder));
       statements.push(
         `INSERT INTO folders (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`,
+         ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`
       );
-      params.push(folder.id, this.meta.id, encrypted.ciphertext, encrypted.nonce, new Date().toISOString(), new Date().toISOString());
+      params.push(
+        folder.id,
+        this.meta.id,
+        encrypted.ciphertext,
+        encrypted.nonce,
+        new Date().toISOString(),
+        new Date().toISOString()
+      );
     }
 
     for (const item of mutation.upsert ?? []) {
       const encrypted = await encrypt(this.key, JSON.stringify(item));
       statements.push(
         `INSERT INTO secrets (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`,
+         ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`
       );
-      params.push(item.id, this.meta.id, encrypted.ciphertext, encrypted.nonce, new Date().toISOString(), new Date().toISOString());
+      params.push(
+        item.id,
+        this.meta.id,
+        encrypted.ciphertext,
+        encrypted.nonce,
+        new Date().toISOString(),
+        new Date().toISOString()
+      );
     }
 
     for (const id of mutation.deleteIds ?? []) {
@@ -200,9 +232,7 @@ export class SyncVaultHandle implements VaultHandleLike {
   }
 
   async renameFolder(folderId: string, name: string): Promise<void> {
-    const folders = (await this.loadFolders()).map((f) =>
-      f.id === folderId ? { ...f, name } : f,
-    );
+    const folders = (await this.loadFolders()).map((f) => (f.id === folderId ? { ...f, name } : f));
     await this.mutateItems({ folders });
   }
 
@@ -223,7 +253,7 @@ export class SyncVaultHandle implements VaultHandleLike {
   async decryptSecret(secret: Secret): Promise<string> {
     const rows = await this.handle.execute(
       `SELECT ciphertext, nonce FROM secrets WHERE id = ? AND vault_id = ?`,
-      [secret.id, this.meta.id],
+      [secret.id, this.meta.id]
     );
     if (!rows.rows[0]) throw new Error("Secret not found");
     const row = rows.rows[0] as unknown[];
@@ -252,7 +282,7 @@ export class SyncVaultHandle implements VaultHandleLike {
     await this.handle.execute(
       `INSERT INTO secrets (id, vault_id, ciphertext, nonce, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`,
-      [item.id, this.meta.id, encrypted.ciphertext, encrypted.nonce, item.createdAt, item.updatedAt],
+      [item.id, this.meta.id, encrypted.ciphertext, encrypted.nonce, item.createdAt, item.updatedAt]
     );
     return item;
   }
@@ -266,27 +296,38 @@ export class SyncVaultHandle implements VaultHandleLike {
       this.loadSecrets(),
       this.loadFolders(),
       this.loadLockSettings(),
-      this.handle.execute(
-        `SELECT name, authentication FROM vaults WHERE id = ?`,
-        [this.meta.id],
-      ),
+      this.handle.execute(`SELECT name, authentication FROM vaults WHERE id = ?`, [this.meta.id]),
     ]);
 
     const { encodeBackup } = await import("$lib/vault/backup");
-    const secretsPayload = await Promise.all(items.map(async (item) => {
-      const encrypted = await encrypt(this.key, JSON.stringify(item));
-      return { id: item.id, ...encrypted, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    }));
-    const foldersPayload = await Promise.all(folders.map(async (folder) => {
-      const encrypted = await encrypt(this.key, JSON.stringify(folder));
-      return { id: folder.id, ...encrypted, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    }));
+    const secretsPayload = await Promise.all(
+      items.map(async (item) => {
+        const encrypted = await encrypt(this.key, JSON.stringify(item));
+        return {
+          id: item.id,
+          ...encrypted,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
+    const foldersPayload = await Promise.all(
+      folders.map(async (folder) => {
+        const encrypted = await encrypt(this.key, JSON.stringify(folder));
+        return {
+          id: folder.id,
+          ...encrypted,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
 
-    const metaRow = metaResult.rows[0] as unknown[] | undefined;
+    const metaRow = metaResult.rows[0];
     return encodeBackup(this.key, {
       meta: this.meta,
-      authentication: (metaRow?.[1] as string) ?? "",
-      name: (metaRow?.[0] as string) ?? "vault",
+      authentication: typeof metaRow?.[1] === "string" ? metaRow[1] : "",
+      name: typeof metaRow?.[0] === "string" ? metaRow[0] : "vault",
       secrets: secretsPayload,
       folders: foldersPayload,
       itemFormat: 2,
@@ -298,14 +339,18 @@ export class SyncVaultHandle implements VaultHandleLike {
   async loadLockSettings(): Promise<LockSettings> {
     const rows = await this.handle.execute(
       `SELECT vault_id, ciphertext, nonce, updated_at FROM lock_settings WHERE vault_id = ?`,
-      [this.meta.id],
+      [this.meta.id]
     );
     if (!rows.rows[0]) return { ...DEFAULT_LOCK_SETTINGS };
     const row = rows.rows[0] as unknown[];
-    return decryptLockSettings(this.key, this.meta.id, JSON.stringify({
-      ciphertext: row[1] as string,
-      nonce: row[2] as string,
-    }));
+    return decryptLockSettings(
+      this.key,
+      this.meta.id,
+      JSON.stringify({
+        ciphertext: row[1] as string,
+        nonce: row[2] as string,
+      })
+    );
   }
 
   async saveLockSettings(settings: LockSettings): Promise<LockSettings> {
@@ -314,7 +359,7 @@ export class SyncVaultHandle implements VaultHandleLike {
     await this.handle.execute(
       `INSERT INTO lock_settings (vault_id, ciphertext, nonce, updated_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(vault_id) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, updated_at = excluded.updated_at`,
-      [this.meta.id, encrypted.ciphertext, encrypted.nonce, new Date().toISOString()],
+      [this.meta.id, encrypted.ciphertext, encrypted.nonce, new Date().toISOString()]
     );
     return settings;
   }
@@ -323,15 +368,15 @@ export class SyncVaultHandle implements VaultHandleLike {
     return this.handle.sync(options);
   }
 
-  close(): void {
-    this.handle.close();
+  close(): Promise<void> {
+    return this.handle.close();
   }
 }
 
 export async function createSyncVault(
   password: string,
   name: string,
-  syncHandle: DatabaseHandle,
+  syncHandle: DatabaseHandle
 ): Promise<SyncVaultHandle> {
   const vaultId = crypto.randomUUID();
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -348,7 +393,7 @@ export async function createSyncVault(
   // Insert vault metadata
   await syncHandle.execute(
     `INSERT INTO vaults (id, name, salt, iv, created_at, authentication, status, migrated) VALUES (?, ?, ?, ?, ?, ?, 'ready', 1)`,
-    [vaultId, name.trim(), meta.salt, meta.iv, meta.createdAt, authentication],
+    [vaultId, name.trim(), meta.salt, meta.iv, meta.createdAt, authentication]
   );
 
   return SyncVaultHandle.create(syncHandle, key, meta);
@@ -357,11 +402,11 @@ export async function createSyncVault(
 export async function unlockSyncVault(
   password: string,
   vaultId: string,
-  syncHandle: DatabaseHandle,
+  syncHandle: DatabaseHandle
 ): Promise<SyncVaultHandle | null> {
   const results = await syncHandle.execute(
     `SELECT id, name, salt, iv, created_at, authentication, status, migrated FROM vaults WHERE id = ?`,
-    [vaultId],
+    [vaultId]
   );
 
   if (!results.rows[0]) return null;
@@ -380,11 +425,15 @@ export async function unlockSyncVault(
   const salt = fromBase64(meta.salt);
   const key = await deriveKey(password, salt);
   if (meta.authentication) {
-    await verifyAuthentication(key, { id: meta.id, salt: meta.salt, iv: meta.iv, createdAt: meta.createdAt }, meta.authentication);
+    await verifyAuthentication(
+      key,
+      { id: meta.id, salt: meta.salt, iv: meta.iv, createdAt: meta.createdAt },
+      meta.authentication
+    );
   } else {
     const secrets = await syncHandle.execute(
       `SELECT id, ciphertext, nonce FROM secrets WHERE vault_id = ?`,
-      [vaultId],
+      [vaultId]
     );
     if (secrets.rows.length === 0) {
       throw new Error("original password cannot be verified");
@@ -409,12 +458,12 @@ export async function unlockSyncVault(
   return SyncVaultHandle.create(syncHandle, key, vaultMeta);
 }
 
-export async function listSyncVaults(syncHandle: DatabaseHandle): Promise<
-  { id: string; name: string; status: "ready"; migrated: boolean }[]
-> {
+export async function listSyncVaults(
+  syncHandle: DatabaseHandle
+): Promise<{ id: string; name: string; status: "ready"; migrated: boolean }[]> {
   const results = await syncHandle.execute(
     `SELECT id, name, status, migrated FROM vaults WHERE status = 'ready' ORDER BY created_at DESC`,
-    [],
+    []
   );
   return results.rows.map((row: unknown[]) => ({
     id: row[0] as string,

@@ -12,13 +12,10 @@
  * Do not edit the class manually.
  */
 
-import { mapValues } from "../runtime.js";
 import type { IndependentCreateIntent } from "./IndependentCreateIntent.js";
 import {
   IndependentCreateIntentFromJSON,
-  IndependentCreateIntentFromJSONTyped,
   IndependentCreateIntentToJSON,
-  IndependentCreateIntentToJSONTyped,
 } from "./IndependentCreateIntent.js";
 
 /**
@@ -60,7 +57,7 @@ export function RegistrationFromJSON(json: any): Registration {
   return RegistrationFromJSONTyped(json, false);
 }
 
-export function RegistrationFromJSONTyped(json: any, ignoreDiscriminator: boolean): Registration {
+export function RegistrationFromJSONTyped(json: any, _ignoreDiscriminator: boolean): Registration {
   if (
     json &&
     typeof json === "object" &&
@@ -86,7 +83,7 @@ export function RegistrationToJSON(json: any): Registration {
 
 export function RegistrationToJSONTyped(
   value?: Registration | null,
-  ignoreDiscriminator: boolean = false
+  _ignoreDiscriminator: boolean = false
 ): any {
   if (value == null) {
     return value;

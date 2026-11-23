@@ -9,12 +9,10 @@ test("transaction execute maps pending rows with positional and named parameters
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const db = await (window as any).sql.Database.open("transaction-select");
+    const db = await window.sql.Database.open("transaction-select");
     const client = db.client();
     const timed = client.withDeadline(1000n);
-    await timed.executeRaw(
-      "CREATE TABLE records (id INTEGER PRIMARY KEY, cipher BLOB)",
-    );
+    await timed.executeRaw("CREATE TABLE records (id INTEGER PRIMARY KEY, cipher BLOB)");
     const tx = await timed.transaction();
     timed.close();
     client.close();
@@ -23,7 +21,7 @@ test("transaction execute maps pending rows with positional and named parameters
       await tx.executeRaw("INSERT INTO records VALUES (2, $1), (1, $1)", [
         { type: "blob", value: "AP8BgA==" },
       ]);
-      const parse = (row: any) => {
+      const parse = (row: import("../src/index.js").Row) => {
         if (row.id?.type !== "integer" || row.cipher?.type !== "blob")
           throw new Error("invalid record");
         return {
@@ -31,24 +29,17 @@ test("transaction execute maps pending rows with positional and named parameters
           ciphertext: row.cipher.value,
         };
       };
-      const positional = await tx.execute(
-        "SELECT cipher,id FROM records WHERE id = $1",
-        parse,
-        [{ type: "integer", value: "1" }],
-      );
-      const named = await tx.execute(
-        "SELECT id,cipher FROM records WHERE id = :id",
-        parse,
-        { id: { type: "integer", value: "2" } },
-      );
+      const positional = await tx.execute("SELECT cipher,id FROM records WHERE id = $1", parse, [
+        { type: "integer", value: "1" },
+      ]);
+      const named = await tx.execute("SELECT id,cipher FROM records WHERE id = :id", parse, {
+        id: { type: "integer", value: "2" },
+      });
       let calls = 0;
-      const empty = await tx.execute(
-        "SELECT id FROM records WHERE id = 3",
-        () => {
-          calls++;
-          throw new Error("must not parse");
-        },
-      );
+      const empty = await tx.execute("SELECT id FROM records WHERE id = 3", () => {
+        calls++;
+        throw new Error("must not parse");
+      });
       await tx.rollback();
       return { positional, named, empty, calls };
     } finally {
@@ -64,11 +55,9 @@ test("transaction execute maps pending rows with positional and named parameters
 });
 
 for (const cleanup of ["rollback", "commit", "close"] as const) {
-  test(`parser failure keeps pending writes until explicit ${cleanup}`, async ({
-    page,
-  }) => {
+  test(`parser failure keeps pending writes until explicit ${cleanup}`, async ({ page }) => {
     const result = await page.evaluate(async (cleanup) => {
-      const { Database, ExecuteError } = (window as any).sql;
+      const { Database, ExecuteError } = window.sql;
       const db = await Database.open(`transaction-parser-${cleanup}`);
       const client = db.client();
       await client.executeRaw("CREATE TABLE items (id INTEGER PRIMARY KEY)");
@@ -77,45 +66,46 @@ for (const cleanup of ["rollback", "commit", "close"] as const) {
         await tx.executeRaw("INSERT INTO items VALUES (1), (2), (3)");
         const cause = new Error("private-parser-data");
         let calls = 0;
-        let failure;
-        let parsed;
-        try {
-          parsed = await tx.execute(
-            "SELECT id FROM items ORDER BY id",
-            (row: any) => {
-              if (++calls === 2) throw cause;
-              return row.id;
+        let partial = false;
+        const failure = await tx
+          .execute("SELECT id FROM items ORDER BY id", (row: import("../src/index.js").Row) => {
+            if (++calls === 2) throw cause;
+            return row.id;
+          })
+          .then(
+            () => {
+              partial = true;
+              return undefined;
             },
+            (error) => {
+              if (!(error instanceof ExecuteError)) throw error;
+              return {
+                typed: true,
+                reason: error.reason,
+                rowIndex: error.rowIndex,
+                sameCause: error.cause === cause,
+                safeMessage: !/SELECT|items|private-parser-data/.test(error.message),
+              };
+            }
           );
-        } catch (error: any) {
-          failure = {
-            typed: error instanceof ExecuteError,
-            reason: error.reason,
-            rowIndex: error.rowIndex,
-            sameCause: error.cause === cause,
-            safeMessage: !/SELECT|items|private-parser-data/.test(
-              error.message,
-            ),
-          };
-        }
         const pending = await tx.execute(
           "SELECT id FROM items ORDER BY id",
-          (row: any) => row.id.value,
+          (row: import("../src/index.js").Row) => row.id.value
         );
         const invisible = await client.execute(
           "SELECT id FROM items",
-          (row: any) => row.id.value,
+          (row: import("../src/index.js").Row) => row.id.value
         );
         await tx[cleanup]();
         return {
           calls,
-          partial: parsed !== undefined,
+          partial,
           failure,
           pending,
           invisible,
           persisted: await client.execute(
             "SELECT id FROM items ORDER BY id",
-            (row: any) => row.id.value,
+            (row: import("../src/index.js").Row) => row.id.value
           ),
         };
       } finally {
@@ -145,28 +135,24 @@ test("result-count failure runs the batch once and leaves commit under caller co
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const { Database, ExecuteError } = (window as any).sql;
+    const { Database, ExecuteError } = window.sql;
     const db = await Database.open("transaction-batch");
     const client = db.client();
     await client.executeRaw("CREATE TABLE items (id INTEGER PRIMARY KEY)");
     const tx = await client.transaction();
     try {
       let calls = 0;
-      let failure;
-      try {
-        await tx.execute(
-          "INSERT INTO items VALUES (1); SELECT id FROM items",
-          () => {
-            calls++;
-          },
+      const failure = await tx
+        .execute("INSERT INTO items VALUES (1); SELECT id FROM items", () => {
+          calls++;
+        })
+        .then(
+          () => undefined,
+          (error) => error instanceof ExecuteError && error.reason === "result-count"
         );
-      } catch (error: any) {
-        failure =
-          error instanceof ExecuteError && error.reason === "result-count";
-      }
       const pending = await tx.execute(
         "SELECT id FROM items",
-        (row: any) => row.id.value,
+        (row: import("../src/index.js").Row) => row.id.value
       );
       await tx.commit();
       return {
@@ -175,7 +161,7 @@ test("result-count failure runs the batch once and leaves commit under caller co
         pending,
         persisted: await client.execute(
           "SELECT id FROM items",
-          (row: any) => row.id.value,
+          (row: import("../src/index.js").Row) => row.id.value
         ),
       };
     } finally {
@@ -196,13 +182,13 @@ test("transaction execute preserves busy, closed, consumed and in-flight close b
   page,
 }) => {
   const result = await page.evaluate(async () => {
-    const { Database, ExecuteError, Error: SqlError } = (window as any).sql;
+    const { Database, ExecuteError, Error: SqlError } = window.sql;
     const db = await Database.open("transaction-select-lifecycle");
     const client = db.client();
     await client.executeRaw("CREATE TABLE items (id INTEGER PRIMARY KEY)");
     const tx = await client.transaction();
     let calls = 0;
-    const parse = (row: any) => {
+    const parse = (row: import("../src/index.js").Row) => {
       calls++;
       return row.id.value;
     };
@@ -220,12 +206,12 @@ test("transaction execute preserves busy, closed, consumed and in-flight close b
         overlaps.map((operation) =>
           operation.then(
             () => false,
-            (error: any) =>
+            (error) =>
               error instanceof SqlError &&
               !(error instanceof ExecuteError) &&
-              /busy/.test(error.message),
-          ),
-        ),
+              /busy/.test(error.message)
+          )
+        )
       );
       tx.close();
       const rows = await pending;
@@ -234,11 +220,11 @@ test("transaction execute preserves busy, closed, consumed and in-flight close b
         await consumed[cleanup]();
         try {
           await consumed.execute("SELECT id FROM items", parse);
-        } catch (error: any) {
+        } catch (error) {
           errors.push(
             error instanceof SqlError &&
               !(error instanceof ExecuteError) &&
-              /closed/.test(error.message),
+              /closed/.test(error.message)
           );
         } finally {
           consumed.close();
@@ -246,7 +232,7 @@ test("transaction execute preserves busy, closed, consumed and in-flight close b
       }
       try {
         await tx.execute("SELECT id FROM items", parse);
-      } catch (error: any) {
+      } catch (error) {
         errors.push(error instanceof SqlError && /closed/.test(error.message));
       }
       return {

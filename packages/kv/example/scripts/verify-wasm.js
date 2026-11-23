@@ -1,17 +1,14 @@
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distAssets = path.join(__dirname, "..", "dist", "assets");
 const wasmFiles = fs.readdirSync(distAssets).filter((f) => f.endsWith(".wasm"));
 
-if (wasmFiles.length < 2) {
-  console.error("ERROR: Missing WASM files in build output");
-  console.error(
-    "Expected at least 2 WASM files (kv + sql), found:",
-    wasmFiles.length
-  );
+if (wasmFiles.length < 1) {
+  console.error("ERROR: Missing WASM file in build output");
+  console.error("Expected at least 1 WASM file, found:", wasmFiles.length);
   process.exit(1);
 }
 
