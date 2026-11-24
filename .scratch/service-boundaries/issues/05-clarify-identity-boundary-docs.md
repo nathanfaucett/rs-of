@@ -2,6 +2,8 @@
 
 Status: ready-for-agent
 
+Work status: resolved
+
 ## User outcome
 
 A client can tell which identifier selects a Device record, which key proves endpoint possession, and which subject identifies the User actor.
@@ -12,9 +14,9 @@ Clarify the existing contracts. Keep definitions in the context glossaries and o
 
 ## Acceptance checks
 
-- [ ] The architecture and glossary distinguish IdP Principal identity and OAuth/OIDC trust from Device endpoint identity and approval. Management owns authorization, not Device configuration or records.
-- [ ] Device OpenAPI descriptions distinguish User subject, Device record ID, and endpoint public key. Where `ownerSubject` appears, state its legacy role without calling it the request actor or the endpoint identity.
-- [ ] Generated contracts match the source; schema shapes and wire behavior do not change.
+- [x] The architecture and glossary distinguish IdP Principal identity and OAuth/OIDC trust from Device endpoint identity and approval. Management owns authorization, not Device configuration or records.
+- [x] Device OpenAPI descriptions distinguish User subject, Device record ID, and endpoint public key. Where `ownerSubject` appears, state its legacy role without calling it the request actor or the endpoint identity.
+- [x] Generated contracts match the source; schema shapes and wire behavior do not change.
 
 ## Dependencies and current evidence
 

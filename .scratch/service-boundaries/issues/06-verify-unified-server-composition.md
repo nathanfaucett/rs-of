@@ -2,6 +2,8 @@
 
 Status: ready-for-agent
 
+Work status: resolved
+
 ## User outcome
 
 A client can use all four APIs on one local host. Sharing a host does not let a client bypass an owner's routing or authorization.
@@ -12,8 +14,8 @@ Extend the current unified-server composition tests. Keep existing prefixes and 
 
 ## Acceptance checks
 
-- [ ] All four owner prefixes serve their published surfaces. An unknown prefix and a representative owner route under the wrong prefix return not found.
-- [ ] A valid User token with a non-Device audience does not authorize a Device administrative write. A Device-audience token without the exact Management grant also fails. Neither request changes Device state.
+- [x] All four owner prefixes serve their published surfaces. An unknown prefix and a representative owner route under the wrong prefix return not found.
+- [x] A valid User token with a non-Device audience does not authorize a Device administrative write. A Device-audience token without the exact Management grant also fails. Neither request changes Device state.
 
 ## Dependencies and current evidence
 

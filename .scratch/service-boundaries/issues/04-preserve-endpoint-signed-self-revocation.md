@@ -2,6 +2,8 @@
 
 Status: ready-for-agent
 
+Work status: resolved
+
 ## User outcome
 
 A Device can withdraw its own approval without User sign-in, including when IdP is unavailable.
@@ -12,9 +14,9 @@ Preserve the current `revoke_self` endpoint, signed payload, and Device-state ru
 
 ## Acceptance checks
 
-- [ ] A valid signature revokes the matching Device with no bearer token and without calling IdP or Management.
-- [ ] A missing, invalid, or different-key signature changes no Device state. A Device cannot revoke another endpoint using its own signature.
-- [ ] Verify that the revoked Device is no longer available through approved endpoint lookup.
+- [x] A valid signature revokes the matching Device with no bearer token and without calling IdP or Management.
+- [x] A missing, invalid, or different-key signature changes no Device state. A Device cannot revoke another endpoint using its own signature.
+- [x] Verify that the revoked Device is no longer available through approved endpoint lookup.
 
 ## Dependencies and current evidence
 

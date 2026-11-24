@@ -2,6 +2,8 @@
 
 Status: ready-for-agent
 
+Work status: resolved
+
 ## User outcome
 
 An authorized, active User can approve and administer Devices without confusing User identity, endpoint identity, or Resource access. A Device can withdraw its own approval with its endpoint key, without signing in as a User. This work advances [M3](../../docs/goal.md#m3--two-device-offline-use-and-administration); it does not complete M3.
@@ -21,12 +23,16 @@ No Management Device-write routes, address updates, endpoint-key rotation, share
 
 ## Acceptance checks
 
-- [ ] Rename requires the exact permission and active actor; denial leaves the name unchanged.
-- [ ] Signed pairing approval and administrative revocation succeed through the public Device API only when authorization and Device rules pass. Test independent policy, identity, proof, and state failures where applicable. Each denial leaves the record unchanged.
-- [ ] Signed self-revocation works without IdP or Management. Invalid proof changes no state.
-- [ ] Approval leaves Selections unchanged, and revocation blocks later use after it is learned.
-- [ ] Unified routing preserves owner prefixes and token audiences. API descriptions distinguish the User subject, Device ID, and endpoint key.
+- [x] Rename requires the exact permission and active actor; denial leaves the name unchanged.
+- [x] Signed pairing approval and administrative revocation succeed through the public Device API only when authorization and Device rules pass. Test independent policy, identity, proof, and state failures where applicable. Each denial leaves the record unchanged.
+- [x] Signed self-revocation works without IdP or Management. Invalid proof changes no state.
+- [x] Approval leaves Selections unchanged, and revocation blocks later use after it is learned.
+- [x] Unified routing preserves owner prefixes and token audiences. API descriptions distinguish the User subject, Device ID, and endpoint key.
 
 ## Dependencies and current evidence
 
 No external blocker. See [issues](issues/) for the focused checks and real-backend qualification. [Architecture](../../docs/architecture.md) and the [glossary map](../../GLOSSARY-MAP.md) define target ownership. Current handlers already check active Users and exact permissions; current owner tests cover signed pairing and four-owner health. These are a baseline, not proof of all acceptance checks or shared-Device support.
+
+## Comments
+
+Resolved on `service-boundaries-integration`. The shared database, schema, and permission grants are unchanged. Focused Device, model, and IdP tests, the serial unified composition suite, generated Device contract checks, and Playwright owner HTTP tests passed. The parallel run hit the existing startup deadline; the serial run passed. Full browser and workspace suites were not run. The unrestricted IdP feature-powerset run stopped on an existing test configuration error; the supported combinations passed the focused IdP test. No independent deployment or multi-Device convergence qualification is claimed.

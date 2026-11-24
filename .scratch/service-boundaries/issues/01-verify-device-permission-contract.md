@@ -2,6 +2,8 @@
 
 Status: ready-for-agent
 
+Work status: resolved
+
 ## User outcome
 
 A User can administer a Device only with the permission for that operation. Advancing [M3](../../../docs/goal.md#m3--two-device-offline-use-and-administration).
@@ -12,8 +14,8 @@ Keep the shared `IdentityAction` model and `ManagementService::evaluate_permissi
 
 ## Acceptance checks
 
-- [ ] Existing tests or focused additions show that Management evaluates each action only at Installation scope, with a valid Device target. Collection targets are allowed for enrollment requests, not rename or revocation. Pairing approval must supply the exact non-nil Device ID at its call site.
-- [ ] For each operation, a grant for another action does not authorize it. An Application-scoped grant does not confer Installation authority.
+- [x] Existing tests or focused additions show that Management evaluates each action only at Installation scope, with a valid Device target. Collection targets are allowed for enrollment requests, not rename or revocation. Pairing approval must supply the exact non-nil Device ID at its call site.
+- [x] For each operation, a grant for another action does not authorize it. An Application-scoped grant does not confer Installation authority.
 
 ## Dependencies and current evidence
 

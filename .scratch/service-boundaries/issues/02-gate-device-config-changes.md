@@ -2,6 +2,8 @@
 
 Status: ready-for-agent
 
+Work status: resolved
+
 ## User outcome
 
 An authorized User can rename a Device through the Device API. An unauthorized request cannot change the name.
@@ -12,8 +14,8 @@ Only the existing rename operation. Device owns the write; IdP checks current Us
 
 ## Acceptance checks
 
-- [ ] A Device-audience token for the active User with the exact Installation permission succeeds for an eligible Device.
-- [ ] An invalid or wrong-audience token, inactive actor, missing grant, unrelated grant, or ineligible Device yields the applicable contract error. Read the Device after each denial and confirm that its name did not change.
+- [x] A Device-audience token for the active User with the exact Installation permission succeeds for an eligible Device.
+- [x] An invalid or wrong-audience token, inactive actor, missing grant, unrelated grant, or ineligible Device yields the applicable contract error. Read the Device after each denial and confirm that its name did not change.
 
 ## Dependencies and current evidence
 
