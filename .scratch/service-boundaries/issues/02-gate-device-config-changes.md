@@ -1,14 +1,20 @@
-# 02: Gate Device Config Changes Behind Management Policy Evaluation
+# 02: Verify authorization for Device rename
 
-**What to build:** Device-service API routes that mutate device configuration (e.g., rename, transfer ownership) now require Management policy evaluation before allowing the change. Clients must present valid Management permissions to change device name or address.
+Status: ready-for-agent
 
-**Blocked by:** 01 (needs DevicesApprove/DevicesRevoke actions for policy evaluation)
+## User outcome
 
-**Status:** ready-for-agent
+An authorized User can rename a Device through the Device API. An unauthorized request cannot change the name.
 
-**Acceptance criteria:**
-- [ ] Device-service routes for device config changes (e.g., `transfer_device`, `update_device`) call Management policy evaluation before mutating device state
-- [ ] If policy evaluation fails, the route returns `ErrorCode::AccessDenied`
-- [ ] Device-service no longer accepts config changes without Management permission
+## Scope and compatibility
 
-**Blocked by:** 01
+Only the existing rename operation. Device owns the write; IdP checks current User status and Management evaluates `DevicesRename`. Preserve the HTTP contract and current Device state and legacy owner checks. No Management write route, owner transfer, address update, or endpoint-key change.
+
+## Acceptance checks
+
+- [ ] A Device-audience token for the active User with the exact Installation permission succeeds for an eligible Device.
+- [ ] An invalid or wrong-audience token, inactive actor, missing grant, unrelated grant, or ineligible Device yields the applicable contract error. Read the Device after each denial and confirm that its name did not change.
+
+## Dependencies and current evidence
+
+None. `update_device` already calls the shared permission check. Extend the existing Device authority tests only for missing cases.

@@ -1,15 +1,20 @@
-# 06: Verify unified-server Composition Respects Ownership Boundaries
+# 06: Verify owner isolation in unified-server
 
-**What to build:** The `unified-server` composition host routes requests to the four services by path prefix without merging ownership boundaries. The four service APIs (IdP, Management, Device, Storage) remain distinct even when composed.
+Status: ready-for-agent
 
-**Blocked by:** 01, 02, 03, 04, 05 (all prior tickets must complete first)
+## User outcome
 
-**Status:** ready-for-agent
+A client can use all four APIs on one local host. Sharing a host does not let a client bypass an owner's routing or authorization.
 
-**Acceptance criteria:**
-- [ ] `unified-server` routes `/idp`, `/management`, `/device`, `/storage` to their respective services independently
-- [ ] An IdP token does not grant access to device routes without proper Management/Device-layer checks
-- [ ] Shared database (`of-db`) is used but each service's data namespace remains separate
-- [ ] `just unified` or `cargo run -p unified-server -- local` works and all four routes respond independently
+## Scope and compatibility
 
-**Blocked by:** 01, 02, 03, 04, 05
+Extend the current unified-server composition tests. Keep existing prefixes and audiences. The embedded database layout is a local implementation choice, not a requirement for other deployments. No changes to store layout, provisioning, or independent deployment.
+
+## Acceptance checks
+
+- [ ] All four owner prefixes serve their published surfaces. An unknown prefix and a representative owner route under the wrong prefix return not found.
+- [ ] A valid User token with a non-Device audience does not authorize a Device administrative write. A Device-audience token without the exact Management grant also fails. Neither request changes Device state.
+
+## Dependencies and current evidence
+
+None. Unified dispatch, four-owner health, and restart coverage already exist. Health checks alone do not establish authorization isolation. Use the existing composition fixture and share its public-API coverage with issue 07 where practical.
