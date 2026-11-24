@@ -8624,6 +8624,7 @@ name = "unified-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "clap",
  "clap_complete",
  "cli",
@@ -8631,6 +8632,7 @@ dependencies = [
  "device-service",
  "env_logger 0.10.2",
  "idp-server",
+ "iroh",
  "management-server",
  "management-service",
  "of-db",

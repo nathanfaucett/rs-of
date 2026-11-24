@@ -4,6 +4,8 @@ import {
   Configuration,
   DefaultApi,
   type DeviceEnrollment,
+  type DeviceInfo,
+  type DevicePairingApprovalPayload,
 } from "../packages/device-client/src/index";
 import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
 import { checkedFetch } from "./http";
@@ -185,28 +187,42 @@ test("Device owner requires authorized approval and proof of a second Device key
     })
   );
   expect(pending.state).toBe("pending");
-  const { payload } = await json<{ payload: number[] }>(
+  const { payload } = await json<DevicePairingApprovalPayload>(
     await request.get(`${pairings}/${pending.id}/payload`, { headers })
   );
   const approve = `${pairings}/${pending.id}/approve`;
-  const bytes = Buffer.from(payload);
+  expect(typeof payload).toBe("string");
+  const bytes = Buffer.from(payload, "utf8");
   const signature = sign(null, bytes, second.privateKey).toString("base64url");
-  expect((await request.post(approve, { data: { signature } })).status()).toBe(401);
-  expect((await request.post(approve, { headers, data: { signature: "" } })).status()).toBe(403);
+  const pendingEnrollments = async () =>
+    json<DeviceEnrollment[]>(
+      await request.get(`${backendURL}/device/devices/enrollments`, { headers })
+    );
+  const before = await pendingEnrollments();
+  expect(before).toContainEqual(pending);
   const wrongProof = sign(null, bytes, first.privateKey).toString("base64url");
-  expect((await request.post(approve, { headers, data: { signature: wrongProof } })).status()).toBe(
-    403
-  );
+  for (const [options, status] of [
+    [{ data: { signature } }, 401],
+    [{ headers, data: {} }, 422],
+    [{ headers, data: { signature: "" } }, 403],
+    [{ headers, data: { signature: wrongProof } }, 403],
+  ] as const) {
+    expect((await request.post(approve, options)).status()).toBe(status);
+    expect(await pendingEnrollments()).toEqual(before);
+  }
   const unsignedApproval = await request.post(
     `${backendURL}/device/devices/enrollments/${pending.id}/approve`,
     { headers }
   );
-  expect(unsignedApproval.ok()).toBe(false);
-  const approved = await json<DeviceEnrollment>(
+  expect(unsignedApproval.status()).toBe(404);
+  expect(await pendingEnrollments()).toEqual(before);
+  const approved = await json<DeviceInfo>(
     await request.post(approve, { headers, data: { signature } })
   );
   expect(approved).toMatchObject({ id: pending.id, publicKey: secondKey, state: "approved" });
+  expect((await pendingEnrollments()).some(({ id }) => id === pending.id)).toBe(false);
   expect((await request.post(approve, { headers, data: { signature } })).status()).toBe(403);
+  expect((await device.listDevices()).find(({ id }) => id === pending.id)).toEqual(approved);
   const denied = await request.get(`${backendURL}/device/devices`);
   expect(denied.ok()).toBeFalsy();
 });

@@ -5,12 +5,21 @@ use std::{
     net::TcpListener,
     path::Path,
     process::{Child, Command, Stdio},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-use reqwest::{Method, redirect::Policy};
+use management_service::{
+    ManagementService,
+    ofdb::{DbPermissionRepo, DbRoleRepo},
+};
+use of_model::{
+    id::Id,
+    idp::contract::permission_evaluation::{INSTALLATION_POLICY_ID, IdentityAction},
+};
+use reqwest::{Client, Method, RequestBuilder, StatusCode, redirect::Policy};
 use serde_json::{Value, json};
-use tokio::time::sleep;
+use tokio::{net::TcpListener as AsyncTcpListener, task::JoinHandle, time::sleep};
 
 struct Server(Child);
 
@@ -733,99 +742,252 @@ async fn assert_saved_resource(client: &reqwest::Client, url: &str, read: &str) 
     );
 }
 
+#[path = "composition/device_lifecycle.rs"]
+mod device_lifecycle;
+
+struct OwnerFixture {
+    server: JoinHandle<()>,
+    _root: tempfile::TempDir,
+    base: String,
+    client: Client,
+    management: ManagementService<DbPermissionRepo, DbRoleRepo>,
+}
+
+impl Drop for OwnerFixture {
+    fn drop(&mut self) {
+        self.server.abort();
+    }
+}
+
+impl OwnerFixture {
+    async fn start() -> Self {
+        let root = tempfile::tempdir().expect("fresh owner data");
+        let shared = db::EmbeddedDatabase::open(root.path())
+            .await
+            .expect("fresh database");
+        let database = Arc::new(shared.database.clone());
+        let listener = AsyncTcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind owner routes");
+        let address = listener.local_addr().expect("listener address");
+        let base = format!("http://{address}");
+        let idp_base = format!("{base}/idp");
+        let device_base = format!("{base}/device");
+        let storage_base = format!("{base}/storage");
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(20))
+            .build()
+            .expect("owner HTTP client");
+        let idp = idp_server::build_local_router(
+            root.path(),
+            &idp_base,
+            "http://localhost:5173",
+            Some("http://localhost:5174"),
+            Some(Arc::clone(&database)),
+            Some(shared.storage()),
+            &[("other-user".into(), "other-password".into())],
+        )
+        .await
+        .expect("IdP owner");
+        let device = device_server::build_local_router(
+            root.path(),
+            address.port(),
+            &idp_base,
+            Some(Arc::clone(&database)),
+            Some(client.clone()),
+        )
+        .await
+        .expect("Device owner");
+        let storage = storage_server::build_local_runtime(
+            root.path(),
+            address.port(),
+            &idp_base,
+            &device_base,
+            Some(Arc::clone(&database)),
+            Some(shared.storage()),
+            Some(client.clone()),
+        )
+        .await
+        .expect("Storage owner");
+        let management = management_server::build_local_router(
+            root.path(),
+            address.port(),
+            &idp_base,
+            &storage_base,
+            Some(database),
+            Some(client.clone()),
+        )
+        .await
+        .expect("Management owner");
+        let router = unified_server::compose_router(idp, management, device, storage.router());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.expect("serve owners");
+        });
+
+        Self {
+            server,
+            _root: root,
+            base,
+            client,
+            management: ManagementService::new(
+                DbPermissionRepo::new(shared.client()),
+                DbRoleRepo::new(shared.client()),
+            ),
+        }
+    }
+
+    async fn sign_in(&self, username: &str, password: &str) -> String {
+        let url = format!("{}/idp/oauth2/token", self.base);
+        let client = &self.client;
+        let response = client
+            .post(url)
+            .form(&[
+                ("grant_type", "password"),
+                ("client_id", "local-login"),
+                ("username", username),
+                ("password", password),
+                ("scope", "openid"),
+            ])
+            .send()
+            .await
+            .expect("password request");
+        assert_eq!(response.status(), 200);
+        response.json::<Value>().await.expect("login token")["access_token"]
+            .as_str()
+            .expect("login bearer")
+            .to_owned()
+    }
+
+    async fn subject(&self, token: &str) -> Id {
+        response_json(
+            self.client
+                .get(format!("{}/idp/userinfo", self.base))
+                .bearer_auth(token),
+        )
+        .await["sub"]
+            .as_str()
+            .expect("User subject")
+            .parse()
+            .expect("User ID")
+    }
+}
+
+#[tokio::test]
+async fn unified_routes_are_published_only_under_their_owner_prefixes() {
+    let fixture = OwnerFixture::start().await;
+    let OwnerFixture { base, client, .. } = &fixture;
+    for (owner, route, method) in [
+        ("idp", "/.well-known/openid-configuration", "get"),
+        ("device", "/devices/{id}", "patch"),
+        ("management", "/permissions/evaluate", "post"),
+        ("storage", "/databases", "get"),
+    ] {
+        let contract = response_json(client.get(format!("{base}/{owner}/openapi.json"))).await;
+        assert!(
+            contract["paths"][route][method]["operationId"].is_string(),
+            "{owner} OpenAPI must publish {method} {route}"
+        );
+    }
+    let evaluation = json!({
+        "requestId": Id::now_v7(),
+        "subject": {"type": "user", "id": Id::now_v7()},
+        "action": IdentityAction::DevicesRename,
+        "target": {"scope": "installation", "resource": {"type": "device", "id": Id::now_v7()}},
+    });
+    for (owner, status) in [
+        ("management", StatusCode::UNAUTHORIZED),
+        ("device", StatusCode::NOT_FOUND),
+    ] {
+        assert_status(
+            client
+                .post(format!("{base}/{owner}/permissions/evaluate"))
+                .json(&evaluation),
+            status,
+        )
+        .await;
+    }
+    for path in [
+        "/unknown/health",
+        "/management/devices",
+        "/storage/.well-known/openid-configuration",
+    ] {
+        assert_status(client.get(format!("{base}{path}")), StatusCode::NOT_FOUND).await;
+    }
+}
+
+#[tokio::test]
+async fn device_write_requires_both_device_audience_and_exact_grant() {
+    let fixture = OwnerFixture::start().await;
+    let OwnerFixture {
+        base,
+        client,
+        management,
+        ..
+    } = &fixture;
+    let device_base = format!("{base}/device");
+    let bearer = fixture.sign_in("admin@local.test", "password").await;
+    let owner = fixture.subject(&bearer).await;
+    exercise_device(client, base, &bearer, true).await;
+    let device_token =
+        exchange_token(client, base, "local-login", &bearer, &device_base, None).await;
+    let devices = || {
+        client
+            .get(format!("{device_base}/devices"))
+            .bearer_auth(&device_token)
+    };
+    let listed = response_json(devices()).await;
+    let device_id = listed[0]["id"].as_str().expect("approved Device ID");
+    let device_url = format!("{device_base}/devices/{device_id}");
+    let rename = |token: &str| {
+        client
+            .patch(&device_url)
+            .bearer_auth(token)
+            .json(&json!({"name": "Renamed Device"}))
+    };
+    assert_status(rename(&device_token), StatusCode::FORBIDDEN).await;
+    assert_eq!(response_json(devices()).await, listed);
+    grant(
+        management,
+        INSTALLATION_POLICY_ID,
+        owner,
+        "rename-fixture",
+        &[IdentityAction::DevicesRename.permission()],
+    )
+    .await;
+    let idp_token = exchange_token(
+        client,
+        base,
+        "local-login",
+        &bearer,
+        &format!("{base}/idp"),
+        None,
+    )
+    .await;
+    assert_status(rename(&idp_token), StatusCode::UNAUTHORIZED).await;
+    assert_eq!(response_json(devices()).await, listed);
+    let renamed = response_json(rename(&device_token)).await;
+    assert_eq!(renamed["id"], device_id);
+    assert_eq!(renamed["name"], "Renamed Device");
+}
+
 #[tokio::test]
 async fn device_selection_is_scoped_and_deselection_preserves_the_resource() {
-    use std::sync::Arc;
-
-    use management_service::{
-        ManagementService,
-        ofdb::{DbPermissionRepo, DbRoleRepo},
-    };
-    use of_model::id::Id;
-
-    let root = tempfile::tempdir().expect("fresh owner data");
-    let shared = db::EmbeddedDatabase::open(root.path())
-        .await
-        .expect("fresh database");
-    let database = Arc::new(shared.database.clone());
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind owner routes");
-    let address = listener.local_addr().expect("listener address");
-    let base = format!("http://{address}");
-    let idp_base = format!("{base}/idp");
+    let fixture = OwnerFixture::start().await;
+    let OwnerFixture {
+        base,
+        client,
+        management,
+        ..
+    } = &fixture;
     let device_base = format!("{base}/device");
     let storage_base = format!("{base}/storage");
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(20))
-        .build()
-        .expect("owner HTTP client");
-    let idp = idp_server::build_local_router(
-        root.path(),
-        &idp_base,
-        "http://localhost:5173",
-        Some("http://localhost:5174"),
-        Some(database.clone()),
-        Some(shared.storage()),
-        &[("other-user".into(), "other-password".into())],
-    )
-    .await
-    .expect("IdP owner");
-    let device = device_server::build_local_router(
-        root.path(),
-        address.port(),
-        &idp_base,
-        Some(database.clone()),
-        Some(client.clone()),
-    )
-    .await
-    .expect("Device owner");
-    let storage = storage_server::build_local_runtime(
-        root.path(),
-        address.port(),
-        &idp_base,
-        &device_base,
-        Some(database),
-        Some(shared.storage()),
-        Some(client.clone()),
-    )
-    .await
-    .expect("Storage owner");
-    let router = unified_server::compose_router(idp, axum::Router::new(), device, storage.router());
-    let server = tokio::spawn(async move {
-        axum::serve(listener, router).await.expect("serve owners");
-    });
-
-    let login = |username: &'static str, password: &'static str| {
-        let url = format!("{idp_base}/oauth2/token");
-        let client = client.clone();
-        async move {
-            let response = client
-                .post(url)
-                .form(&[
-                    ("grant_type", "password"),
-                    ("client_id", "local-login"),
-                    ("username", username),
-                    ("password", password),
-                    ("scope", "openid"),
-                ])
-                .send()
-                .await
-                .expect("password request");
-            assert_eq!(response.status(), 200);
-            response.json::<Value>().await.expect("login token")["access_token"]
-                .as_str()
-                .expect("login bearer")
-                .to_owned()
-        }
-    };
-    let bearer = login("admin@local.test", "password").await;
-    let other_user = login("other-user", "other-password").await;
-    exercise_device(&client, &base, &bearer, true).await;
+    let bearer = fixture.sign_in("admin@local.test", "password").await;
+    let other_user = fixture.sign_in("other-user", "other-password").await;
+    exercise_device(client, base, &bearer, true).await;
 
     let device_token =
-        exchange_token(&client, &base, "local-login", &bearer, &device_base, None).await;
+        exchange_token(client, base, "local-login", &bearer, &device_base, None).await;
     let listed: Value = client
         .get(format!("{device_base}/devices"))
         .bearer_auth(&device_token)
@@ -839,44 +1001,11 @@ async fn device_selection_is_scoped_and_deselection_preserves_the_resource() {
         .expect("Device list body");
     let device_id = listed[0]["id"].as_str().expect("approved Device ID");
     let selection = format!("{device_base}/devices/{device_id}/selection");
-    let management = ManagementService::new(
-        DbPermissionRepo::new(shared.client()),
-        DbRoleRepo::new(shared.client()),
-    );
-    let subject = |token: String| {
-        let client = client.clone();
-        let url = format!("{idp_base}/userinfo");
-        async move {
-            let info: Value = client
-                .get(url)
-                .bearer_auth(token)
-                .send()
-                .await
-                .expect("userinfo")
-                .error_for_status()
-                .expect("valid User")
-                .json()
-                .await
-                .expect("User response");
-            info["sub"]
-                .as_str()
-                .expect("subject")
-                .parse::<Id>()
-                .expect("User ID")
-        }
-    };
-    let other_token = exchange_token(
-        &client,
-        &base,
-        "local-login",
-        &other_user,
-        &device_base,
-        None,
-    )
-    .await;
+    let other_token =
+        exchange_token(client, base, "local-login", &other_user, &device_base, None).await;
     let other_app = frontend_token(
-        &client,
-        &base,
+        client,
+        base,
         &bearer,
         "app",
         "http://localhost:5173/callback",
@@ -885,16 +1014,16 @@ async fn device_selection_is_scoped_and_deselection_preserves_the_resource() {
     let app_bearer = other_app["access_token"]
         .as_str()
         .expect("second Application token");
-    let app_token = exchange_token(&client, &base, "app", app_bearer, &device_base, None).await;
-    let owner = subject(bearer.clone()).await;
-    let stranger = subject(other_user).await;
+    let app_token = exchange_token(client, base, "app", app_bearer, &device_base, None).await;
+    let owner = fixture.subject(&bearer).await;
+    let stranger = fixture.subject(&other_user).await;
     let mut selected = Vec::new();
     for (id, login, token) in [
         ("local-login", bearer.as_str(), &device_token),
         ("app", app_bearer, &app_token),
     ] {
-        let resource = storage_roundtrip(&client, &base, id, login).await;
-        let read = exchange_storage(&client, &base, id, login, "storage:databases", "read").await;
+        let resource = storage_roundtrip(client, base, id, login).await;
+        let read = exchange_storage(client, base, id, login, "storage:databases", "read").await;
         let url = format!("{storage_base}/databases/{resource}");
         let details: Value = client
             .get(&url)
@@ -1064,5 +1193,62 @@ async fn device_selection_is_scoped_and_deselection_preserves_the_resource() {
             .status(),
         404
     );
-    server.abort();
+}
+
+async fn assert_status(request: RequestBuilder, expected: StatusCode) {
+    let response = request.send().await.expect("owner HTTP response");
+    let status = response.status();
+    let url = response.url().to_string();
+    assert_eq!(
+        status,
+        expected,
+        "{url}: {}",
+        response.text().await.expect("response body")
+    );
+}
+
+async fn response_json(request: RequestBuilder) -> Value {
+    let response = request.send().await.expect("owner HTTP response");
+    let status = response.status();
+    let url = response.url().to_string();
+    let body = response.text().await.expect("response body");
+    assert!(status.is_success(), "{url}: {status} {body}");
+    serde_json::from_str(&body).expect("owner JSON response")
+}
+
+async fn grant(
+    management: &ManagementService<DbPermissionRepo, DbRoleRepo>,
+    scope: Id,
+    user: Id,
+    role_name: &str,
+    permissions: &[&str],
+) {
+    let role = management
+        .create_role(scope, role_name, None)
+        .await
+        .expect("fixture role");
+    let existing = management
+        .list_permissions(scope, 0, 100)
+        .await
+        .expect("fixture permissions");
+    for name in permissions {
+        let id = match existing.iter().find(|permission| permission.name == *name) {
+            Some(permission) => permission.id,
+            None => {
+                management
+                    .create_permission(scope, name, None)
+                    .await
+                    .expect("fixture permission")
+                    .id
+            }
+        };
+        management
+            .add_permission_to_role(scope, role.id, id)
+            .await
+            .expect("fixture permission assignment");
+    }
+    management
+        .add_role_to_user(scope, user, role.id)
+        .await
+        .expect("fixture role assignment");
 }

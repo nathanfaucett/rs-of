@@ -107,6 +107,8 @@ of-model = { path = "../model", default-features = false, features = [
 utoipa = { version = "5.5", default-features = false }
 
 # Process fixtures
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+iroh = { version = "1.4", default-features = false, features = ["tls-ring"] }
 management-service = { path = "../management-service", default-features = false, features = ["ofdb"] }
 tempfile = { version = "3.27", default-features = false }
 
