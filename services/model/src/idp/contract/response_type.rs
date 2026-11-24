@@ -1,11 +1,3 @@
-#[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
-
 use serde::{Deserialize, Serialize};
 
 /// Valid OAuth 2.0 response types for the authorization endpoint.

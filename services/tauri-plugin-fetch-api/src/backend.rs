@@ -2,16 +2,17 @@ use axum::body::Body;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::io::Error as IoError;
 use std::pin::Pin;
 use std::sync::Arc;
 use tauri::Webview;
 use tauri::{
-    AppHandle, Manager, Runtime, State,
+    AppHandle, Manager, Runtime, State, async_runtime,
     http::{HeaderName, HeaderValue, Request, Response},
     ipc::{self, JavaScriptChannelId},
     plugin::{Builder, TauriPlugin},
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 
 pub type RequestBoxStream = Request<Body>;
@@ -31,7 +32,7 @@ pub type HandlerFn<R> = Arc<
 
 /// Internal state tracking active streaming channels for mapping incoming chunks
 /// and managing live session cancellation states safely across thread boundaries.
-type ReqSender = tokio::sync::mpsc::Sender<Result<Vec<u8>, std::io::Error>>;
+type ReqSender = mpsc::Sender<Result<Vec<u8>, IoError>>;
 
 #[derive(Default)]
 pub struct PluginStreamState {
@@ -110,10 +111,8 @@ async fn cancel_plugin_stream(
     stream_id: String,
     state: State<'_, PluginStreamState>,
 ) -> Result<(), String> {
-    let mut active = state.active_streams.lock().await;
-    active.remove(&stream_id);
-    let mut senders = state.upload_senders.lock().await;
-    senders.remove(&stream_id);
+    state.active_streams.lock().await.remove(&stream_id);
+    state.upload_senders.lock().await.remove(&stream_id);
     Ok(())
 }
 
@@ -131,24 +130,28 @@ async fn init_plugin_stream<R: Runtime>(
     let stream_id = res_channel.id().to_string();
 
     // 2. Create an in-memory channel to act as the pollable Request body stream source
-    let (req_tx, req_rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(32);
+    let (req_tx, req_rx) = mpsc::channel::<Result<Vec<u8>, IoError>>(32);
     let body_stream = ReceiverStream::new(req_rx);
     let boxed_req_body = Body::from_stream(body_stream);
 
     // Save channel sender to state registry so the upload command can map to it
-    {
-        let mut senders = plugin_state.upload_senders.lock().await;
-        senders.insert(stream_id.clone(), req_tx);
-        let mut active = plugin_state.active_streams.lock().await;
-        active.insert(stream_id.clone())
-    };
+    plugin_state
+        .upload_senders
+        .lock()
+        .await
+        .insert(stream_id.clone(), req_tx);
+    plugin_state
+        .active_streams
+        .lock()
+        .await
+        .insert(stream_id.clone());
 
     // 3. Map client payload configurations into a native tauri::http::Request wrapper layout
-    let mut http_req = Request::builder()
+    let mut request_builder = Request::builder()
         .method(request.method.as_str())
         .uri(&request.uri);
 
-    if let Some(headers_mut) = http_req.headers_mut() {
+    if let Some(headers_mut) = request_builder.headers_mut() {
         for (k, v) in request.headers {
             if let (Ok(name), Ok(val)) = (
                 HeaderName::from_bytes(k.as_bytes()),
@@ -159,23 +162,25 @@ async fn init_plugin_stream<R: Runtime>(
         }
     }
 
-    let finalized_req = http_req.body(boxed_req_body).map_err(|e| e.to_string())?;
+    let finalized_req = request_builder
+        .body(boxed_req_body)
+        .map_err(|e| e.to_string())?;
 
     // 4. Extract execution frame context states to move into the background worker task
-    let handler = handler_state.handler.clone();
-    let shared_active_registry = plugin_state.active_streams.clone();
+    let handler = Arc::clone(&handler_state.handler);
+    let shared_active_registry = Arc::clone(&plugin_state.active_streams);
     let task_stream_id = stream_id.clone();
     let res_channel_task = res_channel.clone();
 
     // 5. Detach an asynchronous task runner thread context to drive both the request and response pipelines
-    tauri::async_runtime::spawn(async move {
+    async_runtime::spawn(async move {
         // Await user routing handler logic inside the spawned task.
         // This prevents blocking `init_plugin_stream` from returning the Stream ID back to JavaScript.
-        let http_res = (handler)(app_handle, finalized_req).await;
+        let handler_response = (handler)(app_handle, finalized_req).await;
 
-        let status = http_res.status().as_u16();
+        let status = handler_response.status().as_u16();
         let mut out_headers = Vec::new();
-        for (k, v) in http_res.headers() {
+        for (k, v) in handler_response.headers() {
             out_headers.push((k.to_string(), v.to_str().unwrap_or("").to_string()));
         }
 
@@ -187,13 +192,12 @@ async fn init_plugin_stream<R: Runtime>(
             })
             .is_err()
         {
-            let mut active = shared_active_registry.lock().await;
-            active.remove(&task_stream_id);
+            shared_active_registry.lock().await.remove(&task_stream_id);
             return; // Frontend channel dropped or page reloaded
         }
 
         // Stream output back to JavaScript sequentially
-        let res_body = http_res.into_body();
+        let res_body = handler_response.into_body();
         let mut res_body_stream = res_body.into_data_stream();
 
         while let Some(chunk_result) = res_body_stream.next().await {

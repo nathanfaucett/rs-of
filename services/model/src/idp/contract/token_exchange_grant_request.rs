@@ -1,10 +1,5 @@
 #[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::{string::String, vec::Vec};
 
 use crate::contract::authorization_details::AuthorizationDetail;
 use serde::{Deserialize, Deserializer, Serialize, de::Error};
@@ -63,8 +58,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::contract::authorization_details::AuthorizationDetail;
-    use crate::contract::authorization_details::StorageAuthorizationAction;
+    use crate::contract::authorization_details::{
+        AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail,
+    };
     use alloc::vec;
 
     use crate::idp::contract::token_exchange_grant_request::TokenExchangeGrantRequest;
@@ -83,7 +79,7 @@ mod tests {
         assert_eq!(
             request.authorization_details,
             Some(vec![AuthorizationDetail::Storage(
-                crate::contract::authorization_details::StorageAuthorizationDetail {
+                StorageAuthorizationDetail {
                     actions: vec![
                         StorageAuthorizationAction::Read,
                         StorageAuthorizationAction::Write

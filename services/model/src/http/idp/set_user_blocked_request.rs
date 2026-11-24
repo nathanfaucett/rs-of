@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SetUserBlockedRequest {
     #[serde(rename = "blocked")]
@@ -18,7 +18,8 @@ pub struct SetUserBlockedRequest {
 }
 
 impl SetUserBlockedRequest {
-    pub fn new(blocked: bool) -> SetUserBlockedRequest {
-        SetUserBlockedRequest { blocked }
+    #[must_use]
+    pub const fn new(blocked: bool) -> Self {
+        Self { blocked }
     }
 }

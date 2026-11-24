@@ -1,3 +1,5 @@
+use core::fmt::{self, Display};
+
 use super::insert::{generated_id, generated_insert};
 use chrono::{DateTime, Timelike, Utc};
 use db::ofdb::validators::SecurityRow;
@@ -50,6 +52,13 @@ const COLUMNS: [&str; 14] = [
 
 pub struct DbOAuth2AuthorizationCodeRepo {
     engine: ofdb_sql::Client,
+}
+
+impl fmt::Debug for DbOAuth2AuthorizationCodeRepo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbOAuth2AuthorizationCodeRepo")
+            .finish_non_exhaustive()
+    }
 }
 
 impl DbOAuth2AuthorizationCodeRepo {
@@ -368,10 +377,10 @@ fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
     DateTime::from_timestamp(value, 0)
         .ok_or_else(|| RepoError::InvalidInput("invalid authorization code timestamp".into()))
 }
-fn db_error(error: ofdb_sql::QueryError) -> RepoError {
+fn db_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
-fn row_error(error: FromRowError) -> RepoError {
+fn row_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 fn from() -> QueryFrom {

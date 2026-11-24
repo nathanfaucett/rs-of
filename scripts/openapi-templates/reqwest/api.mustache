@@ -1,6 +1,6 @@
 {{>partial_header}}
 
-use reqwest;
+
 use serde::{Deserialize, Serialize, de::Error as _};
 use crate::{apis::ResponseContent, models};
 use super::{Error, configuration, ContentType};
@@ -102,6 +102,8 @@ pub enum {{{operationIdCamelCase}}}Error {
 {{#isDeprecated}}
 #[deprecated]
 {{/isDeprecated}}
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 {{#vendorExtensions.x-group-parameters}}
 pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: &configuration::Configuration{{#allParams}}{{#-first}}, {{!
 ### Params
@@ -166,7 +168,7 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
     {{/isArray}}
     {{^isArray}}
     {{^isNullable}}
-    req_builder = req_builder.query(&[("{{{baseName}}}", &{{{vendorExtensions.x-rust-param-identifier}}}.to_string())]);
+    req_builder = req_builder.query(&[("{{{baseName}}}", {{#isString}}{{{vendorExtensions.x-rust-param-identifier}}}.as_str(){{/isString}}{{#isUuid}}{{{vendorExtensions.x-rust-param-identifier}}}.as_str(){{/isUuid}}{{^isString}}{{^isUuid}}&{{{vendorExtensions.x-rust-param-identifier}}}.to_string(){{/isUuid}}{{/isString}})]);
     {{/isNullable}}
     {{#isNullable}}
     {{#isDeepObject}}
@@ -187,18 +189,18 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
         req_builder = req_builder.query(&query_params);
         {{/isMap}}
         {{/isExplode}}
-    };
+    }
     {{/isDeepObject}}
     {{^isDeepObject}}
     {{#isObject}}
     if let Some(ref param_value) = {{{vendorExtensions.x-rust-param-identifier}}} {
         req_builder = req_builder.query(&[("{{{baseName}}}", &serde_json::to_string(param_value)?)]);
-    };
+    }
     {{/isObject}}
     {{#isModel}}
     if let Some(ref param_value) = {{{vendorExtensions.x-rust-param-identifier}}} {
         req_builder = req_builder.query(&[("{{{baseName}}}", &serde_json::to_string(param_value)?)]);
-    };
+    }
     {{/isModel}}
     {{/isDeepObject}}
     {{^isObject}}
@@ -207,25 +209,25 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
     {{^isEnumRef}}
     {{#isPrimitiveType}}
     if let Some(ref param_value) = {{{vendorExtensions.x-rust-param-identifier}}} {
-        req_builder = req_builder.query(&[("{{{baseName}}}", &param_value.to_string())]);
-    };
+        req_builder = req_builder.query(&[("{{{baseName}}}", {{#isString}}param_value.as_str(){{/isString}}{{#isUuid}}param_value.as_str(){{/isUuid}}{{^isString}}{{^isUuid}}&param_value.to_string(){{/isUuid}}{{/isString}})]);
+    }
     {{/isPrimitiveType}}
     {{^isPrimitiveType}}
     if let Some(ref param_value) = {{{vendorExtensions.x-rust-param-identifier}}} {
         req_builder = req_builder.query(&[("{{{baseName}}}", &serde_json::to_string(param_value)?)]);
-    };
+    }
     {{/isPrimitiveType}}
     {{/isEnumRef}}
     {{/isEnum}}
     {{#isEnum}}
     if let Some(ref param_value) = {{{vendorExtensions.x-rust-param-identifier}}} {
         req_builder = req_builder.query(&[("{{{baseName}}}", &param_value.to_string())]);
-    };
+    }
     {{/isEnum}}
     {{#isEnumRef}}
     if let Some(ref param_value) = {{{vendorExtensions.x-rust-param-identifier}}} {
         req_builder = req_builder.query(&[("{{{baseName}}}", &param_value.to_string())]);
-    };
+    }
     {{/isEnumRef}}
     {{/isModel}}
     {{/isObject}}
@@ -277,7 +279,7 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
         {{^isEnum}}
         {{^isEnumRef}}
         {{#isPrimitiveType}}
-        req_builder = req_builder.query(&[("{{{baseName}}}", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("{{{baseName}}}", {{#isString}}param_value.as_str(){{/isString}}{{#isUuid}}param_value.as_str(){{/isUuid}}{{^isString}}{{^isUuid}}&param_value.to_string(){{/isUuid}}{{/isString}})]);
         {{/isPrimitiveType}}
         {{^isPrimitiveType}}
         req_builder = req_builder.query(&[("{{{baseName}}}", &serde_json::to_string(param_value)?)]);
@@ -298,7 +300,7 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
     if let Some(ref apikey) = configuration.api_key {
         let key = apikey.key.clone();
         let value = match apikey.prefix {
-            Some(ref prefix) => format!("{} {}", prefix, key),
+            Some(ref prefix) => format!("{prefix} {key}"),
             None => key,
         };
         req_builder = req_builder.query(&[("{{{keyParamName}}}", value)]);
@@ -338,18 +340,18 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
     {{#headerParams}}
     {{#required}}
     {{^isNullable}}
-    req_builder = req_builder.header("{{{baseName}}}", {{{vendorExtensions.x-rust-param-identifier}}}{{#isArray}}.join(","){{/isArray}}.to_string());
+    req_builder = req_builder.header("{{{baseName}}}", {{{vendorExtensions.x-rust-param-identifier}}}{{#isArray}}.join(","){{/isArray}}{{^isArray}}{{^isString}}{{^isUuid}}.to_string(){{/isUuid}}{{/isString}}{{/isArray}});
     {{/isNullable}}
     {{#isNullable}}
     match {{{vendorExtensions.x-rust-param-identifier}}} {
-        Some(param_value) => { req_builder = req_builder.header("{{{baseName}}}", param_value{{#isArray}}.join(","){{/isArray}}.to_string()); },
+        Some(param_value) => { req_builder = req_builder.header("{{{baseName}}}", param_value{{#isArray}}.join(","){{/isArray}}{{^isArray}}{{^isString}}{{^isUuid}}.to_string(){{/isUuid}}{{/isString}}{{/isArray}}); },
         None => { req_builder = req_builder.header("{{{baseName}}}", ""); },
     }
     {{/isNullable}}
     {{/required}}
     {{^required}}
     if let Some(param_value) = {{{vendorExtensions.x-rust-param-identifier}}} {
-        req_builder = req_builder.header("{{{baseName}}}", param_value{{#isArray}}.join(","){{/isArray}}.to_string());
+        req_builder = req_builder.header("{{{baseName}}}", param_value{{#isArray}}.join(","){{/isArray}}{{^isArray}}{{^isString}}{{^isUuid}}.to_string(){{/isUuid}}{{/isString}}{{/isArray}});
     }
     {{/required}}
     {{/headerParams}}
@@ -369,29 +371,29 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
     if let Some(ref apikey) = configuration.api_key {
         let key = apikey.key.clone();
         let value = match apikey.prefix {
-            Some(ref prefix) => format!("{} {}", prefix, key),
+            Some(ref prefix) => format!("{prefix} {key}"),
             None => key,
         };
         req_builder = req_builder.header("{{{keyParamName}}}", value);
-    };
+    }
     {{/isKeyInHeader}}
     {{/isApiKey}}
     {{#isBasic}}
     {{#isBasicBasic}}
     if let Some(ref auth_conf) = configuration.basic_auth {
         req_builder = req_builder.basic_auth(auth_conf.0.to_owned(), auth_conf.1.to_owned());
-    };
+    }
     {{/isBasicBasic}}
     {{#isBasicBearer}}
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     {{/isBasicBearer}}
     {{/isBasic}}
     {{#isOAuth}}
     if let Some(ref token) = configuration.oauth_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     {{/isOAuth}}
     {{/supportTokenSource}}
     {{/authMethods}}
@@ -489,11 +491,11 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
     {{^isFile}}
     {{#required}}
     {{^isNullable}}
-    multipart_form = multipart_form.text("{{{baseName}}}", {{{vendorExtensions.x-rust-param-identifier}}}{{#isArray}}.into_iter().map(|p| serde_json::to_value(p).map(|v| match v { serde_json::Value::String(s) => s, v => v.to_string() })).collect::<Result<Vec<_>, _>>()?.join(","){{/isArray}}.to_string());
+    multipart_form = multipart_form.text("{{{baseName}}}", {{{vendorExtensions.x-rust-param-identifier}}}{{#isArray}}.into_iter().map(|p| serde_json::to_value(p).map(|v| match v { serde_json::Value::String(s) => s, v => v.to_string() })).collect::<Result<Vec<_>, _>>()?.join(","){{/isArray}}{{^isArray}}{{^isString}}{{^isUuid}}.to_string(){{/isUuid}}{{/isString}}{{/isArray}});
     {{/isNullable}}
     {{#isNullable}}
     match {{{vendorExtensions.x-rust-param-identifier}}} {
-        Some(param_value) => { multipart_form = multipart_form.text("{{{baseName}}}", param_value{{#isArray}}.into_iter().map(|p| serde_json::to_value(p).map(|v| match v { serde_json::Value::String(s) => s, v => v.to_string() })).collect::<Result<Vec<_>, _>>()?.join(","){{/isArray}}.to_string()); },
+        Some(param_value) => { multipart_form = multipart_form.text("{{{baseName}}}", param_value{{#isArray}}.into_iter().map(|p| serde_json::to_value(p).map(|v| match v { serde_json::Value::String(s) => s, v => v.to_string() })).collect::<Result<Vec<_>, _>>()?.join(","){{/isArray}}{{^isArray}}{{^isString}}{{^isUuid}}.to_string(){{/isUuid}}{{/isString}}{{/isArray}}); },
         None => { multipart_form = multipart_form.text("{{{baseName}}}", ""); },
     }
     {{/isNullable}}
@@ -501,7 +503,7 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
     {{^required}}
     if let Some(param_value) = {{{vendorExtensions.x-rust-param-identifier}}} {
     {{#isPrimitiveType}}
-        multipart_form = multipart_form.text("{{{baseName}}}", param_value.to_string());
+        multipart_form = multipart_form.text("{{{baseName}}}", param_value{{^isString}}{{^isUuid}}.to_string(){{/isUuid}}{{/isString}});
     {{/isPrimitiveType}}
     {{^isPrimitiveType}}
         multipart_form = multipart_form.text("{{{baseName}}}", serde_json::to_string(&param_value)?);
@@ -538,18 +540,18 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
     {{^isFile}}
     {{#required}}
     {{^isNullable}}
-    multipart_form_params.insert("{{{baseName}}}", {{{vendorExtensions.x-rust-param-identifier}}}{{#isArray}}.into_iter().map(|p| serde_json::to_value(p).map(|v| match v { serde_json::Value::String(s) => s, v => v.to_string() })).collect::<Result<Vec<_>, _>>()?.join(","){{/isArray}}.to_string());
+    multipart_form_params.insert("{{{baseName}}}", {{{vendorExtensions.x-rust-param-identifier}}}{{#isArray}}.into_iter().map(|p| serde_json::to_value(p).map(|v| match v { serde_json::Value::String(s) => s, v => v.to_string() })).collect::<Result<Vec<_>, _>>()?.join(","){{/isArray}}{{^isArray}}{{^isString}}{{^isUuid}}.to_string(){{/isUuid}}{{/isString}}{{/isArray}});
     {{/isNullable}}
     {{#isNullable}}
     match {{{vendorExtensions.x-rust-param-identifier}}} {
-        Some(param_value) => { multipart_form_params.insert("{{{baseName}}}", param_value{{#isArray}}.into_iter().map(|p| serde_json::to_value(p).map(|v| match v { serde_json::Value::String(s) => s, v => v.to_string() })).collect::<Result<Vec<_>, _>>()?.join(","){{/isArray}}.to_string()); },
+        Some(param_value) => { multipart_form_params.insert("{{{baseName}}}", param_value{{#isArray}}.into_iter().map(|p| serde_json::to_value(p).map(|v| match v { serde_json::Value::String(s) => s, v => v.to_string() })).collect::<Result<Vec<_>, _>>()?.join(","){{/isArray}}{{^isArray}}{{^isString}}{{^isUuid}}.to_string(){{/isUuid}}{{/isString}}{{/isArray}}); },
         None => { multipart_form_params.insert("{{{baseName}}}", ""); },
     }
     {{/isNullable}}
     {{/required}}
     {{^required}}
     if let Some(param_value) = {{{vendorExtensions.x-rust-param-identifier}}} {
-        multipart_form_params.insert("{{{baseName}}}", param_value{{#isArray}}.into_iter().map(|p| serde_json::to_value(p).map(|v| match v { serde_json::Value::String(s) => s, v => v.to_string() })).collect::<Result<Vec<_>, _>>()?.join(","){{/isArray}}.to_string());
+        multipart_form_params.insert("{{{baseName}}}", param_value{{#isArray}}.into_iter().map(|p| serde_json::to_value(p).map(|v| match v { serde_json::Value::String(s) => s, v => v.to_string() })).collect::<Result<Vec<_>, _>>()?.join(","){{/isArray}}{{^isArray}}{{^isString}}{{^isUuid}}.to_string(){{/isUuid}}{{/isString}}{{/isArray}});
     }
     {{/required}}
     {{/isFile}}
@@ -602,6 +604,19 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
     {{/isResponseFile}}
     {{/supportMultipleResponses}}
 
+    {{^supportMultipleResponses}}
+    {{^isResponseFile}}
+    {{#returnType}}
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    {{/returnType}}
+    {{/isResponseFile}}
+    {{/supportMultipleResponses}}
+    {{#supportMultipleResponses}}
+    {{^isResponseFile}}
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    {{/isResponseFile}}
+    {{/supportMultipleResponses}}
+
     if {{#responses}}{{#is2xx}}status.as_u16() == {{code}} || {{/is2xx}}{{/responses}}false {
         {{^supportMultipleResponses}}
         {{#isResponseFile}}
@@ -612,7 +627,6 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
         Ok(())
         {{/returnType}}
         {{#returnType}}
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         match content_type {
             {{^useSerdePathToError}}
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
@@ -621,12 +635,12 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
             ContentType::Json => serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_str(&content)).map_err(Error::from),
             {{/useSerdePathToError}}
             {{#vendorExtensions.x-supports-plain-text}}
-            ContentType::Text => return Ok(content),
+            ContentType::Text => Ok(content),
             {{/vendorExtensions.x-supports-plain-text}}
             {{^vendorExtensions.x-supports-plain-text}}
-            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `{{returnType}}`"))),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `{{returnType}}`"))),
             {{/vendorExtensions.x-supports-plain-text}}
-            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `{{returnType}}`")))),
+            ContentType::Unsupported(unknown_type) => Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `{{returnType}}`")))),
         }
         {{/returnType}}
         {{/isResponseFile}}
@@ -636,13 +650,21 @@ pub {{#supportAsync}}async {{/supportAsync}}fn {{{operationId}}}(configuration: 
         Ok(resp)
         {{/isResponseFile}}
         {{^isResponseFile}}
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<{{{operationIdCamelCase}}}Success> = serde_json::from_str(&content).ok();
         Ok(ResponseContent { status, content, entity })
         {{/isResponseFile}}
         {{/supportMultipleResponses}}
     } else {
+        {{#isResponseFile}}
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        {{/isResponseFile}}
+        {{^isResponseFile}}
+        {{^supportMultipleResponses}}
+        {{^returnType}}
+        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+        {{/returnType}}
+        {{/supportMultipleResponses}}
+        {{/isResponseFile}}
         let entity: Option<{{{operationIdCamelCase}}}Error> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }

@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 /*
  * LIDP Management API
@@ -12,7 +13,7 @@ use alloc::boxed::Box;
 use crate::http::management as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermissionEvaluationResponse {
     #[serde(rename = "allowed")]
@@ -24,12 +25,13 @@ pub struct PermissionEvaluationResponse {
 }
 
 impl PermissionEvaluationResponse {
+    #[must_use]
     pub fn new(
         allowed: bool,
         audit: models::PermissionAuditIdentity,
         request: models::PermissionEvaluationRequest,
-    ) -> PermissionEvaluationResponse {
-        PermissionEvaluationResponse {
+    ) -> Self {
+        Self {
             allowed,
             audit: Box::new(audit),
             request: Box::new(request),

@@ -1,7 +1,10 @@
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
+
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(
     tag = "type",
@@ -19,7 +22,7 @@ pub enum SqlValue {
     Blob(Vec<u8>),
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SqlStatement {
@@ -30,7 +33,7 @@ pub struct SqlStatement {
     pub params: Vec<SqlValue>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct SqlRequest {
@@ -38,20 +41,20 @@ pub struct SqlRequest {
     pub statements: Vec<SqlStatement>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct SqlResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<SqlValue>>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct SqlResponse {
     pub results: Vec<SqlResult>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct DatabaseFailure {
     pub code: &'static str,

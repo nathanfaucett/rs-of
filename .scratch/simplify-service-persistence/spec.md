@@ -65,3 +65,5 @@ This spec records the result of source review, not shipped behavior. One authori
 ## Comments
 
 All five implementation branches are integrated. The follow-up removes second-server setup and keeps first Installation Create and signed Device approval. The owner test targets compile; focused owner, browser, and generated-contract checks passed. A full Rust rerun and broad offline convergence qualification remain outstanding. See the tickets for focused evidence and limits.
+
+2026-11-24: All five issues have current focused test and library-Clippy evidence and checked acceptance boxes. TypeScript, browser, OpenAPI, sync, and formatting checks passed. Full workspace and broad offline-convergence qualification remain outside the supported claim.

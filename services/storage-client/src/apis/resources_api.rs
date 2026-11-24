@@ -157,6 +157,8 @@ pub enum ListFileSystemsError {
     UnknownValue(serde_json::Value),
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn create_database(
     configuration: &configuration::Configuration,
     params: CreateDatabaseParams,
@@ -171,7 +173,7 @@ pub async fn create_database(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.create_resource_request);
 
     let req = req_builder.build()?;
@@ -186,23 +188,21 @@ pub async fn create_database(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 201 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 201 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DatabaseResource`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DatabaseResource`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DatabaseResource`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<CreateDatabaseError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -212,6 +212,8 @@ pub async fn create_database(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn create_file_system(
     configuration: &configuration::Configuration,
     params: CreateFileSystemParams,
@@ -226,7 +228,7 @@ pub async fn create_file_system(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.create_resource_request);
 
     let req = req_builder.build()?;
@@ -241,23 +243,21 @@ pub async fn create_file_system(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 201 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 201 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::FileSystemResourceResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::FileSystemResourceResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::FileSystemResourceResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<CreateFileSystemError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -267,6 +267,8 @@ pub async fn create_file_system(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn delete_database(
     configuration: &configuration::Configuration,
     params: DeleteDatabaseParams,
@@ -285,7 +287,7 @@ pub async fn delete_database(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -293,7 +295,7 @@ pub async fn delete_database(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -306,6 +308,8 @@ pub async fn delete_database(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn delete_file_system(
     configuration: &configuration::Configuration,
     params: DeleteFileSystemParams,
@@ -324,7 +328,7 @@ pub async fn delete_file_system(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -332,7 +336,7 @@ pub async fn delete_file_system(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -345,6 +349,8 @@ pub async fn delete_file_system(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn ensure_database(
     configuration: &configuration::Configuration,
     params: EnsureDatabaseParams,
@@ -359,7 +365,7 @@ pub async fn ensure_database(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.ensure_database_request);
 
     let req = req_builder.build()?;
@@ -374,23 +380,21 @@ pub async fn ensure_database(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DatabaseResource`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DatabaseResource`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DatabaseResource`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<EnsureDatabaseError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -400,6 +404,8 @@ pub async fn ensure_database(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn get_database(
     configuration: &configuration::Configuration,
     params: GetDatabaseParams,
@@ -416,7 +422,7 @@ pub async fn get_database(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -430,23 +436,21 @@ pub async fn get_database(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DatabaseDetailResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DatabaseDetailResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DatabaseDetailResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<GetDatabaseError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -456,6 +460,8 @@ pub async fn get_database(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn get_file_system(
     configuration: &configuration::Configuration,
     params: GetFileSystemParams,
@@ -472,7 +478,7 @@ pub async fn get_file_system(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -486,23 +492,21 @@ pub async fn get_file_system(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::FileSystemDetailResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::FileSystemDetailResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::FileSystemDetailResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<GetFileSystemError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -512,6 +516,8 @@ pub async fn get_file_system(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn list_databases(
     configuration: &configuration::Configuration,
 ) -> Result<Vec<models::DatabaseResource>, Error<ListDatabasesError>> {
@@ -523,7 +529,7 @@ pub async fn list_databases(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -537,23 +543,21 @@ pub async fn list_databases(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::DatabaseResource&gt;`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::DatabaseResource&gt;`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::DatabaseResource&gt;`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ListDatabasesError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -563,6 +567,8 @@ pub async fn list_databases(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn list_file_systems(
     configuration: &configuration::Configuration,
 ) -> Result<Vec<models::FileSystemResourceResponse>, Error<ListFileSystemsError>> {
@@ -574,7 +580,7 @@ pub async fn list_file_systems(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -588,23 +594,21 @@ pub async fn list_file_systems(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::FileSystemResourceResponse&gt;`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::FileSystemResourceResponse&gt;`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::FileSystemResourceResponse&gt;`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ListFileSystemsError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,

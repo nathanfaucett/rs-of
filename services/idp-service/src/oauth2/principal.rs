@@ -1,4 +1,4 @@
-use core::any::Any;
+use core::{any::Any, fmt};
 
 use of_model::idp::contract::entity_type::EntityType;
 
@@ -25,6 +25,18 @@ pub struct UserPrincipal {
 pub struct ClientPrincipal {
     pub client: Client,
     pub key: Key,
+}
+
+impl fmt::Debug for UserPrincipal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UserPrincipal").finish_non_exhaustive()
+    }
+}
+
+impl fmt::Debug for ClientPrincipal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientPrincipal").finish_non_exhaustive()
+    }
 }
 
 impl Principal for UserPrincipal {

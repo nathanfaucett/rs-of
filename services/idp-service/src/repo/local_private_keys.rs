@@ -1,14 +1,26 @@
+use core::fmt;
+use std::{fmt::Display, thread};
+
 use bip32::DerivationPath;
 
 use key::derived_key::DerivedKey;
 use of_model::id::Id;
 use ofdb_kv::{Client, Database, SharedDatabase, Value};
+use tokio::runtime::Builder;
 
 use crate::repo::error::{RepoError, RepoResult};
 
 pub struct LocalPrivateKeys(Client);
 
+impl fmt::Debug for LocalPrivateKeys {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LocalPrivateKeys").finish_non_exhaustive()
+    }
+}
+
 impl LocalPrivateKeys {
+    /// # Errors
+    /// Returns [`RepoError`] if the private key namespace cannot be opened.
     pub fn new(storage: &SharedDatabase) -> RepoResult<Self> {
         Ok(Self(
             Database::open_shared(storage, "idp-private-keys")
@@ -17,6 +29,8 @@ impl LocalPrivateKeys {
         ))
     }
 
+    /// # Errors
+    /// Returns [`RepoError`] if private material cannot be read or decoded.
     pub fn load(
         &self,
         namespace: &str,
@@ -38,6 +52,8 @@ impl LocalPrivateKeys {
         })
     }
 
+    /// # Errors
+    /// Returns [`RepoError`] if private material cannot be persisted.
     pub fn store(&self, namespace: &str, key: &DerivedKey) -> RepoResult<()> {
         run(async {
             self.0
@@ -51,6 +67,8 @@ impl LocalPrivateKeys {
         })
     }
 
+    /// # Errors
+    /// Returns [`RepoError`] if private material cannot be deleted.
     pub fn delete(&self, namespace: &str, derivation: &DerivationPath) -> RepoResult<()> {
         run(async {
             self.0
@@ -67,19 +85,19 @@ fn key_id(namespace: &str, derivation: &DerivationPath) -> String {
 }
 
 fn run<T: Send>(future: impl Future<Output = RepoResult<T>> + Send) -> RepoResult<T> {
-    std::thread::scope(|scope| {
+    thread::scope(|scope| {
         scope
             .spawn(|| {
-                tokio::runtime::Builder::new_current_thread()
+                Builder::new_current_thread()
                     .build()
                     .map_err(error)?
                     .block_on(future)
             })
             .join()
-            .map_err(|_| RepoError::InvalidInput("local private key worker panicked".into()))?
+            .map_err(|_panic| RepoError::InvalidInput("local private key worker panicked".into()))?
     })
 }
 
-fn error(error: impl std::fmt::Display) -> RepoError {
+fn error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }

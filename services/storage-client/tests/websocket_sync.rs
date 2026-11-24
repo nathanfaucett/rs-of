@@ -6,6 +6,7 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 
 use futures_util::{SinkExt, StreamExt};
@@ -17,7 +18,10 @@ use of_storage_client::{
     transport::{OwnerTransport, TransportConfig},
 };
 use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    time::timeout,
+};
 use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
 use uuid::Uuid;
 
@@ -55,12 +59,12 @@ impl SyncTransport for OwnerStream {
             ))),
         }
     }
-    async fn send(&mut self, payload: Vec<u8>) -> io::Result<()> {
+    async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
         send(
             &mut self.0,
             SyncMessage::OwnerMessage {
                 protocol_id: ProtocolId::OfdbSqlV7,
-                payload,
+                payload: frame,
             },
         )
         .await;
@@ -104,7 +108,7 @@ async fn attach(socket: &mut Socket) {
 
 #[tokio::test]
 async fn websocket_attaches_before_typed_checked_sql_exchange() {
-    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+    timeout(Duration::from_secs(20), async {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
         let url = format!("ws://{}", listener.local_addr().expect("address"));
         let server = tokio::spawn(async move {
@@ -117,7 +121,7 @@ async fn websocket_attaches_before_typed_checked_sql_exchange() {
             database.exchange_resource_history(&mut OwnerStream(socket), &SessionConfig::default(), SyncRole::Responder, directory.path(), || async { Ok(()) }).await.expect("checked exchange");
         });
         let checks = Arc::new(AtomicUsize::new(0));
-        let tokens = checks.clone();
+        let tokens = Arc::clone(&checks);
         let handle = SqlDatabaseHandle::new(ofdb_sql::Database::in_memory(), identity(), TransportConfig::new(url), Arc::new(move || { tokens.fetch_add(1, Ordering::SeqCst); Box::pin(async { Ok("fresh-sync-token".into()) }) }));
         handle.synchronize(None).await.expect("authenticated SQL exchange");
         assert!(checks.load(Ordering::SeqCst) > 1, "pre-apply must recheck credentials");

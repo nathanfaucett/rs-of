@@ -1,18 +1,36 @@
+use core::fmt;
+
 use of_model::id::Id;
 use of_model::idp::contract::jwk_public::JwkPublic;
 use ofdb_sql::{Client, Row, SqlTranslator, Transaction, Value};
 
-use crate::repo::{RepoError, RepoResult};
+use crate::{
+    oauth2::verifing_key_from_jwt,
+    repo::{RepoError, RepoResult},
+};
 
 pub struct DbIssuerKeyRepo {
     engine: Client,
 }
 
+impl fmt::Debug for DbIssuerKeyRepo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbIssuerKeyRepo").finish_non_exhaustive()
+    }
+}
+
 impl DbIssuerKeyRepo {
+    #[must_use]
     pub const fn new(engine: Client) -> Self {
         Self { engine }
     }
 
+    /// # Errors
+    /// Returns [`RepoError`] if issuer key state cannot be read or fails validation.
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "rollback consumes the transaction and releases it immediately"
+    )]
     pub async fn keys(&self, issuer: &str, now: i64) -> RepoResult<Vec<(JwkPublic, bool)>> {
         let mut transaction = self.engine.transaction().await.map_err(RepoError::other)?;
         let result = Self::read(&mut transaction, issuer, now).await;
@@ -48,8 +66,7 @@ impl DbIssuerKeyRepo {
                     return Err(invalid());
                 };
                 let jwk: JwkPublic = serde_json::from_str(encoded).map_err(RepoError::other)?;
-                if jwk.kid != id.to_string() || crate::oauth2::verifing_key_from_jwt(&jwk).is_err()
-                {
+                if jwk.kid != id.to_string() || verifing_key_from_jwt(&jwk).is_err() {
                     return Err(invalid());
                 }
                 let active = match slot {
@@ -66,10 +83,14 @@ impl DbIssuerKeyRepo {
         Ok(keys)
     }
 
+    /// # Errors
+    /// Returns [`RepoError`] if the initial issuer key is invalid or cannot be installed.
     pub async fn install_initial(&self, issuer: &str, key: &JwkPublic) -> RepoResult<()> {
         self.publish(issuer, key, None).await
     }
 
+    /// # Errors
+    /// Returns [`RepoError`] if the replacement or retained key state is invalid or cannot be persisted.
     pub async fn rotate(
         &self,
         issuer: &str,
@@ -80,6 +101,10 @@ impl DbIssuerKeyRepo {
         self.publish(issuer, key, Some((previous, expires))).await
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit and rollback consume the transaction and release it immediately"
+    )]
     async fn publish(
         &self,
         issuer: &str,
@@ -90,7 +115,7 @@ impl DbIssuerKeyRepo {
         if issuer.is_empty()
             || id.is_nil()
             || key.kid != id.to_string()
-            || crate::oauth2::verifing_key_from_jwt(key).is_err()
+            || verifing_key_from_jwt(key).is_err()
         {
             return Err(invalid());
         }
@@ -119,6 +144,8 @@ impl DbIssuerKeyRepo {
         }
     }
 
+    /// # Errors
+    /// Returns [`RepoError`] if the issuer key withdrawal cannot be persisted.
     pub async fn withdraw(&self, issuer: &str, key: Id, now: i64) -> RepoResult<()> {
         self.engine.translate_and_execute(&format!("UPDATE issuer_keys SET active_issuer = NULL, expires_at = {now} WHERE issuer = {} AND key_id = CAST('{key}' AS UUID)", text(issuer)), &SqlTranslator).await.map_err(RepoError::other)?;
         Ok(())

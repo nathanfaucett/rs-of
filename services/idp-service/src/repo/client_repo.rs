@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
 use of_model::idp::contract::client_registration::ClientRegistration;

@@ -1,3 +1,5 @@
+use core::fmt;
+
 use std::sync::Arc;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -8,6 +10,7 @@ use of_model::idp::contract::{
 };
 
 use of_model::device::device::Device;
+use of_model::id::Id;
 
 use of_model::device::contract::device_enrollment::DeviceEnrollment;
 
@@ -29,14 +32,28 @@ pub struct DeviceEnrollmentService<R> {
     repo: Arc<R>,
 }
 
+impl<R> fmt::Debug for DeviceEnrollmentService<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeviceEnrollmentService")
+            .finish_non_exhaustive()
+    }
+}
+
+#[allow(
+    clippy::future_not_send,
+    reason = "DeviceRepo does not require Send futures; preserve the public API"
+)]
 impl<R> DeviceEnrollmentService<R>
 where
     R: DeviceRepo,
 {
-    pub fn new(repo: Arc<R>) -> Self {
+    pub const fn new(repo: Arc<R>) -> Self {
         Self { repo }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error for invalid enrollment input, denied enrollment, or a repository failure.
     pub async fn enroll(
         &self,
         owner_subject: String,
@@ -68,6 +85,9 @@ where
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns an error for invalid pairing input or a repository failure.
     pub async fn request_pairing(
         &self,
         request: DevicePairingRequest,
@@ -95,9 +115,12 @@ where
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when pairing is not authorized, the signature is invalid, or the repository fails.
     pub async fn approve_pairing(
         &self,
-        device_id: of_model::id::Id,
+        device_id: Id,
         request: DevicePairingApprovalRequest,
     ) -> ErrorResponseResult<DeviceInfo> {
         let (device, accepting_public_key) = self
@@ -106,12 +129,12 @@ where
             .await
             .map_err(ErrorResponse::from)?
             .ok_or_else(|| ErrorResponse::new(ErrorCode::AccessDenied))?;
-        if !self
+        if self
             .repo
             .find_approved_by_public_key(&accepting_public_key)
             .await
             .map_err(ErrorResponse::from)?
-            .is_some_and(|accepting| accepting.owner_subject == device.owner_subject)
+            .is_none_or(|accepting| accepting.owner_subject != device.owner_subject)
         {
             return Err(ErrorResponse::new(ErrorCode::AccessDenied));
         }
@@ -133,10 +156,10 @@ where
             .ok_or_else(|| ErrorResponse::new(ErrorCode::AccessDenied))
     }
 
-    pub async fn pairing_approval_payload(
-        &self,
-        device_id: of_model::id::Id,
-    ) -> ErrorResponseResult<String> {
+    /// # Errors
+    ///
+    /// Returns an error when pairing is unavailable or the repository fails.
+    pub async fn pairing_approval_payload(&self, device_id: Id) -> ErrorResponseResult<String> {
         let (device, _) = self
             .repo
             .pending_pairing(device_id)
@@ -151,6 +174,9 @@ where
         ))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the repository fails.
     pub async fn list(&self, owner_subject: &str) -> ErrorResponseResult<Vec<DeviceInfo>> {
         self.repo
             .list_owned(owner_subject)
@@ -159,6 +185,9 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the repository fails.
     pub async fn list_pending(&self) -> ErrorResponseResult<Vec<DeviceEnrollment>> {
         self.repo
             .list_pending()
@@ -176,10 +205,13 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error for an invalid name, a missing Device, or a repository failure.
     pub async fn rename(
         &self,
         owner_subject: &str,
-        device_id: of_model::id::Id,
+        device_id: Id,
         request: UpdateDeviceRequest,
     ) -> ErrorResponseResult<DeviceInfo> {
         validate_name(&request.name)?;
@@ -191,10 +223,13 @@ where
             .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the Device cannot be revoked or the repository fails.
     pub async fn revoke(
         &self,
         owner_subject: &str,
-        device_id: of_model::id::Id,
+        device_id: Id,
         protected_public_key: &str,
     ) -> ErrorResponseResult<()> {
         self.repo
@@ -205,6 +240,9 @@ where
             .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the Device is not found or the repository fails.
     pub async fn revoke_self(&self, public_key: &str) -> ErrorResponseResult<()> {
         self.repo
             .revoke_self(public_key)
@@ -214,10 +252,10 @@ where
             .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))
     }
 
-    pub async fn approve_enrollment(
-        &self,
-        device_id: of_model::id::Id,
-    ) -> ErrorResponseResult<DeviceEnrollment> {
+    /// # Errors
+    ///
+    /// Returns an error when the enrollment is not found or the repository fails.
+    pub async fn approve_enrollment(&self, device_id: Id) -> ErrorResponseResult<DeviceEnrollment> {
         let device = self
             .repo
             .approve_by_admin(device_id)
@@ -252,7 +290,7 @@ fn validate_public_key(public_key: &str) -> ErrorResponseResult<()> {
     }
     let endpoint_id = public_key
         .parse::<EndpointId>()
-        .map_err(|_| ErrorResponse::new(ErrorCode::InvalidRequest))?;
+        .map_err(|_error| ErrorResponse::new(ErrorCode::InvalidRequest))?;
     (endpoint_id.to_string() == public_key)
         .then_some(())
         .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidRequest))
@@ -265,15 +303,15 @@ fn valid_value(value: &str) -> bool {
 fn verify_signature(public_key: &str, payload: &str, signature: &str) -> ErrorResponseResult<()> {
     let public_key = public_key
         .parse::<EndpointId>()
-        .map_err(|_| ErrorResponse::new(ErrorCode::AccessDenied))?;
+        .map_err(|_error| ErrorResponse::new(ErrorCode::AccessDenied))?;
     let signature = URL_SAFE_NO_PAD
         .decode(signature)
-        .map_err(|_| ErrorResponse::new(ErrorCode::AccessDenied))?;
+        .map_err(|_error| ErrorResponse::new(ErrorCode::AccessDenied))?;
     let signature = Signature::try_from(signature.as_slice())
-        .map_err(|_| ErrorResponse::new(ErrorCode::AccessDenied))?;
+        .map_err(|_error| ErrorResponse::new(ErrorCode::AccessDenied))?;
     public_key
         .verify(payload.as_bytes(), &signature)
-        .map_err(|_| ErrorResponse::new(ErrorCode::AccessDenied))
+        .map_err(|_error| ErrorResponse::new(ErrorCode::AccessDenied))
 }
 
 #[cfg(test)]

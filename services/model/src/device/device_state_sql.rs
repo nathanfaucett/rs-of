@@ -1,7 +1,18 @@
+#[cfg(not(feature = "std"))]
+use alloc::format;
+
 use serde::{Deserialize, Deserializer, Serializer, de::Error};
 
 use crate::device::contract::device_state::DeviceState;
 
+/// Serializes a device state as its persisted integer value.
+///
+/// # Errors
+/// Returns an error if the serializer rejects the integer.
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Serde serialize_with callbacks receive &T"
+)]
 pub fn serialize<S>(value: &DeviceState, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -9,6 +20,10 @@ where
     serializer.serialize_i64(*value as i64)
 }
 
+/// Deserializes a device state from its persisted integer value.
+///
+/// # Errors
+/// Returns an error if the input is not a supported device state integer.
 pub fn deserialize<'de, D>(deserializer: D) -> Result<DeviceState, D::Error>
 where
     D: Deserializer<'de>,

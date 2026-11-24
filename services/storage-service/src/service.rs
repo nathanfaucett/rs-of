@@ -1,4 +1,8 @@
-use std::{fmt, sync::Arc};
+use std::{
+    error::Error,
+    fmt,
+    sync::{Arc, Mutex},
+};
 
 use file_system::{Entry, FileKind, FileSystem};
 use of_model::storage::{
@@ -11,13 +15,25 @@ use of_model::storage::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::scoped_file_system::{ScopedFileSystem, ScopedFileSystemRuntime};
+use crate::{
+    local_copy::LocalCopyPolicy,
+    scoped_file_system::{ContentReader, ScopedFileSystem, ScopedFileSystemRuntime},
+};
 
 pub struct StorageService<PeerId>
 where
     PeerId: Clone + fmt::Debug + Ord + Serialize + DeserializeOwned + 'static,
 {
     file_system: Arc<FileSystem<PeerId>>,
+}
+
+impl<PeerId> fmt::Debug for StorageService<PeerId>
+where
+    PeerId: Clone + fmt::Debug + Ord + Serialize + DeserializeOwned + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StorageService").finish_non_exhaustive()
+    }
 }
 
 impl<PeerId> Clone for StorageService<PeerId>
@@ -40,6 +56,11 @@ where
         Self { file_system }
     }
 
+    /// Executes a filesystem request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation is denied or the filesystem operation fails.
     pub async fn execute(
         &self,
         request: StorageRequest,
@@ -47,6 +68,11 @@ where
         execute(&self.file_system, request).await
     }
 
+    /// Opens a filesystem read stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path is unavailable or the stream cannot be opened.
     pub async fn stream(
         &self,
         path: &str,
@@ -66,7 +92,7 @@ where
     async fn execute_session(&self, request: StorageRequest) -> StorageResponse {
         self.execute(request)
             .await
-            .unwrap_or_else(StorageServiceError::response)
+            .unwrap_or_else(|_error| StorageServiceError::response())
     }
 }
 
@@ -77,9 +103,19 @@ where
     scope: S,
     resource_id: file_system::FileSystemId,
     generation: u64,
-    content_reader: Arc<std::sync::Mutex<Option<crate::scoped_file_system::ContentReader>>>,
-    local_copies: Arc<crate::local_copy::LocalCopyPolicy>,
+    content_reader: Arc<Mutex<Option<ContentReader>>>,
+    local_copies: Arc<LocalCopyPolicy>,
     file_system: Arc<ScopedFileSystem<PeerId>>,
+}
+
+impl<PeerId, S> fmt::Debug for ScopedStorageService<PeerId, S>
+where
+    PeerId: Clone + fmt::Debug + Ord + Serialize + DeserializeOwned + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ScopedStorageService")
+            .finish_non_exhaustive()
+    }
 }
 
 impl<PeerId, S> ScopedStorageService<PeerId, S>
@@ -87,6 +123,11 @@ where
     PeerId: Clone + fmt::Debug + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
     S: StorageNamespace + Send + Sync + 'static,
 {
+    /// Opens a Resource-scoped storage service.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the Resource or its local generation is unavailable.
     pub async fn open_resource(
         runtime: &ScopedFileSystemRuntime<PeerId>,
         scope: S,
@@ -120,6 +161,11 @@ where
             .map_err(|error| StorageServiceError::Scope(error.to_string()))
     }
 
+    /// Executes a request against the scoped Resource.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if authorization, Residency, content retrieval, or the operation fails.
     pub async fn execute(
         &self,
         request: StorageRequest,
@@ -135,7 +181,9 @@ where
             let reader = self
                 .content_reader
                 .lock()
-                .map_err(|_| StorageServiceError::Scope("content reader lock poisoned".into()))?
+                .map_err(|_error| {
+                    StorageServiceError::Scope("content reader lock poisoned".into())
+                })?
                 .clone()
                 .ok_or(StorageServiceError::FileSystem(
                     file_system::Error::ContentUnavailable,
@@ -154,6 +202,11 @@ where
         execute(&self.file_system, request).await
     }
 
+    /// Opens a read stream for a Full-Residency scoped Resource.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the local copy is retired, content is remote, or the stream fails.
     pub async fn stream(
         &self,
         path: &str,
@@ -185,22 +238,21 @@ where
     async fn execute_session(&self, request: StorageRequest) -> StorageResponse {
         self.execute(request)
             .await
-            .unwrap_or_else(StorageServiceError::response)
+            .unwrap_or_else(|_error| StorageServiceError::response())
     }
 }
 
 #[cfg(test)]
 mod policy_tests {
+    use std::{env, fs, sync::Arc};
+
+    use of_model::{id::Id, storage::contract::request::StorageRequest};
+
     use crate::service::StorageService;
-    use of_model::storage::contract::request::StorageRequest;
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn passthrough_service_cannot_delete_or_rename_metadata() {
-        let root = std::env::temp_dir().join(format!(
-            "passthrough-service-{}",
-            of_model::id::Id::now_v7()
-        ));
+        let root = env::temp_dir().join(format!("passthrough-service-{}", Id::now_v7()));
         let filesystem = Arc::new(
             file_system::FileSystem::open(&root, 1_u8)
                 .await
@@ -236,7 +288,7 @@ mod policy_tests {
         filesystem.entry("renamed.txt").await.unwrap_err();
         drop(service);
         drop(filesystem);
-        std::fs::remove_dir_all(root).expect("remove fixture");
+        fs::remove_dir_all(root).expect("remove fixture");
     }
 }
 
@@ -389,7 +441,7 @@ pub enum StorageServiceError {
 }
 
 impl StorageServiceError {
-    fn response(self) -> StorageResponse {
+    const fn response() -> StorageResponse {
         StorageResponse::Error {
             code: StorageErrorCode::OperationFailed,
         }
@@ -397,19 +449,19 @@ impl StorageServiceError {
 }
 
 impl fmt::Display for StorageServiceError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::FileSystem(error) => error.fmt(formatter),
-            Self::Scope(error) => formatter.write_str(error),
+            Self::FileSystem(error) => error.fmt(f),
+            Self::Scope(error) => f.write_str(error),
         }
     }
 }
 
-impl std::error::Error for StorageServiceError {}
+impl Error for StorageServiceError {}
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs, sync::Arc};
+    use std::{env, fs, process, sync::Arc};
 
     use file_system::{FileSystem, Residency};
     use of_model::storage::contract::{request::StorageRequest, response::StorageResponse};
@@ -418,7 +470,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatches_scoped_file_system_operations() {
-        let root = env::temp_dir().join(format!("storage-service-{}", std::process::id()));
+        let root = env::temp_dir().join(format!("storage-service-{}", process::id()));
         let _ = fs::remove_dir_all(&root);
         let file_system = Arc::new(FileSystem::open(&root, 1_u8).await.unwrap());
         file_system
@@ -514,10 +566,7 @@ mod tests {
 
     #[tokio::test]
     async fn passthrough_rejects_writes() {
-        let root = env::temp_dir().join(format!(
-            "storage-service-passthrough-{}",
-            std::process::id()
-        ));
+        let root = env::temp_dir().join(format!("storage-service-passthrough-{}", process::id()));
         let _ = fs::remove_dir_all(&root);
         let service = StorageService::new(Arc::new(FileSystem::open(&root, 1_u8).await.unwrap()));
         service

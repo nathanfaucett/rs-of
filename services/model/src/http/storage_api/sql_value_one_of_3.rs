@@ -19,19 +19,16 @@ pub struct SqlValueOneOf3 {
 }
 
 impl SqlValueOneOf3 {
-    pub fn new(r#type: Type, value: f64) -> SqlValueOneOf3 {
-        SqlValueOneOf3 { r#type, value }
+    #[must_use]
+    pub const fn new(r#type: Type, value: f64) -> Self {
+        Self { r#type, value }
     }
 }
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Type {
     #[serde(rename = "float")]
+    #[default]
     Float,
-}
-
-impl Default for Type {
-    fn default() -> Type {
-        Self::Float
-    }
 }

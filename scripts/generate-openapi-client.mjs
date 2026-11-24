@@ -23,6 +23,15 @@ const destinations = {
   device: ["device", ""],
   storage: ["storage", "generated"],
 };
+const legacyStorageModels = {
+  jwk_public: "JwkPublic",
+  jwk_public_parameters: "JwkPublicParameters",
+  jwk_public_parameters_one_of: "JwkPublicParametersOneOf",
+  jwk_public_parameters_one_of_1: "JwkPublicParametersOneOf1",
+  jwk_public_parameters_one_of_2: "JwkPublicParametersOneOf2",
+  jws_algorithm: "JwsAlgorithm",
+  key_use: "KeyUse",
+};
 const selected = process.argv[2];
 if (selected && !destinations[selected]) throw new Error("Unknown OpenAPI document");
 const names = selected ? [selected] : Object.keys(destinations);
@@ -242,6 +251,28 @@ function generate(name, language, output) {
     }
   }
   if (language === "rust") {
+    const library = path.join(output, "src/lib.rs");
+    writeFileSync(
+      library,
+      readFileSync(library, "utf8")
+        .replace(
+          "#![allow(unused_imports)]\n#![allow(clippy::too_many_arguments)]",
+          `#![allow(clippy::absolute_paths, reason = "generated paths avoid schema-name collisions")]
+#![allow(clippy::doc_markdown, reason = "OpenAPI descriptions are preserved verbatim")]
+#![allow(
+    clippy::enum_variant_names,
+    clippy::struct_field_names,
+    reason = "generated public names preserve OpenAPI schema names"
+)]
+#![allow(
+    clippy::needless_pass_by_value,
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "generated operations preserve their OpenAPI parameter contracts"
+)]`
+        )
+        .replace(/^extern crate (\w+);$/gm, "extern crate $1 as _;")
+    );
     const manifest = path.join(output, "Cargo.toml");
     let manifestSource = readFileSync(manifest, "utf8").replace(
       'of-model = { path = "../model", default-features = false }',
@@ -278,14 +309,14 @@ function generate(name, language, output) {
       if (document.paths["/"])
         source = source.replace(
           'format!("{}/", configuration.base_path)',
-          'format!("{}", configuration.base_path)'
+          "configuration.base_path.clone()"
         );
       source = source.replace(
         /pub async fn (\w+)\(([^{}]*?)\) -> Result<\(\), Error<(\w+)>> \{([\s\S]*?) {4}let resp = configuration.client.execute\(req\).await\?;/g,
         (operation, name, args, error, build) => {
           if (!upgrades.has(name)) return operation;
-          const builder = `pub fn ${name}_request(${args}) -> Result<reqwest::Request, Error<${error}>> {${build}    Ok(req)\n}\n\n`;
-          return `${builder}pub async fn ${name}(${args}) -> Result<reqwest::Response, Error<${error}>> {\n    let req = ${name}_request(configuration, params)?;\n    let resp = configuration.client.execute(req).await?;`;
+          const builder = `/// Builds the WebSocket upgrade request without executing it.\n///\n/// # Errors\n/// Returns an error when the request cannot be constructed or exceeds its configured limit.\npub fn ${name}_request(${args}) -> Result<reqwest::Request, Error<${error}>> {${build}    Ok(req)\n}\n\n`;
+          return `${builder}/// # Errors\n/// Returns an error when the upgrade request or response cannot be processed.\npub async fn ${name}(${args}) -> Result<reqwest::Response, Error<${error}>> {\n    let req = ${name}_request(configuration, params)?;\n    let resp = configuration.client.execute(req).await?;`;
         }
       );
       for (const name of upgrades) {
@@ -301,6 +332,22 @@ function generate(name, language, output) {
           )
         );
       }
+      source = source.replaceAll(" || false", "");
+      if (!source.includes("ContentType::"))
+        source = source.replace(
+          "use super::{Error, configuration, ContentType};",
+          "use super::{Error, configuration};"
+        );
+      if (!source.includes("models::"))
+        source = source.replace(
+          "use crate::{apis::ResponseContent, models};",
+          "use crate::apis::ResponseContent;"
+        );
+      if (!source.includes("Error::custom"))
+        source = source.replace(
+          "use serde::{Deserialize, Serialize, de::Error as _};",
+          "use serde::{Deserialize, Serialize};"
+        );
       writeFileSync(target, source);
     }
     const models = path.join(output, "src/models");
@@ -373,6 +420,63 @@ try {
     extractRustModels(path.join(rust, name), modelOwner, shared);
     run("rustfmt", ["--edition", "2024", path.join(shared, "mod.rs")]);
     replacements.push([shared, path.join(root, "services/model/src/http", modelOwner)]);
+    if (name === "storage") {
+      const idpShared = path.join(stage, "models/idp");
+      if (!existsSync(idpShared)) {
+        const idpOutput = path.join(rust, "idp");
+        generate("idp", "rust", idpOutput);
+        extractRustModels(idpOutput, "idp", idpShared);
+      }
+      const legacy = path.join(stage, "models/storage");
+      cpSync(shared, legacy, { recursive: true });
+      for (const file of readdirSync(legacy)) {
+        const target = path.join(legacy, file);
+        writeFileSync(target, readFileSync(target, "utf8").replaceAll("storage_api", "storage"));
+      }
+      let index = readFileSync(path.join(legacy, "mod.rs"), "utf8");
+      const exports = [];
+      for (const [module, model] of Object.entries(legacyStorageModels)) {
+        const target = path.join(legacy, `${module}.rs`);
+        writeFileSync(
+          target,
+          readFileSync(path.join(idpShared, `${module}.rs`), "utf8")
+            .replaceAll("crate::http::idp", "crate::http::storage")
+            .replaceAll("LIDP IdP API", "Storage Server")
+            .replaceAll("OIDC / OAuth 2.x server implementation", "Local first storage server")
+        );
+        exports.push(`pub mod ${module};\npub use self::${module}::${model};`);
+      }
+      index = index.replace(
+        "pub mod owner_setup_status;",
+        `${exports.join("\n")}\npub mod owner_setup_status;`
+      );
+      writeFileSync(path.join(legacy, "mod.rs"), index);
+      run("rustfmt", ["--edition", "2024", path.join(legacy, "mod.rs")]);
+      replacements.push([legacy, path.join(root, "services/model/src/http/storage")]);
+      const legacyApis = path.join(stage, "legacy-storage-client/apis");
+      cpSync(path.join(rust, name, "src/apis"), legacyApis, {
+        recursive: true,
+      });
+      run("rustfmt", ["--edition", "2024", path.join(legacyApis, "mod.rs")]);
+      replacements.push([legacyApis, path.join(root, "services/storage-client/src/apis")]);
+      const legacyModels = path.join(stage, "legacy-storage-client/models");
+      mkdirSync(legacyModels, { recursive: true });
+      writeFileSync(
+        path.join(legacyModels, "mod.rs"),
+        readFileSync(path.join(rust, name, "src/models/mod.rs"), "utf8")
+          .replace("storage_api", "storage")
+          .replace(
+            "OwnerSetupStatus,",
+            `${Object.values(legacyStorageModels).join(", ")}, OwnerSetupStatus,`
+          )
+          .replace(
+            "owner_setup_status,",
+            `${Object.keys(legacyStorageModels).join(", ")}, owner_setup_status,`
+          )
+      );
+      run("rustfmt", ["--edition", "2024", path.join(legacyModels, "mod.rs")]);
+      replacements.push([legacyModels, path.join(root, "services/storage-client/src/models")]);
+    }
     const crateName = name === "storage" ? "storage-api-client" : `${name}-client`;
     replacements.push([path.join(rust, name), path.join(root, "services", crateName)]);
   }

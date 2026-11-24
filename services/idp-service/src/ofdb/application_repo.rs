@@ -1,3 +1,5 @@
+use core::fmt::{self, Display};
+
 use super::insert::{generated_id, generated_insert};
 use crate::repo::{ApplicationRepo, RepoError, RepoResult};
 use chrono::{DateTime, Utc};
@@ -34,6 +36,12 @@ const COLUMNS: [&str; 6] = [
 
 pub struct DbApplicationRepo {
     engine: ofdb_sql::Client,
+}
+
+impl fmt::Debug for DbApplicationRepo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbApplicationRepo").finish_non_exhaustive()
+    }
 }
 
 impl DbApplicationRepo {
@@ -269,11 +277,11 @@ fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
         .ok_or_else(|| RepoError::InvalidInput("invalid application timestamp".into()))
 }
 
-fn db_error(error: ofdb_sql::QueryError) -> RepoError {
+fn db_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 
-fn row_error(error: FromRowError) -> RepoError {
+fn row_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 

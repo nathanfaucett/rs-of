@@ -1,67 +1,87 @@
 use std::{
     collections::{BTreeMap, btree_map::Entry},
+    fmt,
     fs::{self, File},
     io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
-use of_model::storage::namespace::StorageNamespace;
+use of_model::{
+    id::Id,
+    storage::{
+        database_resource::{DatabaseId, DatabaseResource},
+        namespace::StorageNamespace,
+    },
+};
 use ofdb_kv::Database as KvDatabase;
-use ofdb_sql::Database;
+use ofdb_sql::{Client as SqlClient, Database, SharedDatabase as SqlSharedDatabase};
+use tokio::sync::{Mutex as AsyncMutex, watch};
 
-use crate::database_catalog::DatabaseCatalog;
+use crate::{
+    database_catalog::DatabaseCatalog,
+    local_copy::{CopyScope, LocalCopyPolicy},
+    persistence::error,
+};
 
-use of_model::storage::database_resource::DatabaseId;
-
-use of_model::storage::database_resource::DatabaseResource;
-
-type DatabaseKey = (String, of_model::id::Id, DatabaseId);
+type DatabaseKey = (String, Id, DatabaseId);
 type KvStores = BTreeMap<DatabaseKey, Arc<KvDatabase>>;
 
 pub struct DatabaseRuntime {
     root: PathBuf,
-    shared: Option<ofdb_sql::SharedDatabase>,
+    shared: Option<SqlSharedDatabase>,
     catalog: DatabaseCatalog,
-    local_copies: crate::local_copy::LocalCopyPolicy,
-    open: Mutex<BTreeMap<(String, of_model::id::Id, DatabaseId), Arc<Database>>>,
+    local_copies: LocalCopyPolicy,
+    open: Mutex<BTreeMap<DatabaseKey, Arc<Database>>>,
     kv_open: Mutex<KvStores>,
-    cleanup: tokio::sync::Mutex<()>,
-    changes: tokio::sync::watch::Sender<()>,
+    cleanup: AsyncMutex<()>,
+    changes: watch::Sender<()>,
+}
+
+impl fmt::Debug for DatabaseRuntime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DatabaseRuntime").finish_non_exhaustive()
+    }
 }
 
 impl DatabaseRuntime {
+    /// Opens a standalone database runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the catalog cannot be opened or initialized.
     pub fn new(root: PathBuf) -> io::Result<Self> {
+        let catalog = DatabaseCatalog::new(root.clone())?;
+        let local_copies = LocalCopyPolicy::new(root.join("database-local-copies.json"));
         Ok(Self {
-            catalog: DatabaseCatalog::new(root.clone())?,
-            local_copies: crate::local_copy::LocalCopyPolicy::new(
-                root.join("database-local-copies.json"),
-            ),
             root,
             shared: None,
+            catalog,
+            local_copies,
             open: Mutex::new(BTreeMap::new()),
             kv_open: Mutex::new(BTreeMap::new()),
-            cleanup: tokio::sync::Mutex::new(()),
-            changes: tokio::sync::watch::channel(()).0,
+            cleanup: AsyncMutex::new(()),
+            changes: watch::channel(()).0,
         })
     }
 
     /// Keeps the catalog, SQL resources, KV resources and local copy policy in one host.
-    pub fn with_shared(
-        storage: ofdb_sql::SharedDatabase,
-        client: ofdb_sql::Client,
-    ) -> io::Result<Self> {
-        let policy = KvDatabase::open_shared(&storage, "storage-database-copy-policy")
-            .map_err(crate::persistence::error)?;
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the shared local copy policy cannot be opened.
+    pub fn with_shared(storage: SqlSharedDatabase, client: SqlClient) -> io::Result<Self> {
+        let policy =
+            KvDatabase::open_shared(&storage, "storage-database-copy-policy").map_err(error)?;
         Ok(Self {
-            catalog: DatabaseCatalog::with_client(client),
-            local_copies: crate::local_copy::LocalCopyPolicy::with_store(policy.client()),
             root: PathBuf::new(),
             shared: Some(storage),
+            catalog: DatabaseCatalog::with_client(client),
+            local_copies: LocalCopyPolicy::with_store(policy.client()),
             open: Mutex::new(BTreeMap::new()),
             kv_open: Mutex::new(BTreeMap::new()),
-            cleanup: tokio::sync::Mutex::new(()),
-            changes: tokio::sync::watch::channel(()).0,
+            cleanup: AsyncMutex::new(()),
+            changes: watch::channel(()).0,
         })
     }
 
@@ -71,8 +91,7 @@ impl DatabaseRuntime {
         id: DatabaseId,
     ) -> io::Result<String> {
         database_path(&self.root, scope, id)?;
-        let namespace =
-            of_model::id::Id::new_v5(&scope.application_id(), scope.user_sub().as_bytes());
+        let namespace = Id::new_v5(&scope.application_id(), scope.user_sub().as_bytes());
         Ok(format!(
             "storage-database:{namespace}:{id}:{}",
             self.local_copies.generation(scope, id)?
@@ -84,13 +103,22 @@ impl DatabaseRuntime {
             self.shared.as_ref().expect("shared backend selected"),
             &self.resource_namespace(scope, id)?,
         )
-        .map_err(crate::persistence::error)
+        .map_err(error)
     }
 
-    pub fn catalog_changes(&self) -> tokio::sync::watch::Receiver<()> {
+    pub fn catalog_changes(&self) -> watch::Receiver<()> {
         self.changes.subscribe()
     }
 
+    /// Creates and opens a database Resource.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace, catalog, or database cannot be initialized.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an internal database copy path has no parent.
     pub fn create<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -99,7 +127,7 @@ impl DatabaseRuntime {
         let mut open = self
             .open
             .lock()
-            .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+            .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
         self.local_copies.require_owner(scope.user_sub())?;
         let resource = self.catalog.create(scope, name)?;
         let path = self.copy_path(scope, resource.id)?;
@@ -113,16 +141,23 @@ impl DatabaseRuntime {
             Ok(database) => {
                 let database = Arc::new(database);
                 open.insert(database_key(scope, resource.id), Arc::clone(&database));
+                drop(open);
                 self.changes.send_replace(());
                 Ok((resource, database))
             }
             Err(error) => {
+                drop(open);
                 self.catalog.delete(scope, resource.id)?;
                 Err(io::Error::other(error.to_string()))
             }
         }
     }
 
+    /// Ensures that a keyed database Resource exists and is initialized.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace, catalog, local copy, or database is invalid or unavailable.
     pub fn ensure<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -132,7 +167,7 @@ impl DatabaseRuntime {
         let mut open = self
             .open
             .lock()
-            .map_err(|_| io::Error::other("runtime lock poisoned"))?;
+            .map_err(|_error| io::Error::other("runtime lock poisoned"))?;
         self.local_copies.require_owner(scope.user_sub())?;
         let (resource, initializing) = self.catalog.reserve(scope, key, name)?;
         self.require_local_copy(scope, resource.id)?;
@@ -152,12 +187,13 @@ impl DatabaseRuntime {
                 self.shared_sql(scope, resource.id)?
             } else {
                 Database::open_existing(&path)
-                    .map_err(|_| io::Error::other("database unavailable"))?
+                    .map_err(|_error| io::Error::other("database unavailable"))?
             };
             self.local_copies
                 .set_sql_initializing(scope, resource.id, false)?;
             entry.insert(Arc::new(database));
         }
+        drop(open);
         if initializing {
             self.catalog.finish_creation(scope, resource.id)?;
             self.changes.send_replace(());
@@ -165,6 +201,11 @@ impl DatabaseRuntime {
         Ok(resource)
     }
 
+    /// Opens an existing live database Resource.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace or local copy is invalid or the database is unavailable.
     pub fn open_existing<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -183,10 +224,20 @@ impl DatabaseRuntime {
         self.open(scope, id)
     }
 
+    /// Lists live database Resources in `scope`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be read.
     pub fn list<S: StorageNamespace>(&self, scope: &S) -> io::Result<Vec<DatabaseResource>> {
         self.catalog.list(scope)
     }
 
+    /// Gets a live database Resource from `scope`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be read.
     pub fn get<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -195,19 +246,30 @@ impl DatabaseRuntime {
         self.catalog.get(scope, id)
     }
 
+    /// Deletes a database Resource and evicts its open handles.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the catalog or runtime locks cannot be updated.
     pub fn delete<S: StorageNamespace>(&self, scope: &S, id: DatabaseId) -> io::Result<bool> {
         let mut open = self
             .open
             .lock()
-            .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+            .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
         let deleted = self.catalog.delete(scope, id)?;
         if deleted {
             self.evict(scope, id, &mut open)?;
             self.changes.send_replace(());
         }
+        drop(open);
         Ok(deleted)
     }
 
+    /// Applies a deletion Tombstone and evicts open handles.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the catalog or runtime locks cannot be updated.
     pub fn apply_tombstone<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -216,16 +278,22 @@ impl DatabaseRuntime {
         let mut open = self
             .open
             .lock()
-            .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+            .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
         let deleted = self.catalog.is_tombstoned(scope, id)?;
         self.catalog.apply_tombstone(scope, id)?;
         self.evict(scope, id, &mut open)?;
         if !deleted {
             self.changes.send_replace(());
         }
+        drop(open);
         Ok(())
     }
 
+    /// Returns whether a database Resource has a deletion Tombstone.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be read.
     pub fn is_tombstoned<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -244,15 +312,19 @@ impl DatabaseRuntime {
         open.remove(&key);
         self.kv_open
             .lock()
-            .map_err(|_| io::Error::other("database KV runtime lock poisoned"))?
+            .map_err(|_error| io::Error::other("database KV runtime lock poisoned"))?
             .remove(&key);
         Ok(())
     }
 
     /// Requires the current trusted local Device selection, not handshake claims.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if selection policy or a pending local copy cannot be reconciled.
     pub async fn reconcile_selected_copies(
         &self,
-        selected: &[(String, of_model::id::Id, DatabaseId)],
+        selected: &[(String, Id, DatabaseId)],
     ) -> io::Result<()> {
         match self.local_copies.reconcile_selected(selected) {
             Ok(()) => {}
@@ -260,7 +332,7 @@ impl DatabaseRuntime {
             Err(error) => return Err(error),
         }
         for (owner, app, id) in self.local_copies.pending()? {
-            let scope = crate::local_copy::CopyScope(owner, app);
+            let scope = CopyScope(owner, app);
             if self.catalog.lifecycle(&scope, id)?.is_none() {
                 self.local_copies.complete(&scope, id)?;
             } else {
@@ -270,6 +342,11 @@ impl DatabaseRuntime {
         Ok(())
     }
 
+    /// Checks that a local database copy is available.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or local copy cleanup is incomplete.
     pub fn require_local_copy<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -279,6 +356,15 @@ impl DatabaseRuntime {
         self.local_copies.require_available(scope, id)
     }
 
+    /// Retires and removes a managed local database copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the Resource is unknown or retirement cannot be completed.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on the caller's namespace type; preserve the public API"
+    )]
     pub async fn remove_local_copy<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -297,7 +383,7 @@ impl DatabaseRuntime {
             let open = self
                 .open
                 .lock()
-                .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+                .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
             self.local_copies.retire(scope, id)?;
             open.get(&key).cloned()
         };
@@ -320,7 +406,7 @@ impl DatabaseRuntime {
                     self.shared_sql(scope, id)?.retire_and_remove().await?;
                 } else {
                     KvDatabase::open_shared(storage, &name)
-                        .map_err(crate::persistence::error)?
+                        .map_err(error)?
                         .retire_and_remove()
                         .await?;
                 }
@@ -328,8 +414,9 @@ impl DatabaseRuntime {
             let mut open = self
                 .open
                 .lock()
-                .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+                .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
             self.evict(scope, id, &mut open)?;
+            drop(open);
             self.local_copies.set_sql_initializing(scope, id, true)?;
             return self.local_copies.complete(scope, id);
         }
@@ -355,7 +442,7 @@ impl DatabaseRuntime {
         let kv = self
             .kv_open
             .lock()
-            .map_err(|_| io::Error::other("database KV runtime lock poisoned"))?
+            .map_err(|_error| io::Error::other("database KV runtime lock poisoned"))?
             .get(&key)
             .cloned();
         if let Some(kv) = kv {
@@ -372,34 +459,44 @@ impl DatabaseRuntime {
             let mut open = self
                 .open
                 .lock()
-                .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+                .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
             self.evict(scope, id, &mut open)?;
         };
         self.local_copies.set_sql_initializing(scope, id, true)?;
         self.local_copies.complete(scope, id)
     }
 
+    /// Permits new local copies for an owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the local copy policy cannot be updated.
     pub fn activate_owner(&self, owner: &str) -> io::Result<()> {
         self.local_copies.set_owner_retired(owner, false)
     }
 
+    /// Retires and removes all managed local database copies for an owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if owner retirement or any copy removal fails.
     pub async fn remove_owner_copies(&self, owner: &str) -> io::Result<()> {
         let resources = {
             let _open = self
                 .open
                 .lock()
-                .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+                .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
             let _kv = self
                 .kv_open
                 .lock()
-                .map_err(|_| io::Error::other("database KV runtime lock poisoned"))?;
+                .map_err(|_error| io::Error::other("database KV runtime lock poisoned"))?;
             self.local_copies.set_owner_retired(owner, true)?;
             self.catalog.owner_resources(owner)?
         };
         let mut result = Ok(());
         for (app, id) in resources {
             let removal = self
-                .remove_local_copy(&crate::local_copy::CopyScope(owner.to_owned(), app), id)
+                .remove_local_copy(&CopyScope(owner.to_owned(), app), id)
                 .await;
             result = result.and(removal);
         }
@@ -427,6 +524,11 @@ impl DatabaseRuntime {
             .join(format!("{id}.redb")))
     }
 
+    /// Opens a selected SQL database copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace, selection, local copy, or database is invalid or unavailable.
     pub fn open_selected<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -436,14 +538,16 @@ impl DatabaseRuntime {
         let mut open = self
             .open
             .lock()
-            .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+            .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
         self.require_local_copy(scope, id)?;
         if !self.register_selected(scope, id)? {
             return Ok(None);
         }
         let key = database_key(scope, id);
         if let Some(database) = open.get(&key) {
-            return Ok(Some(Arc::clone(database)));
+            let database = Arc::clone(database);
+            drop(open);
+            return Ok(Some(database));
         }
         let path = self.copy_path(scope, id)?;
         if self.shared.is_none() && self.local_copies.sql_initializing(scope, id)? {
@@ -457,10 +561,20 @@ impl DatabaseRuntime {
         });
         self.local_copies.set_sql_initializing(scope, id, false)?;
         open.insert(key, Arc::clone(&database));
+        drop(open);
         self.changes.send_replace(());
         Ok(Some(database))
     }
 
+    /// Opens a selected KV database copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace, selection, local copy, or database is invalid or unavailable.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an internal database copy path has no parent.
     pub fn open_kv_selected<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -470,40 +584,53 @@ impl DatabaseRuntime {
         let _sql_open = self
             .open
             .lock()
-            .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+            .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
         let mut open = self
             .kv_open
             .lock()
-            .map_err(|_| io::Error::other("database KV runtime lock poisoned"))?;
+            .map_err(|_error| io::Error::other("database KV runtime lock poisoned"))?;
         self.require_local_copy(scope, id)?;
         if !self.register_selected(scope, id)? {
             return Ok(None);
         }
         let key = database_key(scope, id);
         if let Some(store) = open.get(&key) {
-            return Ok(Some(Arc::clone(store)));
+            let store = Arc::clone(store);
+            drop(open);
+            return Ok(Some(store));
         }
         if let Some(storage) = &self.shared {
             let store = Arc::new(
                 KvDatabase::open_shared(storage, &self.resource_namespace(scope, id)?)
-                    .map_err(crate::persistence::error)?,
+                    .map_err(error)?,
             );
             open.insert(key, Arc::clone(&store));
+            drop(open);
             self.changes.send_replace(());
             return Ok(Some(store));
         }
         let mut path = self.copy_path(scope, id)?;
-        std::fs::create_dir_all(path.parent().expect("copy path has parent"))?;
+        fs::create_dir_all(path.parent().expect("copy path has parent"))?;
         path.set_extension("kv.redb");
         let store = Arc::new(
             KvDatabase::open_with_table(path, "kv")
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?,
         );
         open.insert(key, Arc::clone(&store));
+        drop(open);
         self.changes.send_replace(());
         Ok(Some(store))
     }
 
+    /// Opens a live SQL database copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace, catalog, local copy, or database is invalid or unavailable.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an internal database copy path has no parent.
     pub fn open<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -513,17 +640,19 @@ impl DatabaseRuntime {
         let mut open = self
             .open
             .lock()
-            .map_err(|_| io::Error::other("database runtime lock poisoned"))?;
+            .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
         self.require_local_copy(scope, id)?;
         if self.catalog.get(scope, id)?.is_none() {
             return Ok(None);
         }
         let key = database_key(scope, id);
         if let Some(database) = open.get(&key) {
-            return Ok(Some(Arc::clone(database)));
+            let database = Arc::clone(database);
+            drop(open);
+            return Ok(Some(database));
         }
         let path = self.copy_path(scope, id)?;
-        std::fs::create_dir_all(path.parent().expect("copy path has parent"))?;
+        fs::create_dir_all(path.parent().expect("copy path has parent"))?;
         let database = Arc::new(if self.shared.is_some() {
             self.shared_sql(scope, id)?
         } else {
@@ -532,12 +661,13 @@ impl DatabaseRuntime {
         });
         self.local_copies.set_sql_initializing(scope, id, false)?;
         open.insert(key, Arc::clone(&database));
+        drop(open);
         self.changes.send_replace(());
         Ok(Some(database))
     }
 }
 
-fn initialize_database(path: &std::path::Path) -> io::Result<()> {
+fn initialize_database(path: &Path) -> io::Result<()> {
     if path.exists() {
         return Ok(());
     }
@@ -545,13 +675,16 @@ fn initialize_database(path: &std::path::Path) -> io::Result<()> {
     fs::create_dir_all(parent)?;
     let staging = path.with_extension("initializing.redb");
     remove_initializing_file(&staging)?;
-    drop(Database::open(&staging).map_err(|_| io::Error::other("database initialization failed"))?);
+    drop(
+        Database::open(&staging)
+            .map_err(|_error| io::Error::other("database initialization failed"))?,
+    );
     File::open(&staging)?.sync_all()?;
     fs::rename(&staging, path)?;
     File::open(parent)?.sync_all()
 }
 
-fn remove_initializing_file(path: &std::path::Path) -> io::Result<()> {
+fn remove_initializing_file(path: &Path) -> io::Result<()> {
     match fs::remove_file(path) {
         Ok(()) => File::open(path.parent().expect("initializing path has parent"))?.sync_all(),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -559,21 +692,18 @@ fn remove_initializing_file(path: &std::path::Path) -> io::Result<()> {
     }
 }
 
-fn retirement_marker(path: &std::path::Path) -> PathBuf {
+fn retirement_marker(path: &Path) -> PathBuf {
     let mut marker = path.as_os_str().to_owned();
     marker.push(".ofdb-retired");
     PathBuf::from(marker)
 }
 
-fn database_key(
-    scope: &impl StorageNamespace,
-    id: DatabaseId,
-) -> (String, of_model::id::Id, DatabaseId) {
+fn database_key(scope: &impl StorageNamespace, id: DatabaseId) -> (String, Id, DatabaseId) {
     (scope.user_sub().to_owned(), scope.application_id(), id)
 }
 
 fn database_path(
-    root: &std::path::Path,
+    root: &Path,
     scope: &impl StorageNamespace,
     id: DatabaseId,
 ) -> io::Result<PathBuf> {
@@ -599,16 +729,22 @@ fn database_path(
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{env, fs, io, path::Path, process, slice, time::Duration};
 
-    use of_model::storage::namespace::StorageNamespace;
-    use ofdb_sql::SqlTranslator;
+    use db::{adapters::EmbeddedDatabase, ofdb::up};
+    use of_model::{
+        id::Id,
+        storage::{database_resource::DatabaseResource, namespace::StorageNamespace},
+    };
+    use ofdb_kv::Value as KvValue;
+    use ofdb_sql::{Database, Row, SqlTranslator, history::SyncKey};
+    use tokio::time::sleep;
 
-    use crate::database_runtime::DatabaseRuntime;
+    use crate::{database_catalog::DatabaseCatalog, database_runtime::DatabaseRuntime};
 
     struct Scope {
         subject: &'static str,
-        application: of_model::id::Id,
+        application: Id,
     }
 
     impl StorageNamespace for Scope {
@@ -616,23 +752,128 @@ mod tests {
             self.subject
         }
 
-        fn application_id(&self) -> of_model::id::Id {
+        fn application_id(&self) -> Id {
             self.application
         }
     }
 
+    fn assert_creation_key_is_namespaced(
+        runtime: &DatabaseRuntime,
+        scope: &Scope,
+        resource_id: Id,
+    ) {
+        let other_owner = Scope {
+            subject: "other",
+            application: scope.application,
+        };
+        assert_eq!(
+            runtime.list(&other_owner).expect("isolated owner"),
+            [] as [DatabaseResource; 0]
+        );
+        let other_application = Scope {
+            subject: scope.subject,
+            application: Id::now_v7(),
+        };
+        for foreign in [&other_owner, &other_application] {
+            assert!(
+                runtime
+                    .get(foreign, resource_id)
+                    .expect("scoped lookup")
+                    .is_none()
+            );
+            assert!(
+                !runtime
+                    .delete(foreign, resource_id)
+                    .expect("scoped deletion")
+            );
+            assert_ne!(
+                runtime
+                    .ensure(foreign, "create-once", None)
+                    .expect("separate reservation")
+                    .id,
+                resource_id
+            );
+        }
+    }
+
+    async fn assert_retired_copy_reselection(
+        root: &Path,
+        scope: &Scope,
+        resource: &DatabaseResource,
+    ) {
+        let database = EmbeddedDatabase::open(root)
+            .await
+            .expect("restart retired host");
+        let runtime = DatabaseRuntime::with_shared(database.storage(), database.client())
+            .expect("retired runtime");
+        runtime.open_existing(scope, resource.id).unwrap_err();
+        assert_eq!(
+            runtime.list(scope).expect("retained identity"),
+            vec![resource.clone()]
+        );
+        runtime
+            .reconcile_selected_copies(&[(
+                scope.subject.to_owned(),
+                scope.application,
+                resource.id,
+            )])
+            .await
+            .expect("reselect a fresh generation");
+        let fresh = runtime
+            .open_selected(scope, resource.id)
+            .expect("fresh SQL")
+            .expect("same resource identity");
+        fresh
+            .client()
+            .execute_sql("SELECT * FROM notes", None)
+            .await
+            .unwrap_err();
+        let fresh_kv = runtime
+            .open_kv_selected(scope, resource.id)
+            .expect("fresh KV")
+            .expect("same resource identity");
+        assert!(
+            fresh_kv
+                .client()
+                .get("saved")
+                .await
+                .expect("fresh generation")
+                .is_none()
+        );
+        drop(fresh_kv);
+        drop(fresh);
+        drop(runtime);
+        drop(database);
+    }
+
+    async fn create_independent_schemas(first: &Database, second: &Database) {
+        first
+            .client()
+            .translate_and_execute(
+                "CREATE TABLE first_table (id UUID PRIMARY KEY)",
+                &SqlTranslator,
+            )
+            .await
+            .expect("first schema persists");
+        second
+            .client()
+            .translate_and_execute(
+                "CREATE TABLE second_table (id UUID PRIMARY KEY)",
+                &SqlTranslator,
+            )
+            .await
+            .expect("second schema persists independently");
+    }
+
     #[tokio::test]
     async fn independently_registered_database_stays_deleted_after_catalog_reconciliation() {
-        use crate::database_catalog::DatabaseCatalog;
-        use ofdb_sql::Database;
-
         let left = Database::in_memory();
         let right = Database::in_memory();
         let scope = Scope {
             subject: "owner",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
-        db::ofdb::up(&left.client()).await.expect("left schema");
+        up(&left.client()).await.expect("left schema");
         let left_catalog = DatabaseCatalog::with_client(left.client());
         let (resource, pending) = left_catalog
             .reserve(&scope, "same-key", Some("left".into()))
@@ -645,8 +886,8 @@ mod tests {
         assert!(left_catalog.delete(&scope, id).expect("delete on left"));
 
         // The later independent creation has the greater Logical Row ID.
-        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        db::ofdb::up(&right.client()).await.expect("right schema");
+        sleep(Duration::from_millis(2)).await;
+        up(&right.client()).await.expect("right schema");
         let right_catalog = DatabaseCatalog::with_client(right.client());
         let (resource, pending) = right_catalog
             .reserve(&scope, "same-key", Some("right".into()))
@@ -667,7 +908,10 @@ mod tests {
                 .is_tombstoned(&scope, id)
                 .expect("read deletion")
         );
-        assert!(right_catalog.list(&scope).expect("list catalog").is_empty());
+        assert_eq!(
+            right_catalog.list(&scope).expect("list catalog"),
+            [] as [DatabaseResource; 0]
+        );
         left.import_history(right.export_history().await.expect("merged history"))
             .await
             .expect("return late registration to deleting peer");
@@ -681,18 +925,15 @@ mod tests {
 
     #[tokio::test]
     async fn deletion_learned_before_registration_wins_against_later_history() {
-        use crate::database_catalog::DatabaseCatalog;
-        use ofdb_sql::Database;
-
         let source = Database::in_memory();
         let receiver = Database::in_memory();
         let late = Database::in_memory();
         let scope = Scope {
             subject: "owner",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
-        let id = of_model::id::Id::now_v7();
-        db::ofdb::up(&source.client()).await.expect("source schema");
+        let id = Id::now_v7();
+        up(&source.client()).await.expect("source schema");
         let source_catalog = DatabaseCatalog::with_client(source.client());
         source_catalog
             .apply_tombstone(&scope, id)
@@ -708,7 +949,7 @@ mod tests {
                 .expect("deny local registration")
         );
 
-        db::ofdb::up(&late.client()).await.expect("late schema");
+        up(&late.client()).await.expect("late schema");
         let late_catalog = DatabaseCatalog::with_client(late.client());
         assert!(
             late_catalog
@@ -739,14 +980,12 @@ mod tests {
 
     #[tokio::test]
     async fn creation_key_preserves_domain_identity_in_generated_catalog_rows() {
-        let root = std::env::temp_dir().join(format!("catalog-{}", of_model::id::Id::now_v7()));
+        let root = env::temp_dir().join(format!("catalog-{}", Id::now_v7()));
         let scope = Scope {
             subject: "owner",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
-        let database = db::adapters::EmbeddedDatabase::open(&root)
-            .await
-            .expect("host");
+        let database = EmbeddedDatabase::open(&root).await.expect("host");
         let runtime =
             DatabaseRuntime::with_shared(database.storage(), database.client()).expect("runtime");
         let resource = runtime
@@ -764,25 +1003,25 @@ mod tests {
         let history = catalog.export_history().await.expect("catalog history");
         let mut tables = Vec::new();
         for unit in &history {
-            let ofdb_sql::history::SyncKey::Row { table, row } = &unit.key;
+            let SyncKey::Row { table, row } = &unit.key;
             if matches!(table.as_str(), "namespaces" | "resources" | "databases") {
                 assert_eq!(row.get_version_num(), 7, "{table} Logical Row identity");
                 assert_ne!(*row, resource.id);
                 tables.push(table.as_str());
             }
         }
-        tables.sort();
+        tables.sort_unstable();
         assert_eq!(tables, ["databases"]);
 
         let peer_root = root.with_extension("peer.redb");
-        let peer = ofdb_sql::Database::open(&peer_root).expect("fresh peer catalog");
+        let peer = Database::open(&peer_root).expect("fresh peer catalog");
         peer.import_history(history)
             .await
             .expect("replicate catalog rows");
-        let peer_catalog = crate::database_catalog::DatabaseCatalog::with_client(peer.client());
+        let peer_catalog = DatabaseCatalog::with_client(peer.client());
         assert_eq!(
             peer_catalog.list(&scope).expect("replicated Resource"),
-            [resource.clone()]
+            slice::from_ref(&resource)
         );
         assert_eq!(
             catalog.history_manifest().await.expect("source identities"),
@@ -792,40 +1031,7 @@ mod tests {
         drop(peer);
         fs::remove_file(peer_root).expect("remove peer fixture");
 
-        let other_owner = Scope {
-            subject: "other",
-            application: scope.application,
-        };
-        assert!(
-            runtime
-                .list(&other_owner)
-                .expect("isolated owner")
-                .is_empty()
-        );
-        let other_application = Scope {
-            subject: scope.subject,
-            application: of_model::id::Id::now_v7(),
-        };
-        for foreign in [&other_owner, &other_application] {
-            assert!(
-                runtime
-                    .get(foreign, resource.id)
-                    .expect("scoped lookup")
-                    .is_none()
-            );
-            assert!(
-                !runtime
-                    .delete(foreign, resource.id)
-                    .expect("scoped deletion")
-            );
-            assert_ne!(
-                runtime
-                    .ensure(foreign, "create-once", None)
-                    .expect("separate reservation")
-                    .id,
-                resource.id
-            );
-        }
+        assert_creation_key_is_namespaced(&runtime, &scope, resource.id);
         assert!(
             runtime
                 .delete(&scope, resource.id)
@@ -833,9 +1039,7 @@ mod tests {
         );
         drop(runtime);
         drop(database);
-        let database = db::adapters::EmbeddedDatabase::open(&root)
-            .await
-            .expect("restart host");
+        let database = EmbeddedDatabase::open(&root).await.expect("restart host");
         let runtime = DatabaseRuntime::with_shared(database.storage(), database.client())
             .expect("restart runtime");
         assert!(
@@ -843,18 +1047,16 @@ mod tests {
                 .is_tombstoned(&scope, resource.id)
                 .expect("retained Tombstone")
         );
-        assert!(
-            runtime
-                .list(&scope)
-                .expect("deleted Resource not listed")
-                .is_empty()
+        assert_eq!(
+            runtime.list(&scope).expect("deleted Resource not listed"),
+            [] as [DatabaseResource; 0]
         );
         assert_eq!(
             runtime
                 .ensure(&scope, "create-once", None)
                 .expect_err("Tombstone blocks reservation")
                 .kind(),
-            std::io::ErrorKind::AlreadyExists
+            io::ErrorKind::AlreadyExists
         );
         assert!(
             runtime
@@ -869,15 +1071,12 @@ mod tests {
 
     #[tokio::test]
     async fn shared_resources_restart_and_retire_without_sidecars_or_host_loss() {
-        let root =
-            std::env::temp_dir().join(format!("shared-resource-{}", of_model::id::Id::now_v7()));
+        let root = env::temp_dir().join(format!("shared-resource-{}", Id::now_v7()));
         let scope = Scope {
             subject: "owner",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
-        let database = db::adapters::EmbeddedDatabase::open(&root)
-            .await
-            .expect("host database");
+        let database = EmbeddedDatabase::open(&root).await.expect("host database");
         let runtime =
             DatabaseRuntime::with_shared(database.storage(), database.client()).expect("runtime");
         let (resource, sql) = runtime
@@ -889,7 +1088,7 @@ mod tests {
             .expect("KV store")
             .expect("selected store");
         kv.client()
-            .set("saved", ofdb_kv::Value::Text("durable".into()), None)
+            .set("saved", KvValue::Text("durable".into()), None)
             .await
             .expect("KV data");
         drop(kv);
@@ -897,20 +1096,16 @@ mod tests {
         drop(runtime);
         drop(database);
         assert_eq!(
-            std::fs::read_dir(&root)
-                .expect("layout before backup")
-                .count(),
+            fs::read_dir(&root).expect("layout before backup").count(),
             1
         );
         let restored = root.with_extension("restored");
-        std::fs::create_dir(&restored).expect("restore directory");
-        std::fs::rename(root.join("unified.redb"), restored.join("unified.redb"))
+        fs::create_dir(&restored).expect("restore directory");
+        fs::rename(root.join("unified.redb"), restored.join("unified.redb"))
             .expect("restore only the database file");
-        std::fs::remove_dir(root).expect("remove original directory");
+        fs::remove_dir(root).expect("remove original directory");
         let root = restored;
-        let database = db::adapters::EmbeddedDatabase::open(&root)
-            .await
-            .expect("restart host");
+        let database = EmbeddedDatabase::open(&root).await.expect("restart host");
         let runtime = DatabaseRuntime::with_shared(database.storage(), database.client())
             .expect("restart runtime");
         let sql = runtime
@@ -932,7 +1127,7 @@ mod tests {
             .expect("retained resource");
         assert_eq!(
             kv.client().get("saved").await.expect("retained KV"),
-            Some(ofdb_kv::Value::Text("durable".into()))
+            Some(KvValue::Text("durable".into()))
         );
         runtime
             .remove_local_copy(&scope, resource.id)
@@ -949,73 +1144,23 @@ mod tests {
             .await
             .expect("control plane survives retirement");
         assert!(root.join("unified.redb").is_file());
-        assert_eq!(
-            std::fs::read_dir(&root)
-                .expect("single file layout")
-                .count(),
-            1
-        );
+        assert_eq!(fs::read_dir(&root).expect("single file layout").count(), 1);
         drop(kv);
         drop(sql);
         drop(runtime);
         drop(database);
-        let database = db::adapters::EmbeddedDatabase::open(&root)
-            .await
-            .expect("restart retired host");
-        let runtime = DatabaseRuntime::with_shared(database.storage(), database.client())
-            .expect("retired runtime");
-        runtime.open_existing(&scope, resource.id).unwrap_err();
-        assert_eq!(
-            runtime.list(&scope).expect("retained identity"),
-            vec![resource.clone()]
-        );
-        runtime
-            .reconcile_selected_copies(&[(
-                scope.subject.to_owned(),
-                scope.application,
-                resource.id,
-            )])
-            .await
-            .expect("reselect a fresh generation");
-        let fresh = runtime
-            .open_selected(&scope, resource.id)
-            .expect("fresh SQL")
-            .expect("same resource identity");
-        fresh
-            .client()
-            .execute_sql("SELECT * FROM notes", None)
-            .await
-            .unwrap_err();
-        let fresh_kv = runtime
-            .open_kv_selected(&scope, resource.id)
-            .expect("fresh KV")
-            .expect("same resource identity");
-        assert!(
-            fresh_kv
-                .client()
-                .get("saved")
-                .await
-                .expect("fresh generation")
-                .is_none()
-        );
-        drop(fresh_kv);
-        drop(fresh);
-        drop(runtime);
-        drop(database);
-        std::fs::remove_dir_all(root).expect("cleanup");
+        assert_retired_copy_reselection(&root, &scope, &resource).await;
+        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[tokio::test]
     async fn selected_sql_initialization_survives_kv_first_admission_and_restart() {
-        let root = std::env::temp_dir().join(format!(
-            "selected-initialization-{}",
-            of_model::id::Id::now_v7()
-        ));
+        let root = env::temp_dir().join(format!("selected-initialization-{}", Id::now_v7()));
         let scope = Scope {
             subject: "owner",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
-        let id = of_model::id::Id::now_v7();
+        let id = Id::now_v7();
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
         drop(
             runtime
@@ -1057,13 +1202,10 @@ mod tests {
     #[test]
     fn ordinary_sql_acknowledgement_consumes_selected_initialization_intent() {
         for ensure in [false, true] {
-            let root = std::env::temp_dir().join(format!(
-                "selected-acknowledgement-{}",
-                of_model::id::Id::now_v7()
-            ));
+            let root = env::temp_dir().join(format!("selected-acknowledgement-{}", Id::now_v7()));
             let scope = Scope {
                 subject: "owner",
-                application: of_model::id::Id::now_v7(),
+                application: Id::now_v7(),
             };
             let source = DatabaseRuntime::new(root.join("source")).expect("source Node");
             let resource = source
@@ -1080,7 +1222,7 @@ mod tests {
             let path =
                 super::database_path(&target, &scope, resource.id).expect("selected copy path");
             drop(
-                ofdb_sql::Database::open(&path)
+                Database::open(&path)
                     .expect("simulate published SQL before initialization acknowledgement"),
             );
             if ensure {
@@ -1118,13 +1260,10 @@ mod tests {
     #[tokio::test]
     async fn owner_cleanup_retires_interrupted_initialization_after_restart() {
         for content in ["staging", "published", "corrupt-published"] {
-            let root = std::env::temp_dir().join(format!(
-                "initializing-cleanup-{}",
-                of_model::id::Id::now_v7()
-            ));
+            let root = env::temp_dir().join(format!("initializing-cleanup-{}", Id::now_v7()));
             let scope = Scope {
                 subject: "owner",
-                application: of_model::id::Id::now_v7(),
+                application: Id::now_v7(),
             };
             let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
             let (resource, initializing) = runtime
@@ -1138,7 +1277,7 @@ mod tests {
             let stage = path.with_extension("initializing.redb");
             fs::write(&stage, b"interrupted staging bytes").expect("interrupted staging");
             if content == "published" {
-                drop(ofdb_sql::Database::open(&path).expect("published but not acknowledged"));
+                drop(Database::open(&path).expect("published but not acknowledged"));
             } else if content == "corrupt-published" {
                 fs::write(&path, b"interrupted published bytes")
                     .expect("corrupt unacknowledged content");
@@ -1192,13 +1331,10 @@ mod tests {
 
     #[tokio::test]
     async fn local_copy_retirement_removes_both_phases_and_reselection_uses_fresh_generation() {
-        let root = std::env::temp_dir().join(format!(
-            "database-retirement-{}",
-            of_model::id::Id::now_v7()
-        ));
+        let root = env::temp_dir().join(format!("database-retirement-{}", Id::now_v7()));
         let scope = Scope {
             subject: "owner",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
         let (retired, handle) = runtime.create(&scope, None).expect("managed local copy");
@@ -1208,7 +1344,7 @@ mod tests {
             .expect("KV copy")
             .expect("KV owner");
         kv.client()
-            .set("old", ofdb_kv::Value::Integer(1), None)
+            .set("old", KvValue::Integer(1), None)
             .await
             .expect("KV source");
         runtime
@@ -1287,11 +1423,10 @@ mod tests {
 
     #[tokio::test]
     async fn transfer_cleanup_covers_created_copies_but_preserves_other_owner() {
-        let root =
-            std::env::temp_dir().join(format!("owner-cleanup-{}", of_model::id::Id::now_v7()));
+        let root = env::temp_dir().join(format!("owner-cleanup-{}", Id::now_v7()));
         let scope = Scope {
             subject: "old",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
         let other = Scope {
             subject: "other",
@@ -1337,10 +1472,10 @@ mod tests {
 
     #[tokio::test]
     async fn sql_phase_survives_kv_owner_failure_and_restart_retry() {
-        let root = std::env::temp_dir().join(format!("phase-retry-{}", of_model::id::Id::now_v7()));
+        let root = env::temp_dir().join(format!("phase-retry-{}", Id::now_v7()));
         let scope = Scope {
             subject: "owner",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
         let (resource, sql) = runtime.create(&scope, None).expect("SQL copy");
@@ -1399,7 +1534,7 @@ mod tests {
             .expect("KV");
         fresh
             .client()
-            .set("new", ofdb_kv::Value::Integer(2), None)
+            .set("new", KvValue::Integer(2), None)
             .await
             .expect("new generation usable");
         drop(fresh);
@@ -1409,16 +1544,16 @@ mod tests {
 
     #[test]
     fn selected_resource_provisions_matching_id_without_reviving_tombstones() {
-        let root = std::env::temp_dir().join(format!(
+        let root = env::temp_dir().join(format!(
             "database-runtime-selected-{}-{}",
-            std::process::id(),
-            of_model::id::Id::now_v7()
+            process::id(),
+            Id::now_v7()
         ));
         let scope = Scope {
             subject: "owner",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
-        let id = of_model::id::Id::now_v7();
+        let id = Id::now_v7();
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime opens");
         assert!(
             runtime
@@ -1449,16 +1584,20 @@ mod tests {
         fs::remove_dir_all(root).expect("test databases are removed");
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "KV commit and rollback consume and drop their transactions"
+    )]
     #[tokio::test]
     async fn kv_sidecar_persists_across_runtime_reopen_and_deleted_resources_stay_tombstoned() {
-        let root = std::env::temp_dir().join(format!(
+        let root = env::temp_dir().join(format!(
             "database-runtime-kv-{}-{}",
-            std::process::id(),
-            of_model::id::Id::now_v7()
+            process::id(),
+            Id::now_v7()
         ));
         let scope = Scope {
             subject: "owner",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime opens");
         let (resource, _database) = runtime
@@ -1474,7 +1613,7 @@ mod tests {
             .await
             .expect("KV transaction opens");
         transaction
-            .set("key", ofdb_kv::Value::Blob(vec![1, 2, 3]), None)
+            .set("key", KvValue::Blob(vec![1, 2, 3]), None)
             .await
             .expect("KV value writes");
         transaction.commit().await.expect("KV value commits");
@@ -1493,7 +1632,7 @@ mod tests {
             .expect("reopened KV transaction opens");
         assert_eq!(
             transaction.get("key").await.expect("KV value reads"),
-            Some(ofdb_kv::Value::Blob(vec![1, 2, 3]))
+            Some(KvValue::Blob(vec![1, 2, 3]))
         );
         transaction
             .rollback()
@@ -1520,14 +1659,14 @@ mod tests {
 
     #[tokio::test]
     async fn resources_open_independent_durable_engines() {
-        let root = std::env::temp_dir().join(format!(
+        let root = env::temp_dir().join(format!(
             "database-runtime-{}-{}",
-            std::process::id(),
-            of_model::id::Id::now_v7()
+            process::id(),
+            Id::now_v7()
         ));
         let scope = Scope {
             subject: "owner",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
         let runtime = DatabaseRuntime::new(root.clone()).expect("runtime opens");
         let (first, first_db) = runtime
@@ -1537,22 +1676,7 @@ mod tests {
             .create(&scope, Some("db".into()))
             .expect("second database creates");
         assert_ne!(first.id, second.id);
-        first_db
-            .client()
-            .translate_and_execute(
-                "CREATE TABLE first_table (id UUID PRIMARY KEY)",
-                &SqlTranslator,
-            )
-            .await
-            .expect("first schema persists");
-        second_db
-            .client()
-            .translate_and_execute(
-                "CREATE TABLE second_table (id UUID PRIMARY KEY)",
-                &SqlTranslator,
-            )
-            .await
-            .expect("second schema persists independently");
+        create_independent_schemas(&first_db, &second_db).await;
         drop(runtime);
         drop(first_db);
         drop(second_db);
@@ -1569,7 +1693,7 @@ mod tests {
                 .is_none()
         );
         let other_application = Scope {
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
             ..scope
         };
         assert!(
@@ -1593,7 +1717,7 @@ mod tests {
                 .await
                 .expect("first table survives restart")[0]
                 .rows,
-            [] as [ofdb_sql::Row; 0]
+            [] as [Row; 0]
         );
         second_db
             .client()
@@ -1607,7 +1731,7 @@ mod tests {
                 .await
                 .expect("second table survives restart")[0]
                 .rows,
-            [] as [ofdb_sql::Row; 0]
+            [] as [Row; 0]
         );
         assert!(
             runtime
@@ -1627,7 +1751,7 @@ mod tests {
                 .await
                 .expect("an already-issued handle remains usable")[0]
                 .rows,
-            [] as [ofdb_sql::Row; 0]
+            [] as [Row; 0]
         );
 
         drop(runtime);

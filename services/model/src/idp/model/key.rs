@@ -1,11 +1,7 @@
-use core::str::FromStr;
+use core::{fmt::Write, str::FromStr};
 
 #[cfg(not(feature = "std"))]
-use alloc::{
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::string::{String, ToString};
 
 use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
 use bip32::DerivationPath;
@@ -50,6 +46,10 @@ pub struct Key {
 }
 
 impl Key {
+    /// Converts the derived key to a private JWK.
+    ///
+    /// # Errors
+    /// Returns a key error if the private JWK components cannot be derived.
     pub fn to_jwk_private(&self, derived_key: &DerivedKey) -> KeyResult<JwkPrivate> {
         let (x, y, d) = derived_key.to_xyd()?;
 
@@ -68,6 +68,10 @@ impl Key {
         Ok(jwt)
     }
 
+    /// Converts the derived key to a public JWK.
+    ///
+    /// # Errors
+    /// Returns a key error if the public JWK components cannot be derived.
     pub fn to_jwk_public(&self, derived_key: &DerivedKey) -> KeyResult<JwkPublic> {
         let (x, y) = derived_key.to_xy()?;
 
@@ -85,6 +89,10 @@ impl Key {
         Ok(jwt)
     }
 
+    /// Parses the stored BIP32 derivation path.
+    ///
+    /// # Errors
+    /// Returns a key error if the stored derivation path is invalid.
     pub fn derivation_path(&self) -> KeyResult<DerivationPath> {
         let derivation_path = DerivationPath::from_str(&self.derivation_path)?;
         Ok(derivation_path)
@@ -104,10 +112,10 @@ impl Key {
             path.push('m');
         }
 
+        path.push('/');
+        write!(path, "{derivation_index}").expect("writing to a String cannot fail");
         if hardened {
-            path.push_str(&format!("/{derivation_index}'"));
-        } else {
-            path.push_str(&format!("/{derivation_index}"));
+            path.push('\'');
         }
 
         path
@@ -133,6 +141,6 @@ mod tests {
             Key::build_derivation_path(None, 0, false),
             Key::build_derivation_path(None, 1, false)
         );
-        DerivationPath::from_str(&child).unwrap();
+        DerivationPath::from_str(&child).expect("generated path must be valid");
     }
 }

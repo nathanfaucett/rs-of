@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
+
 use of_model::idp::model::application::Application;
 
 use of_model::id::Id;

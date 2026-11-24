@@ -23,8 +23,11 @@ pub trait SyncTransport {
     ///
     /// Returns an error if the connection is closed, times out, or
     /// the received frame is invalid.
+    ///
+    /// The future must own or share its receive state so synchronization can retain it
+    /// across select branches without borrowing the transport or cancelling partial frames.
     #[cfg(not(target_arch = "wasm32"))]
-    fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> + Send;
+    fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> + Send + 'static;
     #[cfg(target_arch = "wasm32")]
     fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> + 'static;
 
@@ -106,7 +109,7 @@ pub mod mock {
             ready(result)
         }
 
-        fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> {
+        fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> + 'static {
             let result = if *self.closed.lock().unwrap() {
                 Err(Error::new(ErrorKind::BrokenPipe, "peer closed"))
             } else {

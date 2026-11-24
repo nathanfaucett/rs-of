@@ -1,3 +1,8 @@
+use core::fmt;
+
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -31,8 +36,8 @@ impl Default for DatabaseId {
     }
 }
 
-impl core::fmt::Display for DatabaseId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for DatabaseId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
@@ -79,8 +84,8 @@ impl Default for KvStoreId {
     }
 }
 
-impl core::fmt::Display for KvStoreId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for KvStoreId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
@@ -127,8 +132,8 @@ impl Default for FilesystemId {
     }
 }
 
-impl core::fmt::Display for FilesystemId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for FilesystemId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
@@ -175,8 +180,8 @@ impl Default for ResourceId {
     }
 }
 
-impl core::fmt::Display for ResourceId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for ResourceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }

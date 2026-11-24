@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP Device API
  *
@@ -10,10 +11,12 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum DeviceState {
     #[serde(rename = "pending")]
+    #[default]
     Pending,
     #[serde(rename = "approved")]
     Approved,
@@ -21,18 +24,12 @@ pub enum DeviceState {
     Revoked,
 }
 
-impl core::fmt::Display for DeviceState {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for DeviceState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Pending => write!(f, "pending"),
             Self::Approved => write!(f, "approved"),
             Self::Revoked => write!(f, "revoked"),
         }
-    }
-}
-
-impl Default for DeviceState {
-    fn default() -> DeviceState {
-        Self::Pending
     }
 }

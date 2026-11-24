@@ -13,9 +13,11 @@ use of_model::idp::contract::{
     jwks::Jwks,
 };
 
+use serde::de::IgnoredAny;
+
 use super::jwt::{decode_jwt, verify_jwt};
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct AccessClaims {
     #[serde(flatten)]
     pub standard_claims: StandardClaims,
@@ -24,6 +26,9 @@ pub struct AccessClaims {
 }
 
 /// Verify an access JWT against public keys already trusted for this issuer.
+///
+/// # Errors
+/// Returns an OAuth error response if token decoding, verification, or claims validation fails.
 pub fn verify_access_jwt(
     jwks: &Jwks,
     issuer: &str,
@@ -31,7 +36,7 @@ pub fn verify_access_jwt(
     token: &str,
     now: i64,
 ) -> ErrorResponseResult<AccessClaims> {
-    let (header, _) = decode_jwt::<serde::de::IgnoredAny>(token)?;
+    let (header, _) = decode_jwt::<IgnoredAny>(token)?;
     let mut keys = jwks.keys.iter().filter(|key| key.kid == header.kid);
     let key = keys.next().ok_or_else(invalid_access)?;
     if keys.next().is_some() {
@@ -76,18 +81,20 @@ fn invalid_access() -> ErrorResponse {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct PrincipalBoundClaims {
     #[serde(flatten)]
-    pub standard_claims: of_model::contract::standard_claims::StandardClaims,
-    pub principal_key_id: of_model::id::Id,
+    pub standard_claims: StandardClaims,
+    pub principal_key_id: Id,
 }
 
 #[derive(serde::Serialize)]
 pub(super) struct RefreshClaims {
     #[serde(flatten)]
-    pub standard_claims: of_model::contract::standard_claims::StandardClaims,
-    pub principal_key_id: of_model::id::Id,
-    pub jti: alloc::string::String,
+    pub standard_claims: StandardClaims,
+    pub principal_key_id: Id,
+    pub jti: String,
 }
 
+/// # Errors
+/// Returns an OAuth error response if required grant inputs are absent or inconsistent.
 pub fn validate_authorization_code_grant(
     request: &AuthorizationCodeGrantRequest,
     expected_client_id: &str,

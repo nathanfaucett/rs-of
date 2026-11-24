@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 /*
  * LIDP IdP API
@@ -12,7 +13,7 @@ use alloc::{string::String, vec::Vec};
 use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorizationServerMetadata {
     /// URL of the authorization endpoint. REQUIRED unless no grant types use it.
     #[serde(
@@ -105,13 +106,13 @@ pub struct AuthorizationServerMetadata {
     /// Whether the server requires PKCE for all clients (OAuth 2.1 best practice).
     #[serde(rename = "require_pkce", skip_serializing_if = "Option::is_none")]
     pub require_pkce: Option<bool>,
-    /// List of supported `response_mode` values. Defaults to [\"query\", \"fragment\"] if omitted.
+    /// List of supported `response_mode` values. Defaults to `[\"query\", \"fragment\"]` if omitted.
     #[serde(
         rename = "response_modes_supported",
         skip_serializing_if = "Option::is_none"
     )]
     pub response_modes_supported: Option<Vec<models::ResponseMode>>,
-    /// REQUIRED. List of supported `response_type` values. In OAuth 2.1 this should primarily be [\"code\"].
+    /// REQUIRED. List of supported `response_type` values. In OAuth 2.1 this should primarily be `[\"code\"]`.
     #[serde(
         rename = "response_types_supported",
         skip_serializing_if = "Option::is_none"
@@ -193,8 +194,9 @@ pub struct AuthorizationServerMetadata {
 }
 
 impl AuthorizationServerMetadata {
-    pub fn new(issuer: String) -> AuthorizationServerMetadata {
-        AuthorizationServerMetadata {
+    #[must_use]
+    pub const fn new(issuer: String) -> Self {
+        Self {
             authorization_endpoint: None,
             code_challenge_methods_supported: None,
             dpop_signing_alg_values_supported: None,

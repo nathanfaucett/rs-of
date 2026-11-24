@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -10,26 +11,22 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum StorageAuthorizationAction {
     #[serde(rename = "read")]
+    #[default]
     Read,
     #[serde(rename = "write")]
     Write,
 }
 
-impl core::fmt::Display for StorageAuthorizationAction {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for StorageAuthorizationAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Read => write!(f, "read"),
             Self::Write => write!(f, "write"),
         }
-    }
-}
-
-impl Default for StorageAuthorizationAction {
-    fn default() -> StorageAuthorizationAction {
-        Self::Read
     }
 }

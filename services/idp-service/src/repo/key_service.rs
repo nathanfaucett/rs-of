@@ -1,4 +1,8 @@
-use alloc::{format, string::String, vec::Vec};
+use core::fmt;
+
+use alloc::format;
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
 
 use bip32::DerivationPath;
 use chrono::{DateTime, Utc};
@@ -27,6 +31,16 @@ pub struct KeyService<R, P = DefaultPrivateKeyRepo> {
     namespace: String,
 }
 
+impl<R, P> fmt::Debug for KeyService<R, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KeyService").finish_non_exhaustive()
+    }
+}
+
+#[allow(
+    clippy::future_not_send,
+    reason = "repository futures intentionally support single-threaded no_std executors"
+)]
 impl<R, P> KeyService<R, P>
 where
     R: KeyRepo,
@@ -52,6 +66,8 @@ where
         &self.private_key_repo
     }
 
+    /// # Errors
+    /// Returns [`RepoError`](super::RepoError) if key persistence or derivation fails.
     pub async fn create_key(
         &self,
         parent_id: Option<Id>,
@@ -79,6 +95,9 @@ where
     }
 
     /// Capture the actual Principal root and its canonical ancestry without producing secrets.
+    ///
+    /// # Errors
+    /// Returns [`RepoError`](super::RepoError) if key creation, derivation, or capture fails.
     pub async fn create_initial_root_with_capture(
         &self,
         entity_type: EntityType,
@@ -100,6 +119,8 @@ where
             .ensure_derivation_path(&namespace, key.derivation_path()?)
     }
 
+    /// # Errors
+    /// Returns [`RepoError`](super::RepoError) if the key has an invalid derivation path.
     pub fn private_paths(key: &Key) -> RepoResult<Vec<DerivationPath>> {
         let mut paths = Vec::new();
         let mut path = Some(key.derivation_path()?);
@@ -110,6 +131,8 @@ where
         Ok(paths)
     }
 
+    /// # Errors
+    /// Returns [`RepoError`](super::RepoError) if key metadata or private material cannot be deleted.
     pub async fn delete_entity_key_material(
         &self,
         entity_type: EntityType,
@@ -148,6 +171,8 @@ where
         format!("{}:{entity_type}:{entity_id}", self.namespace)
     }
 
+    /// # Errors
+    /// Returns [`RepoError`](super::RepoError) if master key access or creation fails.
     pub fn ensure_entity_master_key(
         &self,
         entity_type: EntityType,
@@ -159,6 +184,8 @@ where
             .ensure_master_key_with_passphrase(&scoped_namespace, passphrase)
     }
 
+    /// # Errors
+    /// Returns [`RepoError`](super::RepoError) if the replacement root cannot be persisted.
     pub async fn rotate_active_entity_root_key(
         &self,
         entity_type: EntityType,

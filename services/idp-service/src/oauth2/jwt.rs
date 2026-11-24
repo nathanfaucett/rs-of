@@ -24,7 +24,7 @@ use of_model::idp::contract::{
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JwtHeader {
     pub alg: String,
     pub typ: String,
@@ -36,6 +36,8 @@ pub struct JwtHeader {
 const JWT_HEADER_ALG: &str = "ES256K";
 const JWT_HEADER_TYP: &str = "JWT";
 
+/// # Errors
+/// Returns an error response if the private key or claims cannot produce a signed JWT.
 pub fn encode_jwt<T>(jwk: &JwkPrivate, claims: &T) -> ErrorResponseResult<String>
 where
     T: Serialize,
@@ -68,6 +70,9 @@ where
 }
 
 /// Decodes a JWT and returns the header and claims without verifying the signature.
+///
+/// # Errors
+/// Returns an error response if the token structure, encoding, or JSON is invalid.
 pub fn decode_jwt<T>(token: &str) -> ErrorResponseResult<(JwtHeader, T)>
 where
     T: DeserializeOwned,
@@ -106,6 +111,9 @@ where
 }
 
 /// Verifies a JWT and returns the header and claims if the signature is valid.
+///
+/// # Errors
+/// Returns an error response if decoding, key validation, or signature verification fails.
 pub fn verify_jwt<T>(jwk: &JwkPublic, token: &str) -> ErrorResponseResult<(JwtHeader, T)>
 where
     T: DeserializeOwned,

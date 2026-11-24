@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 /*
  * Storage Server
  *

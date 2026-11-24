@@ -4,12 +4,18 @@ use of_model::id::Id;
 use ofdb_sql::Value;
 use ofdb_sql::{SyncCandidateView, SyncRowView as CandidateRow, SyncTableView as CandidateTable};
 
+use crate::security_sync::public_device_columns;
+
+#[derive(Debug)]
 pub struct PeerBinding {
     pub member: Id,
     pub endpoint: String,
     pub owner: Id,
 }
 
+/// # Errors
+///
+/// Returns an error when a candidate contains an invalid public security value.
 pub fn validate(view: &SyncCandidateView) -> Result<(), String> {
     for table in &view.tables {
         let public = public_security_tables()
@@ -83,7 +89,7 @@ fn validate_device(
     bindings: &[PeerBinding],
 ) -> Result<(), String> {
     let owner = text(table, row, "owner_subject")
-        .map(|owner| owner.parse::<Id>().map_err(|_| invalid()))
+        .map(|owner| owner.parse::<Id>().map_err(|_error| invalid()))
         .transpose()?;
     if owner.is_some_and(|id| id.is_nil()) {
         return Err(invalid());
@@ -97,6 +103,7 @@ fn validate_device(
     Ok(())
 }
 
+#[must_use]
 pub fn permits_device_value(table: &str, column: &str, value: &Value) -> bool {
     if table == "device_selection_denials" {
         return match (column, value) {
@@ -126,31 +133,33 @@ pub fn permits_device_value(table: &str, column: &str, value: &Value) -> bool {
         }
     }
     match (column, value) {
-        (_, Value::Null) => true,
         ("id", Value::Uuid(id)) => !id.is_nil() && id.get_version_num() == 7,
         ("id", Value::Text(id)) => {
             Id::parse_str(id).is_ok_and(|id| !id.is_nil() && id.get_version_num() == 7)
         }
-        (
+        (_, Value::Null)
+        | (
             "state" | "approved_at" | "revoked_at" | "created_at" | "updated_at",
             Value::Integer(_),
-        ) => true,
-        ("owner_subject" | "name" | "public_key" | "address", Value::Text(_)) => true,
+        )
+        | ("owner_subject" | "name" | "public_key" | "address", Value::Text(_)) => true,
         _ => false,
     }
 }
 
-fn rfc_uuid(id: &Id, version: usize) -> bool {
+const fn rfc_uuid(id: &Id, version: usize) -> bool {
     id.get_version_num() == version && id.as_bytes()[8] & 0xc0 == 0x80
 }
 
+/// # Errors
+///
+/// Returns an error when a Device candidate violates its schema or endpoint binding.
 pub fn validate_device_history(
     view: &SyncCandidateView,
     bindings: &[PeerBinding],
 ) -> Result<(), String> {
     for table in &view.tables {
-        let columns =
-            crate::security_sync::public_device_columns(&table.name).ok_or_else(invalid)?;
+        let columns = public_device_columns(&table.name).ok_or_else(invalid)?;
         if columns.len() != table.columns.len()
             || table
                 .columns

@@ -9,7 +9,7 @@ use crate::ofdb::DbPermissionRepo;
 
 use crate::ofdb::DbRoleRepo;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalPermissions {
     engine: Client,
 }
@@ -20,6 +20,9 @@ impl LocalPermissions {
         Self { engine }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`](crate::ManagementError) when policy evaluation fails.
     pub async fn evaluate(&self, request: &PermissionEvaluationRequest) -> ManagementResult<bool> {
         ManagementService::new(
             DbPermissionRepo::new(self.engine.clone()),

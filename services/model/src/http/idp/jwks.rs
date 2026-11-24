@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 /*
  * LIDP IdP API
@@ -12,14 +13,15 @@ use alloc::vec::Vec;
 use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Jwks {
     #[serde(rename = "keys")]
     pub keys: Vec<models::JwkPublic>,
 }
 
 impl Jwks {
-    pub fn new(keys: Vec<models::JwkPublic>) -> Jwks {
-        Jwks { keys }
+    #[must_use]
+    pub const fn new(keys: Vec<models::JwkPublic>) -> Self {
+        Self { keys }
     }
 }

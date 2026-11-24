@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
+
 use chrono::{DateTime, Utc};
 
 use crate::id::Id;
@@ -10,6 +13,10 @@ use crate::idp::contract::response_type::ResponseType;
 use crate::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "preserve the persisted OAuth client field names"
+)]
 pub struct Client {
     pub id: Id,
 
@@ -86,18 +93,18 @@ impl From<Client> for ClientRegistration {
             client_secret_expires_at: val.client_secret_expires_at.map(|dt| dt.timestamp()),
             client_name: val.client_name,
             client_uri: Some(val.client_uri),
-            redirect_uris: val.redirect_uris,
-            client_type: val.client_type,
-            profile: val.profile,
-            token_endpoint_auth_method: val.token_endpoint_auth_method,
-            allowed_grant_types: val.allowed_grant_types,
-            response_types: val.response_types,
-            allowed_scopes: val.allowed_scopes,
-            allowed_audiences: val.allowed_audiences,
             logo_uri: val.logo_uri,
             contacts: val.contacts,
             terms_of_service_uri: val.terms_of_service_uri,
             policy_uri: val.policy_uri,
+            client_type: val.client_type,
+            profile: val.profile,
+            redirect_uris: val.redirect_uris,
+            allowed_grant_types: val.allowed_grant_types,
+            response_types: val.response_types,
+            allowed_scopes: val.allowed_scopes,
+            allowed_audiences: val.allowed_audiences,
+            token_endpoint_auth_method: val.token_endpoint_auth_method,
             software_statement: val.software_statement,
             software_id: val.software_id,
             software_version: val.software_version,

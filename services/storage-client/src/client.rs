@@ -1,3 +1,7 @@
+use core::fmt;
+#[cfg(not(target_arch = "wasm32"))]
+use core::future::ready;
+
 use alloc::{format, sync::Arc};
 
 use ofdb_platform::{MaybeSend, MaybeSync};
@@ -29,8 +33,8 @@ pub struct StorageClient {
     local_replica_id: Uuid,
 }
 
-impl core::fmt::Debug for StorageClient {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for StorageClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StorageClient")
             .field("base_url", &self.base_url)
             .field("idp_base_url", &self.idp_base_url)
@@ -73,25 +77,53 @@ impl StorageClient {
         self.local_replica_id
     }
 
+    /// Creates and opens a SQL database Resource.
+    ///
+    /// # Errors
+    /// Returns an error if authentication, resource creation, response decoding, or local
+    /// database opening fails.
     pub async fn create_sql_db(&self, name: Option<String>) -> Result<SqlDatabaseHandle> {
         let resource: Resource = self.create_resource("databases", name).await?;
         self.sql_handle(resource.id).await
     }
+    /// Opens a SQL database Resource.
+    ///
+    /// # Errors
+    /// Returns an error if authentication or the request fails, the Resource is missing, the
+    /// response is invalid, or local database opening fails.
     pub async fn open_sql_db(&self, id: DatabaseId) -> Result<SqlDatabaseHandle> {
         let resource: Resource = self.open_resource("databases", id).await?;
         self.sql_handle(resource.id).await
     }
+    /// Lists SQL database Resources.
+    ///
+    /// # Errors
+    /// Returns an error if authentication, the request, or response decoding fails.
     pub async fn list_sql_dbs(&self) -> Result<Vec<DatabaseInfo>> {
         self.list_resources("databases").await
     }
+    /// Creates and opens a KV store Resource.
+    ///
+    /// # Errors
+    /// Returns an error if authentication, resource creation, response decoding, or local store
+    /// opening fails.
     pub async fn create_kv_store(&self, name: Option<String>) -> Result<KvStoreHandle> {
         let resource: Resource = self.create_resource("databases", name).await?;
         self.kv_handle(resource.id).await
     }
+    /// Opens a KV store Resource.
+    ///
+    /// # Errors
+    /// Returns an error if authentication or the request fails, the Resource is missing, the
+    /// response is invalid, or local store opening fails.
     pub async fn open_kv_store(&self, id: KvStoreId) -> Result<KvStoreHandle> {
         let resource: Resource = self.open_resource("databases", id).await?;
         self.kv_handle(resource.id).await
     }
+    /// Lists KV store Resources.
+    ///
+    /// # Errors
+    /// Returns an error if authentication, the request, or response decoding fails.
     pub async fn list_kv_stores(&self) -> Result<Vec<KvStoreInfo>> {
         let resources: Vec<Resource> = self.list_resources("databases").await?;
         Ok(resources
@@ -102,14 +134,27 @@ impl StorageClient {
             })
             .collect())
     }
+    /// Creates a filesystem Resource.
+    ///
+    /// # Errors
+    /// Returns an error if authentication, resource creation, or response decoding fails.
     pub async fn create_filesystem(&self, name: Option<String>) -> Result<FilesystemHandle> {
         let resource: Resource = self.create_resource("filesystems", name).await?;
         Ok(FilesystemHandle::new(self.identity(resource.id)))
     }
+    /// Opens a filesystem Resource.
+    ///
+    /// # Errors
+    /// Returns an error if authentication or the request fails, the Resource is missing, or the
+    /// response is invalid.
     pub async fn open_filesystem(&self, id: FilesystemId) -> Result<FilesystemHandle> {
         let resource: Resource = self.open_resource("filesystems", id).await?;
         Ok(FilesystemHandle::new(self.identity(resource.id)))
     }
+    /// Lists filesystem Resources.
+    ///
+    /// # Errors
+    /// Returns an error if authentication, the request, or response decoding fails.
     pub async fn list_filesystems(&self) -> Result<Vec<FilesystemInfo>> {
         self.list_resources("filesystems").await
     }
@@ -169,31 +214,50 @@ impl StorageClient {
             schema_fingerprint: [0; 32],
         }
     }
-    async fn sql_handle(&self, id: ResourceId) -> Result<SqlDatabaseHandle> {
+    fn sql_handle(&self, id: ResourceId) -> impl Future<Output = Result<SqlDatabaseHandle>> {
         #[cfg(not(target_arch = "wasm32"))]
-        let database = ofdb_sql::Database::open(id.to_string())
-            .map_err(|e| StorageClientError::Database(e.to_string()))?;
+        let database = ready(
+            ofdb_sql::Database::open(id.to_string())
+                .map_err(|e| StorageClientError::Database(e.to_string())),
+        );
         #[cfg(target_arch = "wasm32")]
-        let database = ofdb_sql::Database::open_indexeddb(&id.to_string())
-            .await
-            .map_err(|e| StorageClientError::Database(e.to_string()))?;
-        Ok(SqlDatabaseHandle::new(
-            database,
-            self.identity(id),
-            TransportConfig::new(self.sync_ws_url.clone()),
-            self.create_sync_token_provider(),
-        ))
+        let database = async move {
+            ofdb_sql::Database::open_indexeddb(&id.to_string())
+                .await
+                .map_err(|e| StorageClientError::Database(e.to_string()))
+        };
+        async move {
+            let database = database.await?;
+            Ok(SqlDatabaseHandle::new(
+                database,
+                self.identity(id),
+                TransportConfig::new(self.sync_ws_url.clone()),
+                self.create_sync_token_provider(),
+            ))
+        }
     }
-    async fn kv_handle(&self, id: ResourceId) -> Result<KvStoreHandle> {
+    fn kv_handle(&self, id: ResourceId) -> impl Future<Output = Result<KvStoreHandle>> {
         #[cfg(not(target_arch = "wasm32"))]
-        let database = ofdb_kv::Database::open(format!("{id}.kv"))
-            .map_err(|e| StorageClientError::KvStore(e.to_string()))?;
+        let database = ready(
+            ofdb_kv::Database::open(format!("{id}.kv"))
+                .map_err(|e| StorageClientError::KvStore(e.to_string())),
+        );
         #[cfg(target_arch = "wasm32")]
-        let database = ofdb_kv::Database::open_indexeddb(&format!("{id}.kv"))
-            .await
-            .map_err(|e| StorageClientError::KvStore(e.to_string()))?;
-        Ok(KvStoreHandle::new(database, self.identity(id)))
+        let database = async move {
+            ofdb_kv::Database::open_indexeddb(&format!("{id}.kv"))
+                .await
+                .map_err(|e| StorageClientError::KvStore(e.to_string()))
+        };
+        async move {
+            let database = database.await?;
+            Ok(KvStoreHandle::new(database, self.identity(id)))
+        }
     }
+    /// Exchanges a subject token for a Storage access token.
+    ///
+    /// # Errors
+    /// Returns an error if the subject-token provider or token request fails, the response is
+    /// invalid, or the returned access token is empty.
     pub async fn get_storage_token(&self, resource: &str, actions: &[&str]) -> Result<String> {
         let subject_token = (self.token_provider)(resource, actions).await?;
         let details = serde_json::json!([{"type": "storage", "actions": actions}]).to_string();

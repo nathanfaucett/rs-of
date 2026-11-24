@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, string::String};
 /*
  * LIDP Management API
@@ -12,7 +13,7 @@ use alloc::{boxed::Box, string::String};
 use crate::http::management as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermissionEvaluationRequest {
     #[serde(rename = "action")]
@@ -26,13 +27,14 @@ pub struct PermissionEvaluationRequest {
 }
 
 impl PermissionEvaluationRequest {
+    #[must_use]
     pub fn new(
         action: models::IdentityAction,
         request_id: String,
         subject: models::PermissionSubject,
         target: models::PermissionTarget,
-    ) -> PermissionEvaluationRequest {
-        PermissionEvaluationRequest {
+    ) -> Self {
+        Self {
             action,
             request_id,
             subject: Box::new(subject),

@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP Device API
@@ -11,14 +12,15 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevicePairingApprovalRequest {
     #[serde(rename = "signature")]
     pub signature: String,
 }
 
 impl DevicePairingApprovalRequest {
-    pub fn new(signature: String) -> DevicePairingApprovalRequest {
-        DevicePairingApprovalRequest { signature }
+    #[must_use]
+    pub const fn new(signature: String) -> Self {
+        Self { signature }
     }
 }

@@ -53,6 +53,8 @@ pub enum PutFileSystemResidencyError {
     UnknownValue(serde_json::Value),
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn get_file_system_residency(
     configuration: &configuration::Configuration,
     params: GetFileSystemResidencyParams,
@@ -69,7 +71,7 @@ pub async fn get_file_system_residency(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -83,23 +85,21 @@ pub async fn get_file_system_residency(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::ResourceResidency`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::ResourceResidency`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::ResourceResidency`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<GetFileSystemResidencyError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -109,6 +109,8 @@ pub async fn get_file_system_residency(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn put_file_system_residency(
     configuration: &configuration::Configuration,
     params: PutFileSystemResidencyParams,
@@ -125,7 +127,7 @@ pub async fn put_file_system_residency(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.resource_residency);
 
     let req = req_builder.build()?;
@@ -134,7 +136,7 @@ pub async fn put_file_system_residency(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;

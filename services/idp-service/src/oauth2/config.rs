@@ -8,10 +8,13 @@ use alloc::{
 
 use of_model::idp::contract::{
     authorization_server_metadata::AuthorizationServerMetadata,
-    code_challenge_method::CodeChallengeMethod, grant_type::GrantType, response_mode::ResponseMode,
-    response_type::ResponseType, token_endpoint_auth_method::TokenEndpointAuthMethod,
+    code_challenge_method::CodeChallengeMethod, grant_type::GrantType, jwks::Jwks,
+    response_mode::ResponseMode, response_type::ResponseType,
+    token_endpoint_auth_method::TokenEndpointAuthMethod,
 };
 use serde::{Deserialize, Serialize};
+
+use super::node_signer::NodeSignerBinding;
 
 pub const DEFAULT_ISSUER: &str = "https://api.localhost:1355/idp";
 pub const DEFAULT_REQUIRE_PKCE: bool = true;
@@ -25,8 +28,8 @@ pub const DEFAULT_DEVICE_POLL_INTERVAL_SECS: i64 = 5;
 #[serde(default, deny_unknown_fields)]
 pub struct OAuth2Config {
     pub issuer: String,
-    pub trusted_issuer_jwks: Option<of_model::idp::contract::jwks::Jwks>,
-    pub local_signer: Option<crate::oauth2::node_signer::NodeSignerBinding>,
+    pub trusted_issuer_jwks: Option<Jwks>,
+    pub local_signer: Option<NodeSignerBinding>,
     pub require_pkce: bool,
     pub token_ttl_secs: u64,
     pub refresh_token_ttl_secs: u64,
@@ -39,8 +42,8 @@ impl Default for OAuth2Config {
     fn default() -> Self {
         Self {
             issuer: DEFAULT_ISSUER.to_string(),
-            local_signer: None,
             trusted_issuer_jwks: None,
+            local_signer: None,
             require_pkce: DEFAULT_REQUIRE_PKCE,
             token_ttl_secs: DEFAULT_TOKEN_TTL_SECS,
             refresh_token_ttl_secs: DEFAULT_REFRESH_TOKEN_TTL_SECS,

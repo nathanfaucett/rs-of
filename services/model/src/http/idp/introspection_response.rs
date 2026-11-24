@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, string::String};
 /*
  * LIDP IdP API
@@ -12,7 +13,7 @@ use alloc::{boxed::Box, string::String};
 use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IntrospectionResponse {
     #[serde(rename = "applicationId")]
@@ -22,8 +23,9 @@ pub struct IntrospectionResponse {
 }
 
 impl IntrospectionResponse {
-    pub fn new(application_id: String, claims: models::StandardClaims) -> IntrospectionResponse {
-        IntrospectionResponse {
+    #[must_use]
+    pub fn new(application_id: String, claims: models::StandardClaims) -> Self {
+        Self {
             application_id,
             claims: Box::new(claims),
         }

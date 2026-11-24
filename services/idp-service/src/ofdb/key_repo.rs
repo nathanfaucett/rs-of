@@ -1,3 +1,5 @@
+use core::fmt::{self, Display};
+
 use super::insert::{generated_id, generated_insert};
 use crate::repo::{KeyRepo, RepoError, RepoResult};
 use chrono::{DateTime, Utc};
@@ -43,6 +45,12 @@ pub struct DbKeyRepo {
     engine: ofdb_sql::Client,
 }
 
+impl fmt::Debug for DbKeyRepo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbKeyRepo").finish_non_exhaustive()
+    }
+}
+
 impl DbKeyRepo {
     #[must_use]
     pub const fn new(engine: ofdb_sql::Client) -> Self {
@@ -58,6 +66,10 @@ impl DbKeyRepo {
         decode_keys(results)
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "rollback consumes the transaction and releases it immediately"
+    )]
     async fn read_keys(&self, selected: impl Fn(&Key) -> bool) -> RepoResult<Vec<Key>> {
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let result = async {
@@ -365,7 +377,7 @@ impl TryFrom<KeyRow> for Key {
             entity_id: row.entity_id,
             derivation_path: row.derivation_path,
             derivation_index: u32::try_from(row.derivation_index)
-                .map_err(|_| RepoError::InvalidInput("invalid key derivation index".into()))?,
+                .map_err(|_error| RepoError::InvalidInput("invalid key derivation index".into()))?,
             hardened: row.hardened != 0,
             name: row.name,
             revoked_at: row.revoked_at.map(timestamp).transpose()?,
@@ -444,11 +456,11 @@ fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
         .ok_or_else(|| RepoError::InvalidInput("invalid key timestamp".into()))
 }
 
-fn db_error(error: ofdb_sql::QueryError) -> RepoError {
+fn db_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 
-fn row_error(error: FromRowError) -> RepoError {
+fn row_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 

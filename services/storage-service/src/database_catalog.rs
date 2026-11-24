@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fs, io, path::PathBuf, sync::Mutex};
+use std::{collections::BTreeMap, fmt, fs, io, path::PathBuf, sync::Mutex};
 
 #[path = "sql_catalog.rs"]
 mod sql_catalog;
@@ -34,12 +34,22 @@ pub struct DatabaseCatalog {
     lock: Mutex<()>,
 }
 
+impl fmt::Debug for DatabaseCatalog {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DatabaseCatalog").finish_non_exhaustive()
+    }
+}
+
 impl DatabaseCatalog {
     /// Opens the standalone catalog.
     ///
     /// # Errors
     ///
     /// Returns an error if the catalog cannot be opened or initialized.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "the public constructor accepts an owned catalog root"
+    )]
     pub fn new(root: PathBuf) -> io::Result<Self> {
         fs::create_dir_all(&root)?;
         let catalog = root.join("catalog.redb");
@@ -85,7 +95,7 @@ impl DatabaseCatalog {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("database catalog lock poisoned"))?;
+            .map_err(|_error| io::Error::other("database catalog lock poisoned"))?;
         sql_catalog::edit(
             &self.client,
             scope.user_sub(),
@@ -100,6 +110,11 @@ impl DatabaseCatalog {
         sql_catalog::owner_resources(&self.client, owner)
     }
 
+    /// Creates a database Resource in `scope`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be updated.
     pub fn create<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -107,7 +122,7 @@ impl DatabaseCatalog {
     ) -> io::Result<DatabaseResource> {
         self.with_catalog(scope, true, |catalog| {
             let resource = DatabaseResource {
-                id: of_model::storage::database_resource::DatabaseId::now_v7(),
+                id: DatabaseId::now_v7(),
                 name,
             };
             catalog.records.insert(
@@ -140,10 +155,7 @@ impl DatabaseCatalog {
             &scope.application_id().to_string(),
             key,
         ])?;
-        let id = of_model::storage::database_resource::DatabaseId::new_v5(
-            &of_model::storage::database_resource::DatabaseId::NAMESPACE_URL,
-            &identity,
-        );
+        let id = DatabaseId::new_v5(&DatabaseId::NAMESPACE_URL, &identity);
         self.with_catalog(scope, true, |catalog| {
             if let Some(record) = catalog.records.get(&id) {
                 if record.deleted {
@@ -183,6 +195,11 @@ impl DatabaseCatalog {
         })
     }
 
+    /// Lists live database Resources in `scope`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be read.
     pub fn list<S: StorageNamespace>(&self, scope: &S) -> io::Result<Vec<DatabaseResource>> {
         self.with_catalog(scope, false, |catalog| {
             Ok(catalog
@@ -195,6 +212,11 @@ impl DatabaseCatalog {
         })
     }
 
+    /// Registers a selected database Resource without reviving a Tombstone.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be updated.
     pub fn register_selected<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -227,6 +249,11 @@ impl DatabaseCatalog {
         })
     }
 
+    /// Gets a live database Resource from `scope`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be read.
     pub fn get<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -241,6 +268,11 @@ impl DatabaseCatalog {
         })
     }
 
+    /// Marks a database Resource as deleted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be updated.
     pub fn delete<S: StorageNamespace>(&self, scope: &S, id: DatabaseId) -> io::Result<bool> {
         self.with_catalog(scope, true, |catalog| {
             let Some(record) = catalog
@@ -255,6 +287,11 @@ impl DatabaseCatalog {
         })
     }
 
+    /// Applies an absorbing deletion Tombstone.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be updated.
     pub fn apply_tombstone<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -278,6 +315,11 @@ impl DatabaseCatalog {
         })
     }
 
+    /// Returns whether a database Resource has a deletion Tombstone.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be read.
     pub fn is_tombstoned<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -293,6 +335,14 @@ impl DatabaseCatalog {
 }
 
 impl ResourceCatalog for DatabaseCatalog {
+    #[allow(
+        clippy::future_not_send,
+        reason = "ResourceCatalog does not require Send futures"
+    )]
+    #[allow(
+        clippy::unused_async_trait_impl,
+        reason = "ResourceCatalog defines an asynchronous lookup contract"
+    )]
     async fn contains(
         &self,
         namespace: &dyn StorageNamespace,
@@ -317,7 +367,7 @@ impl StorageNamespace for NamespaceRef<'_> {
         self.0.user_sub()
     }
 
-    fn application_id(&self) -> of_model::id::Id {
+    fn application_id(&self) -> Id {
         self.0.application_id()
     }
 }
@@ -339,11 +389,15 @@ fn validate_subject(subject: &str) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{env, fs, process};
 
-    use of_model::storage::{
-        namespace::StorageNamespace,
-        resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
+    use of_model::{
+        id::Id,
+        storage::{
+            database_resource::DatabaseResource,
+            namespace::StorageNamespace,
+            resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
+        },
     };
 
     use crate::database_catalog::DatabaseCatalog;
@@ -351,7 +405,7 @@ mod tests {
     #[derive(Clone, Copy)]
     struct Scope {
         subject: &'static str,
-        application: of_model::id::Id,
+        application: Id,
     }
 
     impl StorageNamespace for Scope {
@@ -359,41 +413,38 @@ mod tests {
             self.subject
         }
 
-        fn application_id(&self) -> of_model::id::Id {
+        fn application_id(&self) -> Id {
             self.application
         }
     }
 
     #[test]
     fn refuses_to_initialize_over_existing_data_without_a_catalog() {
-        let root = std::env::temp_dir().join(format!(
-            "database-catalog-existing-{}",
-            of_model::id::Id::now_v7()
-        ));
+        let root = env::temp_dir().join(format!("database-catalog-existing-{}", Id::now_v7()));
         fs::create_dir_all(&root).expect("existing data directory");
         fs::write(root.join("existing-data"), b"data").expect("existing data");
-        assert!(DatabaseCatalog::new(root.clone()).is_err());
+        DatabaseCatalog::new(root.clone()).expect_err("existing data requires a catalog");
         assert!(!root.join("catalog.redb").exists());
         fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[tokio::test]
     async fn resources_are_isolated_persistent_and_tombstoned() {
-        let root = std::env::temp_dir().join(format!(
+        let root = env::temp_dir().join(format!(
             "database-catalog-{}-{}",
-            std::process::id(),
-            of_model::id::Id::now_v7()
+            process::id(),
+            Id::now_v7()
         ));
         let scope = Scope {
             subject: "subject-a",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
         let other_subject = Scope {
             subject: "subject-b",
             ..scope
         };
         let other_application = Scope {
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
             ..scope
         };
         let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
@@ -434,13 +485,13 @@ mod tests {
         );
         assert_eq!(
             catalog.list(&other_subject).expect("other subject lists"),
-            [] as [of_model::storage::database_resource::DatabaseResource; 0]
+            [] as [DatabaseResource; 0]
         );
         assert_eq!(
             catalog
                 .list(&other_application)
                 .expect("other application lists"),
-            [] as [of_model::storage::database_resource::DatabaseResource; 0]
+            [] as [DatabaseResource; 0]
         );
         drop(catalog);
 
@@ -478,16 +529,16 @@ mod tests {
 
     #[test]
     fn imported_tombstone_blocks_late_resource_provisioning_after_restart() {
-        let root = std::env::temp_dir().join(format!(
+        let root = env::temp_dir().join(format!(
             "database-catalog-imported-tombstone-{}-{}",
-            std::process::id(),
-            of_model::id::Id::now_v7()
+            process::id(),
+            Id::now_v7()
         ));
         let scope = Scope {
             subject: "subject-a",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
-        let id = of_model::id::Id::now_v7();
+        let id = Id::now_v7();
         let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
         catalog
             .apply_tombstone(&scope, id)
@@ -516,12 +567,11 @@ mod tests {
 
     #[test]
     fn rejects_invalid_namespace_paths() {
-        let root =
-            std::env::temp_dir().join(format!("database-catalog-invalid-{}", std::process::id()));
+        let root = env::temp_dir().join(format!("database-catalog-invalid-{}", process::id()));
         let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
         let scope = Scope {
             subject: "../other",
-            application: of_model::id::Id::now_v7(),
+            application: Id::now_v7(),
         };
         catalog.list(&scope).unwrap_err();
         fs::remove_dir_all(root).expect("test catalog is removed");

@@ -1,8 +1,6 @@
-use alloc::{
-    format,
-    string::{String, ToString},
-    sync::Arc,
-};
+use core::fmt;
+
+use alloc::{format, sync::Arc};
 
 use bip32::DerivationPath;
 
@@ -30,7 +28,19 @@ pub struct PrivateKeyKeyringRepo {
     storage: PrivateKeyStorage,
 }
 
+impl fmt::Debug for PrivateKeyKeyringRepo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PrivateKeyKeyringRepo")
+            .finish_non_exhaustive()
+    }
+}
+
 impl PrivateKeyKeyringRepo {
+    /// # Errors
+    /// Returns [`RepoError`] if the process credential store cannot be initialized.
+    ///
+    /// # Panics
+    /// Panics if successful initialization does not install a default credential store.
     pub fn new(service_name: impl Into<String>) -> RepoResult<Self> {
         init_credential_store()?;
         Ok(Self {
@@ -54,6 +64,8 @@ impl PrivateKeyKeyringRepo {
 
     /// Uses a private KV namespace in the local shared host, separate from every SQL catalog.
     #[cfg(feature = "replica")]
+    /// # Errors
+    /// Returns [`RepoError`] if the local private key namespace cannot be opened.
     pub fn new_local(storage: &btree_redb::SharedDatabase) -> RepoResult<Self> {
         Ok(Self {
             service_name: String::new(),

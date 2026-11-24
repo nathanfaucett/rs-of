@@ -1,11 +1,3 @@
-#[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
-
 use serde::{Deserialize, Serialize};
 
 use crate::contract::health_status::HealthStatus;

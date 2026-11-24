@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, string::String};
 /*
  * LIDP Management API
@@ -12,7 +13,7 @@ use alloc::{boxed::Box, string::String};
 use crate::http::management as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermissionAuditIdentity {
     #[serde(rename = "actor")]
@@ -24,12 +25,13 @@ pub struct PermissionAuditIdentity {
 }
 
 impl PermissionAuditIdentity {
+    #[must_use]
     pub fn new(
         actor: models::PermissionSubject,
         service_client_id: String,
         service_subject: String,
-    ) -> PermissionAuditIdentity {
-        PermissionAuditIdentity {
+    ) -> Self {
+        Self {
             actor: Box::new(actor),
             service_client_id,
             service_subject,

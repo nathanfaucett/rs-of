@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 /*
  * LIDP IdP API
@@ -12,7 +13,7 @@ use alloc::boxed::Box;
 use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum AuthorizationCodeResponse {
     AuthorizationCodeResponseOneOf(Box<models::AuthorizationCodeResponseOneOf>),
@@ -21,6 +22,6 @@ pub enum AuthorizationCodeResponse {
 
 impl Default for AuthorizationCodeResponse {
     fn default() -> Self {
-        Self::AuthorizationCodeResponseOneOf(Default::default())
+        Self::AuthorizationCodeResponseOneOf(Box::default())
     }
 }

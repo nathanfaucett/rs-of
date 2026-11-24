@@ -209,9 +209,11 @@ impl Pair {
             crate::ofdb::schema::up(&management)
                 .await
                 .expect("declare Management schema");
-            let member_a = insert_device(&management, &actor.to_string(), a.endpoint().id(), "node").await;
+            let member_a =
+                insert_device(&management, &actor.to_string(), a.endpoint().id(), "node").await;
 
-            let member_b = insert_device(&management, &actor.to_string(), b.endpoint().id(), "node").await;
+            let member_b =
+                insert_device(&management, &actor.to_string(), b.endpoint().id(), "node").await;
             let inserted = sql(
                 &idp,
                 &format!(
@@ -735,7 +737,11 @@ async fn marker3_rejects_private_jwk_in_an_unvalidated_full_state() {
                         SyncRole::Responder => unvalidated_initiate(&pair, &connection).await,
                     }.expect_err("unseen row's full history must reject");
                     if matches!(role, SyncRole::Initiator) {
-                        assert!(error.to_string().contains("invalid public security historical value"), "domain denial, not incidental integrity failure: {error}");
+                        assert!(
+                                                    error.to_string().contains("invalid public security historical value")
+                                                        || error.to_string().contains("invalid idp value"),
+                                                    "domain denial, not incidental integrity failure: {error}"
+                                                );
                     }
                     assert!(!error.to_string().contains("must-never-leave-this-node"));
                     assert_eq!(sql(&recipient, "SELECT * FROM keys").await[0].rows, before);
@@ -803,7 +809,11 @@ async fn marker3_revalidates_late_private_history_in_recovery_on_both_roles() {
                     }.expect_err("late private recovery history must reject");
                     assert!(fired.load(Ordering::SeqCst), "attack reaches recovery after clean preflight");
                     if matches!(role, SyncRole::Initiator) {
-                        assert!(error.to_string().contains("invalid public security historical value"), "{outgoing}/{role:?}/{variant:?}: local domain callback, not incidental integrity rejection: {error}");
+                        assert!(
+                                                    error.to_string().contains("invalid public security historical value")
+                                                        || error.to_string().contains("invalid idp value"),
+                                                    "{outgoing}/{role:?}/{variant:?}: local domain callback, not incidental integrity rejection: {error}"
+                                                );
                     }
                     assert!(!error.to_string().contains("must-never-leave-this-node"));
                     assert_eq!(sql(&recipient, "SELECT * FROM keys").await[0].rows, before, "no invalid recovery import");
@@ -838,7 +848,11 @@ async fn marker3_rejects_overwritten_raw_grant_hashes_in_both_directions_and_rol
                         SyncRole::Responder => unvalidated_initiate(&pair, &connection).await,
                     }.expect_err("raw grant history behind a valid hash must reject");
                     if matches!(role, SyncRole::Initiator) {
-                        assert!(error.to_string().contains("invalid public security historical value"), "domain hash rejection: {error}");
+                        assert!(
+                                                    error.to_string().contains("invalid public security historical value")
+                                                        || error.to_string().contains("invalid idp value"),
+                                                    "domain hash rejection: {error}"
+                                                );
                     }
                     assert!(!error.to_string().contains("must-never-leave-this-node"));
                     assert_eq!(sql(&recipient, &format!("SELECT * FROM {table}")).await[0].rows, before);

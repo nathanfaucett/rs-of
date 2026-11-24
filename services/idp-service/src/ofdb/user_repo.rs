@@ -1,5 +1,11 @@
+use core::{
+    cmp::Reverse,
+    fmt::{self, Display},
+};
+
 use super::insert::generated_insert;
 use chrono::{DateTime, Timelike, Utc};
+use db::ofdb::validators::{SecurityRow, SecurityTable, allows_authorization};
 use of_model::id::Id;
 use of_model::idp::contract::sex::Sex;
 use of_model::idp::model::user::User;
@@ -92,6 +98,12 @@ pub struct DbUserRepo {
     password_config: PasswordConfig,
 }
 
+impl fmt::Debug for DbUserRepo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbUserRepo").finish_non_exhaustive()
+    }
+}
+
 impl DbUserRepo {
     #[must_use]
     pub const fn new(engine: ofdb_sql::Client, password_config: PasswordConfig) -> Self {
@@ -125,12 +137,9 @@ impl DbUserRepo {
             .map(User::try_from)
             .collect::<RepoResult<Vec<_>>>()?;
         for user in &users {
-            if !db::ofdb::validators::allows_authorization(
+            if !allows_authorization(
                 &self.engine,
-                &[db::ofdb::validators::SecurityRow::new(
-                    db::ofdb::validators::SecurityTable::User,
-                    user.id,
-                )],
+                &[SecurityRow::new(SecurityTable::User, user.id)],
             )
             .await
             .map_err(db_error)?
@@ -183,7 +192,7 @@ impl UserRepo for DbUserRepo {
 
     async fn list_users(&self, offset: u32, limit: u32) -> RepoResult<Vec<User>> {
         let mut users = self.users(None).await?;
-        users.sort_by_key(|user| core::cmp::Reverse(user.created_at));
+        users.sort_by_key(|user| Reverse(user.created_at));
         Ok(users
             .into_iter()
             .skip(offset as usize)
@@ -218,7 +227,7 @@ impl UserRepo for DbUserRepo {
             .map(UserEmail::try_from)
             .collect::<RepoResult<Vec<_>>>()?
             .into_iter()
-            .max_by_key(|email| (email.primary, core::cmp::Reverse(email.id)));
+            .max_by_key(|email| (email.primary, Reverse(email.id)));
         match email {
             Some(email) => self.find_user_by_id(email.user_id).await,
             None => Ok(None),
@@ -227,7 +236,7 @@ impl UserRepo for DbUserRepo {
 
     async fn find_user_emails_by_user_id(&self, user_id: Id) -> RepoResult<Vec<UserEmail>> {
         let mut emails = self.emails(user_id).await?;
-        emails.sort_by_key(|email| (core::cmp::Reverse(email.primary), email.id));
+        emails.sort_by_key(|email| (Reverse(email.primary), email.id));
         Ok(emails)
     }
 
@@ -236,10 +245,14 @@ impl UserRepo for DbUserRepo {
         user_id: Id,
     ) -> RepoResult<Vec<UserPhoneNumber>> {
         let mut phones = self.phones(user_id).await?;
-        phones.sort_by_key(|phone| (core::cmp::Reverse(phone.primary), phone.id));
+        phones.sort_by_key(|phone| (Reverse(phone.primary), phone.id));
         Ok(phones)
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "rollback consumes the transaction and releases it immediately"
+    )]
     async fn find_user_password_hash(&self, user_id: Id) -> RepoResult<Option<String>> {
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let result = async {
@@ -264,6 +277,10 @@ impl UserRepo for DbUserRepo {
             .await
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases it immediately"
+    )]
     async fn create_user_with_password_and_id(
         &self,
         user_id: Id,
@@ -457,6 +474,10 @@ impl UserRepo for DbUserRepo {
         Ok(())
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases it immediately"
+    )]
     async fn replace_user_password(&self, user_id: Id, password: &str) -> RepoResult<()> {
         if password.trim().is_empty() {
             return Err(RepoError::InvalidInput("password is required".into()));
@@ -553,6 +574,10 @@ impl UserRepo for DbUserRepo {
         Ok(())
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases it immediately"
+    )]
     async fn delete_user_by_id(&self, user_id: Id) -> RepoResult<()> {
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         transaction
@@ -640,7 +665,7 @@ impl TryFrom<UserRow> for User {
             picture: row.picture,
             website: row.website,
             sex: row.sex.map(sex).transpose()?,
-            birthdate: row.birthdate.map(birthdate).transpose()?,
+            birthdate: row.birthdate.as_deref().map(birthdate).transpose()?,
             zoneinfo: row.zoneinfo,
             locale: row.locale,
             mfa_totp_secret: row.mfa_totp_secret,
@@ -890,10 +915,10 @@ fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
     DateTime::from_timestamp(value, 0)
         .ok_or_else(|| RepoError::InvalidInput("invalid user timestamp".into()))
 }
-fn birthdate(value: String) -> RepoResult<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(&value)
+fn birthdate(value: &str) -> RepoResult<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
         .map(|value| value.with_timezone(&Utc))
-        .map_err(|_| RepoError::InvalidInput("invalid user birthdate".into()))
+        .map_err(|_error| RepoError::InvalidInput("invalid user birthdate".into()))
 }
 fn sex(value: i64) -> RepoResult<Sex> {
     match value {
@@ -902,10 +927,10 @@ fn sex(value: i64) -> RepoResult<Sex> {
         _ => Err(RepoError::InvalidInput("invalid user sex".into())),
     }
 }
-fn db_error(error: ofdb_sql::QueryError) -> RepoError {
+fn db_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
-fn row_error(error: FromRowError) -> RepoError {
+fn row_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 fn option_text(value: Option<String>) -> Value {

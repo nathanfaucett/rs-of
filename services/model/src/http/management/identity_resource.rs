@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 /*
  * LIDP Management API
@@ -12,7 +13,7 @@ use alloc::boxed::Box;
 use crate::http::management as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum IdentityResource {
     IdentityResourceOneOf(Box<models::IdentityResourceOneOf>),
@@ -28,13 +29,15 @@ pub enum IdentityResource {
 
 impl Default for IdentityResource {
     fn default() -> Self {
-        Self::IdentityResourceOneOf(Default::default())
+        Self::IdentityResourceOneOf(Box::default())
     }
 }
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Type {
     #[serde(rename = "client")]
+    #[default]
     Client,
     #[serde(rename = "application")]
     Application,
@@ -52,10 +55,4 @@ pub enum Type {
     IdpSecurity,
     #[serde(rename = "managementSecurity")]
     ManagementSecurity,
-}
-
-impl Default for Type {
-    fn default() -> Type {
-        Self::Client
-    }
 }

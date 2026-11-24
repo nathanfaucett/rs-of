@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+
 use chrono::{DateTime, Utc};
 
 use crate::id::Id;

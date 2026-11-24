@@ -1,10 +1,15 @@
-use super::insert::{generated_id, generated_insert};
+use core::fmt::{self, Display};
 use std::sync::Arc;
+
+use bip32::DerivationPath;
+use serde::{Serialize, de::DeserializeOwned};
+
+use super::insert::{generated_id, generated_insert};
 
 use crate::{
     ofdb::key_repo::DbKeyRepo,
     password_config::PasswordConfig,
-    repo::{ClientRepo, KeyService, PrivateKeyRepo, RepoError, RepoResult},
+    repo::{ClientRepo, KeyService, PrivateKeyKeyringRepo, PrivateKeyRepo, RepoError, RepoResult},
     util::encrypt_password,
 };
 use chrono::{DateTime, Timelike, Utc};
@@ -18,6 +23,7 @@ use of_model::idp::contract::client_type::ClientType;
 use of_model::idp::contract::entity_type::EntityType;
 use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 use of_model::idp::model::client::Client;
+use of_model::idp::model::key::Key;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
 use ofdb_sql::Query;
@@ -66,12 +72,21 @@ const COLUMNS: [&str; 25] = [
     "updated_at",
 ];
 
-pub struct DbClientRepo<P = crate::repo::PrivateKeyKeyringRepo>
+pub struct DbClientRepo<P = PrivateKeyKeyringRepo>
 where
     P: PrivateKeyRepo + Send + Sync,
 {
     engine: ofdb_sql::Client,
     key_service: Arc<KeyService<DbKeyRepo, P>>,
+}
+
+impl<P> fmt::Debug for DbClientRepo<P>
+where
+    P: PrivateKeyRepo + Send + Sync,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbClientRepo").finish_non_exhaustive()
+    }
 }
 
 impl<P> DbClientRepo<P>
@@ -86,15 +101,20 @@ where
         }
     }
 
+    /// # Errors
+    /// Returns [`RepoError`] if registration, verifier persistence, or key capture fails.
+    ///
+    /// # Panics
+    /// Panics if zero nanoseconds is rejected as a valid timestamp.
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases it immediately"
+    )]
     pub async fn create_client_with_capture(
         &self,
         registration: ClientRegistration,
         allow_application_creation: bool,
-        capture: impl FnOnce(
-            &of_model::idp::model::key::Key,
-            &[bip32::DerivationPath],
-        ) -> RepoResult<()>
-        + Send,
+        capture: impl FnOnce(&Key, &[DerivationPath]) -> RepoResult<()> + Send,
     ) -> RepoResult<Client> {
         let client_id = registration
             .client_id
@@ -251,6 +271,10 @@ where
         Ok(clients.into_iter().map(|(client, _)| client).collect())
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "rollback consumes the transaction and releases it immediately"
+    )]
     async fn find(&self, predicate: QueryExpr) -> RepoResult<Option<Client>> {
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let result = async {
@@ -380,6 +404,10 @@ where
             .await
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "rollback consumes the transaction and releases it immediately"
+    )]
     async fn find_client_registration(&self, client_id: &str) -> RepoResult<Option<Client>> {
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let result = async {
@@ -401,6 +429,10 @@ where
         result.and_then(|client| rollback.map(|()| client))
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "rollback consumes the transaction and releases it immediately"
+    )]
     async fn list_clients(&self, offset: u32, limit: u32) -> RepoResult<Vec<Client>> {
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let result = async {
@@ -422,18 +454,22 @@ where
 
     fn create_client(
         &self,
-        registration: ClientRegistration,
+        client: ClientRegistration,
     ) -> impl Future<Output = RepoResult<Client>> {
-        self.create_client_with_capture(registration, true, |_, _| Ok(()))
+        self.create_client_with_capture(client, true, |_, _| Ok(()))
     }
 
     fn create_client_in_existing_application(
         &self,
-        registration: ClientRegistration,
+        client: ClientRegistration,
     ) -> impl Future<Output = RepoResult<Client>> {
-        self.create_client_with_capture(registration, false, |_, _| Ok(()))
+        self.create_client_with_capture(client, false, |_, _| Ok(()))
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases it immediately"
+    )]
     async fn update_client(
         &self,
         mut client: Client,
@@ -496,12 +532,10 @@ where
             }
         } else {
             client.client_secret_hash.clear();
-            if current.secret_revision.is_some() {
+            current.secret_revision.is_some().then(|| {
                 assignments.push(assignment("secret_revision", Value::Null));
-                Some(local_verifier_delete(client.id))
-            } else {
-                None
-            }
+                local_verifier_delete(client.id)
+            })
         };
         let mut statements = vec![Statement::Query(Query::Update(QueryUpdate {
             from: from(),
@@ -518,6 +552,10 @@ where
         })
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases it immediately"
+    )]
     async fn delete_client_by_client_id(&self, client_id: &str) -> RepoResult<()> {
         let client = self
             .find_client_by_client_id(client_id)
@@ -929,10 +967,10 @@ fn local_verifier_delete(id: Id) -> Query {
     })
 }
 
-fn json<T: serde::de::DeserializeOwned>(value: &str) -> RepoResult<T> {
+fn json<T: DeserializeOwned>(value: &str) -> RepoResult<T> {
     serde_json::from_str(value).map_err(RepoError::other)
 }
-fn json_string<T: serde::Serialize>(value: &T) -> String {
+fn json_string<T: Serialize>(value: &T) -> String {
     serde_json::to_string(value).expect("client fields are serializable")
 }
 fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
@@ -966,10 +1004,10 @@ fn token_endpoint_auth_method(value: i64) -> RepoResult<TokenEndpointAuthMethod>
         )),
     }
 }
-fn db_error(error: ofdb_sql::QueryError) -> RepoError {
+fn db_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
-fn row_error(error: FromRowError) -> RepoError {
+fn row_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 fn from() -> QueryFrom {

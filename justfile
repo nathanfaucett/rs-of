@@ -48,7 +48,7 @@ sdk-build:
     pnpm sdk:build
 
 test: sdk-build
-    cargo hack test --feature-powerset --workspace --all-targets
+    CARGO_INCREMENTAL=0 RUST_MIN_STACK=67108864 cargo hack test --feature-powerset --workspace --all-targets
 
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings

@@ -1,13 +1,14 @@
 #[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::string::{String, ToString};
 
+#[cfg(feature = "axum")]
+use axum::{
+    Json,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use key::error::KeyError;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::value::Error as SerdeError};
 
 use super::error_code::ErrorCode;
 
@@ -23,8 +24,8 @@ pub struct ErrorResponse {
     pub error_uri: Option<String>,
 }
 
-impl From<serde::de::value::Error> for ErrorResponse {
-    fn from(error: serde::de::value::Error) -> Self {
+impl From<SerdeError> for ErrorResponse {
+    fn from(error: SerdeError) -> Self {
         Self::new(ErrorCode::ServerError).with_description(error.to_string())
     }
 }
@@ -45,11 +46,13 @@ impl ErrorResponse {
         }
     }
 
+    #[must_use]
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.error_description = Some(description.into());
         self
     }
 
+    #[must_use]
     pub fn with_error_uri(mut self, error_uri: impl Into<String>) -> Self {
         self.error_uri = Some(error_uri.into());
         self
@@ -57,25 +60,24 @@ impl ErrorResponse {
 }
 
 #[cfg(feature = "axum")]
-impl axum::response::IntoResponse for ErrorResponse {
-    fn into_response(self) -> axum::response::Response {
+impl IntoResponse for ErrorResponse {
+    fn into_response(self) -> Response {
         let status = match self.error {
-            ErrorCode::NotFound => axum::http::StatusCode::NOT_FOUND,
-            ErrorCode::NotAuthorized => axum::http::StatusCode::UNAUTHORIZED,
-            ErrorCode::InvalidRequest => axum::http::StatusCode::BAD_REQUEST,
-            ErrorCode::InvalidClient => axum::http::StatusCode::BAD_REQUEST,
-            ErrorCode::InvalidGrant => axum::http::StatusCode::BAD_REQUEST,
-            ErrorCode::UnauthorizedClient => axum::http::StatusCode::FORBIDDEN,
-            ErrorCode::UnsupportedGrantType => axum::http::StatusCode::BAD_REQUEST,
-            ErrorCode::InvalidScope => axum::http::StatusCode::BAD_REQUEST,
-            ErrorCode::ServerError => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorCode::TemporarilyUnavailable => axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            ErrorCode::AccessDenied => axum::http::StatusCode::FORBIDDEN,
-            ErrorCode::InvalidResponseType => axum::http::StatusCode::BAD_REQUEST,
-            ErrorCode::UnsupportedResponseType => axum::http::StatusCode::BAD_REQUEST,
-            ErrorCode::NotImplemented => axum::http::StatusCode::NOT_IMPLEMENTED,
+            ErrorCode::NotFound => StatusCode::NOT_FOUND,
+            ErrorCode::NotAuthorized => StatusCode::UNAUTHORIZED,
+            ErrorCode::InvalidRequest
+            | ErrorCode::InvalidClient
+            | ErrorCode::InvalidGrant
+            | ErrorCode::UnsupportedGrantType
+            | ErrorCode::InvalidScope
+            | ErrorCode::InvalidResponseType
+            | ErrorCode::UnsupportedResponseType => StatusCode::BAD_REQUEST,
+            ErrorCode::UnauthorizedClient | ErrorCode::AccessDenied => StatusCode::FORBIDDEN,
+            ErrorCode::ServerError => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::TemporarilyUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::NotImplemented => StatusCode::NOT_IMPLEMENTED,
         };
-        (status, axum::Json(self)).into_response()
+        (status, Json(self)).into_response()
     }
 }
 

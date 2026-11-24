@@ -30,14 +30,15 @@ pub struct ApiKey {
 }
 
 impl Configuration {
-    pub fn new() -> Configuration {
-        Configuration::default()
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
 impl Default for Configuration {
     fn default() -> Self {
-        Configuration {
+        Self {
             response_limit: 1024 * 1024,
             request_limit: 1024 * 1024,
             base_path: "https://localhost/management".to_owned(),
@@ -58,6 +59,10 @@ impl Default for Configuration {
     }
 }
 
+/// Reads a UTF-8 response body up to the configured byte limit.
+///
+/// # Errors
+/// Returns an error when the response cannot be read, exceeds the limit, or is not UTF-8.
 pub async fn bounded_text(
     mut response: reqwest::Response,
     limit: usize,
@@ -73,16 +78,21 @@ pub async fn bounded_text(
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|_| serde_json::Error::custom("response read failed"))?
+        .map_err(|error| serde_json::Error::custom(format!("response read failed: {error}")))?
     {
         if chunk.len() > limit.saturating_sub(bytes.len()) {
             return Err(serde_json::Error::custom("response exceeds byte limit"));
         }
         bytes.extend_from_slice(&chunk);
     }
-    String::from_utf8(bytes).map_err(|_| serde_json::Error::custom("response is not UTF-8"))
+    String::from_utf8(bytes)
+        .map_err(|error| serde_json::Error::custom(format!("response is not UTF-8: {error}")))
 }
 
+/// Checks that a request URL, headers, and bounded body fit the configured byte limit.
+///
+/// # Errors
+/// Returns an error when the body is unbounded or the request exceeds the limit.
 pub fn check_request(request: &reqwest::Request, limit: usize) -> Result<(), serde_json::Error> {
     use serde::de::Error;
     let mut size =

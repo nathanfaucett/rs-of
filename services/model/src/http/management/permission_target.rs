@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 /*
  * LIDP Management API
@@ -12,7 +13,7 @@ use alloc::boxed::Box;
 use crate::http::management as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PermissionTarget {
     PermissionTargetOneOf(Box<models::PermissionTargetOneOf>),
@@ -21,18 +22,14 @@ pub enum PermissionTarget {
 
 impl Default for PermissionTarget {
     fn default() -> Self {
-        Self::PermissionTargetOneOf(Default::default())
+        Self::PermissionTargetOneOf(Box::default())
     }
 }
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Scope {
     #[serde(rename = "installation")]
+    #[default]
     Installation,
-}
-
-impl Default for Scope {
-    fn default() -> Scope {
-        Self::Installation
-    }
 }

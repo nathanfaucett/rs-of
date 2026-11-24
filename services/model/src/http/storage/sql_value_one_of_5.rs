@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 /*
  * Storage Server
  *
@@ -24,7 +26,6 @@ impl SqlValueOneOf5 {
         Self { r#type, value }
     }
 }
-///
 #[derive(
     Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
 )]

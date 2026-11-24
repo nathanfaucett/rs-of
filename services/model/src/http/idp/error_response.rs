@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP IdP API
@@ -13,7 +14,7 @@ use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
 
 /// ErrorResponse : Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2).
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ErrorResponse {
     #[serde(rename = "error")]
     pub error: models::ErrorCode,
@@ -35,8 +36,9 @@ pub struct ErrorResponse {
 
 impl ErrorResponse {
     /// Standard OAuth 2.0 error response structure (RFC 6749 Section 5.2).
-    pub fn new(error: models::ErrorCode) -> ErrorResponse {
-        ErrorResponse {
+    #[must_use]
+    pub const fn new(error: models::ErrorCode) -> Self {
+        Self {
             error,
             error_description: None,
             error_uri: None,

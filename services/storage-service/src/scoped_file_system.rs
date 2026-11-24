@@ -1,8 +1,8 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::Debug,
+    fmt::{self, Debug},
     fs, io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex},
 };
@@ -10,23 +10,33 @@ use std::{
 use file_system::{
     CatalogEntry, FileSystem, FileSystemCatalog, FileSystemId, FileSystemResource, Residency,
 };
-
-use of_model::storage::namespace::StorageNamespace;
-use of_model::storage::resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind};
+use of_model::{
+    id::Id,
+    storage::{
+        namespace::StorageNamespace,
+        resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
+    },
+};
+use ofdb_kv::{Database as KvDatabase, SharedDatabase as KvSharedDatabase, Value as KvValue};
 use serde::{Serialize, de::DeserializeOwned};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
+
+use crate::{
+    local_copy::{CopyScope, LocalCopyPolicy},
+    persistence::{error, run},
+};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Deserialize, Serialize)]
 struct StorageNamespaceId {
     user_sub: String,
-    application_id: of_model::id::Id,
+    application_id: Id,
 }
 
 impl StorageNamespace for StorageNamespaceId {
     fn user_sub(&self) -> &str {
         &self.user_sub
     }
-    fn application_id(&self) -> of_model::id::Id {
+    fn application_id(&self) -> Id {
         self.application_id
     }
 }
@@ -34,7 +44,7 @@ impl StorageNamespace for StorageNamespaceId {
 pub(crate) type ContentReader = Arc<
     dyn Fn(
             String,
-            of_model::id::Id,
+            Id,
             FileSystemId,
             String,
         ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + Send>>
@@ -51,11 +61,11 @@ pub struct ScopedFileSystemRuntime<PeerId>
 where
     PeerId: Clone + Debug + Ord + Serialize + DeserializeOwned + 'static,
 {
-    changes: tokio::sync::watch::Sender<()>,
+    changes: watch::Sender<()>,
     root: PathBuf,
-    shared: Option<ofdb_kv::SharedDatabase>,
+    shared: Option<KvSharedDatabase>,
     local_peer: PeerId,
-    pub(crate) local_copies: Arc<crate::local_copy::LocalCopyPolicy>,
+    pub(crate) local_copies: Arc<LocalCopyPolicy>,
     pub(crate) content_reader: Arc<StdMutex<Option<ContentReader>>>,
 
     catalogs: StdMutex<BTreeMap<StorageNamespaceId, Arc<FileSystemCatalog>>>,
@@ -65,40 +75,58 @@ where
         StdMutex<BTreeMap<(StorageNamespaceId, FileSystemId, u64), Arc<FileSystemCatalog>>>,
 }
 
+impl<PeerId> Debug for ScopedFileSystemRuntime<PeerId>
+where
+    PeerId: Clone + Debug + Ord + Serialize + DeserializeOwned + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ScopedFileSystemRuntime")
+            .finish_non_exhaustive()
+    }
+}
+
 impl<PeerId> ScopedFileSystemRuntime<PeerId>
 where
     PeerId: Clone + Debug + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
+    /// Opens a standalone filesystem runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the runtime root cannot be created.
     pub fn new(root: PathBuf, local_peer: PeerId) -> io::Result<Self> {
-        std::fs::create_dir_all(&root)?;
+        fs::create_dir_all(&root)?;
         Self::build(root, local_peer, None)
     }
 
-    pub fn with_shared(storage: ofdb_kv::SharedDatabase, local_peer: PeerId) -> io::Result<Self> {
+    /// Opens a filesystem runtime in a shared Storage host.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the shared local copy policy cannot be opened.
+    pub fn with_shared(storage: KvSharedDatabase, local_peer: PeerId) -> io::Result<Self> {
         Self::build(PathBuf::new(), local_peer, Some(storage))
     }
 
     fn build(
         root: PathBuf,
         local_peer: PeerId,
-        shared: Option<ofdb_kv::SharedDatabase>,
+        shared: Option<KvSharedDatabase>,
     ) -> io::Result<Self> {
         let local_copies = match &shared {
-            Some(storage) => crate::local_copy::LocalCopyPolicy::with_store(
-                ofdb_kv::Database::open_shared(storage, "storage-filesystem-copy-policy")
-                    .map_err(crate::persistence::error)?
+            Some(storage) => LocalCopyPolicy::with_store(
+                KvDatabase::open_shared(storage, "storage-filesystem-copy-policy")
+                    .map_err(error)?
                     .client(),
             ),
-            None => {
-                crate::local_copy::LocalCopyPolicy::new(root.join("filesystem-local-copies.json"))
-            }
+            None => LocalCopyPolicy::new(root.join("filesystem-local-copies.json")),
         };
         Ok(Self {
-            changes: tokio::sync::watch::channel(()).0,
-            local_copies: Arc::new(local_copies),
+            changes: watch::channel(()).0,
             root,
             shared,
             local_peer,
+            local_copies: Arc::new(local_copies),
             content_reader: Arc::new(StdMutex::new(None)),
             catalogs: StdMutex::new(BTreeMap::new()),
             resources: Mutex::new(BTreeMap::new()),
@@ -110,29 +138,43 @@ where
     fn namespace_name(id: &StorageNamespaceId) -> String {
         format!(
             "storage-filesystem:{}",
-            of_model::id::Id::new_v5(&id.application_id, id.user_sub.as_bytes())
+            Id::new_v5(&id.application_id, id.user_sub.as_bytes())
         )
     }
 
-    pub fn catalog_changes(&self) -> tokio::sync::watch::Receiver<()> {
+    pub fn catalog_changes(&self) -> watch::Receiver<()> {
         self.changes.subscribe()
     }
 
+    /// Installs the authorized Passthrough content reader.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the content reader lock is poisoned.
     pub fn set_content_reader<F, U>(&self, reader: F) -> Result<(), String>
     where
-        F: Fn(String, of_model::id::Id, FileSystemId, String) -> U + Send + Sync + 'static,
+        F: Fn(String, Id, FileSystemId, String) -> U + Send + Sync + 'static,
         U: Future<Output = Result<Vec<u8>, String>> + Send + 'static,
     {
         *self
             .content_reader
             .lock()
-            .map_err(|_| "content reader lock poisoned".to_owned())? =
+            .map_err(|_error| "content reader lock poisoned".to_owned())? =
             Some(Arc::new(move |owner, app, id, path| {
                 Box::pin(reader(owner, app, id, path))
             }));
         Ok(())
     }
 
+    /// Creates a filesystem Resource in `scope`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace, owner policy, or catalog rejects the creation.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on the caller's namespace type; preserve the public API"
+    )]
     pub async fn create_resource<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -152,6 +194,15 @@ where
         Ok(resource)
     }
 
+    /// Lists filesystem Resources in `scope`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be read.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on the caller's namespace type; preserve the public API"
+    )]
     pub async fn list_resources<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -163,6 +214,15 @@ where
             .map_err(|error| error.to_string())
     }
 
+    /// Deletes a filesystem Resource and evicts its open handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog update fails.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on the caller's namespace type; preserve the public API"
+    )]
     pub async fn delete_resource<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -173,6 +233,7 @@ where
         match self.catalog(&id)?.delete(resource_id).await {
             Ok(()) => {
                 resources.remove(&(id, resource_id));
+                drop(resources);
                 self.changes.send_replace(());
                 Ok(true)
             }
@@ -181,6 +242,15 @@ where
         }
     }
 
+    /// Applies a deletion Tombstone and evicts the open handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog update fails.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on the caller's namespace type; preserve the public API"
+    )]
     pub async fn apply_deletion_tombstone<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -199,6 +269,15 @@ where
         Ok(())
     }
 
+    /// Returns whether a filesystem Resource has a deletion Tombstone.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or the catalog cannot be read.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on the caller's namespace type; preserve the public API"
+    )]
     pub async fn is_tombstoned<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -214,6 +293,11 @@ where
             .any(|entry| entry.resource.id == resource_id && entry.deleted))
     }
 
+    /// Checks that a local filesystem copy is available.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace is invalid or local copy cleanup is incomplete.
     pub fn require_local_copy<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -225,6 +309,15 @@ where
             .map_err(|error| error.to_string())
     }
 
+    /// Retires and removes a managed local filesystem copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the Resource is unknown or retirement cannot be completed.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on the caller's namespace type; preserve the public API"
+    )]
     pub async fn remove_local_copy<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -275,22 +368,30 @@ where
             .await
             .map_err(|error| error.to_string())?;
         resources.remove(&(namespace, resource_id));
+        drop(resources);
         self.local_copies
             .complete(scope, resource_id.as_uuid())
             .map_err(|error| error.to_string())
     }
 
+    /// Permits new local copies for an owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the local copy policy cannot be updated.
     pub fn activate_owner(&self, owner: &str) -> Result<(), String> {
         self.local_copies
             .set_owner_retired(owner, false)
             .map_err(|error| error.to_string())
     }
 
+    /// Retires and removes all managed local filesystem copies for an owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if owner retirement or any copy removal fails.
     pub async fn remove_owner_copies(&self, owner: &str) -> Result<(), String> {
-        storage_namespace_id(&crate::local_copy::CopyScope(
-            owner.to_owned(),
-            of_model::id::Id::now_v7(),
-        ))?;
+        storage_namespace_id(&CopyScope(owner.to_owned(), Id::now_v7()))?;
         let catalogs = {
             let _resources = self.resources.lock().await;
             self.local_copies
@@ -315,6 +416,15 @@ where
         result
     }
 
+    /// Registers a selected filesystem Resource without reviving a Tombstone.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace, selection, or catalog is invalid or cannot be updated.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on the caller's namespace type; preserve the public API"
+    )]
     pub async fn register_selected_resource<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -359,9 +469,14 @@ where
         Ok(())
     }
 
+    /// Retires projected Resources that are no longer selected.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if selection policy or a pending local copy cannot be reconciled.
     pub async fn remove_unselected_projected_resources(
         &self,
-        selected: &[(String, of_model::id::Id, FileSystemId)],
+        selected: &[(String, Id, FileSystemId)],
     ) -> Result<(), String> {
         let tracked = selected
             .iter()
@@ -407,7 +522,7 @@ where
             .pending()
             .map_err(|error| error.to_string())?
         {
-            let scope = crate::local_copy::CopyScope(owner, app);
+            let scope = CopyScope(owner, app);
             let namespace = storage_namespace_id(&scope)?;
             let resource_id =
                 FileSystemId::parse(&id.to_string()).map_err(|error| error.to_string())?;
@@ -429,6 +544,15 @@ where
         Ok(())
     }
 
+    /// Sets Resource Residency without an additional authorization callback.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the Resource is unavailable or the Residency update fails.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on the caller's namespace type; preserve the public API"
+    )]
     pub async fn set_resource_residency<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -441,6 +565,15 @@ where
         .await
     }
 
+    /// Sets Resource Residency after running the current authorization check.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if opening, authorization, or the Residency update fails.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on namespace and callback types; preserve the public API"
+    )]
     pub async fn set_resource_residency_checked<S, F, U, E>(
         &self,
         scope: &S,
@@ -458,7 +591,7 @@ where
         let update = Arc::clone(
             self.residency_updates
                 .lock()
-                .map_err(|_| E::from("residency update locks poisoned".to_owned()))?
+                .map_err(|_error| E::from("residency update locks poisoned".to_owned()))?
                 .entry(key)
                 .or_default(),
         );
@@ -483,6 +616,15 @@ where
             .map_err(|error| E::from(error.to_string()))
     }
 
+    /// Opens a local filesystem Resource and applies its retained Residency.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the namespace, local copy, catalog, or filesystem is invalid or unavailable.
+    #[allow(
+        clippy::future_not_send,
+        reason = "Send is conditional on the caller's namespace type; preserve the public API"
+    )]
     pub async fn open_resource<S: StorageNamespace>(
         &self,
         scope: &S,
@@ -493,7 +635,9 @@ where
         let mut resources = self.resources.lock().await;
         self.require_local_copy(scope, resource_id)?;
         if let Some(file_system) = resources.get(&(id.clone(), resource_id)) {
-            return Ok(Arc::clone(file_system));
+            let file_system = Arc::clone(file_system);
+            drop(resources);
+            return Ok(file_system);
         }
         let file_system = Arc::new(
             self.copy_catalog(&id, resource_id)
@@ -516,6 +660,7 @@ where
             .await
             .map_err(|error| error.to_string())?;
         resources.insert((id, resource_id), Arc::clone(&file_system));
+        drop(resources);
         self.changes.send_replace(());
         Ok(file_system)
     }
@@ -545,7 +690,7 @@ where
             let catalogs = self
                 .copy_catalogs
                 .lock()
-                .map_err(|_| "copy catalog lock poisoned".to_owned())?;
+                .map_err(|_error| "copy catalog lock poisoned".to_owned())?;
             catalogs.get(&key).map(Arc::clone)
         };
         if let Some(catalog) = existing {
@@ -560,18 +705,22 @@ where
             .join(resource_id.as_uuid().to_string())
             .join(generation.to_string());
         let catalog = Arc::new(
-            match &self.shared {
-                Some(storage) => FileSystemCatalog::open_shared(
-                    storage,
-                    &format!(
-                        "{}:copy:{}:{generation}",
-                        Self::namespace_name(namespace),
-                        resource_id.as_uuid()
-                    ),
-                ),
-                None => FileSystemCatalog::open(root),
-            }
-            .map_err(|error| error.to_string())?,
+            self.shared
+                .as_ref()
+                .map_or_else(
+                    || FileSystemCatalog::open(root),
+                    |storage| {
+                        FileSystemCatalog::open_shared(
+                            storage,
+                            &format!(
+                                "{}:copy:{}:{generation}",
+                                Self::namespace_name(namespace),
+                                resource_id.as_uuid()
+                            ),
+                        )
+                    },
+                )
+                .map_err(|error| error.to_string())?,
         );
         catalog
             .import_snapshot(&[entry])
@@ -581,7 +730,7 @@ where
             let mut catalogs = self
                 .copy_catalogs
                 .lock()
-                .map_err(|_| "copy catalog lock poisoned".to_owned())?;
+                .map_err(|_error| "copy catalog lock poisoned".to_owned())?;
             catalogs.insert(key, Arc::clone(&catalog))
         };
         Ok(catalog)
@@ -591,22 +740,21 @@ where
         &self,
     ) -> Result<Vec<(StorageNamespaceId, Arc<FileSystemCatalog>)>, String> {
         if let Some(storage) = &self.shared {
-            let registry = ofdb_kv::Database::open_shared(storage, "storage-filesystem-namespaces")
+            let registry = KvDatabase::open_shared(storage, "storage-filesystem-namespaces")
                 .map_err(|error| error.to_string())?
                 .client();
-            let namespaces: Vec<StorageNamespaceId> = crate::persistence::run(async {
+            let namespaces: Vec<StorageNamespaceId> = run(async {
                 registry
                     .scan_prefix("namespace:")
                     .await
-                    .map_err(crate::persistence::error)?
+                    .map_err(error)?
                     .into_iter()
                     .map(|(_, value)| match value {
-                        ofdb_kv::Value::Blob(value) => {
+                        KvValue::Blob(value) => {
                             serde_json::from_slice(&value).map_err(io::Error::other)
                         }
-                        ofdb_kv::Value::Json(value) => serde_json::from_value(
-                            serde_json::Value::try_from(value)
-                                .map_err(crate::persistence::error)?,
+                        KvValue::Json(value) => serde_json::from_value(
+                            serde_json::Value::try_from(value).map_err(error)?,
                         )
                         .map_err(io::Error::other),
                         _ => Err(io::Error::new(
@@ -671,26 +819,24 @@ where
             .lock()
             .expect("filesystem catalog lock poisoned");
         if let Some(catalog) = catalogs.get(id) {
-            return Ok(Arc::clone(catalog));
+            let catalog = Arc::clone(catalog);
+            drop(catalogs);
+            return Ok(catalog);
         }
         let catalog = Arc::new(
             match &self.shared {
                 Some(storage) => {
                     let name = Self::namespace_name(id);
                     let registry =
-                        ofdb_kv::Database::open_shared(storage, "storage-filesystem-namespaces")
+                        KvDatabase::open_shared(storage, "storage-filesystem-namespaces")
                             .map_err(|error| error.to_string())?
                             .client();
-                    crate::persistence::run(async {
+                    run(async {
                         let value = serde_json::to_vec(id).map_err(io::Error::other)?;
                         registry
-                            .set(
-                                &format!("namespace:{name}"),
-                                ofdb_kv::Value::Blob(value),
-                                None,
-                            )
+                            .set(&format!("namespace:{name}"), KvValue::Blob(value), None)
                             .await
-                            .map_err(crate::persistence::error)
+                            .map_err(error)
                     })
                     .map_err(|error| error.to_string())?;
                     FileSystemCatalog::open_shared(storage, &name)
@@ -700,6 +846,7 @@ where
             .map_err(|error| error.to_string())?,
         );
         catalogs.insert(id.clone(), Arc::clone(&catalog));
+        drop(catalogs);
         Ok(catalog)
     }
 }
@@ -708,6 +855,10 @@ impl<PeerId> ResourceCatalog for ScopedFileSystemRuntime<PeerId>
 where
     PeerId: Clone + Debug + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
+    #[allow(
+        clippy::future_not_send,
+        reason = "ResourceCatalog does not require Send futures"
+    )]
     async fn contains(
         &self,
         namespace: &dyn StorageNamespace,
@@ -737,12 +888,12 @@ impl StorageNamespace for NamespaceRef<'_> {
         self.0.user_sub()
     }
 
-    fn application_id(&self) -> of_model::id::Id {
+    fn application_id(&self) -> Id {
         self.0.application_id()
     }
 }
 
-fn namespace_root(root: &std::path::Path, id: &StorageNamespaceId) -> PathBuf {
+fn namespace_root(root: &Path, id: &StorageNamespaceId) -> PathBuf {
     root.join("filesystems")
         .join(&id.user_sub)
         .join(id.application_id.to_string())
@@ -769,21 +920,26 @@ fn storage_namespace_id(scope: &impl StorageNamespace) -> Result<StorageNamespac
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs};
+    use std::{env, fs, path::Path, process};
 
-    use of_model::storage::{
-        namespace::StorageNamespace,
-        resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
+    use db::adapters::EmbeddedDatabase;
+    use of_model::{
+        id::Id,
+        storage::{
+            contract::request::StorageRequest,
+            namespace::StorageNamespace,
+            resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
+        },
     };
 
-    use crate::scoped_file_system::ScopedFileSystemRuntime;
+    use crate::{scoped_file_system::ScopedFileSystemRuntime, service::ScopedStorageService};
 
     use super::storage_namespace_id;
 
     #[derive(Clone, Copy)]
     struct Namespace {
         user_sub: &'static str,
-        application_id: of_model::id::Id,
+        application_id: Id,
     }
 
     impl StorageNamespace for Namespace {
@@ -791,21 +947,177 @@ mod tests {
             self.user_sub
         }
 
-        fn application_id(&self) -> of_model::id::Id {
+        fn application_id(&self) -> Id {
             self.application_id
         }
+    }
+
+    async fn assert_retirement_and_reselection(
+        root: &Path,
+        namespace: &Namespace,
+        resource: file_system::FileSystemResource,
+        passthrough: file_system::FileSystemResource,
+    ) {
+        let database = EmbeddedDatabase::open(root)
+            .await
+            .expect("restart retired host");
+        let runtime = ScopedFileSystemRuntime::with_shared(database.storage(), 1_u8)
+            .expect("retired runtime");
+        runtime
+            .open_resource(namespace, resource.id)
+            .await
+            .expect_err("retired owner cannot reopen a resource");
+        runtime.create_resource(namespace, None).await.unwrap_err();
+        assert_eq!(
+            runtime
+                .list_resources(namespace)
+                .await
+                .expect("retained identity"),
+            vec![resource.clone(), passthrough]
+        );
+        runtime
+            .activate_owner(namespace.user_sub)
+            .expect("restore owner");
+        runtime
+            .remove_unselected_projected_resources(&[(
+                namespace.user_sub.to_owned(),
+                namespace.application_id,
+                resource.id,
+            )])
+            .await
+            .expect("reselect fresh copy");
+        let fresh = runtime
+            .open_resource(namespace, resource.id)
+            .await
+            .expect("fresh generation");
+        fresh.read("saved.txt").await.unwrap_err();
+        fresh
+            .write("new.txt", b"new generation")
+            .await
+            .expect("write fresh copy");
+        drop(fresh);
+        drop(runtime);
+        drop(database);
+        let database = EmbeddedDatabase::open(root)
+            .await
+            .expect("restart reselected host");
+        let runtime = ScopedFileSystemRuntime::with_shared(database.storage(), 1_u8)
+            .expect("reselected runtime");
+        let fresh = runtime
+            .open_resource(namespace, resource.id)
+            .await
+            .expect("retained generation");
+        assert_eq!(
+            fresh.read("new.txt").await.expect("retained fresh content"),
+            b"new generation"
+        );
+        assert_eq!(
+            fs::read_dir(root)
+                .expect("single host after reselection")
+                .count(),
+            1
+        );
+        drop(fresh);
+        drop(runtime);
+        drop(database);
+    }
+
+    async fn assert_tombstone_blocks_cached_reopen(
+        runtime: &ScopedFileSystemRuntime<u8>,
+        scope: &Namespace,
+        resource_id: file_system::FileSystemId,
+    ) {
+        assert!(
+            ScopedStorageService::open_resource(
+                runtime,
+                Namespace {
+                    user_sub: "owner",
+                    application_id: scope.application_id,
+                },
+                resource_id,
+            )
+            .await
+            .is_err(),
+            "authoritative Tombstone denies a cached-generation scoped reopen"
+        );
+        runtime
+            .open_resource(scope, resource_id)
+            .await
+            .expect_err("Tombstone blocks reopen");
+        assert_eq!(
+            runtime
+                .list_resources(scope)
+                .await
+                .expect("deleted catalog lists"),
+            [] as [file_system::FileSystemResource; 0]
+        );
+        assert!(
+            runtime
+                .is_tombstoned(scope, resource_id)
+                .await
+                .expect("logical ID retains its Tombstone")
+        );
+        assert!(
+            runtime
+                .register_selected_resource(scope, resource_id)
+                .await
+                .is_err(),
+            "selection cannot revive the logical ID"
+        );
+        runtime
+            .remove_local_copy(scope, resource_id)
+            .await
+            .expect("tombstoned generation still permits managed-copy cleanup");
+    }
+
+    async fn retire_locally_created_copy(
+        runtime: &ScopedFileSystemRuntime<u8>,
+        root: &Path,
+        namespace: &Namespace,
+    ) -> file_system::FileSystemId {
+        let local = runtime
+            .create_resource(namespace, Some("local".into()))
+            .await
+            .expect("create local resource");
+        let local_fs = runtime
+            .open_resource(namespace, local.id)
+            .await
+            .expect("local resource opens");
+        local_fs
+            .write("local.txt", b"keep")
+            .await
+            .expect("write owner content");
+        let local_root = root
+            .join("filesystems")
+            .join(namespace.user_sub)
+            .join(namespace.application_id.to_string())
+            .join("filesystems")
+            .join(local.id.as_uuid().to_string());
+        runtime
+            .remove_unselected_projected_resources(&[])
+            .await
+            .expect("unrelated never-selected copy survives");
+        assert!(local_root.exists());
+        runtime
+            .remove_local_copy(namespace, local.id)
+            .await
+            .expect("locally created copy is retired through owner");
+        runtime
+            .open_resource(namespace, local.id)
+            .await
+            .expect_err("retired local copy cannot reopen");
+        drop(local_fs);
+        local.id
     }
 
     #[tokio::test]
     async fn shared_filesystems_keep_content_residency_and_retirement_in_the_host_database() {
         let namespace = Namespace {
             user_sub: "local-user",
-            application_id: of_model::id::Id::now_v7(),
+            application_id: Id::now_v7(),
         };
         let root = env::temp_dir().join(format!("shared-filesystem-{}", namespace.application_id));
-        let database = db::adapters::EmbeddedDatabase::open(&root)
-            .await
-            .expect("host");
+        let database = EmbeddedDatabase::open(&root).await.expect("host");
         let runtime =
             ScopedFileSystemRuntime::with_shared(database.storage(), 1_u8).expect("runtime");
         let resource = runtime
@@ -835,9 +1147,7 @@ mod tests {
         drop(filesystem);
         drop(runtime);
         drop(database);
-        let database = db::adapters::EmbeddedDatabase::open(&root)
-            .await
-            .expect("restart host");
+        let database = EmbeddedDatabase::open(&root).await.expect("restart host");
         let runtime = ScopedFileSystemRuntime::with_shared(database.storage(), 1_u8)
             .expect("restart runtime");
         assert_eq!(
@@ -870,7 +1180,7 @@ mod tests {
             .expect("retire discovered owner resources");
         filesystem.read("saved.txt").await.unwrap_err();
         assert_eq!(
-            std::fs::read_dir(&root)
+            fs::read_dir(&root)
                 .expect("one file after resource use and retirement")
                 .count(),
             1
@@ -883,70 +1193,7 @@ mod tests {
         drop(filesystem);
         drop(runtime);
         drop(database);
-        let database = db::adapters::EmbeddedDatabase::open(&root)
-            .await
-            .expect("restart retired host");
-        let runtime = ScopedFileSystemRuntime::with_shared(database.storage(), 1_u8)
-            .expect("retired runtime");
-        assert!(
-            runtime
-                .open_resource(&namespace, resource.id)
-                .await
-                .is_err()
-        );
-        runtime.create_resource(&namespace, None).await.unwrap_err();
-        assert_eq!(
-            runtime
-                .list_resources(&namespace)
-                .await
-                .expect("retained identity"),
-            vec![resource.clone(), passthrough]
-        );
-        runtime
-            .activate_owner(namespace.user_sub)
-            .expect("restore owner");
-        runtime
-            .remove_unselected_projected_resources(&[(
-                namespace.user_sub.to_owned(),
-                namespace.application_id,
-                resource.id,
-            )])
-            .await
-            .expect("reselect fresh copy");
-        let fresh = runtime
-            .open_resource(&namespace, resource.id)
-            .await
-            .expect("fresh generation");
-        fresh.read("saved.txt").await.unwrap_err();
-        fresh
-            .write("new.txt", b"new generation")
-            .await
-            .expect("write fresh copy");
-        drop(fresh);
-        drop(runtime);
-        drop(database);
-        let database = db::adapters::EmbeddedDatabase::open(&root)
-            .await
-            .expect("restart reselected host");
-        let runtime = ScopedFileSystemRuntime::with_shared(database.storage(), 1_u8)
-            .expect("reselected runtime");
-        let fresh = runtime
-            .open_resource(&namespace, resource.id)
-            .await
-            .expect("retained generation");
-        assert_eq!(
-            fresh.read("new.txt").await.expect("retained fresh content"),
-            b"new generation"
-        );
-        assert_eq!(
-            std::fs::read_dir(&root)
-                .expect("single host after reselection")
-                .count(),
-            1
-        );
-        drop(fresh);
-        drop(runtime);
-        drop(database);
+        assert_retirement_and_reselection(&root, &namespace, resource, passthrough).await;
         fs::remove_dir_all(root).expect("cleanup");
     }
 
@@ -966,7 +1213,7 @@ mod tests {
         ] {
             let namespace = Namespace {
                 user_sub: "user",
-                application_id: of_model::id::Id::now_v7(),
+                application_id: Id::now_v7(),
             };
             let root =
                 env::temp_dir().join(format!("residency-order-{}", namespace.application_id));
@@ -1044,7 +1291,7 @@ mod tests {
 
         let namespace = Namespace {
             user_sub: "user",
-            application_id: of_model::id::Id::now_v7(),
+            application_id: Id::now_v7(),
         };
         let root = env::temp_dir().join(format!("residency-recheck-{}", namespace.application_id));
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime opens");
@@ -1111,7 +1358,7 @@ mod tests {
         for user_sub in [".", ".."] {
             let namespace = Namespace {
                 user_sub,
-                application_id: of_model::id::Id::now_v7(),
+                application_id: Id::now_v7(),
             };
             storage_namespace_id(&namespace).unwrap_err();
         }
@@ -1119,14 +1366,11 @@ mod tests {
 
     #[tokio::test]
     async fn registers_selected_resource_without_overriding_a_tombstone() {
-        let root = env::temp_dir().join(format!(
-            "selected-filesystem-runtime-{}",
-            std::process::id()
-        ));
+        let root = env::temp_dir().join(format!("selected-filesystem-runtime-{}", process::id()));
         let _ = fs::remove_dir_all(&root);
         let namespace = Namespace {
             user_sub: "user",
-            application_id: of_model::id::Id::now_v7(),
+            application_id: Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime opens");
         let selected_id = file_system::FileSystemId::new();
@@ -1167,27 +1411,23 @@ mod tests {
 
     #[tokio::test]
     async fn imported_deletion_tombstone_survives_runtime_restart() {
-        let root = env::temp_dir().join(format!(
-            "filesystem-tombstone-runtime-{}",
-            std::process::id()
-        ));
+        let root = env::temp_dir().join(format!("filesystem-tombstone-runtime-{}", process::id()));
         let _ = fs::remove_dir_all(&root);
         let namespace = Namespace {
             user_sub: "user",
-            application_id: of_model::id::Id::now_v7(),
+            application_id: Id::now_v7(),
         };
         let resource_id = file_system::FileSystemId::new();
-        {
-            let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime opens");
-            runtime
-                .register_selected_resource(&namespace, resource_id)
-                .await
-                .expect("resource projection registers");
-            runtime
-                .apply_deletion_tombstone(&namespace, resource_id)
-                .await
-                .expect("remote deletion tombstone applies")
-        };
+        let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime opens");
+        runtime
+            .register_selected_resource(&namespace, resource_id)
+            .await
+            .expect("resource projection registers");
+        runtime
+            .apply_deletion_tombstone(&namespace, resource_id)
+            .await
+            .expect("remote deletion tombstone applies");
+        drop(runtime);
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime reopens");
         assert!(
             runtime
@@ -1211,10 +1451,10 @@ mod tests {
 
     #[tokio::test]
     async fn retirement_reselection_preserves_id_but_revokes_old_scoped_session() {
-        let root = env::temp_dir().join(format!("fs-generation-{}", of_model::id::Id::now_v7()));
+        let root = env::temp_dir().join(format!("fs-generation-{}", Id::now_v7()));
         let scope = Namespace {
             user_sub: "owner",
-            application_id: of_model::id::Id::now_v7(),
+            application_id: Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime");
         let resource = runtime
@@ -1226,7 +1466,7 @@ mod tests {
             .await
             .expect("old owner");
         old.write("old.txt", b"old copy").await.expect("Full write");
-        let session = crate::service::ScopedStorageService::open_resource(
+        let session = ScopedStorageService::open_resource(
             &runtime,
             Namespace {
                 user_sub: "owner",
@@ -1249,7 +1489,10 @@ mod tests {
             .await
             .expect("public owner cleanup succeeds with live handles");
         old.write("denied.txt", b"no").await.unwrap_err();
-        assert!(runtime.open_resource(&scope, resource.id).await.is_err());
+        runtime
+            .open_resource(&scope, resource.id)
+            .await
+            .expect_err("retired copy cannot reopen");
         runtime
             .remove_unselected_projected_resources(&[(
                 "owner".into(),
@@ -1268,12 +1511,10 @@ mod tests {
             .expect("fresh owner writes");
         assert!(
             session
-                .execute(
-                    of_model::storage::contract::request::StorageRequest::Write {
-                        path: "resurrect.txt".into(),
-                        content: b"no".to_vec()
-                    }
-                )
+                .execute(StorageRequest::Write {
+                    path: "resurrect.txt".into(),
+                    content: b"no".to_vec()
+                })
                 .await
                 .is_err(),
             "old scoped session cannot follow new generation"
@@ -1315,13 +1556,10 @@ mod tests {
     }
 
     async fn cached_generation_rejects_reopen_after_tombstone(learned: bool) {
-        let root = env::temp_dir().join(format!(
-            "fs-generation-tombstone-{}",
-            of_model::id::Id::now_v7()
-        ));
+        let root = env::temp_dir().join(format!("fs-generation-tombstone-{}", Id::now_v7()));
         let scope = Namespace {
             user_sub: "owner",
-            application_id: of_model::id::Id::now_v7(),
+            application_id: Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime opens");
         let resource = runtime
@@ -1345,7 +1583,7 @@ mod tests {
             .remove_unselected_projected_resources(&selected)
             .await
             .expect("later trusted reselection");
-        let session = crate::service::ScopedStorageService::open_resource(
+        let session = ScopedStorageService::open_resource(
             &runtime,
             Namespace {
                 user_sub: "owner",
@@ -1356,12 +1594,10 @@ mod tests {
         .await
         .expect("fresh scoped generation opens");
         session
-            .execute(
-                of_model::storage::contract::request::StorageRequest::Write {
-                    path: "new.txt".into(),
-                    content: b"new copy".to_vec(),
-                },
-            )
+            .execute(StorageRequest::Write {
+                path: "new.txt".into(),
+                content: b"new copy".to_vec(),
+            })
             .await
             .expect("fresh scoped generation writes");
         assert_eq!(
@@ -1381,44 +1617,7 @@ mod tests {
                     .expect("local deletion applies")
             );
         }
-        assert!(
-            crate::service::ScopedStorageService::open_resource(
-                &runtime,
-                Namespace {
-                    user_sub: "owner",
-                    application_id: scope.application_id,
-                },
-                resource.id,
-            )
-            .await
-            .is_err(),
-            "authoritative Tombstone denies a cached-generation scoped reopen"
-        );
-        assert!(runtime.open_resource(&scope, resource.id).await.is_err());
-        assert_eq!(
-            runtime
-                .list_resources(&scope)
-                .await
-                .expect("deleted catalog lists"),
-            [] as [file_system::FileSystemResource; 0]
-        );
-        assert!(
-            runtime
-                .is_tombstoned(&scope, resource.id)
-                .await
-                .expect("logical ID retains its Tombstone")
-        );
-        assert!(
-            runtime
-                .register_selected_resource(&scope, resource.id)
-                .await
-                .is_err(),
-            "selection cannot revive the logical ID"
-        );
-        runtime
-            .remove_local_copy(&scope, resource.id)
-            .await
-            .expect("tombstoned generation still permits managed-copy cleanup");
+        assert_tombstone_blocks_cached_reopen(&runtime, &scope, resource.id).await;
         drop(session);
         drop(runtime);
         let restarted = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime restarts");
@@ -1428,18 +1627,20 @@ mod tests {
                 .await
                 .expect("Tombstone survives restart")
         );
-        assert!(restarted.open_resource(&scope, resource.id).await.is_err());
+        restarted
+            .open_resource(&scope, resource.id)
+            .await
+            .expect_err("persisted Tombstone blocks reopen");
         drop(restarted);
         fs::remove_dir_all(root).expect("fixture cleanup");
     }
 
     #[tokio::test]
     async fn passthrough_domain_read_requires_peer_even_when_old_content_is_cached() {
-        let root =
-            env::temp_dir().join(format!("cached-passthrough-{}", of_model::id::Id::now_v7()));
+        let root = env::temp_dir().join(format!("cached-passthrough-{}", Id::now_v7()));
         let scope = Namespace {
             user_sub: "owner",
-            application_id: of_model::id::Id::now_v7(),
+            application_id: Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime");
         let resource = runtime
@@ -1458,13 +1659,12 @@ mod tests {
             .set_resource_residency(&scope, resource.id, file_system::Residency::Passthrough)
             .await
             .expect("local choice");
-        let session =
-            crate::service::ScopedStorageService::open_resource(&runtime, scope, resource.id)
-                .await
-                .expect("scoped session");
+        let session = ScopedStorageService::open_resource(&runtime, scope, resource.id)
+            .await
+            .expect("scoped session");
         assert!(
             session
-                .execute(of_model::storage::contract::request::StorageRequest::Read {
+                .execute(StorageRequest::Read {
                     path: "cached.txt".into()
                 })
                 .await
@@ -1479,13 +1679,10 @@ mod tests {
 
     #[tokio::test]
     async fn passthrough_resource_stays_read_only_after_offline_restart() {
-        let root = env::temp_dir().join(format!(
-            "passthrough-resource-{}",
-            of_model::id::Id::now_v7()
-        ));
+        let root = env::temp_dir().join(format!("passthrough-resource-{}", Id::now_v7()));
         let scope = Namespace {
             user_sub: "owner",
-            application_id: of_model::id::Id::now_v7(),
+            application_id: Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime");
         let resource = runtime
@@ -1528,14 +1725,11 @@ mod tests {
 
     #[tokio::test]
     async fn deselection_retires_projected_and_created_copies_without_tombstones() {
-        let root = env::temp_dir().join(format!(
-            "deselected-filesystem-runtime-{}",
-            std::process::id()
-        ));
+        let root = env::temp_dir().join(format!("deselected-filesystem-runtime-{}", process::id()));
         let _ = fs::remove_dir_all(&root);
         let namespace = Namespace {
             user_sub: "user",
-            application_id: of_model::id::Id::now_v7(),
+            application_id: Id::now_v7(),
         };
         let runtime = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("runtime opens");
         let projected_id = file_system::FileSystemId::new();
@@ -1558,10 +1752,9 @@ mod tests {
             .join("filesystems")
             .join(projected_id.as_uuid().to_string());
         assert!(projected_root.exists());
-        let session =
-            crate::service::ScopedStorageService::open_resource(&runtime, namespace, projected_id)
-                .await
-                .expect("open domain session before deselection");
+        let session = ScopedStorageService::open_resource(&runtime, namespace, projected_id)
+            .await
+            .expect("open domain session before deselection");
 
         runtime
             .remove_unselected_projected_resources(&[])
@@ -1569,12 +1762,10 @@ mod tests {
             .expect("public owner drains and retires active handles");
         assert!(
             session
-                .execute(
-                    of_model::storage::contract::request::StorageRequest::Write {
-                        path: "denied.txt".into(),
-                        content: b"deny".to_vec()
-                    }
-                )
+                .execute(StorageRequest::Write {
+                    path: "denied.txt".into(),
+                    content: b"deny".to_vec()
+                })
                 .await
                 .is_err(),
             "issued domain session must not continue after retirement"
@@ -1595,66 +1786,36 @@ mod tests {
                 .len(),
             1
         );
-        assert!(
-            runtime
-                .open_resource(&namespace, projected_id)
-                .await
-                .is_err()
-        );
+        runtime
+            .open_resource(&namespace, projected_id)
+            .await
+            .expect_err("deselected copy cannot reopen");
         runtime
             .register_selected_resource(&namespace, projected_id)
             .await
             .expect_err("reselection cannot bypass pending cleanup");
 
-        let local = runtime
-            .create_resource(&namespace, Some("local".into()))
-            .await
-            .expect("create local resource");
-        let local_fs = runtime
-            .open_resource(&namespace, local.id)
-            .await
-            .expect("local resource opens");
-        local_fs
-            .write("local.txt", b"keep")
-            .await
-            .expect("write owner content");
-        let local_root = root
-            .join("filesystems")
-            .join(namespace.user_sub)
-            .join(namespace.application_id.to_string())
-            .join("filesystems")
-            .join(local.id.as_uuid().to_string());
-        runtime
-            .remove_unselected_projected_resources(&[])
-            .await
-            .expect("unrelated never-selected copy survives");
-        assert!(local_root.exists());
-
-        runtime
-            .remove_local_copy(&namespace, local.id)
-            .await
-            .expect("locally created copy is retired through owner");
-        assert!(runtime.open_resource(&namespace, local.id).await.is_err());
-        drop(local_fs);
+        let local_id = retire_locally_created_copy(&runtime, &root, &namespace).await;
         drop(session);
         drop(runtime);
         let reopened = ScopedFileSystemRuntime::new(root.clone(), 1_u8).expect("offline restart");
-        assert!(
-            reopened
-                .open_resource(&namespace, projected_id)
-                .await
-                .is_err()
-        );
-        assert!(reopened.open_resource(&namespace, local.id).await.is_err());
+        reopened
+            .open_resource(&namespace, projected_id)
+            .await
+            .expect_err("deselection survives restart");
+        reopened
+            .open_resource(&namespace, local_id)
+            .await
+            .expect_err("local retirement survives restart");
         drop(reopened);
         let _ = fs::remove_dir_all(root);
     }
 
     #[tokio::test]
     async fn manages_multiple_resources_per_namespace_and_blocks_deleted_opens() {
-        let root = env::temp_dir().join(format!("storage-resource-runtime-{}", std::process::id()));
+        let root = env::temp_dir().join(format!("storage-resource-runtime-{}", process::id()));
         let _ = fs::remove_dir_all(&root);
-        let application_id = of_model::id::Id::now_v7();
+        let application_id = Id::now_v7();
         let namespace = Namespace {
             user_sub: "user",
             application_id,
@@ -1714,19 +1875,20 @@ mod tests {
                 .await
                 .expect("foreign lookup works")
         );
-        assert!(
-            runtime
-                .open_resource(&other_namespace, first.id)
-                .await
-                .is_err()
-        );
+        runtime
+            .open_resource(&other_namespace, first.id)
+            .await
+            .expect_err("foreign namespace cannot open a resource");
         assert!(
             runtime
                 .delete_resource(&namespace, first.id)
                 .await
                 .expect("resource deletes")
         );
-        assert!(runtime.open_resource(&namespace, first.id).await.is_err());
+        runtime
+            .open_resource(&namespace, first.id)
+            .await
+            .expect_err("deleted resource cannot reopen");
         first_fs.list("").await.unwrap();
         drop(first_fs);
         drop(runtime);

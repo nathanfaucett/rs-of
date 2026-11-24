@@ -5,6 +5,11 @@ use std::{
 
 static SET_CREDENTIAL_STORE: Mutex<bool> = Mutex::new(false);
 
+/// Builds a credential entry in `store`.
+///
+/// # Errors
+///
+/// Returns the credential store's error if entry construction fails.
 pub fn create_secret_entry(
     store: &keyring_core::CredentialStore,
     service: &str,
@@ -23,6 +28,15 @@ pub struct SecretStore {
 }
 
 impl SecretStore {
+    /// Opens the process-default credential store.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the platform credential store cannot be initialized.
+    ///
+    /// # Panics
+    ///
+    /// Panics if successful initialization does not provide a default credential store.
     pub fn new(
         service: impl Into<String>,
         target: impl Into<String>,
@@ -47,6 +61,11 @@ impl SecretStore {
         }
     }
 
+    /// Loads a secret, or returns `None` if its credential does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry cannot be built or read.
     pub fn load(&self, reference: &str) -> keyring_core::Result<Option<Vec<u8>>> {
         match create_secret_entry(&*self.store, &self.service, reference, &self.target)?
             .get_secret()
@@ -57,16 +76,32 @@ impl SecretStore {
         }
     }
 
+    /// Stores a secret.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry cannot be built or the secret cannot be written.
     pub fn store(&self, reference: &str, bytes: &[u8]) -> keyring_core::Result<()> {
         create_secret_entry(&*self.store, &self.service, reference, &self.target)?.set_secret(bytes)
     }
 
+    /// Deletes a secret's credential.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry cannot be built or the credential cannot be deleted.
     pub fn delete(&self, reference: &str) -> keyring_core::Result<()> {
         create_secret_entry(&*self.store, &self.service, reference, &self.target)?
             .delete_credential()
     }
 }
 
+/// Initializes the process-default credential store once.
+///
+/// # Errors
+///
+/// Returns an error if platform credential store creation fails. A later call retries
+/// initialization.
 pub fn init_credential_store() -> keyring_core::Result<()> {
     initialize_store(&SET_CREDENTIAL_STORE, set_credential_store)
 }
@@ -82,6 +117,7 @@ fn initialize_store(
         initialize()?;
         *initialized = true;
     }
+    drop(initialized);
     Ok(())
 }
 
@@ -105,9 +141,13 @@ fn set_credential_store() -> keyring_core::Result<()> {
 
 #[cfg(test)]
 mod initialization_tests {
-    use std::sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+    use std::{
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+            mpsc::channel,
+        },
+        thread::spawn,
     };
 
     use super::initialize_store;
@@ -137,11 +177,11 @@ mod initialization_tests {
     fn concurrent_callers_wait_until_provider_initialization_finishes() {
         let initialized = Arc::new(Mutex::new(false));
         let calls = Arc::new(AtomicUsize::new(0));
-        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
-        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
-        let first = std::thread::spawn({
-            let initialized = initialized.clone();
-            let calls = calls.clone();
+        let (entered_tx, entered_rx) = channel();
+        let (resume_tx, resume_rx) = channel();
+        let first = spawn({
+            let initialized = Arc::clone(&initialized);
+            let calls = Arc::clone(&calls);
             move || {
                 initialize_store(&initialized, || {
                     calls.fetch_add(1, Ordering::SeqCst);
@@ -153,10 +193,9 @@ mod initialization_tests {
             }
         });
         entered_rx.recv().expect("wait for initialization start");
-        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
-        let second = std::thread::spawn({
-            let initialized = initialized;
-            let calls = calls.clone();
+        let (finished_tx, finished_rx) = channel();
+        let second = spawn({
+            let calls = Arc::clone(&calls);
             move || {
                 initialize_store(&initialized, || {
                     calls.fetch_add(1, Ordering::SeqCst);

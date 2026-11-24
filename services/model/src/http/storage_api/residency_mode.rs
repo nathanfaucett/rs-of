@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * Storage Server
  *
@@ -10,26 +11,22 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum ResidencyMode {
     #[serde(rename = "full")]
+    #[default]
     Full,
     #[serde(rename = "passthrough")]
     Passthrough,
 }
 
-impl core::fmt::Display for ResidencyMode {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for ResidencyMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Full => write!(f, "full"),
             Self::Passthrough => write!(f, "passthrough"),
         }
-    }
-}
-
-impl Default for ResidencyMode {
-    fn default() -> ResidencyMode {
-        Self::Full
     }
 }

@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -10,26 +11,22 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum TokenType {
     #[serde(rename = "Bearer")]
+    #[default]
     Bearer,
     #[serde(rename = "DPoP")]
     DpoP,
 }
 
-impl core::fmt::Display for TokenType {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for TokenType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Bearer => write!(f, "Bearer"),
             Self::DpoP => write!(f, "DPoP"),
         }
-    }
-}
-
-impl Default for TokenType {
-    fn default() -> TokenType {
-        Self::Bearer
     }
 }

@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+
 use serde::{Deserialize, Serialize};
 
 use crate::id::Id;
@@ -173,6 +176,10 @@ pub struct PermissionEvaluationRequest {
 }
 
 impl PermissionEvaluationRequest {
+    #[allow(
+        clippy::match_same_arms,
+        reason = "keep each action and resource validity rule explicit"
+    )]
     #[must_use]
     pub const fn policy_namespace(&self) -> Option<Id> {
         use IdentityAction as A;

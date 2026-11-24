@@ -1,3 +1,5 @@
+use core::fmt;
+
 use chrono::{DateTime, Timelike, Utc};
 use of_model::id::Id;
 use ofdb_sql::Client;
@@ -51,13 +53,27 @@ pub struct DbDeviceRepo {
     engine: Client,
 }
 
+impl fmt::Debug for DbDeviceRepo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbDeviceRepo").finish_non_exhaustive()
+    }
+}
+
 impl DbDeviceRepo {
     #[must_use]
     pub const fn new(engine: Client) -> Self {
         Self { engine }
     }
 
-    /// Caller verifies exact mutation permission and an active new User in IdP.
+    /// Caller verifies exact mutation permission and an active new User in `IdP`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DeviceError`] when stored state is invalid or a database operation fails.
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases its resources"
+    )]
     pub async fn transfer_owned(
         &self,
         device_id: Id,
@@ -147,6 +163,10 @@ impl DbDeviceRepo {
         Ok(row)
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases its resources"
+    )]
     async fn insert_device(&self, row: DeviceRow) -> DeviceResult<Device> {
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let row = Self::insert_generated_device(&mut transaction, row).await?;
@@ -223,6 +243,10 @@ impl DbDeviceRepo {
         }
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases its resources"
+    )]
     async fn update(&self, id: Id, assignments: Vec<QueryUpdateAssignment>) -> DeviceResult<()> {
         let terminal = assignments.iter().any(|assignment| {
             assignment.column.column == "state"
@@ -352,8 +376,8 @@ impl DeviceRepo for DbDeviceRepo {
         )
         .await?;
         DeviceRow {
-            state: DeviceState::Approved,
             pairing_accepting_public_key: None,
+            state: DeviceState::Approved,
             updated_at: updated_at.timestamp(),
             ..row
         }
@@ -500,9 +524,9 @@ impl DeviceRepo for DbDeviceRepo {
         )
         .await?;
         DeviceRow {
-            state: DeviceState::Approved,
             enrollment_code_hash: None,
             enrollment_expires_at: None,
+            state: DeviceState::Approved,
             updated_at: updated_at.timestamp(),
             ..row
         }
@@ -528,9 +552,9 @@ impl DeviceRepo for DbDeviceRepo {
         )
         .await?;
         DeviceRow {
-            state: DeviceState::Approved,
             enrollment_code_hash: None,
             enrollment_expires_at: None,
+            state: DeviceState::Approved,
             updated_at: updated_at.timestamp(),
             ..row
         }
@@ -726,7 +750,7 @@ impl TryFrom<DeviceRow> for Device {
 
 impl From<DeviceRow> for Row {
     fn from(row: DeviceRow) -> Self {
-        Row::new(vec![
+        Self::new(vec![
             Value::Uuid(row.id),
             Value::Text(row.owner_subject),
             Value::Text(row.name),
@@ -798,10 +822,18 @@ fn timestamp(value: i64) -> DeviceResult<DateTime<Utc>> {
         .ok_or_else(|| DeviceError::InvalidInput("invalid device timestamp".into()))
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies an owned QueryError to this adapter"
+)]
 fn db_error(error: ofdb_sql::QueryError) -> DeviceError {
     DeviceError::InvalidInput(error.to_string())
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies an owned FromRowError to this adapter"
+)]
 fn row_error(error: FromRowError) -> DeviceError {
     DeviceError::InvalidInput(error.to_string())
 }

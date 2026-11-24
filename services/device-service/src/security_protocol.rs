@@ -1,3 +1,5 @@
+use core::fmt;
+
 #[cfg(feature = "ofdb")]
 use crate::security_policy::SecurityContext;
 use std::io;
@@ -54,11 +56,18 @@ pub struct SecurityProtocol {
     cancellation: CancellationToken,
 }
 
+impl fmt::Debug for SecurityProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecurityProtocol").finish_non_exhaustive()
+    }
+}
+
 impl SecurityProtocol {
     pub fn cancel(&self) {
         self.cancellation.cancel();
     }
 
+    #[must_use]
     pub fn new(
         server: Server,
         idp: Arc<Database>,
@@ -85,7 +94,7 @@ impl SecurityProtocol {
         }
     }
 
-    fn owner(&self) -> SecuritySync<'_> {
+    const fn owner(&self) -> SecuritySync<'_> {
         SecuritySync::new(&self.idp_identity, &self.device_repo, &self.permissions)
     }
 
@@ -107,6 +116,9 @@ impl SecurityProtocol {
             .collect()
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when authorization, transport, or history synchronization fails.
     pub async fn synchronize(
         &self,
         connection: &Connection,
@@ -147,6 +159,9 @@ impl SecurityProtocol {
         .await
     }
 
+    /// # Errors
+    ///
+    /// Returns an error for an unknown stream kind or failed security synchronization.
     pub async fn accept_data_stream(
         &self,
         kind: u8,
@@ -199,6 +214,9 @@ impl SecurityProtocol {
         .map(|_| ())
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when a security history schema is unavailable or unreviewed.
     pub async fn validate_local_schema(&self, context: SecurityContext) -> io::Result<()> {
         for (database, history, tables) in self.sessions(context) {
             history.validate_schema(&database.client(), &tables).await?;
@@ -294,7 +312,7 @@ impl SecurityProtocol {
                     SyncError::Transport(error) => error,
                     error => io::Error::other(error.to_string()),
                 })?;
-            accumulate(&mut total, result);
+            accumulate(&mut total, &result);
         }
         Ok(total)
     }
@@ -358,11 +376,11 @@ impl<T: SyncTransport<Error = io::Error> + Send> SyncTransport
     }
 }
 
-fn denied(reason: impl std::fmt::Display) -> io::Error {
+fn denied(reason: impl fmt::Display) -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, reason.to_string())
 }
 
-fn accumulate(total: &mut SyncResult, result: SyncResult) {
+const fn accumulate(total: &mut SyncResult, result: &SyncResult) {
     total.received_units += result.received_units;
     total.sent_units += result.sent_units;
     total.received_changes += result.received_changes;

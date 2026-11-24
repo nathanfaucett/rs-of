@@ -1,6 +1,10 @@
-use std::io::{Error, ErrorKind};
+use std::{
+    io::{Error, ErrorKind},
+    sync::Arc,
+};
 
 use iroh::endpoint::{RecvStream, SendStream};
+use tokio::sync::Mutex;
 
 use crate::protocol::{
     Config, Error as ProtocolError, MAX_MESSAGE_BYTES, Message, decode_message, encode_message,
@@ -12,13 +16,16 @@ use crate::transport::SyncTransport;
 #[derive(Debug)]
 pub struct IrohTransport {
     send: SendStream,
-    recv: RecvStream,
+    recv: Arc<Mutex<RecvStream>>,
 }
 
 impl IrohTransport {
     #[must_use]
-    pub const fn new(send: SendStream, recv: RecvStream) -> Self {
-        Self { send, recv }
+    pub fn new(send: SendStream, recv: RecvStream) -> Self {
+        Self {
+            send,
+            recv: Arc::new(Mutex::new(recv)),
+        }
     }
 }
 
@@ -46,10 +53,11 @@ impl SyncTransport for IrohTransport {
         }
     }
 
-    fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> + Send {
+    fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> + Send + 'static {
         let config = Config::default();
-        let recv = &mut self.recv;
+        let recv = Arc::clone(&self.recv);
         async move {
+            let mut recv = recv.lock().await;
             let mut prefix = [0; 4];
             recv.read_exact(&mut prefix).await.map_err(Error::other)?;
             let length = u32::from_be_bytes(prefix) as usize;
@@ -61,6 +69,7 @@ impl SyncTransport for IrohTransport {
             }
             let mut frame = vec![0; length];
             recv.read_exact(&mut frame).await.map_err(Error::other)?;
+            drop(recv);
             decode_message::<ProtocolError<Error>>(&frame, &config)
                 .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))
         }

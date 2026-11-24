@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP Device API
@@ -11,7 +12,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceSelfRevocationRequest {
     #[serde(rename = "publicKey")]
     pub public_key: String,
@@ -20,8 +21,9 @@ pub struct DeviceSelfRevocationRequest {
 }
 
 impl DeviceSelfRevocationRequest {
-    pub fn new(public_key: String, signature: String) -> DeviceSelfRevocationRequest {
-        DeviceSelfRevocationRequest {
+    #[must_use]
+    pub const fn new(public_key: String, signature: String) -> Self {
+        Self {
             public_key,
             signature,
         }

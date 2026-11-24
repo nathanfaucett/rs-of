@@ -11,7 +11,7 @@
 use crate::http::storage_api as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceResidency {
     #[serde(rename = "mode")]
@@ -19,7 +19,8 @@ pub struct ResourceResidency {
 }
 
 impl ResourceResidency {
-    pub fn new(mode: models::ResidencyMode) -> ResourceResidency {
-        ResourceResidency { mode }
+    #[must_use]
+    pub const fn new(mode: models::ResidencyMode) -> Self {
+        Self { mode }
     }
 }

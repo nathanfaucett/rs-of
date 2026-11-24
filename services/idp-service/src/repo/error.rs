@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -5,15 +6,17 @@ use alloc::{
 use core::error::Error;
 
 use bip32::DerivationPath;
+use key::error::KeyError;
 use of_model::idp::contract::{error_code::ErrorCode, error_response::ErrorResponse};
+use serde::de::value::Error as DeserializeError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RepoError {
     #[error("deserialize error: {0}")]
-    DeserializeError(#[from] serde::de::value::Error),
+    DeserializeError(#[from] DeserializeError),
 
     #[error("key error: {0}")]
-    Key(#[from] key::error::KeyError),
+    Key(#[from] KeyError),
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("no access to key: {0}")]

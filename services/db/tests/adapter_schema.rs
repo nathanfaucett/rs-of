@@ -15,8 +15,13 @@ async fn memory_adapter_initializes_and_exposes_client() {
         .execute_sql("SELECT * FROM users LIMIT 0", None)
         .await
         .expect("schema initialized");
-    let txn = client.transaction().await.expect("transaction");
-    txn.rollback().await.expect("rollback");
+    client
+        .transaction()
+        .await
+        .expect("transaction")
+        .rollback()
+        .await
+        .expect("rollback");
 }
 
 #[tokio::test]
@@ -54,6 +59,10 @@ async fn embedded_adapter_initializes_all_owner_tables() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "commit and rollback consume the transaction"
+)]
 async fn unified_schema_persists_and_reopens() {
     let dir = tempdir().expect("temp dir");
     let path = dir.path().join("unified.redb");
@@ -67,8 +76,9 @@ async fn unified_schema_persists_and_reopens() {
         txn.execute_sql("INSERT INTO users (id, handle) VALUES (CAST('00000000-0000-7000-8000-000000000001' AS UUID), 'shared')", None)
             .await
             .expect("write user");
-        txn.commit().await.expect("commit")
-    };
+        txn.commit().await
+    }
+    .expect("commit");
 
     {
         let adapter = EmbeddedDatabase::open_file(&path).await.expect("reopen");
@@ -94,6 +104,10 @@ async fn unified_schema_persists_and_reopens() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "commit and rollback consume the transaction"
+)]
 async fn cross_owner_transaction_commit_and_rollback() {
     let dir = tempdir().expect("temp dir");
     let path = dir.path().join("unified.redb");
@@ -133,6 +147,10 @@ async fn repeated_initialization_idempotent() {
 }
 
 #[tokio::test]
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "commit consumes the transaction"
+)]
 async fn failed_migration_returns_error() {
     let database = SqlDatabase::in_memory();
     let client = database.client();

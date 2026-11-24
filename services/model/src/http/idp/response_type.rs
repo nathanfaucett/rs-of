@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -12,22 +13,19 @@ use serde::{Deserialize, Serialize};
 
 /// ResponseType : Valid OAuth 2.0 response types for the authorization endpoint. we do not support the `token` or `id_token` response type (implicit flow) as it is not recommended in OAuth 2.1 and has security weaknesses.
 /// Valid OAuth 2.0 response types for the authorization endpoint. we do not support the `token` or `id_token` response type (implicit flow) as it is not recommended in OAuth 2.1 and has security weaknesses.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum ResponseType {
     #[serde(rename = "code")]
+    #[default]
     Code,
 }
 
-impl core::fmt::Display for ResponseType {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for ResponseType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Code => write!(f, "code"),
         }
-    }
-}
-
-impl Default for ResponseType {
-    fn default() -> ResponseType {
-        Self::Code
     }
 }

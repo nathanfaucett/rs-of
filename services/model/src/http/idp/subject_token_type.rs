@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -10,10 +11,12 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum SubjectTokenType {
     #[serde(rename = "urn:ietf:params:oauth:token-type:jwt")]
+    #[default]
     UrnColonIetfColonParamsColonOauthColonTokenTypeColonJwt,
     #[serde(rename = "urn:ietf:params:oauth:token-type:access_token")]
     UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken,
@@ -27,8 +30,8 @@ pub enum SubjectTokenType {
     UrnColonIetfColonParamsColonOauthColonTokenTypeColonSaml2,
 }
 
-impl core::fmt::Display for SubjectTokenType {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for SubjectTokenType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::UrnColonIetfColonParamsColonOauthColonTokenTypeColonJwt => {
                 write!(f, "urn:ietf:params:oauth:token-type:jwt")
@@ -49,11 +52,5 @@ impl core::fmt::Display for SubjectTokenType {
                 write!(f, "urn:ietf:params:oauth:token-type:saml2")
             }
         }
-    }
-}
-
-impl Default for SubjectTokenType {
-    fn default() -> SubjectTokenType {
-        Self::UrnColonIetfColonParamsColonOauthColonTokenTypeColonJwt
     }
 }

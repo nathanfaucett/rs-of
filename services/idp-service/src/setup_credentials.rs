@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::repo::RawKeyringRepo;
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SetupRelationship {
     IdpManagement,
@@ -124,7 +124,12 @@ impl SetupRelationship {
 }
 
 /// Call only after persisting an owner-local attempted-material fence for this exact slot.
+///
+/// # Errors
+/// Returns an I/O error if secure randomness or protected storage is unavailable or inconsistent.
 pub fn create_setup_secret(service: &str, slot: &str) -> io::Result<()> {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
     let provider = RawKeyringRepo::new(service).map_err(io::Error::other)?;
     if provider
         .load("", "", slot)
@@ -134,8 +139,13 @@ pub fn create_setup_secret(service: &str, slot: &str) -> io::Result<()> {
         return Err(io::Error::other("unexpected protected setup material"));
     }
     let mut random = [0u8; 32];
-    getrandom::fill(&mut random).map_err(|_| io::Error::other("secure randomness unavailable"))?;
-    let secret: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
+    getrandom::fill(&mut random)
+        .map_err(|_error| io::Error::other("secure randomness unavailable"))?;
+    let mut secret = String::with_capacity(64);
+    for byte in random {
+        secret.push(char::from(HEX[usize::from(byte >> 4)]));
+        secret.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
     provider
         .store("", "", slot, secret.as_bytes())
         .map_err(io::Error::other)?;
@@ -149,6 +159,9 @@ pub fn create_setup_secret(service: &str, slot: &str) -> io::Result<()> {
 
 /// Idempotent deletion of the captured owner-local slots, including interrupted writes.
 /// Provider errors are not absence; callers retain their journals until this succeeds.
+///
+/// # Errors
+/// Returns an I/O error if slot validation or protected storage operations fail.
 pub fn delete_setup_secrets(service: &str, slots: &[(String, bool)]) -> io::Result<()> {
     if !service.starts_with("independent-setup:") {
         return Err(io::Error::other(
@@ -198,6 +211,8 @@ pub fn delete_setup_secrets(service: &str, slots: &[(String, bool)]) -> io::Resu
     Ok(())
 }
 
+/// # Errors
+/// Returns an I/O error if protected material is unavailable or malformed.
 pub fn load_setup_secret(service: &str, slot: &str) -> io::Result<String> {
     let bytes = RawKeyringRepo::new(service)
         .map_err(io::Error::other)?
@@ -205,7 +220,7 @@ pub fn load_setup_secret(service: &str, slot: &str) -> io::Result<String> {
         .map_err(io::Error::other)?
         .ok_or_else(|| io::Error::other("attempted protected setup material is missing"))?;
     let value = String::from_utf8(bytes)
-        .map_err(|_| io::Error::other("protected setup material is malformed"))?;
+        .map_err(|_error| io::Error::other("protected setup material is malformed"))?;
     if value.len() != 64
         || !value
             .bytes()

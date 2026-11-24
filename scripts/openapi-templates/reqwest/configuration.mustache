@@ -85,14 +85,15 @@ impl AWSv4Key {
 {{/withAWSV4Signature}}
 
 impl Configuration {
-    pub fn new() -> Configuration {
-        Configuration::default()
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
 impl Default for Configuration {
     fn default() -> Self {
-        Configuration {
+        Self {
             response_limit: 1024 * 1024,
             request_limit: 1024 * 1024,
             base_path: "{{{basePath}}}".to_owned(),
@@ -125,21 +126,29 @@ impl TokenSource for NoopTokenSource {
 }
 {{/supportTokenSource}}
 
+/// Reads a UTF-8 response body up to the configured byte limit.
+///
+/// # Errors
+/// Returns an error when the response cannot be read, exceeds the limit, or is not UTF-8.
 pub async fn bounded_text(mut response: reqwest::Response, limit: usize) -> Result<String, serde_json::Error> {
     use serde::de::Error;
     if response.content_length().is_some_and(|length| length > limit as u64) {
         return Err(serde_json::Error::custom("response exceeds byte limit"));
     }
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| serde_json::Error::custom("response read failed"))? {
+    while let Some(chunk) = response.chunk().await.map_err(|error| serde_json::Error::custom(format!("response read failed: {error}")))? {
         if chunk.len() > limit.saturating_sub(bytes.len()) {
             return Err(serde_json::Error::custom("response exceeds byte limit"));
         }
         bytes.extend_from_slice(&chunk);
     }
-    String::from_utf8(bytes).map_err(|_| serde_json::Error::custom("response is not UTF-8"))
+    String::from_utf8(bytes).map_err(|error| serde_json::Error::custom(format!("response is not UTF-8: {error}")))
 }
 
+/// Checks that a request URL, headers, and bounded body fit the configured byte limit.
+///
+/// # Errors
+/// Returns an error when the body is unbounded or the request exceeds the limit.
 pub fn check_request(request: &reqwest::Request, limit: usize) -> Result<(), serde_json::Error> {
     use serde::de::Error;
     let mut size = request.headers().iter().fold(request.url().as_str().len(), |size, (name, value)| {

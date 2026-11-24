@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP Device API
@@ -11,7 +12,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceTransferRequest {
     #[serde(rename = "ownerSubject")]
@@ -19,7 +20,8 @@ pub struct DeviceTransferRequest {
 }
 
 impl DeviceTransferRequest {
-    pub fn new(owner_subject: String) -> DeviceTransferRequest {
-        DeviceTransferRequest { owner_subject }
+    #[must_use]
+    pub const fn new(owner_subject: String) -> Self {
+        Self { owner_subject }
     }
 }

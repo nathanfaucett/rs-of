@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 /*
  * LIDP IdP API
@@ -12,15 +13,16 @@ use alloc::boxed::Box;
 use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HealthResponse {
     #[serde(rename = "database")]
     pub database: Box<models::HealthStatus>,
 }
 
 impl HealthResponse {
-    pub fn new(database: models::HealthStatus) -> HealthResponse {
-        HealthResponse {
+    #[must_use]
+    pub fn new(database: models::HealthStatus) -> Self {
+        Self {
             database: Box::new(database),
         }
     }

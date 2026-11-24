@@ -12,18 +12,19 @@ use axum::{
 };
 use of_storage_client::client::StorageClient;
 use serde_json::{Value, json};
+use tokio::net::TcpListener;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn resource_clients_use_owner_scoped_tokens_and_current_http_contracts() {
     let resource = Uuid::now_v7();
     let requests = Arc::new(Mutex::new(Vec::new()));
-    let exchanges = requests.clone();
+    let exchanges = Arc::clone(&requests);
     let router = Router::new()
         .route(
             "/idp/oauth2/token",
             post(move |Form(form): Form<HashMap<String, String>>| {
-                let exchanges = exchanges.clone();
+                let exchanges = Arc::clone(&exchanges);
                 async move {
                     assert_eq!(
                         form["grant_type"],
@@ -57,7 +58,7 @@ async fn resource_clients_use_owner_scoped_tokens_and_current_http_contracts() {
                 Json(json!([{"id": resource, "name": "files"}]))
             }),
         );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+    let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("owner listener");
     let base = format!("http://{}", listener.local_addr().expect("owner address"));

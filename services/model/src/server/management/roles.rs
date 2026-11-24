@@ -1,13 +1,19 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+
 use serde::Deserialize;
 use serde::Serialize;
+
+use crate::id::Id;
+use crate::idp::model::role::Role;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct RoleResponse {
     #[cfg_attr(feature = "utoipa", schema(value_type = String))]
-    pub id: crate::id::Id,
+    pub id: Id,
     #[cfg_attr(feature = "utoipa", schema(value_type = String))]
-    pub application_id: crate::id::Id,
+    pub application_id: Id,
     pub name: String,
     pub description: Option<String>,
     pub created_at: i64,
@@ -31,8 +37,8 @@ pub struct CreateRoleRequest {
     pub description: Option<String>,
 }
 
-impl From<crate::idp::model::role::Role> for RoleResponse {
-    fn from(role: crate::idp::model::role::Role) -> Self {
+impl From<Role> for RoleResponse {
+    fn from(role: Role) -> Self {
         Self {
             id: role.id,
             application_id: role.application_id,

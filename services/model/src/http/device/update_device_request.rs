@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP Device API
@@ -11,14 +12,15 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateDeviceRequest {
     #[serde(rename = "name")]
     pub name: String,
 }
 
 impl UpdateDeviceRequest {
-    pub fn new(name: String) -> UpdateDeviceRequest {
-        UpdateDeviceRequest { name }
+    #[must_use]
+    pub const fn new(name: String) -> Self {
+        Self { name }
     }
 }

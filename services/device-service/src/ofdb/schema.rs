@@ -1,8 +1,14 @@
+use core::slice;
+
+use db::ofdb::up_device;
 use ofdb_sql::Database;
 use ofdb_sql::SqlTranslator;
 
+/// # Errors
+///
+/// Returns an error when Device schema creation or compatibility validation fails.
 pub async fn up(engine: &Database) -> Result<(), ofdb_sql::QueryError> {
-    db::ofdb::up(&engine.client()).await?;
+    up_device(&engine.client()).await?;
     let devices = engine
         .client()
         .translate_and_execute("SELECT * FROM devices LIMIT 0", &SqlTranslator)
@@ -21,6 +27,9 @@ pub async fn up(engine: &Database) -> Result<(), ofdb_sql::QueryError> {
     Ok(())
 }
 
+/// # Errors
+///
+/// Returns an error when a required Device table or history operation is unsupported.
 pub async fn validate_device(client: &ofdb_sql::Client) -> Result<(), ofdb_sql::QueryError> {
     for (table, columns) in [
         (
@@ -68,7 +77,7 @@ pub async fn validate_device(client: &ofdb_sql::Client) -> Result<(), ofdb_sql::
     }
     let key = ofdb_sql::Row::new(vec![ofdb_sql::Value::Uuid(ofdb_sql::Uuid::nil())]);
     client
-        .row_conflicts_batch("devices", core::slice::from_ref(&key))
+        .row_conflicts_batch("devices", slice::from_ref(&key))
         .await?;
     let policy_key = ofdb_sql::Row::new(vec![ofdb_sql::Value::Text(
         ofdb_sql::Uuid::nil().to_string(),

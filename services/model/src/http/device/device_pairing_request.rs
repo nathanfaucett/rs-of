@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP Device API
@@ -11,7 +12,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevicePairingRequest {
     #[serde(rename = "acceptingPublicKey")]
     pub accepting_public_key: String,
@@ -24,13 +25,14 @@ pub struct DevicePairingRequest {
 }
 
 impl DevicePairingRequest {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         accepting_public_key: String,
         address: String,
         name: String,
         public_key: String,
-    ) -> DevicePairingRequest {
-        DevicePairingRequest {
+    ) -> Self {
+        Self {
             accepting_public_key,
             address,
             name,

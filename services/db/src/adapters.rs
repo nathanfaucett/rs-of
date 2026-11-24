@@ -1,3 +1,4 @@
+use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -10,6 +11,8 @@ use thiserror::Error;
 
 use crate::local::open_private_storage;
 use crate::ofdb::up;
+#[cfg(feature = "remote")]
+use crate::remote::RemoteDatabaseConfig;
 
 /// Error type for adapter operations.
 #[derive(Debug, Error)]
@@ -33,7 +36,7 @@ impl AdapterError {
 }
 
 /// File-backed embedded database (redb).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EmbeddedDatabase {
     pub database: SqlDatabase,
     pub storage: SharedDatabase,
@@ -41,12 +44,20 @@ pub struct EmbeddedDatabase {
 
 impl EmbeddedDatabase {
     /// Opens `<data_dir>/unified.redb` and initializes all owner tables.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AdapterError` if directory creation, database opening, or migration fails.
     pub async fn open(data_dir: impl AsRef<Path>) -> Result<Self, AdapterError> {
-        std::fs::create_dir_all(data_dir.as_ref())?;
+        fs::create_dir_all(data_dir.as_ref())?;
         Self::open_file(data_dir.as_ref().join("unified.redb")).await
     }
 
     /// Opens a specific database file and initializes all owner tables.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AdapterError` if storage validation, database opening, or migration fails.
     pub async fn open_file(path: impl AsRef<Path>) -> Result<Self, AdapterError> {
         let storage = open_private_storage(path.as_ref())?;
         let database = Self {
@@ -71,7 +82,7 @@ impl EmbeddedDatabase {
 }
 
 /// In-memory database (redb in-memory).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MemoryDatabase {
     database: SqlDatabase,
     storage: SharedDatabase,
@@ -79,6 +90,10 @@ pub struct MemoryDatabase {
 
 impl MemoryDatabase {
     /// Creates a new in-memory database and initializes all owner tables.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AdapterError` if storage, database, or schema initialization fails.
     pub async fn new() -> Result<Self, AdapterError> {
         let storage = SharedDatabase::in_memory()?;
         let database = Self {
@@ -110,7 +125,7 @@ impl MemoryDatabase {
 
 /// Remote ofdb SQL service database (network transport).
 #[cfg(feature = "remote")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RemoteDatabase {
     client: Client,
 }
@@ -118,13 +133,15 @@ pub struct RemoteDatabase {
 #[cfg(feature = "remote")]
 impl RemoteDatabase {
     /// Connects to the existing ofdb SQL service and initializes the shared schema.
-    pub async fn connect(
-        config: &crate::remote::RemoteDatabaseConfig,
-    ) -> Result<Self, AdapterError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns `AdapterError` if validation, certificate loading, connection, or migration fails.
+    pub async fn connect(config: &RemoteDatabaseConfig) -> Result<Self, AdapterError> {
         let client = config.connect().await.map_err(|error| {
             let kind = match error.kind() {
-                std::io::ErrorKind::InvalidInput => QueryErrorKind::Validation,
-                std::io::ErrorKind::TimedOut => QueryErrorKind::Timeout,
+                io::ErrorKind::InvalidInput => QueryErrorKind::Validation,
+                io::ErrorKind::TimedOut => QueryErrorKind::Timeout,
                 _ => QueryErrorKind::Transport,
             };
             AdapterError::sql_error(kind, error.to_string())
@@ -143,7 +160,7 @@ impl RemoteDatabase {
 
 /// PostgreSQL network database.
 #[cfg(feature = "postgres")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NetworkDatabase {
     client: Client,
 }
@@ -151,7 +168,12 @@ pub struct NetworkDatabase {
 #[cfg(feature = "postgres")]
 impl NetworkDatabase {
     /// Connects to PostgreSQL and initializes all owner tables.
+    ///
     /// Requires explicit `sslmode=disable`; use a Unix socket or trusted TLS tunnel.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AdapterError` if the connection or schema migration fails.
     pub async fn connect(config: &str) -> Result<Self, AdapterError> {
         let client = Client::connect_postgres(config).await?;
         let database = Self { client };
@@ -160,6 +182,7 @@ impl NetworkDatabase {
     }
 
     /// Returns the SQL client for query access.
+    #[must_use]
     pub fn client(&self) -> Client {
         self.client.clone()
     }

@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP Management API
@@ -11,14 +12,15 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HealthStatusOneOf {
     #[serde(rename = "unhealthy")]
     pub unhealthy: String,
 }
 
 impl HealthStatusOneOf {
-    pub fn new(unhealthy: String) -> HealthStatusOneOf {
-        HealthStatusOneOf { unhealthy }
+    #[must_use]
+    pub const fn new(unhealthy: String) -> Self {
+        Self { unhealthy }
     }
 }

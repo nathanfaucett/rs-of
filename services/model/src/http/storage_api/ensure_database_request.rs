@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * Storage Server
@@ -11,7 +12,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EnsureDatabaseRequest {
     /// Case-sensitive application-chosen identity; 1–128 UTF-8 bytes.
@@ -27,8 +28,9 @@ pub struct EnsureDatabaseRequest {
 }
 
 impl EnsureDatabaseRequest {
-    pub fn new(creation_key: String) -> EnsureDatabaseRequest {
-        EnsureDatabaseRequest {
+    #[must_use]
+    pub const fn new(creation_key: String) -> Self {
+        Self {
             creation_key,
             name: None,
         }

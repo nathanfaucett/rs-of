@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 /*
  * Storage Server
@@ -19,7 +20,8 @@ pub struct SqlResponse {
 }
 
 impl SqlResponse {
-    pub fn new(results: Vec<models::SqlResult>) -> SqlResponse {
-        SqlResponse { results }
+    #[must_use]
+    pub const fn new(results: Vec<models::SqlResult>) -> Self {
+        Self { results }
     }
 }

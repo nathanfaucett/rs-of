@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::ToString;
 
 use bip32::DerivationPath;
@@ -9,18 +10,30 @@ use key::master_key::MasterKey;
 use super::error::{RepoError, RepoResult};
 
 pub trait PrivateKeyRepo {
+    /// # Errors
+    /// Returns [`RepoError`] if private key material cannot be loaded.
     fn load(
         &self,
         namespace: &str,
         derivation_path: &DerivationPath,
     ) -> RepoResult<Option<DerivedKey>>;
+
+    /// # Errors
+    /// Returns [`RepoError`] if private key material cannot be stored.
     fn store(&self, namespace: &str, derived_key: &DerivedKey) -> RepoResult<()>;
+
+    /// # Errors
+    /// Returns [`RepoError`] if private key material cannot be deleted.
     fn delete(&self, namespace: &str, derivation_path: &DerivationPath) -> RepoResult<()>;
 
+    /// # Errors
+    /// Returns [`RepoError`] if the master key cannot be loaded or created.
     fn ensure_master_key(&self, namespace: &str) -> RepoResult<DerivedKey> {
         self.ensure_master_key_with_passphrase(namespace, "")
     }
 
+    /// # Errors
+    /// Returns [`RepoError`] if the master key cannot be loaded, derived, or stored.
     fn ensure_master_key_with_passphrase(
         &self,
         namespace: &str,
@@ -42,6 +55,9 @@ pub trait PrivateKeyRepo {
     /// if it does not, it checks the parent, once it finds a key in the parent chain
     /// it will try to derive the parent keys in the chain until it creates the key
     /// for the given derivation path
+    ///
+    /// # Errors
+    /// Returns [`RepoError`] if derivation or private key persistence fails.
     fn ensure_derivation_path(
         &self,
         namespace: &str,

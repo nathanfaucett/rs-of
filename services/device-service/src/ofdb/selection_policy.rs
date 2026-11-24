@@ -1,3 +1,5 @@
+use core::fmt;
+
 use of_model::device::contract::device_state::DeviceState;
 use of_model::device::selection_policy::ResourceSelection;
 pub use of_model::device::selection_policy::{
@@ -42,7 +44,15 @@ pub struct DbSelectionPolicyRepo {
     engine: Client,
 }
 
+impl fmt::Debug for DbSelectionPolicyRepo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbSelectionPolicyRepo")
+            .finish_non_exhaustive()
+    }
+}
+
 impl DbSelectionPolicyRepo {
+    #[must_use]
     pub const fn new(engine: Client) -> Self {
         Self { engine }
     }
@@ -97,6 +107,10 @@ impl DbSelectionPolicyRepo {
         Ok(())
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "rollback consumes the transaction and releases its resources"
+    )]
     async fn resource_selected(
         &self,
         device_id: Uuid,
@@ -284,6 +298,9 @@ impl DbSelectionPolicyRepo {
         Ok(rows.into_iter().next())
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when stored Selection state is invalid or a database operation fails.
     pub async fn selected_resources_for_device(
         &self,
         device_id: Uuid,
@@ -324,6 +341,9 @@ impl DbSelectionPolicyRepo {
         Ok(selected)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when Device or Selection state cannot be read or is invalid.
     pub async fn peers_selected_for_sync(
         &self,
         devices: &DbDeviceRepo,
@@ -368,8 +388,12 @@ impl DbSelectionPolicyRepo {
         Ok(true)
     }
 
-    /// The caller supplies current trusted IdP ownership, never a peer claim.
+    /// The caller supplies current trusted `IdP` ownership, never a peer claim.
     /// An owner change remains gated until the local host records public owner cleanup completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the current owner snapshot cannot be read or is invalid.
     pub async fn reconcile_owner_prevalidated(
         &self,
         device_id: Uuid,
@@ -378,12 +402,24 @@ impl DbSelectionPolicyRepo {
         Ok(!matches!(
             self.observe_owner_prevalidated(device_id, owner_subject)
                 .await?,
-            of_model::device::selection_policy::OwnerPolicyObservation::PendingCleanup { .. }
+            OwnerPolicyObservation::PendingCleanup { .. }
         ))
     }
 
     /// Observes current policy, selections and the local retirement fence in one snapshot.
     /// The caller supplies trusted current ownership and revalidates it before publication.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the snapshot is conflicted, invalid, or cannot be read.
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases its resources"
+    )]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "keep the owner transition and retirement fence in one auditable transaction"
+    )]
     pub async fn observe_owner_prevalidated(
         &self,
         device_id: Uuid,
@@ -429,7 +465,7 @@ impl DbSelectionPolicyRepo {
             if pending {
                 return Err(invalid("cleanup policy missing"));
             }
-            return Ok(of_model::device::selection_policy::OwnerPolicyObservation::MissingPolicy);
+            return Ok(OwnerPolicyObservation::MissingPolicy);
         };
         if policy.device_id != device_id
             || policy.owner_subject.trim().is_empty()
@@ -500,12 +536,7 @@ impl DbSelectionPolicyRepo {
                     });
                 }
             }
-            return Ok(
-                of_model::device::selection_policy::OwnerPolicyObservation::Ready {
-                    policy,
-                    resources,
-                },
-            );
+            return Ok(OwnerPolicyObservation::Ready { policy, resources });
         }
         let cleanup_id = if pending {
             let value = retained
@@ -571,14 +602,15 @@ impl DbSelectionPolicyRepo {
             .map_err(db_error)?;
         Self::deny_resources(&mut transaction, "device_id", device_id).await?;
         transaction.commit().await.map_err(db_error)?;
-        Ok(
-            of_model::device::selection_policy::OwnerPolicyObservation::PendingCleanup {
-                cleanup_id,
-                old_owner_subject: policy.owner_subject,
-            },
-        )
+        Ok(OwnerPolicyObservation::PendingCleanup {
+            cleanup_id,
+            old_owner_subject: policy.owner_subject,
+        })
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the local cleanup state cannot be read.
     pub async fn local_cleanup_pending(&self, device_id: Uuid) -> DeviceResult<bool> {
         Ok(self
             .engine
@@ -589,6 +621,9 @@ impl DbSelectionPolicyRepo {
             .any(|result| !result.rows.is_empty()))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the cleanup state is conflicted, invalid, or cannot be read.
     pub async fn pending_cleanup_id(&self, device_id: Uuid) -> DeviceResult<Option<Uuid>> {
         if !self
             .engine
@@ -624,6 +659,10 @@ impl DbSelectionPolicyRepo {
     }
 
     /// Trusted local host or authenticated Storage service uses this retirement intent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the cleanup state or its Selection policy is invalid or unavailable.
     pub async fn pending_cleanup_owner(&self, device_id: Uuid) -> DeviceResult<Option<String>> {
         if !self.local_cleanup_pending(device_id).await? {
             return Ok(None);
@@ -636,7 +675,11 @@ impl DbSelectionPolicyRepo {
         ))
     }
 
-    /// Caller must finish both public Storage owner cleanups and revalidate current IdP ownership.
+    /// Caller must finish both public Storage owner cleanups and revalidate current `IdP` ownership.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when owner cleanup cannot be completed or stored state is invalid.
     pub async fn complete_owner_cleanup_prevalidated(
         &self,
         device_id: Uuid,
@@ -648,6 +691,10 @@ impl DbSelectionPolicyRepo {
     }
 
     /// Storage acknowledges retirement only for this current Management endpoint/owner binding.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the bound cleanup cannot be completed or stored state is invalid.
     pub async fn complete_owner_cleanup_bound(
         &self,
         device_id: Uuid,
@@ -668,6 +715,14 @@ impl DbSelectionPolicyRepo {
         .await
     }
 
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases its resources"
+    )]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "keep endpoint binding, Selection denial, and cleanup completion in one transaction"
+    )]
     async fn complete_owner_cleanup(
         &self,
         device_id: Uuid,
@@ -821,6 +876,9 @@ impl DbSelectionPolicyRepo {
         Ok(true)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the Selection policy is conflicted, invalid, or cannot be read.
     pub async fn get(
         &self,
         device_id: Uuid,
@@ -841,15 +899,20 @@ impl DbSelectionPolicyRepo {
         Ok(policy)
     }
 
-    // Caller must validate device ownership, authorization, and resource catalog membership.
+    /// Caller must validate Device ownership, authorization, and Resource catalog membership.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the policy is invalid or the transactional update fails.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "keep policy and Resource Selection updates in one auditable transaction"
+    )]
     pub async fn set_prevalidated(&self, policy: SelectionPolicy) -> DeviceResult<()> {
         if policy.owner_subject.trim().is_empty()
             || policy.application_id.is_some() != policy.selected_kind.is_some()
             || policy.selected_kind.is_some() != policy.selected_id.is_some()
-            || policy
-                .selected_kind
-                .as_ref()
-                .is_some_and(|kind| kind.is_empty())
+            || policy.selected_kind.as_ref().is_some_and(String::is_empty)
         {
             return Err(invalid("invalid selection policy"));
         }
@@ -953,7 +1016,11 @@ impl DbSelectionPolicyRepo {
         transaction.commit().await.map_err(db_error)
     }
 
-    // Caller must validate permission to change the admin restriction.
+    /// Caller must validate permission to change the admin restriction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Selection policy cannot be read or updated.
     pub async fn set_admin_allowed_prevalidated(
         &self,
         device_id: Uuid,
@@ -994,6 +1061,13 @@ impl DbSelectionPolicyRepo {
         Ok(true)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the Resource Selection cannot be validated or denied.
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases its resources"
+    )]
     pub async fn deselect_resource_owned(
         &self,
         device_id: Uuid,
@@ -1033,6 +1107,13 @@ impl DbSelectionPolicyRepo {
         Ok(true)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the owned Selection state cannot be validated or updated.
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases its resources"
+    )]
     pub async fn deselect_owned(&self, device_id: Uuid, owner_subject: &str) -> DeviceResult<bool> {
         let conflicts = self
             .engine
@@ -1071,9 +1152,9 @@ impl DbSelectionPolicyRepo {
         }
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         let update = async {
-            if !Self::policy_in(&mut transaction, device_id)
+            if Self::policy_in(&mut transaction, device_id)
                 .await?
-                .is_some_and(|policy| policy.owner_subject == owner_subject)
+                .is_none_or(|policy| policy.owner_subject != owner_subject)
             {
                 return Ok(false);
             }
@@ -1114,6 +1195,10 @@ fn invalid(message: impl Into<String>) -> DeviceError {
     DeviceError::InvalidInput(message.into())
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies an owned QueryError to this adapter"
+)]
 fn db_error(error: ofdb_sql::QueryError) -> DeviceError {
     invalid(error.to_string())
 }
@@ -2889,7 +2974,7 @@ fn cleanup_query(device_id: Uuid, pending_only: bool) -> Query {
             joins: vec![],
         },
         projection: vec![
-            column.clone(),
+            column,
             QueryColumn::new(table.into(), "cleanup_id".into()),
             QueryColumn::new(table.into(), "completed".into()),
         ],

@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
+
 use crate::id::Id as Uuid;
 
 #[cfg(feature = "ofdb")]

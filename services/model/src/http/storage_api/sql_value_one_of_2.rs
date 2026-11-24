@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * Storage Server
@@ -11,7 +12,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SqlValueOneOf2 {
     #[serde(rename = "type")]
     pub r#type: Type,
@@ -20,19 +21,16 @@ pub struct SqlValueOneOf2 {
 }
 
 impl SqlValueOneOf2 {
-    pub fn new(r#type: Type, value: String) -> SqlValueOneOf2 {
-        SqlValueOneOf2 { r#type, value }
+    #[must_use]
+    pub const fn new(r#type: Type, value: String) -> Self {
+        Self { r#type, value }
     }
 }
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Type {
     #[serde(rename = "integer")]
+    #[default]
     Integer,
-}
-
-impl Default for Type {
-    fn default() -> Type {
-        Self::Integer
-    }
 }

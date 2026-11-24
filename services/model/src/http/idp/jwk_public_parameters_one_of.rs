@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP IdP API
@@ -11,7 +12,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JwkPublicParametersOneOf {
     #[serde(rename = "e")]
     pub e: String,
@@ -22,19 +23,16 @@ pub struct JwkPublicParametersOneOf {
 }
 
 impl JwkPublicParametersOneOf {
-    pub fn new(e: String, kty: Kty, n: String) -> JwkPublicParametersOneOf {
-        JwkPublicParametersOneOf { e, kty, n }
+    #[must_use]
+    pub const fn new(e: String, kty: Kty, n: String) -> Self {
+        Self { e, kty, n }
     }
 }
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Kty {
     #[serde(rename = "Rsa")]
+    #[default]
     Rsa,
-}
-
-impl Default for Kty {
-    fn default() -> Kty {
-        Self::Rsa
-    }
 }

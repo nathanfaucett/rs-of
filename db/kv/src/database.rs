@@ -76,21 +76,21 @@ impl Database {
         let result = match &self.storage {
             Storage::Redb(resource) => resource.retire_and_remove().await,
             #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
-            Storage::IndexedDb(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
+            Storage::IndexedDb(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
                 "not a native resource",
             )),
             #[cfg(feature = "in-memory")]
-            Storage::Memory(_) => Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
+            Storage::Memory(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
                 "not a native resource",
             )),
         };
         #[cfg(feature = "sync")]
-        if result.is_ok() {
-            if let Some(signal) = &self.changes {
-                signal.close();
-            }
+        if result.is_ok()
+            && let Some(signal) = &self.changes
+        {
+            signal.close();
         }
         result
     }

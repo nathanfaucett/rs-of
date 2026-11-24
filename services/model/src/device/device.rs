@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+
 use chrono::{DateTime, Utc};
 
 use crate::id::Id;
@@ -22,17 +25,6 @@ pub struct Device {
     pub revoked_at: Option<DateTime<Utc>>,
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::device::device::Device;
-
-    #[test]
-    fn legacy_device_without_owner_is_rejected() {
-        let device = r#"{"id":"00000000-0000-0000-0000-000000000001","name":"device","public_key":"key","address":"address","state":1,"created_at":1,"updated_at":1,"revoked_at":null}"#;
-        assert!(serde_json::from_str::<Device>(device).is_err());
-    }
-}
-
 impl From<Device> for DeviceInfo {
     fn from(device: Device) -> Self {
         Self {
@@ -45,5 +37,16 @@ impl From<Device> for DeviceInfo {
             updated_at: device.updated_at.timestamp(),
             revoked_at: device.revoked_at.map(|time| time.timestamp()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::device::device::Device;
+
+    #[test]
+    fn legacy_device_without_owner_is_rejected() {
+        let device = r#"{"id":"00000000-0000-0000-0000-000000000001","name":"device","public_key":"key","address":"address","state":1,"created_at":1,"updated_at":1,"revoked_at":null}"#;
+        serde_json::from_str::<Device>(device).expect_err("owner_subject is required");
     }
 }

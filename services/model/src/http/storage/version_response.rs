@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
 /*
  * Storage Server
  *
@@ -14,6 +16,8 @@ use serde::{Deserialize, Serialize};
 pub struct VersionResponse {
     #[serde(rename = "build")]
     pub build: String,
+    #[serde(rename = "features", skip_serializing_if = "Option::is_none")]
+    pub features: Option<Vec<String>>,
     #[serde(rename = "name")]
     pub name: String,
     #[serde(rename = "version")]
@@ -25,6 +29,7 @@ impl VersionResponse {
     pub const fn new(build: String, name: String, version: String) -> Self {
         Self {
             build,
+            features: None,
             name,
             version,
         }

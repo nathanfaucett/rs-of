@@ -1,4 +1,10 @@
+#[cfg(feature = "std")]
+use std::env;
+
 use core::net::{IpAddr, Ipv4Addr};
+
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
@@ -27,22 +33,19 @@ impl Default for ServerConfig {
 impl ServerConfig {
     #[must_use]
     pub fn prefix(&self) -> &str {
-        if let Some(prefix) = self.prefix.as_ref() {
-            prefix
-        } else {
-            ""
-        }
-        .trim_end_matches('/')
+        self.prefix.as_deref().unwrap_or("").trim_end_matches('/')
     }
 }
 
+#[cfg(feature = "std")]
 fn default_port() -> u16 {
-    #[cfg(feature = "std")]
-    if let Some(port) = std::env::var("PORT")
+    env::var("PORT")
         .ok()
         .and_then(|port| port.parse().ok())
-    {
-        return port;
-    }
+        .unwrap_or(3000)
+}
+
+#[cfg(not(feature = "std"))]
+const fn default_port() -> u16 {
     3000
 }

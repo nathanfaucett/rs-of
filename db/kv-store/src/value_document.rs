@@ -1,14 +1,81 @@
+use std::collections::BTreeMap;
+
 use automerge::{
-    AutoCommit, ROOT, ReadDoc, ScalarValue, Value as AmValue, transaction::Transactable,
+    AutoCommit, ObjId, ROOT, ReadDoc, ScalarValue, Value as AmValue, transaction::Transactable,
 };
+use autosurgeon::{Hydrate, HydrateError};
 use btree::BTreeError;
-use value::Value;
+use value::{JsonValue, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValueState {
     pub value: Option<Value>,
     pub expires_at: Option<i64>,
     pub tombstone: bool,
+}
+
+struct DocumentValue(Value);
+
+impl Hydrate for DocumentValue {
+    fn hydrate_string(value: &str) -> Result<Self, HydrateError> {
+        Value::hydrate_string(value).map(Self)
+    }
+
+    fn hydrate_map<D: autosurgeon::ReadDoc>(
+        document: &D,
+        object: &ObjId,
+    ) -> Result<Self, HydrateError> {
+        // Preserve derived Value variant priority when conflicts retain several tags.
+        for variant in ["Type", "Uuid", "Bool", "Integer", "Float", "Text"] {
+            if document.get(object, variant)?.is_some() {
+                return Value::hydrate_map(document, object).map(Self);
+            }
+        }
+        if document.get(object, "Json")?.is_some() {
+            let DocumentJson(value) = autosurgeon::hydrate_prop(document, object, "Json")?;
+            return Ok(Self(Value::Json(value)));
+        }
+        Value::hydrate_map(document, object).map(Self)
+    }
+}
+
+// JsonValue reconciliation uses internal tags, unlike its derived hydrator.
+struct DocumentJson(JsonValue);
+
+impl Hydrate for DocumentJson {
+    fn hydrate_map<D: autosurgeon::ReadDoc>(
+        document: &D,
+        object: &ObjId,
+    ) -> Result<Self, HydrateError> {
+        let kind: String = autosurgeon::hydrate_prop(document, object, "type")?;
+        let value = match kind.as_str() {
+            "null" => JsonValue::Null,
+            "bool" => JsonValue::Bool(autosurgeon::hydrate_prop(document, object, "value")?),
+            "number" => JsonValue::Number(autosurgeon::hydrate_prop(document, object, "value")?),
+            "string" => JsonValue::String(autosurgeon::hydrate_prop(document, object, "value")?),
+            "array" => {
+                let values: Vec<Self> = autosurgeon::hydrate_prop(document, object, "value")?;
+                JsonValue::Array(values.into_iter().map(|value| value.0).collect())
+            }
+            "object" => {
+                let values: BTreeMap<String, Self> =
+                    autosurgeon::hydrate_prop(document, object, "value")?;
+                JsonValue::Object(
+                    values
+                        .into_iter()
+                        .map(|(key, value)| (key, value.0))
+                        .collect(),
+                )
+            }
+            _ => {
+                return Err(HydrateError::unexpected(
+                    "one of (null, bool, number, string, array, object)",
+                    kind,
+                ));
+            }
+        };
+        Ok(Self(value))
+    }
 }
 
 pub fn new_document(value: Value, expires_at: Option<i64>) -> Result<AutoCommit, BTreeError> {
@@ -74,7 +141,7 @@ pub fn read_document(document: &AutoCommit) -> Result<ValueState, BTreeError> {
     {
         return Err(BTreeError::InvalidDocument);
     }
-    let value = autosurgeon::hydrate_prop(document, ROOT, "value")
+    let DocumentValue(value) = autosurgeon::hydrate_prop(document, ROOT, "value")
         .map_err(|_| BTreeError::InvalidDocument)?;
     Ok(ValueState {
         value: Some(value),
@@ -145,7 +212,14 @@ mod tests {
             Value::Bool(true),
             Value::Blob(vec![0, 255]),
             Value::Uuid(uuid::Uuid::nil()),
-            Value::Json(JsonValue::Array(vec![JsonValue::Null])),
+            Value::Json(JsonValue::Array(vec![
+                JsonValue::Null,
+                JsonValue::Bool(true),
+                1_i64.into(),
+                "text".into(),
+                JsonValue::Array(vec![JsonValue::Null]),
+                JsonValue::Object([("nested".into(), JsonValue::Null)].into()),
+            ])),
         ] {
             let document = new_document(value.clone(), Some(0)).expect("create value document");
             let state = read_document(&document).expect("hydrate property");

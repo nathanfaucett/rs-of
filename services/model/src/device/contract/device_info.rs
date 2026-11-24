@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+
 use serde::{Deserialize, Serialize};
 
 use crate::id::Id;

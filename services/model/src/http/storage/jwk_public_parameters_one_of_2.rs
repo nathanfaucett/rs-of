@@ -1,3 +1,5 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 /*
  * Storage Server
  *
@@ -26,7 +28,6 @@ impl JwkPublicParametersOneOf2 {
         Self { crv, kty, x }
     }
 }
-///
 #[derive(
     Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
 )]

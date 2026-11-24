@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP Device API
  *
@@ -10,26 +11,22 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum SelectionKind {
     #[serde(rename = "database")]
+    #[default]
     Database,
     #[serde(rename = "filesystem")]
     Filesystem,
 }
 
-impl core::fmt::Display for SelectionKind {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for SelectionKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Database => write!(f, "database"),
             Self::Filesystem => write!(f, "filesystem"),
         }
-    }
-}
-
-impl Default for SelectionKind {
-    fn default() -> SelectionKind {
-        Self::Database
     }
 }

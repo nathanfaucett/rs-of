@@ -1,13 +1,5 @@
 use core::fmt;
 
-#[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
-
 use serde::{Deserialize, Serialize};
 
 /// Client token endpoint authentication methods (RFC 7591 / OIDC).

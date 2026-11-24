@@ -10,14 +10,15 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IsAllowedForUserResponse {
     #[serde(rename = "allowed")]
     pub allowed: bool,
 }
 
 impl IsAllowedForUserResponse {
-    pub fn new(allowed: bool) -> IsAllowedForUserResponse {
-        IsAllowedForUserResponse { allowed }
+    #[must_use]
+    pub const fn new(allowed: bool) -> Self {
+        Self { allowed }
     }
 }

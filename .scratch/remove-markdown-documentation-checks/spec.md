@@ -83,3 +83,7 @@ Do not repeat the already completed repository tracker setup. Do not alter unrel
 The repository portion of tracker setup was already completed and committed. This specification covers only the residual global setup-skill improvement and the complete removal of Markdown documentation checks.
 
 The requested removal includes tracked specifications and tickets. Leaving acceptance criteria that reference the deleted facility would make those tickets internally inconsistent even after all executable entry points were removed.
+
+## Comments
+
+2026-11-24: Both issues remain resolved with all acceptance boxes checked. Command discovery, package formatting, tracked-file search, Git tracker visibility, and whitespace checks passed. The global representative setup scenario was not rerun.

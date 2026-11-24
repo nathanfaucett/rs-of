@@ -17,7 +17,7 @@ name = "sync"
 [features]
 default = ["std"]
 std = ["dep:tokio", "futures/std", "btree/std", "btree/changes"]
-iroh = ["dep:iroh", "std"]
+iroh = ["dep:iroh", "std", "tokio/sync"]
 wasm = [
     "futures/std",
     "btree/std",

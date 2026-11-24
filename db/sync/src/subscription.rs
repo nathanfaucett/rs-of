@@ -8,9 +8,9 @@ use crate::{
     transport::SyncTransport,
 };
 
-#[cfg(all(feature = "std", not(feature = "wasm")))]
+#[cfg(all(feature = "std", not(all(feature = "wasm", target_arch = "wasm32"))))]
 use crate::sync::push_synchronize;
-#[cfg(all(feature = "std", feature = "wasm"))]
+#[cfg(all(feature = "std", feature = "wasm", target_arch = "wasm32"))]
 use crate::wasm_sync::push_synchronize;
 
 #[inline(never)]
@@ -64,7 +64,7 @@ impl ChangeSubscription {
     /// # Errors
     ///
     /// Returns an error when transport, protocol, or inbound apply processing fails.
-    #[cfg(all(feature = "std", not(feature = "wasm")))]
+    #[cfg(all(feature = "std", not(all(feature = "wasm", target_arch = "wasm32"))))]
     pub async fn push_synchronize<T, F, Fut>(
         mut self,
         transport: T,
@@ -84,7 +84,7 @@ impl ChangeSubscription {
     /// # Errors
     ///
     /// Returns an error when transport, protocol, or inbound apply processing fails.
-    #[cfg(all(feature = "std", feature = "wasm"))]
+    #[cfg(all(feature = "std", feature = "wasm", target_arch = "wasm32"))]
     pub async fn push_synchronize<T, F, Fut>(
         mut self,
         transport: T,

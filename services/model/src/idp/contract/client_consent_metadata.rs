@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
+
 use serde::{Deserialize, Serialize};
 
 use crate::idp::contract::application_registration::ApplicationRegistration;

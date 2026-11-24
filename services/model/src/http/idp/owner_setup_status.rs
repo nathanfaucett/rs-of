@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 /*
  * LIDP IdP API
@@ -11,7 +12,7 @@ use alloc::{string::String, vec::Vec};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnerSetupStatus {
     #[serde(rename = "owners")]
     pub owners: Vec<String>,
@@ -24,8 +25,9 @@ pub struct OwnerSetupStatus {
 }
 
 impl OwnerSetupStatus {
-    pub fn new(owners: Vec<String>, ready: bool, stage: String, state: String) -> OwnerSetupStatus {
-        OwnerSetupStatus {
+    #[must_use]
+    pub const fn new(owners: Vec<String>, ready: bool, stage: String, state: String) -> Self {
+        Self {
             owners,
             ready,
             stage,

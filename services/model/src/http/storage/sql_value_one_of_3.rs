@@ -24,7 +24,6 @@ impl SqlValueOneOf3 {
         Self { r#type, value }
     }
 }
-///
 #[derive(
     Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
 )]

@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP Device API
@@ -12,7 +13,7 @@ use alloc::string::String;
 use crate::http::device as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceInfo {
     #[serde(rename = "address")]
     pub address: String,
@@ -38,7 +39,8 @@ pub struct DeviceInfo {
 }
 
 impl DeviceInfo {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         address: String,
         created_at: i64,
         id: String,
@@ -46,8 +48,8 @@ impl DeviceInfo {
         public_key: String,
         state: models::DeviceState,
         updated_at: i64,
-    ) -> DeviceInfo {
-        DeviceInfo {
+    ) -> Self {
+        Self {
             address,
             created_at,
             id,

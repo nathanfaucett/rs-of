@@ -50,6 +50,7 @@ const PERMISSION_COLUMNS: [&str; 6] = [
 const ROLE_PERMISSION_COLUMNS: [&str; 4] = ["id", "role_id", "permission_id", "revoked_at"];
 const USER_ROLE_COLUMNS: [&str; 5] = ["id", "user_id", "application_id", "role_id", "revoked_at"];
 
+#[derive(Debug)]
 pub struct DbRoleRepo {
     engine: ofdb_sql::Client,
 }
@@ -159,7 +160,7 @@ impl DbRoleRepo {
                     && row.revoked_at.is_none()
                     && application_id.is_none_or(|id| row.application_id == id)
                     && available_roles.iter().any(|role| {
-                        role.id == row.role_id && role.application_id == row.application_id
+                        (role.id, role.application_id) == (row.role_id, row.application_id)
                     })
             })
             .collect::<Vec<_>>();
@@ -175,7 +176,7 @@ impl DbRoleRepo {
             .filter(|role| {
                 assignments
                     .iter()
-                    .any(|row| row.role_id == role.id && row.application_id == role.application_id)
+                    .any(|row| (row.role_id, row.application_id) == (role.id, role.application_id))
             })
             .collect::<Vec<_>>();
         self.ensure_clear(
@@ -551,10 +552,18 @@ fn now() -> DateTime<Utc> {
         .expect("zero nanoseconds is valid")
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies owned query errors"
+)]
 fn db_error(error: ofdb_sql::QueryError) -> ManagementError {
     ManagementError::InvalidInput(error.to_string())
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies owned row decoding errors"
+)]
 fn row_error(error: FromRowError) -> ManagementError {
     ManagementError::InvalidInput(error.to_string())
 }

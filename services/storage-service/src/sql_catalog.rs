@@ -6,6 +6,10 @@ use ofdb_sql::{Client, QueryParams, Transaction, Value, decode};
 use super::{Catalog, CatalogRecord};
 use crate::persistence::{error, run};
 
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "Transaction::commit consumes and drops the transaction"
+)]
 pub fn edit<R: Send>(
     client: &Client,
     owner: &str,

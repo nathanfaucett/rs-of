@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 /*
  * LIDP IdP API
@@ -11,7 +12,7 @@ use alloc::{string::String, vec::Vec};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserInfo {
     #[serde(
         rename = "birthdate",
@@ -150,8 +151,9 @@ pub struct UserInfo {
 }
 
 impl UserInfo {
-    pub fn new(sub: String, updated_at: String) -> UserInfo {
-        UserInfo {
+    #[must_use]
+    pub const fn new(sub: String, updated_at: String) -> Self {
+        Self {
             birthdate: None,
             blocked: None,
             email: None,

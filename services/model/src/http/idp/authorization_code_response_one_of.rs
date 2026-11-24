@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP IdP API
@@ -11,7 +12,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorizationCodeResponseOneOf {
     #[serde(rename = "code")]
     pub code: String,
@@ -32,8 +33,9 @@ pub struct AuthorizationCodeResponseOneOf {
 }
 
 impl AuthorizationCodeResponseOneOf {
-    pub fn new(code: String) -> AuthorizationCodeResponseOneOf {
-        AuthorizationCodeResponseOneOf {
+    #[must_use]
+    pub const fn new(code: String) -> Self {
+        Self {
             code,
             iss: None,
             state: None,

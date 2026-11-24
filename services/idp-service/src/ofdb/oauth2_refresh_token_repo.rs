@@ -1,3 +1,5 @@
+use core::fmt::{self, Display};
+
 use super::insert::generated_id;
 use crate::repo::{OAuth2RefreshToken, OAuth2RefreshTokenRepo, RepoError, RepoResult};
 use db::ofdb::validators::SecurityRow;
@@ -22,6 +24,13 @@ const TABLE: &str = "oauth2_refresh_tokens";
 
 pub struct DbOAuth2RefreshTokenRepo {
     engine: ofdb_sql::Client,
+}
+
+impl fmt::Debug for DbOAuth2RefreshTokenRepo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbOAuth2RefreshTokenRepo")
+            .finish_non_exhaustive()
+    }
 }
 
 impl DbOAuth2RefreshTokenRepo {
@@ -54,13 +63,17 @@ fn token_hash(token: &str) -> String {
 fn invalid_grant() -> RepoError {
     RepoError::InvalidInput("refresh token is expired, revoked, consumed, or not found".into())
 }
-fn db_error(error: ofdb_sql::QueryError) -> RepoError {
+fn db_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 fn json_error(error: serde_json::Error) -> RepoError {
     RepoError::Other(Box::new(error))
 }
 impl OAuth2RefreshTokenRepo for DbOAuth2RefreshTokenRepo {
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction and releases it immediately"
+    )]
     async fn issue_refresh_token(
         &self,
         token: OAuth2RefreshToken,

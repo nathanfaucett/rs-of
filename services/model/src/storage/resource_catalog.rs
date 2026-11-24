@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+
 use crate::storage::namespace::StorageNamespace;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,5 +20,5 @@ pub trait ResourceCatalog {
         &self,
         namespace: &dyn StorageNamespace,
         resource: &ResourceIdentity,
-    ) -> impl core::future::Future<Output = Result<bool, String>>;
+    ) -> impl Future<Output = Result<bool, String>>;
 }

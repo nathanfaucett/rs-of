@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * Storage Server
  *
@@ -10,7 +11,6 @@
 
 use serde::{Deserialize, Serialize};
 
-///
 #[derive(
     Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
 )]
@@ -22,8 +22,8 @@ pub enum KeyUse {
     Enc,
 }
 
-impl core::fmt::Display for KeyUse {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for KeyUse {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Sig => write!(f, "sig"),
             Self::Enc => write!(f, "enc"),

@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP IdP API
@@ -11,7 +12,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplicationRegistration {
     #[serde(
         rename = "description",
@@ -32,8 +33,9 @@ pub struct ApplicationRegistration {
 }
 
 impl ApplicationRegistration {
-    pub fn new(uri: String) -> ApplicationRegistration {
-        ApplicationRegistration {
+    #[must_use]
+    pub const fn new(uri: String) -> Self {
+        Self {
             description: None,
             name: None,
             uri,

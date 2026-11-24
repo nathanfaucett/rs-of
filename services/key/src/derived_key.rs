@@ -39,6 +39,11 @@ impl DerivedKey {
         &self.key
     }
 
+    /// Parses an extended private key at `derivation_path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyError::Bip32` if `xprv` is invalid.
     pub fn from_xprv<S>(xprv: S, derivation_path: DerivationPath) -> KeyResult<Self>
     where
         S: AsRef<str>,
@@ -54,7 +59,11 @@ impl DerivedKey {
         self.key.to_string(Prefix::XPRV)
     }
 
-    /// Returns the x, y
+    /// Returns the public key's x and y coordinates.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyError::Other` if the encoded public key has no x or y coordinate.
     pub fn to_xy(&self) -> KeyResult<(Vec<u8>, Vec<u8>)> {
         let extended_public_key = self.key().public_key();
         let public_key = extended_public_key.public_key();
@@ -71,7 +80,11 @@ impl DerivedKey {
         Ok((x, y))
     }
 
-    /// Returns the x, y, and d values of the derived key as a tuple of byte vectors.
+    /// Returns the public x and y coordinates and private d value as byte vectors.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyError::Other` if the encoded public key has no x or y coordinate.
     pub fn to_xyd(&self) -> KeyResult<(Vec<u8>, Vec<u8>, Vec<u8>)> {
         let private_key = self.key().private_key();
         let d_bytes = private_key.to_bytes();
@@ -85,6 +98,11 @@ impl DerivedKey {
         &self.derivation_path
     }
 
+    /// Derives one child private key.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyError::Bip32` if child key derivation fails.
     pub fn derive_from_child_number(&self, child_number: ChildNumber) -> KeyResult<Self> {
         let key = self.key.derive_child(child_number)?;
 
@@ -97,10 +115,20 @@ impl DerivedKey {
         })
     }
 
+    /// Derives one normal or hardened child private key.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyError::Bip32` if the child number is invalid or derivation fails.
     pub fn derive_from_index_and_hardened(&self, index: u32, hardened: bool) -> KeyResult<Self> {
         self.derive_from_child_number(ChildNumber::new(index, hardened)?)
     }
 
+    /// Derives the private key at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyError::Bip32` if `path` is invalid or child key derivation fails.
     pub fn derive<S>(&self, path: S) -> KeyResult<Self>
     where
         S: AsRef<str>,
@@ -109,6 +137,12 @@ impl DerivedKey {
         self.derive_from_derivation_path(derivation_path)
     }
 
+    /// Derives a descendant at an absolute path that extends this key's path.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyError::InvalidDerivation` if `derivation_path` does not extend this
+    /// key's path, or `KeyError::Bip32` if child key derivation fails.
     pub fn derive_from_derivation_path(&self, derivation_path: DerivationPath) -> KeyResult<Self> {
         let parent_path = self.derivation_path().as_ref();
         let child_path = derivation_path.as_ref();
@@ -136,6 +170,15 @@ impl DerivedKey {
         })
     }
 
+    /// Checks whether `child` matches private derivation along its recorded path.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyError::Bip32` if child key derivation fails.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "preserve the owned-key public API"
+    )]
     pub fn verify_derived_key(&self, child: Self) -> KeyResult<bool> {
         let parent_path = self.derivation_path().as_ref();
         let child_path = child.derivation_path().as_ref();
@@ -157,6 +200,11 @@ impl DerivedKey {
         Ok(key.private_key() == child.key().private_key())
     }
 
+    /// Checks whether `child` matches public derivation along `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `KeyError::Bip32` if `path` is invalid.
     pub fn verify_ecdsa_key<S>(&self, path: S, child: &ECDSAVerifyingKey) -> KeyResult<bool>
     where
         S: AsRef<str>,

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, mem::take, time::Duration};
 
 use btree::{ChangeEvent, StorageKey};
-use futures::{Stream, StreamExt, future::pending};
+use futures::{FutureExt, Stream, StreamExt, future::pending};
 use thiserror::Error;
 use tokio::time::timeout;
 
@@ -180,6 +180,9 @@ where
         .await
         .map_err(|_| SynchronizeError::SessionTimeout)??;
 
+    let incoming = transport.receive().fuse();
+    futures::pin_mut!(incoming);
+
     // Main bidirectional loop
     let mut outbound_exhausted = false;
     let mut inbound_closed = false;
@@ -223,9 +226,12 @@ where
                 if inbound_closed {
                     pending().await
                 } else {
-                    timeout(config.message_timeout, transport.receive()).await
+                    timeout(config.message_timeout, incoming.as_mut()).await
                 }
             }, if !inbound_closed => {
+                if msg.is_ok() {
+                    incoming.set(transport.receive().fuse());
+                }
                 match msg {
                     Ok(Ok(message)) => {
                         result.bytes_received += 1; // approximate
@@ -387,12 +393,26 @@ mod tests {
     use super::*;
     use futures::{channel::mpsc, stream};
     use std::future::ready;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use std::task::Poll;
 
     struct Channel(
         mpsc::UnboundedSender<Message>,
-        mpsc::UnboundedReceiver<Message>,
+        Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<Message>>>,
     );
+
+    impl Channel {
+        fn new(
+            sender: mpsc::UnboundedSender<Message>,
+            receiver: mpsc::UnboundedReceiver<Message>,
+        ) -> Self {
+            Self(sender, Arc::new(tokio::sync::Mutex::new(receiver)))
+        }
+    }
+
     impl SyncTransport for Channel {
         type Error = String;
         fn send(&mut self, msg: Message) -> impl Future<Output = Result<(), String>> {
@@ -402,8 +422,16 @@ mod tests {
                     .map_err(|error| error.to_string()),
             )
         }
-        async fn receive(&mut self) -> Result<Message, String> {
-            self.1.next().await.ok_or_else(|| "closed".into())
+        fn receive(&mut self) -> impl Future<Output = Result<Message, String>> + Send + 'static {
+            let receiver = Arc::clone(&self.1);
+            async move {
+                receiver
+                    .lock()
+                    .await
+                    .next()
+                    .await
+                    .ok_or_else(|| "closed".into())
+            }
         }
     }
     #[tokio::test]
@@ -421,7 +449,7 @@ mod tests {
         let result = timeout(Duration::from_secs(2), async {
             tokio::join!(
                 synchronize(
-                    Channel(a, br),
+                    Channel::new(a, br),
                     stream::iter([event(b"left", 7)]),
                     move |change| {
                         left_seen.lock().expect("observations").push(change.blob);
@@ -433,7 +461,7 @@ mod tests {
                     }
                 ),
                 synchronize(
-                    Channel(b, ar),
+                    Channel::new(b, ar),
                     stream::iter([event(b"right", 9)]),
                     move |change| {
                         right_seen.lock().expect("observations").push(change.blob);
@@ -455,6 +483,133 @@ mod tests {
         assert_eq!(seen, vec![vec![7], vec![9]]);
     }
 
+    struct ScriptedTransport {
+        peer: mpsc::UnboundedSender<Message>,
+        receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<Message>>>,
+        acknowledgments: HashMap<StorageKey, u64>,
+        receive_calls: Arc<AtomicUsize>,
+        responded: bool,
+    }
+
+    impl ScriptedTransport {
+        fn new() -> (Self, Arc<AtomicUsize>) {
+            let (peer, receiver) = mpsc::unbounded();
+            let receive_calls = Arc::new(AtomicUsize::new(0));
+            (
+                Self {
+                    peer,
+                    receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
+                    acknowledgments: HashMap::new(),
+                    receive_calls: Arc::clone(&receive_calls),
+                    responded: false,
+                },
+                receive_calls,
+            )
+        }
+    }
+
+    impl SyncTransport for ScriptedTransport {
+        type Error = String;
+
+        fn send(&mut self, msg: Message) -> impl Future<Output = Result<(), String>> {
+            match msg {
+                Message::Hello(_) => {
+                    self.peer
+                        .unbounded_send(Message::HelloAck {
+                            protocol_version: 1,
+                            accepted: true,
+                        })
+                        .expect("handshake response");
+                }
+                Message::ChangeEvent(event) => {
+                    self.acknowledgments.insert(event.key, event.generation);
+                }
+                Message::Done { .. } if !self.responded => {
+                    self.responded = true;
+                    self.peer
+                        .unbounded_send(Message::ChangeEvent(ChangeEvent {
+                            key: StorageKey::kv(b"remote".to_vec()),
+                            blob: vec![9],
+                            generation: 1,
+                        }))
+                        .expect("remote change");
+                    self.peer
+                        .unbounded_send(Message::Ack {
+                            acknowledgments: take(&mut self.acknowledgments),
+                        })
+                        .expect("acknowledgment");
+                    self.peer
+                        .unbounded_send(Message::Done {
+                            final_generations: HashMap::new(),
+                        })
+                        .expect("done");
+                    self.peer.unbounded_send(Message::Close).expect("close");
+                }
+                _ => {}
+            }
+            ready(Ok(()))
+        }
+
+        fn receive(&mut self) -> impl Future<Output = Result<Message, String>> + Send + 'static {
+            self.receive_calls.fetch_add(1, Ordering::SeqCst);
+            let receiver = Arc::clone(&self.receiver);
+            async move {
+                receiver
+                    .lock()
+                    .await
+                    .next()
+                    .await
+                    .ok_or_else(|| "closed".into())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn outbound_readiness_does_not_recreate_pending_receive() {
+        let (transport, receive_calls) = ScriptedTransport::new();
+        let mut index = 0;
+        let mut ready_event = false;
+        let outbound = stream::poll_fn(move |cx| {
+            if index == 4 {
+                return Poll::Ready(None);
+            }
+            if ready_event {
+                ready_event = false;
+                index += 1;
+                Poll::Ready(Some(ChangeEvent {
+                    key: StorageKey::kv(format!("local-{index}").into_bytes()),
+                    blob: vec![7],
+                    generation: 1,
+                }))
+            } else {
+                ready_event = true;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+        });
+
+        let result = timeout(
+            Duration::from_secs(2),
+            synchronize(
+                transport,
+                outbound,
+                |_| async { Ok(PushApplyResult::Applied) },
+                SynchronizeConfig::default(),
+            ),
+        )
+        .await
+        .expect("contended exchange must complete")
+        .expect("contended exchange must succeed");
+
+        assert_eq!(result.events_sent, 4);
+        assert_eq!(result.events_received, 1, "pending frame must survive");
+        assert_eq!(
+            receive_calls.load(Ordering::SeqCst),
+            6,
+            "one handshake receive, one retained receive, three replacements, and one unused close replacement"
+        );
+    }
+
     #[tokio::test]
     async fn deferred_changes_prevent_sender_success() {
         let (a, ar) = mpsc::unbounded();
@@ -472,13 +627,13 @@ mod tests {
         let (initiator, responder) = timeout(Duration::from_secs(2), async {
             tokio::join!(
                 synchronize(
-                    Channel(a, br),
+                    Channel::new(a, br),
                     stream::iter([event]),
                     |_| async { Ok(PushApplyResult::Applied) },
                     config(SyncRole::Initiator),
                 ),
                 synchronize(
-                    Channel(b, ar),
+                    Channel::new(b, ar),
                     stream::empty(),
                     |_| async { Ok(PushApplyResult::Deferred) },
                     config(SyncRole::Responder),

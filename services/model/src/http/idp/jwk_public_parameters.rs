@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 /*
  * LIDP IdP API
@@ -12,7 +13,7 @@ use alloc::boxed::Box;
 use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum JwkPublicParameters {
     JwkPublicParametersOneOf(Box<models::JwkPublicParametersOneOf>),
@@ -22,18 +23,14 @@ pub enum JwkPublicParameters {
 
 impl Default for JwkPublicParameters {
     fn default() -> Self {
-        Self::JwkPublicParametersOneOf(Default::default())
+        Self::JwkPublicParametersOneOf(Box::default())
     }
 }
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Kty {
     #[serde(rename = "Opk")]
+    #[default]
     Opk,
-}
-
-impl Default for Kty {
-    fn default() -> Kty {
-        Self::Opk
-    }
 }

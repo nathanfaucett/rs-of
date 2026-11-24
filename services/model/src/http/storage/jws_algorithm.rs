@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * Storage Server
  *
@@ -10,7 +11,6 @@
 
 use serde::{Deserialize, Serialize};
 
-///
 #[derive(
     Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
 )]
@@ -40,8 +40,8 @@ pub enum JwsAlgorithm {
     EdDsa,
 }
 
-impl core::fmt::Display for JwsAlgorithm {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for JwsAlgorithm {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Rs256 => write!(f, "RS256"),
             Self::Rs384 => write!(f, "RS384"),

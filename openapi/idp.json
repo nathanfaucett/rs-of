@@ -249,14 +249,14 @@
             "type": "boolean"
           },
           "response_modes_supported": {
-            "description": "List of supported `response_mode` values.\nDefaults to [\"query\", \"fragment\"] if omitted.",
+            "description": "List of supported `response_mode` values.\nDefaults to `[\"query\", \"fragment\"]` if omitted.",
             "items": {
               "$ref": "#/components/schemas/ResponseMode"
             },
             "type": "array"
           },
           "response_types_supported": {
-            "description": "REQUIRED. List of supported `response_type` values.\nIn OAuth 2.1 this should primarily be [\"code\"].",
+            "description": "REQUIRED. List of supported `response_type` values.\nIn OAuth 2.1 this should primarily be `[\"code\"]`.",
             "items": {
               "$ref": "#/components/schemas/ResponseType"
             },

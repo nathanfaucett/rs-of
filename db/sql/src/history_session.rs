@@ -193,8 +193,10 @@ impl Database {
                     factory.into()
                 }
             }
-            #[cfg(feature = "in-memory")]
+            #[cfg(all(feature = "in-memory", feature = "redb"))]
             DatabaseBackend::InMemory(_) => factory.into(),
+            #[cfg(all(feature = "in-memory", not(feature = "redb")))]
+            DatabaseBackend::InMemory(_) => factory,
         }
     }
     /// Exchanges validated table history with admission checks.

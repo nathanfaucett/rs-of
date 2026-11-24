@@ -1,8 +1,9 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 // Generated from the canonical allOf/oneOf composition.
 use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JwkPublic {
     #[serde(flatten)]
     pub parameters: models::JwkPublicParameters,

@@ -10,7 +10,6 @@
 
 use super::{ContentType, Error, configuration};
 use crate::{apis::ResponseContent, models};
-use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
 /// struct for passing parameters to the method [`approve_for_user`]
@@ -538,6 +537,8 @@ pub enum VersionError {
     UnknownValue(serde_json::Value),
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn approve_for_user(
     configuration: &configuration::Configuration,
     params: ApproveForUserParams,
@@ -552,7 +553,7 @@ pub async fn approve_for_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.approve_for_user_request);
 
     let req = req_builder.build()?;
@@ -567,23 +568,21 @@ pub async fn approve_for_user(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::IsAllowedForUserResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::IsAllowedForUserResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::IsAllowedForUserResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ApproveForUserError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -593,6 +592,8 @@ pub async fn approve_for_user(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn authorize_json(
     configuration: &configuration::Configuration,
     params: AuthorizeJsonParams,
@@ -607,7 +608,7 @@ pub async fn authorize_json(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.authorization_request);
 
     let req = req_builder.build()?;
@@ -622,23 +623,21 @@ pub async fn authorize_json(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::AuthorizationCodeResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::AuthorizationCodeResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::AuthorizationCodeResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<AuthorizeJsonError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -648,6 +647,8 @@ pub async fn authorize_json(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn authorize_query(
     configuration: &configuration::Configuration,
     params: AuthorizeQueryParams,
@@ -657,49 +658,49 @@ pub async fn authorize_query(
 
     req_builder = req_builder.query(&[("response_type", &params.response_type.to_string())]);
     if let Some(ref param_value) = params.client_id {
-        req_builder = req_builder.query(&[("client_id", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("client_id", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.application_id {
-        req_builder = req_builder.query(&[("application_id", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("application_id", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.registration {
-        req_builder = req_builder.query(&[("registration", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("registration", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.redirect_uri {
-        req_builder = req_builder.query(&[("redirect_uri", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("redirect_uri", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.scope {
-        req_builder = req_builder.query(&[("scope", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("scope", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.state {
-        req_builder = req_builder.query(&[("state", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("state", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.resource {
-        req_builder = req_builder.query(&[("resource", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("resource", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.code_challenge {
-        req_builder = req_builder.query(&[("code_challenge", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("code_challenge", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.code_challenge_method {
         req_builder = req_builder.query(&[("code_challenge_method", &param_value.to_string())]);
     }
     if let Some(ref param_value) = params.nonce {
-        req_builder = req_builder.query(&[("nonce", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("nonce", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.prompt {
-        req_builder = req_builder.query(&[("prompt", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("prompt", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.response_mode {
         req_builder = req_builder.query(&[("response_mode", &param_value.to_string())]);
     }
     if let Some(ref param_value) = params.login_hint {
-        req_builder = req_builder.query(&[("login_hint", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("login_hint", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.id_token_hint {
-        req_builder = req_builder.query(&[("id_token_hint", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("id_token_hint", param_value.as_str())]);
     }
     if let Some(ref param_value) = params.ui_locales {
-        req_builder = req_builder.query(&[("ui_locales", &param_value.to_string())]);
+        req_builder = req_builder.query(&[("ui_locales", param_value.as_str())]);
     }
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
@@ -724,6 +725,8 @@ pub async fn authorize_query(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn create_application(
     configuration: &configuration::Configuration,
     params: CreateApplicationParams,
@@ -738,7 +741,7 @@ pub async fn create_application(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.application_registration);
 
     let req = req_builder.build()?;
@@ -747,7 +750,7 @@ pub async fn create_application(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -760,6 +763,8 @@ pub async fn create_application(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn create_user(
     configuration: &configuration::Configuration,
     params: CreateUserParams,
@@ -774,7 +779,7 @@ pub async fn create_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.create_user_request);
 
     let req = req_builder.build()?;
@@ -789,23 +794,21 @@ pub async fn create_user(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::UserInfo`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::UserInfo`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::UserInfo`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<CreateUserError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -815,6 +818,8 @@ pub async fn create_user(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn delete_application(
     configuration: &configuration::Configuration,
     params: DeleteApplicationParams,
@@ -833,7 +838,7 @@ pub async fn delete_application(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -841,7 +846,7 @@ pub async fn delete_application(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -854,6 +859,8 @@ pub async fn delete_application(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn delete_register(
     configuration: &configuration::Configuration,
     params: DeleteRegisterParams,
@@ -872,7 +879,7 @@ pub async fn delete_register(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -880,7 +887,7 @@ pub async fn delete_register(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -893,6 +900,8 @@ pub async fn delete_register(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn delete_user(
     configuration: &configuration::Configuration,
     params: DeleteUserParams,
@@ -911,7 +920,7 @@ pub async fn delete_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -919,7 +928,7 @@ pub async fn delete_user(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -932,6 +941,8 @@ pub async fn delete_user(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn device_auth(
     configuration: &configuration::Configuration,
     params: DeviceAuthParams,
@@ -946,10 +957,10 @@ pub async fn device_auth(
     }
     let mut multipart_form_params = std::collections::HashMap::new();
     if let Some(param_value) = params.client_id {
-        multipart_form_params.insert("client_id", param_value.to_string());
+        multipart_form_params.insert("client_id", param_value);
     }
     if let Some(param_value) = params.scope {
-        multipart_form_params.insert("scope", param_value.to_string());
+        multipart_form_params.insert("scope", param_value);
     }
     req_builder = req_builder.form(&multipart_form_params);
 
@@ -965,23 +976,21 @@ pub async fn device_auth(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DeviceAuthorization`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DeviceAuthorization`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceAuthorization`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<DeviceAuthError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -991,6 +1000,8 @@ pub async fn device_auth(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn device_verify(
     configuration: &configuration::Configuration,
 ) -> Result<(), Error<DeviceVerifyError>> {
@@ -1020,6 +1031,8 @@ pub async fn device_verify(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn get_application(
     configuration: &configuration::Configuration,
     params: GetApplicationParams,
@@ -1036,7 +1049,7 @@ pub async fn get_application(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1044,7 +1057,7 @@ pub async fn get_application(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1057,6 +1070,8 @@ pub async fn get_application(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn get_client(
     configuration: &configuration::Configuration,
     params: GetClientParams,
@@ -1073,7 +1088,7 @@ pub async fn get_client(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1087,23 +1102,21 @@ pub async fn get_client(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::ClientConsentMetadata`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::ClientConsentMetadata`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::ClientConsentMetadata`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<GetClientError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1113,6 +1126,8 @@ pub async fn get_client(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn get_register(
     configuration: &configuration::Configuration,
     params: GetRegisterParams,
@@ -1129,7 +1144,7 @@ pub async fn get_register(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1143,23 +1158,21 @@ pub async fn get_register(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::ClientRegistration`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::ClientRegistration`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::ClientRegistration`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<GetRegisterError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1169,6 +1182,8 @@ pub async fn get_register(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn get_user(
     configuration: &configuration::Configuration,
     params: GetUserParams,
@@ -1185,7 +1200,7 @@ pub async fn get_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1199,23 +1214,21 @@ pub async fn get_user(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::UserInfo`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::UserInfo`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::UserInfo`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<GetUserError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1225,6 +1238,8 @@ pub async fn get_user(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn health(
     configuration: &configuration::Configuration,
 ) -> Result<models::HealthResponse, Error<HealthError>> {
@@ -1247,23 +1262,21 @@ pub async fn health(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::HealthResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::HealthResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::HealthResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<HealthError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1273,6 +1286,8 @@ pub async fn health(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn is_allowed_for_user(
     configuration: &configuration::Configuration,
     params: IsAllowedForUserParams,
@@ -1287,7 +1302,7 @@ pub async fn is_allowed_for_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.is_allowed_for_user_request);
 
     let req = req_builder.build()?;
@@ -1302,23 +1317,21 @@ pub async fn is_allowed_for_user(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::IsAllowedForUserResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::IsAllowedForUserResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::IsAllowedForUserResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<IsAllowedForUserError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1328,6 +1341,8 @@ pub async fn is_allowed_for_user(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn jwks(
     configuration: &configuration::Configuration,
 ) -> Result<models::Jwks, Error<JwksError>> {
@@ -1350,23 +1365,21 @@ pub async fn jwks(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::Jwks`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::Jwks`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::Jwks`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<JwksError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1376,6 +1389,8 @@ pub async fn jwks(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn list_applications(
     configuration: &configuration::Configuration,
     params: ListApplicationsParams,
@@ -1394,7 +1409,7 @@ pub async fn list_applications(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1402,7 +1417,7 @@ pub async fn list_applications(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1415,6 +1430,8 @@ pub async fn list_applications(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn list_client_keys(
     configuration: &configuration::Configuration,
     params: ListClientKeysParams,
@@ -1431,7 +1448,7 @@ pub async fn list_client_keys(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1439,7 +1456,7 @@ pub async fn list_client_keys(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1452,6 +1469,8 @@ pub async fn list_client_keys(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn list_consents(
     configuration: &configuration::Configuration,
     params: ListConsentsParams,
@@ -1474,7 +1493,7 @@ pub async fn list_consents(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1482,7 +1501,7 @@ pub async fn list_consents(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1495,6 +1514,8 @@ pub async fn list_consents(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn list_users(
     configuration: &configuration::Configuration,
     params: ListUsersParams,
@@ -1513,7 +1534,7 @@ pub async fn list_users(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1527,23 +1548,21 @@ pub async fn list_users(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::UserInfo&gt;`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::UserInfo&gt;`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::UserInfo&gt;`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ListUsersError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1553,6 +1572,8 @@ pub async fn list_users(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn openapi_json(
     configuration: &configuration::Configuration,
 ) -> Result<(), Error<OpenapiJsonError>> {
@@ -1569,7 +1590,7 @@ pub async fn openapi_json(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1582,6 +1603,8 @@ pub async fn openapi_json(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn openid_configuration(
     configuration: &configuration::Configuration,
 ) -> Result<models::AuthorizationServerMetadata, Error<OpenidConfigurationError>> {
@@ -1607,23 +1630,21 @@ pub async fn openid_configuration(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::AuthorizationServerMetadata`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::AuthorizationServerMetadata`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::AuthorizationServerMetadata`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<OpenidConfigurationError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1633,6 +1654,8 @@ pub async fn openid_configuration(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn put_register(
     configuration: &configuration::Configuration,
     params: PutRegisterParams,
@@ -1649,7 +1672,7 @@ pub async fn put_register(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.client_registration);
 
     let req = req_builder.build()?;
@@ -1664,23 +1687,21 @@ pub async fn put_register(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::ClientRegistration`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::ClientRegistration`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::ClientRegistration`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<PutRegisterError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1690,6 +1711,8 @@ pub async fn put_register(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn register(
     configuration: &configuration::Configuration,
     params: RegisterParams,
@@ -1704,7 +1727,7 @@ pub async fn register(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.client_registration);
 
     let req = req_builder.build()?;
@@ -1719,23 +1742,21 @@ pub async fn register(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::ClientRegistration`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::ClientRegistration`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::ClientRegistration`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<RegisterError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1745,6 +1766,8 @@ pub async fn register(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn reset_password(
     configuration: &configuration::Configuration,
     params: ResetPasswordParams,
@@ -1761,7 +1784,7 @@ pub async fn reset_password(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.reset_password);
 
     let req = req_builder.build()?;
@@ -1770,7 +1793,7 @@ pub async fn reset_password(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1783,6 +1806,8 @@ pub async fn reset_password(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn revoke(
     configuration: &configuration::Configuration,
     params: RevokeParams,
@@ -1796,9 +1821,9 @@ pub async fn revoke(
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
     let mut multipart_form_params = std::collections::HashMap::new();
-    multipart_form_params.insert("token", params.token.to_string());
+    multipart_form_params.insert("token", params.token);
     if let Some(param_value) = params.token_type_hint {
-        multipart_form_params.insert("token_type_hint", param_value.to_string());
+        multipart_form_params.insert("token_type_hint", param_value);
     }
     req_builder = req_builder.form(&multipart_form_params);
 
@@ -1808,7 +1833,7 @@ pub async fn revoke(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1821,6 +1846,8 @@ pub async fn revoke(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn revoke_client_keys(
     configuration: &configuration::Configuration,
     params: RevokeClientKeysParams,
@@ -1839,7 +1866,7 @@ pub async fn revoke_client_keys(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1847,7 +1874,7 @@ pub async fn revoke_client_keys(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1860,6 +1887,8 @@ pub async fn revoke_client_keys(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn revoke_consent(
     configuration: &configuration::Configuration,
     params: RevokeConsentParams,
@@ -1879,7 +1908,7 @@ pub async fn revoke_consent(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1887,7 +1916,7 @@ pub async fn revoke_consent(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1900,6 +1929,8 @@ pub async fn revoke_consent(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn rotate_client_key(
     configuration: &configuration::Configuration,
     params: RotateClientKeyParams,
@@ -1918,7 +1949,7 @@ pub async fn rotate_client_key(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1926,7 +1957,7 @@ pub async fn rotate_client_key(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1939,6 +1970,8 @@ pub async fn rotate_client_key(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn rotate_client_secret(
     configuration: &configuration::Configuration,
     params: RotateClientSecretParams,
@@ -1957,7 +1990,7 @@ pub async fn rotate_client_secret(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1971,19 +2004,19 @@ pub async fn rotate_client_secret(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => return Ok(content),
+            ContentType::Text => Ok(content),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `String`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<RotateClientSecretError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1993,6 +2026,8 @@ pub async fn rotate_client_secret(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn rotate_issuer_key(
     configuration: &configuration::Configuration,
 ) -> Result<models::JwkPublic, Error<RotateIssuerKeyError>> {
@@ -2006,7 +2041,7 @@ pub async fn rotate_issuer_key(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -2020,23 +2055,21 @@ pub async fn rotate_issuer_key(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::JwkPublic`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::JwkPublic`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::JwkPublic`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<RotateIssuerKeyError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -2046,6 +2079,8 @@ pub async fn rotate_issuer_key(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn sessions_logout(
     configuration: &configuration::Configuration,
 ) -> Result<(), Error<SessionsLogoutError>> {
@@ -2075,6 +2110,8 @@ pub async fn sessions_logout(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn set_user_blocked(
     configuration: &configuration::Configuration,
     params: SetUserBlockedParams,
@@ -2093,7 +2130,7 @@ pub async fn set_user_blocked(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.set_user_blocked_request);
 
     let req = req_builder.build()?;
@@ -2102,7 +2139,7 @@ pub async fn set_user_blocked(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -2115,6 +2152,8 @@ pub async fn set_user_blocked(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn set_user_mfa(
     configuration: &configuration::Configuration,
     params: SetUserMfaParams,
@@ -2133,7 +2172,7 @@ pub async fn set_user_mfa(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.set_user_mfa_request);
 
     let req = req_builder.build()?;
@@ -2142,7 +2181,7 @@ pub async fn set_user_mfa(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -2155,6 +2194,8 @@ pub async fn set_user_mfa(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn token(
     configuration: &configuration::Configuration,
     params: TokenParams,
@@ -2168,59 +2209,59 @@ pub async fn token(
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
     if let Some(param_value) = params.authorization {
-        req_builder = req_builder.header("Authorization", param_value.to_string());
+        req_builder = req_builder.header("Authorization", param_value);
     }
     let mut multipart_form_params = std::collections::HashMap::new();
     if let Some(param_value) = params.client_id {
-        multipart_form_params.insert("client_id", param_value.to_string());
+        multipart_form_params.insert("client_id", param_value);
     }
     if let Some(param_value) = params.password {
-        multipart_form_params.insert("password", param_value.to_string());
+        multipart_form_params.insert("password", param_value);
     }
     if let Some(param_value) = params.resource {
-        multipart_form_params.insert("resource", param_value.to_string());
+        multipart_form_params.insert("resource", param_value);
     }
     if let Some(param_value) = params.scope {
-        multipart_form_params.insert("scope", param_value.to_string());
+        multipart_form_params.insert("scope", param_value);
     }
     if let Some(param_value) = params.username {
-        multipart_form_params.insert("username", param_value.to_string());
+        multipart_form_params.insert("username", param_value);
     }
     if let Some(param_value) = params.grant_type {
-        multipart_form_params.insert("grant_type", param_value.to_string());
+        multipart_form_params.insert("grant_type", param_value);
     }
     if let Some(param_value) = params.code {
-        multipart_form_params.insert("code", param_value.to_string());
+        multipart_form_params.insert("code", param_value);
     }
     if let Some(param_value) = params.code_verifier {
-        multipart_form_params.insert("code_verifier", param_value.to_string());
+        multipart_form_params.insert("code_verifier", param_value);
     }
     if let Some(param_value) = params.redirect_uri {
-        multipart_form_params.insert("redirect_uri", param_value.to_string());
+        multipart_form_params.insert("redirect_uri", param_value);
     }
     if let Some(param_value) = params.audience {
-        multipart_form_params.insert("audience", param_value.to_string());
+        multipart_form_params.insert("audience", param_value);
     }
     if let Some(param_value) = params.client_secret {
-        multipart_form_params.insert("client_secret", param_value.to_string());
+        multipart_form_params.insert("client_secret", param_value);
     }
     if let Some(param_value) = params.refresh_token {
-        multipart_form_params.insert("refresh_token", param_value.to_string());
+        multipart_form_params.insert("refresh_token", param_value);
     }
     if let Some(param_value) = params.actor_token {
-        multipart_form_params.insert("actor_token", param_value.to_string());
+        multipart_form_params.insert("actor_token", param_value);
     }
     if let Some(param_value) = params.actor_token_type {
-        multipart_form_params.insert("actor_token_type", param_value.to_string());
+        multipart_form_params.insert("actor_token_type", param_value);
     }
     if let Some(param_value) = params.authorization_details {
-        multipart_form_params.insert("authorization_details", param_value.to_string());
+        multipart_form_params.insert("authorization_details", param_value);
     }
     if let Some(param_value) = params.requested_token_type {
-        multipart_form_params.insert("requested_token_type", param_value.to_string());
+        multipart_form_params.insert("requested_token_type", param_value);
     }
     if let Some(param_value) = params.subject_token {
-        multipart_form_params.insert("subject_token", param_value.to_string());
+        multipart_form_params.insert("subject_token", param_value);
     }
     if let Some(param_value) = params.subject_token_type {
         multipart_form_params.insert("subject_token_type", param_value.to_string());
@@ -2239,23 +2280,21 @@ pub async fn token(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::TokenResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::TokenResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::TokenResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<TokenError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -2265,6 +2304,8 @@ pub async fn token(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn update_application(
     configuration: &configuration::Configuration,
     params: UpdateApplicationParams,
@@ -2281,7 +2322,7 @@ pub async fn update_application(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.application_registration);
 
     let req = req_builder.build()?;
@@ -2290,7 +2331,7 @@ pub async fn update_application(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -2303,6 +2344,8 @@ pub async fn update_application(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn update_user(
     configuration: &configuration::Configuration,
     params: UpdateUserParams,
@@ -2319,7 +2362,7 @@ pub async fn update_user(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.update_user_info_request);
 
     let req = req_builder.build()?;
@@ -2334,23 +2377,21 @@ pub async fn update_user(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::UserInfo`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::UserInfo`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::UserInfo`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<UpdateUserError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -2360,6 +2401,8 @@ pub async fn update_user(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn userinfo(
     configuration: &configuration::Configuration,
 ) -> Result<models::UserInfo, Error<UserinfoError>> {
@@ -2371,7 +2414,7 @@ pub async fn userinfo(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -2385,23 +2428,21 @@ pub async fn userinfo(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::UserInfo`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::UserInfo`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::UserInfo`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<UserinfoError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -2411,6 +2452,8 @@ pub async fn userinfo(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn version(
     configuration: &configuration::Configuration,
 ) -> Result<models::VersionResponse, Error<VersionError>> {
@@ -2433,23 +2476,21 @@ pub async fn version(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::VersionResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::VersionResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::VersionResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<VersionError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,

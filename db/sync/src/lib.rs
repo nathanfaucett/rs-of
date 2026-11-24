@@ -4,7 +4,7 @@ mod protocol;
 mod subscription;
 mod transport;
 
-#[cfg(feature = "iroh")]
+#[cfg(all(feature = "iroh", not(target_arch = "wasm32")))]
 mod iroh_transport;
 
 pub use protocol::{
@@ -13,16 +13,16 @@ pub use protocol::{
 };
 pub use transport::SyncTransport;
 
-#[cfg(all(feature = "std", not(feature = "wasm")))]
+#[cfg(all(feature = "std", not(all(feature = "wasm", target_arch = "wasm32"))))]
 mod sync;
 
-#[cfg(all(feature = "std", not(feature = "wasm")))]
+#[cfg(all(feature = "std", not(all(feature = "wasm", target_arch = "wasm32"))))]
 pub use sync::{SynchronizeConfig, SynchronizeError, synchronize};
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 mod wasm_sync;
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 pub use wasm_sync::{
     PushConfig, PushMessage, PushSyncTransport, SynchronizeConfig, SynchronizeError, synchronize,
 };
@@ -33,5 +33,5 @@ pub use subscription::ChangeSubscription;
 
 pub use btree::ChangeEvent;
 
-#[cfg(feature = "iroh")]
+#[cfg(all(feature = "iroh", not(target_arch = "wasm32")))]
 pub use iroh_transport::IrohTransport;

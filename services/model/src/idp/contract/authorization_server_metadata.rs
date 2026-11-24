@@ -1,10 +1,5 @@
 #[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::{string::String, vec::Vec};
 
 use serde::{Deserialize, Serialize};
 
@@ -49,12 +44,12 @@ pub struct AuthorizationServerMetadata {
     pub scopes_supported: Vec<String>,
 
     /// REQUIRED. List of supported `response_type` values.
-    /// In OAuth 2.1 this should primarily be ["code"].
+    /// In OAuth 2.1 this should primarily be `["code"]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub response_types_supported: Vec<ResponseType>,
 
     /// List of supported `response_mode` values.
-    /// Defaults to ["query", "fragment"] if omitted.
+    /// Defaults to `["query", "fragment"]` if omitted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub response_modes_supported: Vec<ResponseMode>,
 

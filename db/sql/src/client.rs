@@ -4,6 +4,11 @@ use core::slice::from_ref;
 use std::path::PathBuf;
 use std::{fmt, time::Duration};
 
+#[cfg(any(
+    feature = "redb",
+    feature = "in-memory",
+    all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+))]
 use crate::database::EmbeddedTransaction;
 #[cfg(feature = "postgres")]
 use crate::{

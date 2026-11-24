@@ -10,7 +10,6 @@
 
 use super::{ContentType, Error, configuration};
 use crate::{apis::ResponseContent, models};
-use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
 /// struct for passing parameters to the method [`approve_enrollment`]
@@ -292,6 +291,8 @@ pub enum VersionError {
     UnknownValue(serde_json::Value),
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn approve_enrollment(
     configuration: &configuration::Configuration,
     params: ApproveEnrollmentParams,
@@ -310,7 +311,7 @@ pub async fn approve_enrollment(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -324,23 +325,21 @@ pub async fn approve_enrollment(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DeviceEnrollment`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DeviceEnrollment`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceEnrollment`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ApproveEnrollmentError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -350,6 +349,8 @@ pub async fn approve_enrollment(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn approve_pairing(
     configuration: &configuration::Configuration,
     params: ApprovePairingParams,
@@ -368,7 +369,7 @@ pub async fn approve_pairing(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.device_pairing_approval_request);
 
     let req = req_builder.build()?;
@@ -383,23 +384,21 @@ pub async fn approve_pairing(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DeviceInfo`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DeviceInfo`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceInfo`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ApprovePairingError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -409,6 +408,8 @@ pub async fn approve_pairing(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn delete_device_resource_selection(
     configuration: &configuration::Configuration,
     params: DeleteDeviceResourceSelectionParams,
@@ -430,7 +431,7 @@ pub async fn delete_device_resource_selection(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -438,7 +439,7 @@ pub async fn delete_device_resource_selection(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -452,6 +453,8 @@ pub async fn delete_device_resource_selection(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn device(
     configuration: &configuration::Configuration,
 ) -> Result<models::Device, Error<DeviceError>> {
@@ -474,23 +477,21 @@ pub async fn device(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::Device`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::Device`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::Device`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<DeviceError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -500,6 +501,8 @@ pub async fn device(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn enroll_device(
     configuration: &configuration::Configuration,
     params: EnrollDeviceParams,
@@ -514,7 +517,7 @@ pub async fn enroll_device(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.device_enrollment_request);
 
     let req = req_builder.build()?;
@@ -529,23 +532,21 @@ pub async fn enroll_device(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DeviceEnrollment`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DeviceEnrollment`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceEnrollment`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<EnrollDeviceError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -555,6 +556,8 @@ pub async fn enroll_device(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn get_device_restriction(
     configuration: &configuration::Configuration,
     params: GetDeviceRestrictionParams,
@@ -571,7 +574,7 @@ pub async fn get_device_restriction(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -585,23 +588,21 @@ pub async fn get_device_restriction(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DeviceRestriction`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DeviceRestriction`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceRestriction`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<GetDeviceRestrictionError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -611,6 +612,8 @@ pub async fn get_device_restriction(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn health(
     configuration: &configuration::Configuration,
 ) -> Result<models::HealthResponse, Error<HealthError>> {
@@ -633,23 +636,21 @@ pub async fn health(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::HealthResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::HealthResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::HealthResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<HealthError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -659,6 +660,8 @@ pub async fn health(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn list_approved_device_endpoints(
     configuration: &configuration::Configuration,
 ) -> Result<models::ApprovedDeviceEndpoints, Error<ListApprovedDeviceEndpointsError>> {
@@ -670,7 +673,7 @@ pub async fn list_approved_device_endpoints(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -684,23 +687,21 @@ pub async fn list_approved_device_endpoints(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::ApprovedDeviceEndpoints`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::ApprovedDeviceEndpoints`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::ApprovedDeviceEndpoints`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ListApprovedDeviceEndpointsError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -710,6 +711,8 @@ pub async fn list_approved_device_endpoints(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn list_devices(
     configuration: &configuration::Configuration,
 ) -> Result<Vec<models::DeviceInfo>, Error<ListDevicesError>> {
@@ -721,7 +724,7 @@ pub async fn list_devices(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -735,23 +738,21 @@ pub async fn list_devices(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::DeviceInfo&gt;`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::DeviceInfo&gt;`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::DeviceInfo&gt;`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ListDevicesError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -761,6 +762,8 @@ pub async fn list_devices(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn list_pending_enrollments(
     configuration: &configuration::Configuration,
 ) -> Result<Vec<models::DeviceEnrollment>, Error<ListPendingEnrollmentsError>> {
@@ -772,7 +775,7 @@ pub async fn list_pending_enrollments(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -786,23 +789,21 @@ pub async fn list_pending_enrollments(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::DeviceEnrollment&gt;`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::DeviceEnrollment&gt;`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::DeviceEnrollment&gt;`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<ListPendingEnrollmentsError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -812,6 +813,8 @@ pub async fn list_pending_enrollments(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn lookup_device_endpoint(
     configuration: &configuration::Configuration,
     params: LookupDeviceEndpointParams,
@@ -828,7 +831,7 @@ pub async fn lookup_device_endpoint(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -842,23 +845,21 @@ pub async fn lookup_device_endpoint(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DeviceEndpointIdentity`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DeviceEndpointIdentity`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceEndpointIdentity`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<LookupDeviceEndpointError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -868,6 +869,8 @@ pub async fn lookup_device_endpoint(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn lookup_device_identity(
     configuration: &configuration::Configuration,
     params: LookupDeviceIdentityParams,
@@ -884,7 +887,7 @@ pub async fn lookup_device_identity(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -898,23 +901,21 @@ pub async fn lookup_device_identity(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DeviceEndpointIdentity`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DeviceEndpointIdentity`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceEndpointIdentity`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<LookupDeviceIdentityError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -924,6 +925,8 @@ pub async fn lookup_device_identity(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn openapi_json(
     configuration: &configuration::Configuration,
 ) -> Result<(), Error<OpenapiJsonError>> {
@@ -940,7 +943,7 @@ pub async fn openapi_json(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -953,6 +956,8 @@ pub async fn openapi_json(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn pairing_approval_payload(
     configuration: &configuration::Configuration,
     params: PairingApprovalPayloadParams,
@@ -969,7 +974,7 @@ pub async fn pairing_approval_payload(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -983,23 +988,21 @@ pub async fn pairing_approval_payload(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DevicePairingApprovalPayload`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DevicePairingApprovalPayload`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DevicePairingApprovalPayload`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<PairingApprovalPayloadError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1009,6 +1012,8 @@ pub async fn pairing_approval_payload(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn put_device_restriction(
     configuration: &configuration::Configuration,
     params: PutDeviceRestrictionParams,
@@ -1025,7 +1030,7 @@ pub async fn put_device_restriction(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.device_restriction);
 
     let req = req_builder.build()?;
@@ -1034,7 +1039,7 @@ pub async fn put_device_restriction(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1047,6 +1052,8 @@ pub async fn put_device_restriction(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn put_device_selection(
     configuration: &configuration::Configuration,
     params: PutDeviceSelectionParams,
@@ -1063,7 +1070,7 @@ pub async fn put_device_selection(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.selection_request);
 
     let req = req_builder.build()?;
@@ -1072,7 +1079,7 @@ pub async fn put_device_selection(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1085,6 +1092,8 @@ pub async fn put_device_selection(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn request_pairing(
     configuration: &configuration::Configuration,
     params: RequestPairingParams,
@@ -1099,7 +1108,7 @@ pub async fn request_pairing(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.device_pairing_request);
 
     let req = req_builder.build()?;
@@ -1114,23 +1123,21 @@ pub async fn request_pairing(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DeviceEnrollment`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DeviceEnrollment`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceEnrollment`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<RequestPairingError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1140,6 +1147,8 @@ pub async fn request_pairing(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn revoke_device(
     configuration: &configuration::Configuration,
     params: RevokeDeviceParams,
@@ -1158,7 +1167,7 @@ pub async fn revoke_device(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1166,7 +1175,7 @@ pub async fn revoke_device(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1179,6 +1188,8 @@ pub async fn revoke_device(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn revoke_self(
     configuration: &configuration::Configuration,
     params: RevokeSelfParams,
@@ -1199,7 +1210,7 @@ pub async fn revoke_self(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1212,6 +1223,8 @@ pub async fn revoke_self(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn transfer_device(
     configuration: &configuration::Configuration,
     params: TransferDeviceParams,
@@ -1228,7 +1241,7 @@ pub async fn transfer_device(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.device_transfer_request);
 
     let req = req_builder.build()?;
@@ -1237,7 +1250,7 @@ pub async fn transfer_device(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -1250,6 +1263,8 @@ pub async fn transfer_device(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn trusted_devices(
     configuration: &configuration::Configuration,
 ) -> Result<Vec<models::TrustedDevice>, Error<TrustedDevicesError>> {
@@ -1261,7 +1276,7 @@ pub async fn trusted_devices(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -1275,23 +1290,21 @@ pub async fn trusted_devices(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::TrustedDevice&gt;`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `Vec&lt;models::TrustedDevice&gt;`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `Vec&lt;models::TrustedDevice&gt;`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<TrustedDevicesError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1301,6 +1314,8 @@ pub async fn trusted_devices(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn update_device(
     configuration: &configuration::Configuration,
     params: UpdateDeviceParams,
@@ -1319,7 +1334,7 @@ pub async fn update_device(
     }
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
-    };
+    }
     req_builder = req_builder.json(&params.update_device_request);
 
     let req = req_builder.build()?;
@@ -1334,23 +1349,21 @@ pub async fn update_device(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::DeviceInfo`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DeviceInfo`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceInfo`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<UpdateDeviceError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -1360,6 +1373,8 @@ pub async fn update_device(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn version(
     configuration: &configuration::Configuration,
 ) -> Result<models::VersionResponse, Error<VersionError>> {
@@ -1382,23 +1397,21 @@ pub async fn version(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::VersionResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::VersionResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::VersionResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<VersionError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,

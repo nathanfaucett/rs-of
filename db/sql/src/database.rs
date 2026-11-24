@@ -7,6 +7,8 @@
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
+#[cfg(not(feature = "redb"))]
+use core::future::ready;
 use core::{fmt, pin::Pin};
 
 #[cfg(any(feature = "redb", feature = "server", feature = "sync"))]
@@ -117,9 +119,9 @@ pub enum EmbeddedTransaction {
 }
 
 impl EmbeddedTransaction {
+    #[cfg(feature = "redb")]
     pub(crate) async fn set_read_limits(&mut self, entries: usize, bytes: usize) -> SqlResult<()> {
         match self {
-            #[cfg(feature = "redb")]
             Self::File(transaction) => transaction
                 .read()
                 .await
@@ -135,6 +137,24 @@ impl EmbeddedTransaction {
                 .set_read_limits(entries, bytes)
                 .map_err(from_engine),
         }
+    }
+
+    #[cfg(not(feature = "redb"))]
+    pub(crate) fn set_read_limits(
+        &mut self,
+        entries: usize,
+        bytes: usize,
+    ) -> impl Future<Output = SqlResult<()>> {
+        ready(match self {
+            #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
+            Self::IndexedDb(transaction) => transaction
+                .set_read_limits(entries, bytes)
+                .map_err(from_engine),
+            #[cfg(feature = "in-memory")]
+            Self::InMemory(transaction) => transaction
+                .set_read_limits(entries, bytes)
+                .map_err(from_engine),
+        })
     }
 
     pub(crate) async fn row_conflicts(&mut self, table: &str, key: &Row) -> SqlResult<Vec<String>> {
@@ -317,10 +337,10 @@ impl Database {
             )),
         };
         #[cfg(feature = "sync")]
-        if result.is_ok() {
-            if let Some(signal) = &self.changes {
-                signal.close();
-            }
+        if result.is_ok()
+            && let Some(signal) = &self.changes
+        {
+            signal.close();
         }
         result
     }

@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -10,10 +11,12 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum GrantType {
     #[serde(rename = "password")]
+    #[default]
     Password,
     #[serde(rename = "authorization_code")]
     AuthorizationCode,
@@ -25,8 +28,8 @@ pub enum GrantType {
     UrnColonIetfColonParamsColonOauthColonGrantTypeColonTokenExchange,
 }
 
-impl core::fmt::Display for GrantType {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for GrantType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Password => write!(f, "password"),
             Self::AuthorizationCode => write!(f, "authorization_code"),
@@ -36,11 +39,5 @@ impl core::fmt::Display for GrantType {
                 write!(f, "urn:ietf:params:oauth:grant-type:token-exchange")
             }
         }
-    }
-}
-
-impl Default for GrantType {
-    fn default() -> GrantType {
-        Self::Password
     }
 }

@@ -1,19 +1,22 @@
-use std::{future::ready, io, sync::Arc};
+use std::{future::ready, io, sync::Arc, time::Duration};
 
 use of_storage_client::{
     handle::{KvStoreHandle, SqlDatabaseHandle},
     protocol::StoreIdentity,
     transport::{TokenProvider, TransportConfig},
 };
-use ofdb_sql::{SessionConfig, SyncRole};
-use tokio::sync::mpsc;
+use ofdb_kv::history::{
+    Config as KvConfig, SyncRole as KvSyncRole, SyncTransport as KvSyncTransport,
+};
+use ofdb_sql::{SessionConfig, SyncRole, SyncTransport as SqlSyncTransport};
+use tokio::{sync::mpsc, time::timeout};
 use uuid::Uuid;
 
 struct Stream {
     receive: mpsc::Receiver<Vec<u8>>,
     send: mpsc::Sender<Vec<u8>>,
 }
-impl ofdb_sql::history::SyncTransport for Stream {
+impl SqlSyncTransport for Stream {
     type Error = io::Error;
     async fn receive(&mut self) -> io::Result<Vec<u8>> {
         self.receive
@@ -25,13 +28,13 @@ impl ofdb_sql::history::SyncTransport for Stream {
         self.send.send(frame).await.map_err(io::Error::other)
     }
 }
-impl ofdb_kv::history::SyncTransport for Stream {
+impl KvSyncTransport for Stream {
     type Error = io::Error;
     async fn receive(&mut self) -> io::Result<Vec<u8>> {
-        ofdb_sql::history::SyncTransport::receive(self).await
+        SqlSyncTransport::receive(self).await
     }
     async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
-        ofdb_sql::history::SyncTransport::send(self, frame).await
+        SqlSyncTransport::send(self, frame).await
     }
 }
 fn pair() -> (Stream, Stream) {
@@ -112,7 +115,7 @@ async fn checked_sql_exchange_preserves_rows_and_rejects_revoked_apply() {
         .await
         .expect("insert denied row");
     let (mut a, mut b) = pair();
-    let denied = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+    let denied = timeout(Duration::from_secs(10), async {
         tokio::select! {
             result = source.synchronize_with(&mut a, &config, SyncRole::Initiator, directory.path(), || ready(Ok(()))) => result.map(|_| ()),
             result = target.synchronize_with(&mut b, &config, SyncRole::Responder, directory.path(), || ready(Err("revoked".into()))) => result.map(|_| ()),
@@ -145,14 +148,14 @@ async fn checked_kv_exchange_uses_current_owner_protocol() {
     let (sent, received) = tokio::join!(
         source.synchronize_with(
             &mut a,
-            ofdb_kv::history::SyncRole::Initiator,
-            ofdb_kv::history::Config::default(),
+            KvSyncRole::Initiator,
+            KvConfig::default(),
             || ready(Ok(()))
         ),
         target.exchange_history(
             &mut b,
-            ofdb_kv::history::SyncRole::Responder,
-            ofdb_kv::history::Config::default(),
+            KvSyncRole::Responder,
+            KvConfig::default(),
             || ready(Ok(()))
         ),
     );

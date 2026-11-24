@@ -50,8 +50,9 @@ impl SyncTransport for DatabaseTransport {
                 "database sync frame too large",
             ));
         }
+        let length = u32::try_from(frame.len()).expect("frame length is bounded to 1 MiB");
         self.send
-            .write_all(&(frame.len() as u32).to_be_bytes())
+            .write_all(&length.to_be_bytes())
             .await
             .map_err(io::Error::other)?;
         self.send.write_all(&frame).await.map_err(io::Error::other)

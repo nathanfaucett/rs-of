@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 /*
  * LIDP IdP API
@@ -12,7 +13,7 @@ use alloc::{string::String, vec::Vec};
 use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StandardClaims {
     #[serde(rename = "aud")]
     pub aud: String,
@@ -53,7 +54,8 @@ pub struct StandardClaims {
 }
 
 impl StandardClaims {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         aud: String,
         client_id: String,
         exp: i64,
@@ -65,8 +67,8 @@ impl StandardClaims {
         sub: String,
         r#type: models::TokenType,
         r#use: models::TokenUse,
-    ) -> StandardClaims {
-        StandardClaims {
+    ) -> Self {
+        Self {
             aud,
             authorization_details: None,
             client_id,

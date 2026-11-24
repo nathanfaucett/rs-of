@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP IdP API
@@ -11,7 +12,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SetUserMfaRequest {
     #[serde(rename = "enable")]
@@ -21,7 +22,8 @@ pub struct SetUserMfaRequest {
 }
 
 impl SetUserMfaRequest {
-    pub fn new(enable: bool, method: String) -> SetUserMfaRequest {
-        SetUserMfaRequest { enable, method }
+    #[must_use]
+    pub const fn new(enable: bool, method: String) -> Self {
+        Self { enable, method }
     }
 }

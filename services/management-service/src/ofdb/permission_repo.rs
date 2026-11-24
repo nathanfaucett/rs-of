@@ -40,6 +40,7 @@ const PERMISSION_COLUMNS: [&str; 6] = [
 const ROLE_COLUMNS: [&str; 2] = ["id", "application_id"];
 const ROLE_PERMISSION_COLUMNS: [&str; 4] = ["id", "role_id", "permission_id", "revoked_at"];
 
+#[derive(Debug)]
 pub struct DbPermissionRepo {
     engine: ofdb_sql::Client,
 }
@@ -420,9 +421,17 @@ fn timestamp(value: i64) -> ManagementResult<DateTime<Utc>> {
     DateTime::from_timestamp(value, 0)
         .ok_or_else(|| ManagementError::InvalidInput("invalid permission timestamp".into()))
 }
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies owned query errors"
+)]
 fn db_error(error: ofdb_sql::QueryError) -> ManagementError {
     ManagementError::InvalidInput(error.to_string())
 }
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies owned row decoding errors"
+)]
 fn row_error(error: FromRowError) -> ManagementError {
     ManagementError::InvalidInput(error.to_string())
 }

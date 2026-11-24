@@ -1,13 +1,5 @@
-#[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
-
 use crate::contract::standard_claims::StandardClaims;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, ser::Error as SerError};
 
 use crate::id::Id;
 use crate::idp::contract::user_info::UserInfo;
@@ -29,11 +21,15 @@ pub struct IdTokenClaims {
     pub user_info: Option<UserInfo>,
 }
 
-fn serialize_user_info<S: serde::Serializer>(
+#[allow(
+    clippy::ref_option,
+    reason = "Serde serialize_with callbacks receive &Option<T>"
+)]
+fn serialize_user_info<S: Serializer>(
     info: &Option<UserInfo>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
-    let mut value = serde_json::to_value(info).map_err(serde::ser::Error::custom)?;
+    let mut value = serde_json::to_value(info).map_err(SerError::custom)?;
     if let Some(fields) = value.as_object_mut() {
         fields.remove("sub");
     }

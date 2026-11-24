@@ -1,3 +1,5 @@
+use core::fmt;
+
 use std::io;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -15,7 +17,16 @@ pub struct DeviceIdentity {
     secret_key: SecretKey,
 }
 
+impl fmt::Debug for DeviceIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeviceIdentity").finish_non_exhaustive()
+    }
+}
+
 impl DeviceIdentity {
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint does not match the secret key.
     pub fn new(endpoint: Endpoint, secret_key: SecretKey) -> io::Result<Self> {
         if endpoint.id() != secret_key.public() {
             return Err(io::Error::new(
@@ -44,6 +55,9 @@ impl DeviceIdentity {
         self.secret_key.sign(payload)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint address cannot be serialized.
     pub fn endpoint_address(&self) -> Result<String, String> {
         serde_json::to_string(&self.endpoint.addr()).map_err(|error| error.to_string())
     }
@@ -62,6 +76,9 @@ impl DeviceIdentity {
 const KEYRING_SERVICE: &str = "local.device-identity";
 const KEYRING_ENTRY: &str = "device";
 
+/// # Errors
+///
+/// Returns an error when the key cannot be loaded or the endpoint cannot be bound.
 pub async fn open() -> io::Result<DeviceIdentity> {
     let secret_key = load_or_create_secret_key()?;
     let endpoint = Endpoint::builder(presets::N0)
@@ -72,6 +89,9 @@ pub async fn open() -> io::Result<DeviceIdentity> {
     DeviceIdentity::new(endpoint, secret_key)
 }
 
+/// # Errors
+///
+/// Returns an error when the key cannot be loaded or the server cannot be bound.
 pub async fn open_with_allowlist(allowed: EndpointIdStore) -> io::Result<(DeviceIdentity, Server)> {
     let secret_key = load_or_create_secret_key()?;
     let server = Server::bind_with_secret_key(presets::N0, secret_key.clone(), allowed)
@@ -81,29 +101,33 @@ pub async fn open_with_allowlist(allowed: EndpointIdStore) -> io::Result<(Device
     Ok((identity, server))
 }
 
+/// # Errors
+///
+/// Returns an error when the server endpoint does not match the secret key.
 pub fn identity_from_server(server: &Server, secret_key: SecretKey) -> io::Result<DeviceIdentity> {
     DeviceIdentity::new(server.endpoint().clone(), secret_key)
 }
 
 fn load_or_create_secret_key() -> io::Result<SecretKey> {
     let keyring = RawKeyringRepo::new(KEYRING_SERVICE).map_err(io::Error::other)?;
-    match keyring
+    let Some(bytes) = keyring
         .load("", "", KEYRING_ENTRY)
         .map_err(io::Error::other)?
-    {
-        Some(bytes) => Ok(SecretKey::from_bytes(&bytes.try_into().map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidData, "invalid Iroh key")
-        })?)),
-        None => {
-            let secret_key = SecretKey::generate();
-            keyring
-                .store("", "", KEYRING_ENTRY, &secret_key.to_bytes())
-                .map_err(io::Error::other)?;
-            Ok(secret_key)
-        }
-    }
+    else {
+        let secret_key = SecretKey::generate();
+        keyring
+            .store("", "", KEYRING_ENTRY, &secret_key.to_bytes())
+            .map_err(io::Error::other)?;
+        return Ok(secret_key);
+    };
+    Ok(SecretKey::from_bytes(&bytes.try_into().map_err(
+        |_error| io::Error::new(io::ErrorKind::InvalidData, "invalid Iroh key"),
+    )?))
 }
 
+/// # Errors
+///
+/// Returns an error when the keyring cannot be accessed or updated.
 pub fn delete() -> io::Result<()> {
     RawKeyringRepo::new(KEYRING_SERVICE)
         .map_err(io::Error::other)?

@@ -46,6 +46,10 @@ pub fn returned_id(results: &[QueryResult]) -> ManagementResult<Id> {
     }
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err supplies owned query errors"
+)]
 pub fn db_error(error: QueryError) -> ManagementError {
     ManagementError::InvalidInput(error.to_string())
 }

@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use core::{fmt, result::Result as CoreResult};
 #[cfg(any(
     all(feature = "native", not(target_arch = "wasm32")),
@@ -99,7 +101,7 @@ impl SqlDatabaseHandle {
         transport: &mut T,
         config: &SessionConfig,
         role: SyncRole,
-        staging_directory: impl AsRef<std::path::Path>,
+        staging_directory: impl AsRef<Path>,
         check: Q,
     ) -> Result<SyncResult>
     where

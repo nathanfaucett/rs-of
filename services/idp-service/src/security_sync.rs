@@ -1,4 +1,9 @@
-use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
+
+use of_model::{id::Id, idp::contract::jwk_public::JwkPublic};
+
+use crate::oauth2::verifing_key_from_jwt;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PublicSecurityTable {
@@ -36,6 +41,10 @@ impl PublicSecurityTable {
     }
 
     /// This is a projection contract, not permission to export opaque whole-row CRDT state.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the public projection schema is deliberately exhaustive in one contract"
+    )]
     #[must_use]
     pub const fn columns(self) -> &'static [&'static str] {
         match self {
@@ -230,7 +239,7 @@ impl PublicSecurityTable {
         if uuid {
             return value
                 .as_str()
-                .and_then(|text| of_model::id::Id::parse_str(text).ok())
+                .and_then(|text| Id::parse_str(text).ok())
                 .is_some_and(|id| {
                     let installation_scope = column == "application_id"
                         && matches!(
@@ -272,9 +281,7 @@ impl PublicSecurityTable {
         let value = match value {
             ofdb_sql::Value::Null => return true,
             ofdb_sql::Value::Text(text) => serde_json::Value::String(text.clone()),
-            ofdb_sql::Value::Uuid(id) => {
-                serde_json::Value::String(alloc::string::ToString::to_string(id))
-            }
+            ofdb_sql::Value::Uuid(id) => serde_json::Value::String(id.to_string()),
             ofdb_sql::Value::Integer(value) => serde_json::Value::Number((*value).into()),
             _ => return false,
         };
@@ -283,10 +290,7 @@ impl PublicSecurityTable {
 
     /// Validate a complete SQL-shaped public projection, not provenance or import authorization.
     #[must_use]
-    pub fn permits_record(
-        self,
-        record: &serde_json::Map<alloc::string::String, serde_json::Value>,
-    ) -> bool {
+    pub fn permits_record(self, record: &serde_json::Map<String, serde_json::Value>) -> bool {
         !(record.len() != self.columns().len()
             || self.columns().iter().any(|column| {
                 record
@@ -306,8 +310,8 @@ fn permits_public_jwk(text: &str) -> bool {
     public
         .keys()
         .all(|field| ["kid", "use", "alg", "kty", "crv", "x", "y"].contains(&field.as_str()))
-        && serde_json::from_str::<of_model::idp::contract::jwk_public::JwkPublic>(text)
-            .is_ok_and(|jwk| crate::oauth2::verifing_key_from_jwt(&jwk).is_ok())
+        && serde_json::from_str::<JwkPublic>(text)
+            .is_ok_and(|jwk| verifing_key_from_jwt(&jwk).is_ok())
 }
 
 pub const PUBLIC_IDENTITY_POLICY_TABLES: &[PublicSecurityTable] = &[

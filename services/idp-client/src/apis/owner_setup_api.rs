@@ -10,7 +10,6 @@
 
 use super::{ContentType, Error, configuration};
 use crate::{apis::ResponseContent, models};
-use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
 /// struct for passing parameters to the method [`owner_setup_cancel`]
@@ -114,6 +113,8 @@ pub enum OwnerSetupStatusError {
     UnknownValue(serde_json::Value),
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn owner_setup_admission(
     configuration: &configuration::Configuration,
 ) -> Result<(), Error<OwnerSetupAdmissionError>> {
@@ -128,11 +129,11 @@ pub async fn owner_setup_admission(
     if let Some(ref apikey) = configuration.api_key {
         let key = apikey.key.clone();
         let value = match apikey.prefix {
-            Some(ref prefix) => format!("{} {}", prefix, key),
+            Some(ref prefix) => format!("{prefix} {key}"),
             None => key,
         };
         req_builder = req_builder.header("Authorization", value);
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -140,7 +141,7 @@ pub async fn owner_setup_admission(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -153,6 +154,8 @@ pub async fn owner_setup_admission(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn owner_setup_cancel(
     configuration: &configuration::Configuration,
     params: OwnerSetupCancelParams,
@@ -168,11 +171,11 @@ pub async fn owner_setup_cancel(
     if let Some(ref apikey) = configuration.api_key {
         let key = apikey.key.clone();
         let value = match apikey.prefix {
-            Some(ref prefix) => format!("{} {}", prefix, key),
+            Some(ref prefix) => format!("{prefix} {key}"),
             None => key,
         };
         req_builder = req_builder.header("Authorization", value);
-    };
+    }
     req_builder = req_builder.json(&params.independent_create_intent);
 
     let req = req_builder.build()?;
@@ -181,7 +184,7 @@ pub async fn owner_setup_cancel(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -195,6 +198,8 @@ pub async fn owner_setup_cancel(
 }
 
 /// Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn owner_setup_challenge(
     configuration: &configuration::Configuration,
     params: OwnerSetupChallengeParams,
@@ -215,7 +220,7 @@ pub async fn owner_setup_challenge(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -228,6 +233,8 @@ pub async fn owner_setup_challenge(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn owner_setup_create(
     configuration: &configuration::Configuration,
     params: OwnerSetupCreateParams,
@@ -243,11 +250,11 @@ pub async fn owner_setup_create(
     if let Some(ref apikey) = configuration.api_key {
         let key = apikey.key.clone();
         let value = match apikey.prefix {
-            Some(ref prefix) => format!("{} {}", prefix, key),
+            Some(ref prefix) => format!("{prefix} {key}"),
             None => key,
         };
         req_builder = req_builder.header("Authorization", value);
-    };
+    }
     req_builder = req_builder.json(&params.independent_create_request);
 
     let req = req_builder.build()?;
@@ -256,7 +263,7 @@ pub async fn owner_setup_create(
 
     let status = resp.status();
 
-    if status.as_u16() == 202 || false {
+    if status.as_u16() == 202 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -269,6 +276,8 @@ pub async fn owner_setup_create(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn owner_setup_owner_public(
     configuration: &configuration::Configuration,
 ) -> Result<models::IndependentOwnerPublic, Error<OwnerSetupOwnerPublicError>> {
@@ -291,23 +300,21 @@ pub async fn owner_setup_owner_public(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::IndependentOwnerPublic`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::IndependentOwnerPublic`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::IndependentOwnerPublic`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<OwnerSetupOwnerPublicError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -317,6 +324,8 @@ pub async fn owner_setup_owner_public(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn owner_setup_recover(
     configuration: &configuration::Configuration,
 ) -> Result<models::IndependentCreateIntent, Error<OwnerSetupRecoverError>> {
@@ -331,11 +340,11 @@ pub async fn owner_setup_recover(
     if let Some(ref apikey) = configuration.api_key {
         let key = apikey.key.clone();
         let value = match apikey.prefix {
-            Some(ref prefix) => format!("{} {}", prefix, key),
+            Some(ref prefix) => format!("{prefix} {key}"),
             None => key,
         };
         req_builder = req_builder.header("Authorization", value);
-    };
+    }
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
@@ -349,23 +358,21 @@ pub async fn owner_setup_recover(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || status.as_u16() == 204 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 || status.as_u16() == 204 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::IndependentCreateIntent`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::IndependentCreateIntent`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::IndependentCreateIntent`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<OwnerSetupRecoverError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -376,6 +383,8 @@ pub async fn owner_setup_recover(
 }
 
 /// Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn owner_setup_register(
     configuration: &configuration::Configuration,
     params: OwnerSetupRegisterParams,
@@ -396,7 +405,7 @@ pub async fn owner_setup_register(
 
     let status = resp.status();
 
-    if status.as_u16() == 204 || false {
+    if status.as_u16() == 204 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -409,6 +418,8 @@ pub async fn owner_setup_register(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn owner_setup_status(
     configuration: &configuration::Configuration,
 ) -> Result<models::OwnerSetupStatus, Error<OwnerSetupStatusError>> {
@@ -431,23 +442,21 @@ pub async fn owner_setup_status(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::OwnerSetupStatus`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::OwnerSetupStatus`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::OwnerSetupStatus`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<OwnerSetupStatusError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,

@@ -1,13 +1,34 @@
-use of_model::ofdb::MIGRATION;
+use of_model::ofdb::{DEVICE_SCHEMA, MIGRATION};
 use ofdb_sql::Client;
 use ofdb_sql::QueryError;
 use ofdb_sql::SqlTranslator;
 
 /// Runs the unified init migration against the given SQL client.
+///
+/// # Errors
+///
+/// Returns `QueryError` if transaction setup, migration execution, commit, or rollback fails.
 pub async fn up(client: &Client) -> Result<(), QueryError> {
+    migrate(client, MIGRATION).await
+}
+
+/// Runs the Device owner schema against the given SQL client.
+///
+/// # Errors
+///
+/// Returns `QueryError` if transaction setup, migration execution, commit, or rollback fails.
+pub async fn up_device(client: &Client) -> Result<(), QueryError> {
+    migrate(client, DEVICE_SCHEMA).await
+}
+
+#[allow(
+    clippy::significant_drop_tightening,
+    reason = "commit and rollback consume the transaction"
+)]
+async fn migrate(client: &Client, migration: &str) -> Result<(), QueryError> {
     let mut transaction = client.transaction().await?;
     let result = async {
-        for statement in MIGRATION
+        for statement in migration
             .split(';')
             .map(str::trim)
             .filter(|statement| !statement.is_empty())
@@ -37,6 +58,10 @@ pub mod validators {
     use ofdb_sql::Value;
 
     /// Validates that all IDP security tables exist and are readable.
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueryError` if a security table cannot be queried.
     pub async fn validate_identity(client: &Client) -> Result<(), QueryError> {
         for table in [
             SecurityTable::User,
@@ -133,23 +158,26 @@ pub mod validators {
     }
 
     /// Checks for conflicts across the given security rows.
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "rollback consumes each transaction on every exit path"
+    )]
     async fn clear(engine: &Client, rows: &[SecurityRow]) -> Result<bool, QueryError> {
         for group in rows.chunk_by(|left, right| left.table == right.table) {
             let table = group[0].table;
-            let component = match table {
-                SecurityTable::User => "created_at",
-                _ => {
-                    let keys = group.iter().map(SecurityRow::key).collect::<Vec<_>>();
-                    if engine
-                        .row_conflicts_batch(table.name(), &keys)
-                        .await?
-                        .iter()
-                        .any(|conflicts| !conflicts.is_empty())
-                    {
-                        return Ok(false);
-                    }
-                    continue;
+            let component = if table == SecurityTable::User {
+                "created_at"
+            } else {
+                let keys = group.iter().map(SecurityRow::key).collect::<Vec<_>>();
+                if engine
+                    .row_conflicts_batch(table.name(), &keys)
+                    .await?
+                    .iter()
+                    .any(|conflicts| !conflicts.is_empty())
+                {
+                    return Ok(false);
                 }
+                continue;
             };
             // Resolve the public UUID and inspect the composite key in one snapshot.
             let mut transaction = engine.transaction().await?;
@@ -193,6 +221,10 @@ pub mod validators {
     }
 
     /// Checks that the given authorization rows have no conflicts.
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueryError` if conflict inspection or transaction cleanup fails.
     pub async fn allows_authorization(
         engine: &Client,
         rows: &[SecurityRow],
@@ -201,6 +233,10 @@ pub mod validators {
     }
 
     /// Checks that the given token issuance rows have no conflicts.
+    ///
+    /// # Errors
+    ///
+    /// Returns `QueryError` if conflict inspection or transaction cleanup fails.
     pub async fn allows_token_issuance(
         engine: &Client,
         rows: &[SecurityRow],

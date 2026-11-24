@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP IdP API
@@ -11,7 +12,7 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResetPassword {
     #[serde(rename = "password")]
@@ -19,7 +20,8 @@ pub struct ResetPassword {
 }
 
 impl ResetPassword {
-    pub fn new(password: String) -> ResetPassword {
-        ResetPassword { password }
+    #[must_use]
+    pub const fn new(password: String) -> Self {
+        Self { password }
     }
 }

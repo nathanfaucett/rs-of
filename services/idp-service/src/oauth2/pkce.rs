@@ -6,6 +6,8 @@ use of_model::idp::contract::{
 };
 use sha2::{Digest, Sha256};
 
+/// # Errors
+/// Returns [`ErrorResponse`] with `invalid_grant` if the verifier does not match.
 pub fn verify_code_challenge(
     code_verifier: &str,
     code_challenge: &str,

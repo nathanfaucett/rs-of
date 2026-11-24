@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -10,26 +11,22 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum PrincipalType {
     #[serde(rename = "user")]
+    #[default]
     User,
     #[serde(rename = "client")]
     Client,
 }
 
-impl core::fmt::Display for PrincipalType {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for PrincipalType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::User => write!(f, "user"),
             Self::Client => write!(f, "client"),
         }
-    }
-}
-
-impl Default for PrincipalType {
-    fn default() -> PrincipalType {
-        Self::User
     }
 }

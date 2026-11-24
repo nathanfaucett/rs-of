@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 /*
  * LIDP IdP API
@@ -12,7 +13,7 @@ use alloc::vec::Vec;
 use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorizationDetail {
     #[serde(rename = "actions")]
     pub actions: Vec<models::StorageAuthorizationAction>,
@@ -21,22 +22,16 @@ pub struct AuthorizationDetail {
 }
 
 impl AuthorizationDetail {
-    pub fn new(
-        actions: Vec<models::StorageAuthorizationAction>,
-        r#type: Type,
-    ) -> AuthorizationDetail {
-        AuthorizationDetail { actions, r#type }
+    #[must_use]
+    pub const fn new(actions: Vec<models::StorageAuthorizationAction>, r#type: Type) -> Self {
+        Self { actions, r#type }
     }
 }
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Type {
     #[serde(rename = "storage")]
+    #[default]
     Storage,
-}
-
-impl Default for Type {
-    fn default() -> Type {
-        Self::Storage
-    }
 }

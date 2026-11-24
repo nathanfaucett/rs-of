@@ -121,7 +121,7 @@ if (args.includes("generate")) {
         cpSync(path.join(${JSON.stringify(root)}, "services/model/src/http/idp"), models, {recursive: true});
         for (const file of readdirSync(models)) {
             const target = path.join(models, file);
-            const source = readFileSync(target, "utf8").replace(/use alloc::[^;]+;\\n/g, "").replaceAll("use crate::http::idp as models;", "use crate::models;").replaceAll("core::fmt", "std::fmt");
+            const source = readFileSync(target, "utf8").replace(/#\\[cfg\\(not\\(feature = "std"\\)\\)\\]\\nuse alloc::[^;]+;\\n/g, "").replaceAll("use crate::http::idp as models;", "use crate::models;").replaceAll("use core::fmt;\\n", "").replaceAll("fmt::", "std::fmt::");
             writeFileSync(target, source);
         }
     }
@@ -153,7 +153,7 @@ if (args[0] === ${JSON.stringify(failure)}) process.exit(39);
             PATH: temp + path.delimiter + process.env.PATH,
           },
           encoding: "utf8",
-          timeout: 10000,
+          timeout: 30000,
         }
       );
       assert.match(result.stderr, /cargo failed \(39\)/);

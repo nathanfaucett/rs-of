@@ -1,3 +1,5 @@
+use core::fmt;
+
 #[cfg(not(feature = "std"))]
 use alloc::{
     borrow::ToOwned,
@@ -15,15 +17,23 @@ use of_model::contract::{
     token_response::TokenResponse, token_type::TokenType, token_use::TokenUse,
 };
 #[cfg(feature = "std")]
-use std::sync::Arc;
+use std::{
+    env,
+    io::{self, Write},
+    process,
+    sync::Arc,
+    thread,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use of_model::id::Id;
 use of_model::idp::model::application::Application;
 use of_model::idp::model::client::Client;
 use of_model::idp::model::key::Key;
 use of_model::idp::{
     contract::{
+        application_registration::ApplicationRegistration,
         approve_for_user_request::ApproveForUserRequest,
         authorization_code_grant_request::AuthorizationCodeGrantRequest,
         authorization_code_response::AuthorizationCodeResponse,
@@ -50,14 +60,16 @@ use of_model::idp::{
         password_grant_request::PasswordGrantRequest,
         refresh_token_grant_request::RefreshTokenGrantRequest,
         revocation_request::RevocationRequest,
+        sex::Sex,
         subject_token_type::SubjectTokenType,
         token_endpoint_auth_method::TokenEndpointAuthMethod,
         token_exchange_grant_request::TokenExchangeGrantRequest,
         token_request::TokenRequest,
         user_info::UserInfo,
     },
-    model::user::User,
+    model::{oauth2_user_consent::OAuth2UserConsent, user::User},
 };
+use serde::de::IgnoredAny;
 
 use crate::{
     oauth2::{
@@ -67,7 +79,8 @@ use crate::{
     password_config::PasswordConfig,
     repo::{
         ApplicationRepo, ClientRepo, KeyRepo, KeyService, OAuth2AuthorizationCodeRepo,
-        OAuth2RefreshToken, OAuth2RefreshTokenRepo, OAuth2UserConsentRepo, UserRepo,
+        OAuth2RefreshToken, OAuth2RefreshTokenRepo, OAuth2UserConsentRepo, PrivateKeyRepo,
+        UserRepo,
     },
     util::{encrypt_password, generate_random_string, verify_password},
 };
@@ -107,10 +120,20 @@ pub struct OAuth2Service<A, C, AC, RT, U, G, K, P> {
     pub oauth_config: OAuth2Config,
 }
 
+impl<A, C, AC, RT, U, G, K, P> fmt::Debug for OAuth2Service<A, C, AC, RT, U, G, K, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuth2Service").finish_non_exhaustive()
+    }
+}
+
 use of_model::oauth_user::CreateUserRequest;
 
 use of_model::oauth_user::UpdateUserInfoRequest;
 
+#[allow(
+    clippy::future_not_send,
+    reason = "repository futures intentionally support single-threaded no_std executors"
+)]
 impl<A, C, AC, RT, U, G, K, P> OAuth2Service<A, C, AC, RT, U, G, K, P>
 where
     A: ApplicationRepo,
@@ -120,7 +143,7 @@ where
     U: UserRepo,
     G: OAuth2UserConsentRepo,
     K: KeyRepo,
-    P: crate::repo::PrivateKeyRepo,
+    P: PrivateKeyRepo,
 {
     pub const fn new(
         application_repo: A,
@@ -144,6 +167,8 @@ where
         }
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the initial User data or credentials are invalid, or persistence fails.
     pub async fn ensure_initial_user(
         &self,
         user_id: Id,
@@ -193,6 +218,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if registration validation or persistence fails.
     pub async fn register_client(
         &self,
         request: ClientRegistration,
@@ -201,6 +228,8 @@ where
         self.register_owned_client(request, true).await
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if public Client registration is invalid or cannot be persisted.
     pub async fn register_public_client(
         &self,
         request: ClientRegistration,
@@ -222,6 +251,8 @@ where
             .await
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if infrastructure Client registration is invalid or cannot be persisted.
     pub async fn register_infrastructure_client(
         &self,
         request: ClientRegistration,
@@ -235,6 +266,8 @@ where
         self.register_owned_client(request, true).await
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if existing infrastructure Client data differs or persistence fails.
     pub async fn ensure_infrastructure_client(
         &self,
         request: ClientRegistration,
@@ -373,15 +406,16 @@ where
     ) -> ErrorResponseResult<ClientRegistration> {
         let application = self.get_application(client.application_id).await?;
         let mut registration: ClientRegistration = client.into();
-        registration.application =
-            of_model::idp::contract::application_registration::ApplicationRegistration {
-                name: Some(application.name),
-                uri: application.uri,
-                description: application.description,
-            };
+        registration.application = ApplicationRegistration {
+            name: Some(application.name),
+            uri: application.uri,
+            description: application.description,
+        };
         Ok(registration)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the Client is absent or lookup fails.
     pub async fn get_client(&self, client_id: &str) -> ErrorResponseResult<ClientRegistration> {
         let client = self
             .client_repo
@@ -394,6 +428,8 @@ where
         self.registration_for_client(client).await
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if public consent metadata is unavailable or lookup fails.
     pub async fn get_client_consent_metadata(
         &self,
         client_id: &str,
@@ -420,12 +456,11 @@ where
         }
         let application = self.get_application(client.application_id).await?;
         Ok(ClientConsentMetadata {
-            application:
-                of_model::idp::contract::application_registration::ApplicationRegistration {
-                    name: Some(application.name),
-                    uri: application.uri,
-                    description: application.description,
-                },
+            application: ApplicationRegistration {
+                name: Some(application.name),
+                uri: application.uri,
+                description: application.description,
+            },
             client_id: client.client_id,
             client_name: client.client_name,
             client_uri: Some(client.client_uri),
@@ -437,6 +472,8 @@ where
         })
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Applications cannot be listed.
     pub async fn list_applications(
         &self,
         offset: u32,
@@ -448,6 +485,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the Application is absent or lookup fails.
     pub async fn get_application(&self, id: Id) -> ErrorResponseResult<Application> {
         self.application_repo
             .find_by_id(id)
@@ -456,6 +495,8 @@ where
             .ok_or_else(|| ErrorResponse::new(ErrorCode::NotFound))
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Application creation fails.
     pub async fn create_application(
         &self,
         name: String,
@@ -468,6 +509,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Application update fails.
     pub async fn update_application(
         &self,
         application: Application,
@@ -478,6 +521,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Application deletion fails.
     pub async fn delete_application(&self, id: Id) -> ErrorResponseResult<()> {
         self.application_repo
             .delete_application_by_id(id)
@@ -485,6 +530,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the Application URI is unknown or lookup fails.
     pub async fn application_id_for_uri(&self, uri: &str) -> ErrorResponseResult<Id> {
         self.application_repo
             .find_by_uri(uri)
@@ -514,6 +561,8 @@ where
         Ok(client.application_id)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the Client is unknown or lookup fails.
     pub async fn application_id_for_client(&self, client_id: &str) -> ErrorResponseResult<Id> {
         self.client_repo
             .find_client_registration(client_id)
@@ -523,6 +572,8 @@ where
             .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidClient))
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Clients cannot be listed.
     pub async fn list_clients(
         &self,
         offset: u32,
@@ -537,6 +588,8 @@ where
         Ok(clients.into_iter().map(Into::into).collect())
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Client validation or update fails.
     pub async fn update_client(
         &self,
         client_id: &str,
@@ -546,6 +599,8 @@ where
         self.update_owned_client(client_id, request).await
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if infrastructure Client validation or update fails.
     pub async fn update_infrastructure_client(
         &self,
         client_id: &str,
@@ -598,7 +653,7 @@ where
             client_id_issued_at: existing.client_id_issued_at,
             client_secret_expires_at: request
                 .client_secret_expires_at
-                .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
+                .and_then(|ts| DateTime::from_timestamp(ts, 0))
                 .or(existing.client_secret_expires_at),
             client_name: request.client_name,
             client_uri: request.client_uri.unwrap_or(existing.client_uri),
@@ -631,6 +686,8 @@ where
         Ok(registration)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Client deletion fails.
     pub async fn delete_client(&self, client_id: &str) -> ErrorResponseResult<()> {
         self.client_repo
             .delete_client_by_client_id(client_id)
@@ -638,6 +695,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if authorization, consent, or code creation fails.
     pub async fn authorize<PT: Principal + ?Sized>(
         &self,
         request: AuthorizationRequest,
@@ -690,8 +749,7 @@ where
                 request.code_challenge,
                 request.code_challenge_method,
                 request.nonce,
-                Utc::now()
-                    + Duration::seconds(self.oauth_config.authorization_code_ttl_secs as i64),
+                checked_expiration(Utc::now(), self.oauth_config.authorization_code_ttl_secs)?,
             )
             .await
             .map_err(ErrorResponse::from)?;
@@ -703,6 +761,8 @@ where
         })
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if approval validation or persistence fails.
     pub async fn approve_for_user<PT: Principal + ?Sized>(
         &self,
         request: ApproveForUserRequest,
@@ -745,6 +805,8 @@ where
         Ok(IsAllowedForUserResponse { allowed: true })
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if consent validation or lookup fails.
     pub async fn is_allowed_for_user<PT: Principal + ?Sized>(
         &self,
         request: IsAllowedForUserRequest,
@@ -789,6 +851,8 @@ where
         })
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Client authentication, grant validation, or issuance fails.
     pub async fn token(
         &self,
         request: TokenRequest,
@@ -832,8 +896,8 @@ where
                 ErrorResponse::new(ErrorCode::InvalidClient)
                     .with_description(format!("client {} not found", request.client_id))
             })?;
-        self.validate_grant_type(&client, GrantType::Password)?;
-        self.authenticate_client_for_token_endpoint(&client, client_auth)?;
+        Self::validate_grant_type(&client, GrantType::Password)?;
+        Self::authenticate_client_for_token_endpoint(&client, client_auth)?;
 
         let user = self
             .user_repo
@@ -936,8 +1000,8 @@ where
             .ok_or_else(|| {
                 ErrorResponse::new(ErrorCode::InvalidClient).with_description("client not found")
             })?;
-        self.validate_grant_type(&client, GrantType::AuthorizationCode)?;
-        self.authenticate_client_for_token_endpoint(&client, client_auth)?;
+        Self::validate_grant_type(&client, GrantType::AuthorizationCode)?;
+        Self::authenticate_client_for_token_endpoint(&client, client_auth)?;
 
         validate_authorization_code_grant(
             &request,
@@ -982,23 +1046,12 @@ where
         client_auth: Option<&OAuth2ClientAuth>,
     ) -> ErrorResponseResult<TokenResponse> {
         #[cfg(feature = "std")]
-        let started = std::time::Instant::now();
-        let observe = |_phase: &str| {
-            #[cfg(feature = "std")]
-            if std::env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
-                let line = alloc::format!(
-                    "seam=client_credentials phase={_phase} pid={} thread={:?} wall_ms={} elapsed_ms={}\n",
-                    std::process::id(),
-                    std::thread::current().id(),
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .expect("system clock")
-                        .as_millis(),
-                    started.elapsed().as_millis()
-                );
-                let _ = std::io::Write::write_all(&mut std::io::stderr().lock(), line.as_bytes());
-            }
+        let observe = {
+            let started = Instant::now();
+            move |phase: &str| observe_client_credentials(started, phase)
         };
+        #[cfg(not(feature = "std"))]
+        let observe = |_phase: &str| {};
         observe("client_lookup");
         let auth = client_auth.as_ref().ok_or_else(|| {
             ErrorResponse::new(ErrorCode::InvalidClient)
@@ -1013,7 +1066,7 @@ where
             .ok_or_else(|| {
                 ErrorResponse::new(ErrorCode::InvalidClient).with_description("client not found")
             })?;
-        self.validate_grant_type(&client, GrantType::ClientCredentials)?;
+        Self::validate_grant_type(&client, GrantType::ClientCredentials)?;
         if client.client_type != ClientType::Confidential {
             return Err(ErrorResponse::new(ErrorCode::UnauthorizedClient)
                 .with_description("client credentials requires a confidential client"));
@@ -1026,7 +1079,7 @@ where
                 .with_description("client credentials have expired"));
         }
         observe("secret_verify");
-        self.authenticate_client_for_token_endpoint(&client, Some(auth))?;
+        Self::authenticate_client_for_token_endpoint(&client, Some(auth))?;
         observe("grant_validation");
         if request.client_id != auth.client_id {
             return Err(ErrorResponse::new(ErrorCode::InvalidClient)
@@ -1101,7 +1154,7 @@ where
         let (refresh_token, principal) = self
             .verify_token_principal(&request.refresh_token.0)
             .await
-            .map_err(|_| {
+            .map_err(|_error| {
                 ErrorResponse::new(ErrorCode::InvalidGrant)
                     .with_description("refresh token signature or Principal binding is invalid")
             })?;
@@ -1129,8 +1182,8 @@ where
             .ok_or_else(|| {
                 ErrorResponse::new(ErrorCode::InvalidClient).with_description("client not found")
             })?;
-        self.validate_grant_type(&client, GrantType::RefreshToken)?;
-        self.authenticate_client_for_token_endpoint(&client, client_auth)?;
+        Self::validate_grant_type(&client, GrantType::RefreshToken)?;
+        Self::authenticate_client_for_token_endpoint(&client, client_auth)?;
 
         let requested_scopes = request.scope.as_deref().map_or_default(parse_scopes);
         let scopes = if requested_scopes.is_empty() {
@@ -1188,8 +1241,8 @@ where
         if Self::validate_bearer_registration(&subject_token, &client)? != access.application_id {
             return Err(ErrorResponse::new(ErrorCode::InvalidGrant));
         }
-        self.validate_grant_type(&client, GrantType::TokenExchange)?;
-        self.authenticate_client_for_token_endpoint(&client, client_auth)?;
+        Self::validate_grant_type(&client, GrantType::TokenExchange)?;
+        Self::authenticate_client_for_token_endpoint(&client, client_auth)?;
 
         let requested_scopes = request.scope.as_deref().map_or_default(parse_scopes);
         let scopes = if requested_scopes.is_empty() {
@@ -1218,11 +1271,7 @@ where
         .await
     }
 
-    fn validate_grant_type(
-        &self,
-        client: &Client,
-        grant_type: GrantType,
-    ) -> ErrorResponseResult<()> {
+    fn validate_grant_type(client: &Client, grant_type: GrantType) -> ErrorResponseResult<()> {
         if client.allowed_grant_types.contains(&grant_type) {
             return Ok(());
         }
@@ -1239,7 +1288,6 @@ where
     }
 
     fn authenticate_client_for_token_endpoint(
-        &self,
         client: &Client,
         client_auth: Option<&OAuth2ClientAuth>,
     ) -> ErrorResponseResult<()> {
@@ -1265,15 +1313,13 @@ where
                     ErrorResponse::new(ErrorCode::InvalidClient)
                         .with_description("client secret is required")
                 })?;
-                if !verify_password(secret, &client.client_secret_hash).map_err(|_| {
+                if !verify_password(secret, &client.client_secret_hash).map_err(|_error| {
                     ErrorResponse::new(ErrorCode::ServerError)
                         .with_description("stored client secret verifier is invalid")
                 })? {
                     return Err(ErrorResponse::new(ErrorCode::InvalidClient)
                         .with_description("invalid client credentials"));
                 }
-
-                Ok(())
             }
             ClientType::Public => {
                 if let Some(auth) = client_auth
@@ -1282,12 +1328,13 @@ where
                     return Err(ErrorResponse::new(ErrorCode::InvalidClient)
                         .with_description("client_id does not match token subject"));
                 }
-
-                Ok(())
             }
         }
+        Ok(())
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Client authentication or revocation persistence fails.
     pub async fn revoke(
         &self,
         request: RevocationRequest,
@@ -1327,13 +1374,15 @@ where
         else {
             return Ok(());
         };
-        self.authenticate_client_for_token_endpoint(&client, client_auth.as_ref())?;
+        Self::authenticate_client_for_token_endpoint(&client, client_auth.as_ref())?;
         self.refresh_token_repo
             .revoke_refresh_token(&request.token, client.id, Utc::now().timestamp())
             .await
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if trusted issuer keys cannot be loaded.
     pub async fn list_jwks(&self) -> ErrorResponseResult<Jwks> {
         if let Some(jwks) = &self.oauth_config.trusted_issuer_jwks {
             return Ok(jwks.clone());
@@ -1348,6 +1397,8 @@ where
         })
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if local signing or issuer key rotation fails.
     pub async fn rotate_issuer_key(&self) -> ErrorResponseResult<JwkPublic> {
         let previous = self.local_signing_jwk().await?;
         let mut binding = self
@@ -1361,9 +1412,7 @@ where
             .oauth_config
             .refresh_token_ttl_secs
             .max(self.oauth_config.token_ttl_secs);
-        let expires = Utc::now()
-            .timestamp()
-            .saturating_add(i64::try_from(ttl).unwrap_or(i64::MAX));
+        let expires = checked_expiration(Utc::now(), ttl)?.timestamp();
         self.key_service
             .key_repo()
             .rotate_issuer_key(
@@ -1376,6 +1425,8 @@ where
         Ok(replacement)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the Client or verifier update is invalid or fails.
     pub async fn rotate_client_secret(&self, client_id: &str) -> ErrorResponseResult<String> {
         let client = self
             .client_repo
@@ -1400,6 +1451,8 @@ where
         Ok(secret)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the Client lookup or root key rotation fails.
     pub async fn rotate_client_key(&self, client_id: &str) -> ErrorResponseResult<Key> {
         let client = self
             .client_repo
@@ -1420,6 +1473,8 @@ where
         Ok(key)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the Client lookup or key material deletion fails.
     pub async fn revoke_client_keys(&self, client_id: &str) -> ErrorResponseResult<()> {
         let client = self
             .client_repo
@@ -1433,6 +1488,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the Client or active root key lookup fails.
     pub async fn list_client_keys(&self, client_id: &str) -> ErrorResponseResult<Vec<Key>> {
         let client = self
             .client_repo
@@ -1450,13 +1507,11 @@ where
             .await
             .map_err(ErrorResponse::from)?;
 
-        if let Some(key) = key {
-            Ok(vec![key])
-        } else {
-            Ok(Vec::new())
-        }
+        Ok(key.map_or_else(Vec::new, |key| vec![key]))
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the key is absent, ambiguous, or cannot be loaded.
     pub async fn find_public_jwk(&self, key_id: Id) -> ErrorResponseResult<JwkPublic> {
         let jwks = self.list_jwks().await?;
         let key_id = key_id.to_string();
@@ -1512,8 +1567,8 @@ where
         &self,
         claims: &StandardClaims,
     ) -> ErrorResponseResult<Box<dyn Principal>> {
-        let id =
-            Id::parse_str(&claims.sub).map_err(|_| ErrorResponse::new(ErrorCode::InvalidGrant))?;
+        let id = Id::parse_str(&claims.sub)
+            .map_err(|_error| ErrorResponse::new(ErrorCode::InvalidGrant))?;
         let entity_type = match claims.principal_type {
             PrincipalType::User => EntityType::User,
             PrincipalType::Client => EntityType::Client,
@@ -1545,13 +1600,15 @@ where
         Ok(principal)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if token verification or Principal binding fails.
     pub async fn verify_token_principal(
         &self,
         token: &str,
     ) -> ErrorResponseResult<(StandardClaims, Box<dyn Principal>)> {
         let (header, _) = decode_jwt::<StandardClaims>(token)?;
-        let key_id =
-            Id::parse_str(&header.kid).map_err(|_| ErrorResponse::new(ErrorCode::InvalidGrant))?;
+        let key_id = Id::parse_str(&header.kid)
+            .map_err(|_error| ErrorResponse::new(ErrorCode::InvalidGrant))?;
         let public = self.find_public_jwk(key_id).await?;
         let (_, bound) = verify_jwt::<super::token::PrincipalBoundClaims>(&public, token)?;
         let claims = bound.standard_claims;
@@ -1572,13 +1629,16 @@ where
     }
 
     /// Verify the token before routing it to the operation that enforces its audience.
+    ///
+    /// # Errors
+    /// Returns an OAuth error response if access token verification fails.
     pub async fn verify_access_token_claims(
         &self,
         token: &str,
     ) -> ErrorResponseResult<super::token::AccessClaims> {
-        let (header, _) = decode_jwt::<serde::de::IgnoredAny>(token)?;
-        let key_id =
-            Id::parse_str(&header.kid).map_err(|_| ErrorResponse::new(ErrorCode::InvalidGrant))?;
+        let (header, _) = decode_jwt::<IgnoredAny>(token)?;
+        let key_id = Id::parse_str(&header.kid)
+            .map_err(|_error| ErrorResponse::new(ErrorCode::InvalidGrant))?;
         let public = self.find_public_jwk(key_id).await?;
         super::token::verify_access_claims(
             &public,
@@ -1588,6 +1648,8 @@ where
         )
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if access token or audience validation fails.
     pub async fn validate_access_token(
         &self,
         token: &str,
@@ -1600,6 +1662,8 @@ where
         Ok(access.standard_claims)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if no active User Principal can be resolved.
     pub async fn active_user_principal(
         &self,
         subject: Id,
@@ -1622,11 +1686,16 @@ where
         self.oauth_config.to_metadata(endpoint_base)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the device authorization request is invalid.
     pub fn device_authorization(
         &self,
         request: DeviceAuthorizationRequest,
     ) -> ErrorResponseResult<DeviceAuthorization> {
-        if request.client_id.as_deref().is_some_and(str::is_empty) {
+        if request
+            .client_id
+            .is_some_and(|client_id| client_id.is_empty())
+        {
             return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
                 .with_description("client_id cannot be empty"));
         }
@@ -1686,6 +1755,8 @@ where
         self.validate_issuance_inputs(client, principal, scopes)
             .await?;
         let signing_jwk = self.local_signing_jwk().await?;
+        let access_expires_at = checked_expiration(now, self.oauth_config.token_ttl_secs)?;
+        let refresh_expires_at = checked_expiration(now, self.oauth_config.refresh_token_ttl_secs)?;
         let scope = if scopes.is_empty() {
             None
         } else {
@@ -1695,7 +1766,7 @@ where
         let access_claims = StandardClaims {
             r#type: TokenType::Bearer,
             r#use: TokenUse::Access,
-            exp: (now + Duration::seconds(self.oauth_config.token_ttl_secs as i64)).timestamp(),
+            exp: access_expires_at.timestamp(),
             iat: now.timestamp(),
             nbf: now.timestamp(),
             iss: self.oauth_config.issuer.clone(),
@@ -1708,8 +1779,7 @@ where
             },
             scope: scopes.to_vec(),
             resource: resource.map(str::to_string),
-            authorization_details: authorization_details
-                .map(<[of_model::contract::authorization_details::AuthorizationDetail]>::to_vec),
+            authorization_details: authorization_details.map(<[AuthorizationDetail]>::to_vec),
         };
 
         let access_token_value = encode_jwt(
@@ -1721,14 +1791,7 @@ where
             },
         )?;
 
-        let user_info = match principal.get_entity_type() {
-            EntityType::User => principal
-                .get_entity_as_any()
-                .downcast_ref::<User>()
-                .cloned()
-                .map(User::into),
-            _ => None,
-        };
+        let user_info = principal_user_info(principal);
 
         let id_token = IdTokenClaims {
             standard_claims: StandardClaims {
@@ -1744,8 +1807,7 @@ where
         let refresh_claims = StandardClaims {
             aud: client.client_id.clone(),
             r#use: TokenUse::Refresh,
-            exp: (now + Duration::seconds(self.oauth_config.refresh_token_ttl_secs as i64))
-                .timestamp(),
+            exp: refresh_expires_at.timestamp(),
             ..access_claims
         };
 
@@ -1814,7 +1876,7 @@ where
         let claims = StandardClaims {
             r#type: TokenType::Bearer,
             r#use: TokenUse::Access,
-            exp: (now + Duration::seconds(self.oauth_config.token_ttl_secs as i64)).timestamp(),
+            exp: checked_expiration(now, self.oauth_config.token_ttl_secs)?.timestamp(),
             iat: now.timestamp(),
             nbf: now.timestamp(),
             iss: self.oauth_config.issuer.clone(),
@@ -1847,6 +1909,8 @@ where
         })
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if User creation or profile hydration fails.
     pub async fn create_user(&self, request: CreateUserRequest) -> ErrorResponseResult<UserInfo> {
         let user = self
             .user_repo
@@ -1868,6 +1932,8 @@ where
         self.hydrate_user_info(user).await
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the User is absent or profile lookup fails.
     pub async fn find_user_info(&self, user_id: Id) -> ErrorResponseResult<UserInfo> {
         let user = self
             .user_repo
@@ -1882,6 +1948,8 @@ where
         self.hydrate_user_info(user).await
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Users or their profile data cannot be listed.
     pub async fn list_user_info(
         &self,
         offset: u32,
@@ -1901,6 +1969,8 @@ where
         Ok(user_info_list)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if profile validation, update, or hydration fails.
     pub async fn update_user_info(
         &self,
         user_id: Id,
@@ -1917,8 +1987,8 @@ where
             })?;
 
         let sex = match request.sex.as_deref() {
-            Some("male") => Some(of_model::idp::contract::sex::Sex::Male),
-            Some("female") => Some(of_model::idp::contract::sex::Sex::Female),
+            Some("male") => Some(Sex::Male),
+            Some("female") => Some(Sex::Female),
             Some(value) => {
                 return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
                     .with_description(format!("unsupported sex value: {value}")));
@@ -1928,8 +1998,8 @@ where
 
         let birthdate = match request.birthdate.as_deref() {
             Some(value) => Some(
-                chrono::DateTime::parse_from_rfc3339(value)
-                    .map_err(|_| {
+                DateTime::parse_from_rfc3339(value)
+                    .map_err(|_error| {
                         ErrorResponse::new(ErrorCode::InvalidRequest)
                             .with_description("birthdate must be RFC3339".to_string())
                     })?
@@ -1989,6 +2059,8 @@ where
         self.hydrate_user_info(user).await
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the User is absent or verifier replacement fails.
     pub async fn reset_user_password(
         &self,
         user_id: Id,
@@ -2011,6 +2083,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the User is absent or deletion fails.
     pub async fn delete_user(&self, user_id: Id) -> ErrorResponseResult<()> {
         if self
             .user_repo
@@ -2029,6 +2103,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the User is absent or MFA persistence fails.
     pub async fn set_user_mfa_totp_secret(
         &self,
         user_id: Id,
@@ -2043,13 +2119,15 @@ where
                 ErrorResponse::new(ErrorCode::NotFound)
                     .with_description("User not found".to_string())
             })?;
-        let secret = enable.then(crate::util::generate_random_string::<32>);
+        let secret = enable.then(generate_random_string::<32>);
         self.user_repo
             .set_user_mfa_totp_secret(user_id, secret)
             .await
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the User is absent or MFA persistence fails.
     pub async fn set_user_mfa_webauthn_credentials(
         &self,
         user_id: Id,
@@ -2071,6 +2149,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the User is absent or blocked-state persistence fails.
     pub async fn set_user_blocked(
         &self,
         user_id: Id,
@@ -2093,13 +2173,14 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if the User is absent or consent lookup fails.
     pub async fn list_user_consents(
         &self,
         user_id: Id,
         offset: u32,
         limit: u32,
-    ) -> ErrorResponseResult<Vec<of_model::idp::model::oauth2_user_consent::OAuth2UserConsent>>
-    {
+    ) -> ErrorResponseResult<Vec<OAuth2UserConsent>> {
         if self
             .user_repo
             .find_user_by_id(user_id)
@@ -2117,6 +2198,8 @@ where
             .map_err(ErrorResponse::from)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if consent ownership validation or deletion fails.
     pub async fn revoke_user_consent(
         &self,
         user_id: Id,
@@ -2181,13 +2264,13 @@ where
         Ok(user_info)
     }
 
+    /// # Errors
+    /// Returns an OAuth error response if Principal or active root key lookup fails.
     pub async fn find_principal(
         &self,
         key_id: Id,
     ) -> ErrorResponseResult<Option<Box<dyn Principal>>> {
-        let key = if let Some(key) = self.key_service.key_repo().find_by_id(key_id).await? {
-            key
-        } else {
+        let Some(key) = self.key_service.key_repo().find_by_id(key_id).await? else {
             return Ok(None);
         };
 
@@ -2204,10 +2287,7 @@ where
     ) -> ErrorResponseResult<Option<Box<dyn Principal>>> {
         let principal = match key.entity_type {
             EntityType::User => {
-                let user = if let Some(user) = self.user_repo.find_user_by_id(key.entity_id).await?
-                {
-                    user
-                } else {
+                let Some(user) = self.user_repo.find_user_by_id(key.entity_id).await? else {
                     return Ok(None);
                 };
 
@@ -2217,11 +2297,7 @@ where
                 Box::new(UserPrincipal { user, key }) as Box<dyn Principal>
             }
             EntityType::Client => {
-                let client = if let Some(client) =
-                    self.client_repo.find_client_by_id(key.entity_id).await?
-                {
-                    client
-                } else {
+                let Some(client) = self.client_repo.find_client_by_id(key.entity_id).await? else {
                     return Ok(None);
                 };
 
@@ -2256,5 +2332,76 @@ where
         }
 
         Ok(())
+    }
+}
+
+fn checked_expiration(now: DateTime<Utc>, ttl_secs: u64) -> ErrorResponseResult<DateTime<Utc>> {
+    let seconds = i64::try_from(ttl_secs).map_err(|_error| invalid_token_ttl())?;
+    let duration = Duration::try_seconds(seconds).ok_or_else(invalid_token_ttl)?;
+    now.checked_add_signed(duration)
+        .ok_or_else(invalid_token_ttl)
+}
+
+fn invalid_token_ttl() -> ErrorResponse {
+    ErrorResponse::new(ErrorCode::ServerError)
+        .with_description("configured token TTL is outside the supported timestamp range")
+}
+
+fn principal_user_info(principal: &dyn Principal) -> Option<UserInfo> {
+    if principal.get_entity_type() != EntityType::User {
+        return None;
+    }
+    principal
+        .get_entity_as_any()
+        .downcast_ref::<User>()
+        .cloned()
+        .map(User::into)
+}
+
+#[cfg(feature = "std")]
+fn observe_client_credentials(started: Instant, phase: &str) {
+    if env::var_os("OF_SETUP_TIMEOUT_TIMING").is_some() {
+        let line = format!(
+            "seam=client_credentials phase={phase} pid={} thread={:?} wall_ms={} elapsed_ms={}\n",
+            process::id(),
+            thread::current().id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_millis(),
+            started.elapsed().as_millis()
+        );
+        let _ = io::stderr().lock().write_all(line.as_bytes());
+    }
+}
+
+#[cfg(test)]
+mod ttl_tests {
+    use chrono::{DateTime, Duration};
+    use of_model::idp::contract::error_code::ErrorCode;
+
+    use super::checked_expiration;
+
+    #[test]
+    fn maximum_ttl_returns_server_error_instead_of_panicking() {
+        let now = DateTime::from_timestamp(1_700_000_000, 0).expect("valid test timestamp");
+
+        let error = checked_expiration(now, u64::MAX).expect_err("maximum TTL must be rejected");
+
+        assert_eq!(error.error, ErrorCode::ServerError);
+        assert_eq!(
+            error.error_description.as_deref(),
+            Some("configured token TTL is outside the supported timestamp range")
+        );
+    }
+
+    #[test]
+    fn normal_ttl_preserves_the_exact_expiration() {
+        let now =
+            DateTime::from_timestamp(1_700_000_000, 123_456_789).expect("valid test timestamp");
+
+        let expires = checked_expiration(now, 3600).expect("normal TTL must remain valid");
+
+        assert_eq!(expires, now + Duration::seconds(3600));
     }
 }

@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP Management API
  *
@@ -10,10 +11,12 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum IdentityAction {
     #[serde(rename = "clients_read")]
+    #[default]
     ClientsRead,
     #[serde(rename = "clients_register")]
     ClientsRegister,
@@ -87,8 +90,8 @@ pub enum IdentityAction {
     ManagementSecuritySync,
 }
 
-impl core::fmt::Display for IdentityAction {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for IdentityAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::ClientsRead => write!(f, "clients_read"),
             Self::ClientsRegister => write!(f, "clients_register"),
@@ -127,11 +130,5 @@ impl core::fmt::Display for IdentityAction {
             Self::IdpSecuritySync => write!(f, "idp_security_sync"),
             Self::ManagementSecuritySync => write!(f, "management_security_sync"),
         }
-    }
-}
-
-impl Default for IdentityAction {
-    fn default() -> IdentityAction {
-        Self::ClientsRead
     }
 }

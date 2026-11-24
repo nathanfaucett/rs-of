@@ -32,6 +32,8 @@ pub(crate) fn validate_dynamic_client_grants(grant_types: &[GrantType]) -> Error
     Ok(())
 }
 
+/// # Errors
+/// Returns an OAuth error response if the request is inconsistent or not allowed for the client.
 pub fn validate_authorization_request(
     request: &AuthorizationRequest,
     client: &Client,
@@ -44,7 +46,7 @@ pub fn validate_authorization_request(
     validate_response_type(request, client)?;
     resolve_redirect_uri(request, client)?;
     validate_pkce(request, client, require_pkce)?;
-    validate_response_mode(request)?;
+    validate_response_mode(request);
 
     if let Some(scope) = &request.scope {
         validate_scopes(&parse_scopes(scope), &client.allowed_scopes)?;
@@ -53,6 +55,8 @@ pub fn validate_authorization_request(
     Ok(())
 }
 
+/// # Errors
+/// Returns an OAuth error response if the authorization details are not exactly one valid storage detail.
 pub fn validate_authorization_details(details: &[AuthorizationDetail]) -> ErrorResponseResult<()> {
     let [AuthorizationDetail::Storage(detail)] = details else {
         return Err(ErrorResponse::new(ErrorCode::InvalidRequest)
@@ -73,6 +77,8 @@ pub fn validate_authorization_details(details: &[AuthorizationDetail]) -> ErrorR
     Ok(())
 }
 
+/// # Errors
+/// Returns an OAuth error response if the redirect URI is absent or not registered.
 pub fn resolve_redirect_uri(
     request: &AuthorizationRequest,
     client: &Client,
@@ -128,9 +134,9 @@ fn validate_pkce(
     }
 }
 
-const fn validate_response_mode(request: &AuthorizationRequest) -> ErrorResponseResult<()> {
+const fn validate_response_mode(request: &AuthorizationRequest) {
     match request.response_mode {
-        None | Some(ResponseMode::Query | ResponseMode::FormPost) => Ok(()),
+        None | Some(ResponseMode::Query | ResponseMode::FormPost) => {}
     }
 }
 

@@ -24,6 +24,8 @@ pub fn scopes_to_string(scopes: &[String]) -> String {
     scopes.join(" ")
 }
 
+/// # Errors
+/// Returns [`ErrorResponse`] with `invalid_scope` if a requested scope is not allowed.
 pub fn validate_scopes(requested: &[String], allowed: &[String]) -> ErrorResponseResult<()> {
     if requested.is_empty() {
         return Ok(());

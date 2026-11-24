@@ -81,10 +81,18 @@ pub enum SyncMessage {
 }
 
 impl SyncMessage {
+    /// Encodes one protocol message.
+    ///
+    /// # Errors
+    /// Returns an error if Postcard serialization fails.
     pub fn encode(&self) -> Result<Vec<u8>, postcard::Error> {
         postcard::to_allocvec(self)
     }
 
+    /// Decodes one complete protocol message.
+    ///
+    /// # Errors
+    /// Returns an error if Postcard decoding fails or trailing bytes remain.
     pub fn decode(bytes: &[u8]) -> Result<Self, postcard::Error> {
         let (message, remaining) = postcard::take_from_bytes(bytes)?;
         if !remaining.is_empty() {
@@ -115,6 +123,10 @@ pub enum FrameError {
 pub struct FrameCodec;
 
 impl FrameCodec {
+    /// Encodes one checked wire frame.
+    ///
+    /// # Errors
+    /// Returns an error if the version or flags are invalid, or the payload exceeds the wire limit.
     pub fn encode(frame: &Frame) -> Result<Vec<u8>, FrameError> {
         if frame.version != FRAMING_VERSION {
             return Err(FrameError::InvalidVersion {
@@ -124,21 +136,27 @@ impl FrameCodec {
         if frame.flags != 0 {
             return Err(FrameError::InvalidFlags);
         }
-        let length = frame.payload.len();
-        if length > MAX_FRAME_PAYLOAD as usize {
+        let payload_len = frame.payload.len();
+        let length = u32::try_from(payload_len).unwrap_or(u32::MAX);
+        if length > MAX_FRAME_PAYLOAD {
             return Err(FrameError::FrameTooLarge {
-                size: length.min(u32::MAX as usize) as u32,
+                size: length,
                 max: MAX_FRAME_PAYLOAD,
             });
         }
-        let mut bytes = Vec::with_capacity(length + 10);
+        let mut bytes = Vec::with_capacity(payload_len + 10);
         bytes.extend_from_slice(&[frame.version, frame.flags]);
-        bytes.extend_from_slice(&(length as u32).to_le_bytes());
+        bytes.extend_from_slice(&length.to_le_bytes());
         bytes.extend_from_slice(&frame.payload);
         bytes.extend_from_slice(&crc32fast::hash(&frame.payload).to_le_bytes());
         Ok(bytes)
     }
 
+    /// Decodes and validates one complete wire frame.
+    ///
+    /// # Errors
+    /// Returns an error for invalid framing, an excessive payload, truncation, trailing bytes, or
+    /// a CRC mismatch.
     pub fn decode(bytes: &[u8]) -> Result<Frame, FrameError> {
         if bytes.len() < 10 {
             return Err(FrameError::Truncated);
@@ -149,29 +167,45 @@ impl FrameCodec {
         if bytes[1] != 0 {
             return Err(FrameError::InvalidFlags);
         }
-        let length = u32::from_le_bytes(bytes[2..6].try_into().expect("four length bytes"));
+        let length = u32::from_le_bytes(
+            bytes
+                .get(2..6)
+                .ok_or(FrameError::Truncated)?
+                .try_into()
+                .map_err(|_error| FrameError::Truncated)?,
+        );
         if length > MAX_FRAME_PAYLOAD {
             return Err(FrameError::FrameTooLarge {
                 size: length,
                 max: MAX_FRAME_PAYLOAD,
             });
         }
-        let end = 6 + length as usize;
+        let end = 6 + usize::try_from(length).map_err(|_error| FrameError::FrameTooLarge {
+            size: length,
+            max: MAX_FRAME_PAYLOAD,
+        })?;
         if bytes.len() < end + 4 {
             return Err(FrameError::Truncated);
         }
         if bytes.len() != end + 4 {
             return Err(FrameError::TrailingBytes);
         }
-        let expected = u32::from_le_bytes(bytes[end..].try_into().expect("four CRC bytes"));
-        let actual = crc32fast::hash(&bytes[6..end]);
+        let expected = u32::from_le_bytes(
+            bytes
+                .get(end..)
+                .ok_or(FrameError::Truncated)?
+                .try_into()
+                .map_err(|_error| FrameError::Truncated)?,
+        );
+        let payload = bytes.get(6..end).ok_or(FrameError::Truncated)?;
+        let actual = crc32fast::hash(payload);
         if actual != expected {
             return Err(FrameError::CrcMismatch { expected, actual });
         }
         Ok(Frame {
             version: bytes[0],
             flags: bytes[1],
-            payload: bytes[6..end].to_vec(),
+            payload: payload.to_vec(),
         })
     }
 }

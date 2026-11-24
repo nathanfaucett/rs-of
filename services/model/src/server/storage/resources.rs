@@ -1,15 +1,18 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::storage::database_resource::DatabaseId;
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct CreateResourceRequest {
     pub name: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EnsureDatabaseRequest {
@@ -19,7 +22,7 @@ pub struct EnsureDatabaseRequest {
     pub name: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct FileSystemResourceResponse {
@@ -27,7 +30,7 @@ pub struct FileSystemResourceResponse {
     pub name: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseDetailResponse {
@@ -37,7 +40,7 @@ pub struct DatabaseDetailResponse {
     pub application_id: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct FileSystemDetailResponse {

@@ -1,15 +1,18 @@
+use tokio::signal::ctrl_c;
+#[cfg(unix)]
+use tokio::signal::unix::{SignalKind, signal};
 use tokio_util::sync::CancellationToken;
 
 pub async fn shutdown_signal(cancellation_token: CancellationToken) {
-    let ctrl_c = async { tokio::signal::ctrl_c().await };
+    let ctrl_c = async { ctrl_c().await };
 
     #[cfg(unix)]
     let terminate = async {
-        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(mut signal) => match signal.recv().await {
-                Some(()) => Ok(()),
-                None => Ok(()),
-            },
+        match signal(SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+                Ok(())
+            }
             Err(e) => Err(e),
         }
     };

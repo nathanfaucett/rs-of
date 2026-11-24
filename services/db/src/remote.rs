@@ -1,7 +1,8 @@
-use std::{io, path::PathBuf, time::Duration};
+use std::{fs, io, path::PathBuf, time::Duration};
 
 use ofdb_sql::Client;
 use serde::{Deserialize, Serialize};
+use tokio::time::timeout;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -19,6 +20,11 @@ const fn default_deadline() -> u64 {
 }
 
 impl RemoteDatabaseConfig {
+    /// Validates the remote endpoint, identity configuration, and deadline.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidInput` if the endpoint, identity configuration, or deadline is invalid.
     pub fn validate(&self) -> io::Result<()> {
         let invalid = || {
             io::Error::new(
@@ -26,7 +32,7 @@ impl RemoteDatabaseConfig {
                 "remote identity SQL requires a finite deadline, a bare loopback HTTP endpoint or mTLS HTTPS endpoint",
             )
         };
-        let endpoint = url::Url::parse(&self.endpoint).map_err(|_| invalid())?;
+        let endpoint = url::Url::parse(&self.endpoint).map_err(|_parse_error| invalid())?;
         if self.deadline_ms == 0
             || self.deadline_ms > 300_000
             || !endpoint.username().is_empty()
@@ -63,6 +69,12 @@ impl RemoteDatabaseConfig {
         }
     }
 
+    /// Connects to the configured remote SQL service.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if validation, certificate loading, or connection fails, or if the
+    /// deadline expires.
     pub async fn connect(&self) -> io::Result<Client> {
         self.validate()?;
         let deadline = Duration::from_millis(self.deadline_ms);
@@ -74,9 +86,9 @@ impl RemoteDatabaseConfig {
             ) {
                 (Some(ca), Some(certificate), Some(key)) => Client::connect_with_identity(
                     &self.endpoint,
-                    std::fs::read(ca)?,
-                    std::fs::read(certificate)?,
-                    std::fs::read(key)?,
+                    fs::read(ca)?,
+                    fs::read(certificate)?,
+                    fs::read(key)?,
                 )
                 .await
                 .map_err(io::Error::other),
@@ -85,9 +97,9 @@ impl RemoteDatabaseConfig {
                     .map_err(io::Error::other),
             }
         };
-        tokio::time::timeout(deadline, operation)
+        timeout(deadline, operation)
             .await
-            .map_err(|_| {
+            .map_err(|_elapsed| {
                 io::Error::new(
                     io::ErrorKind::TimedOut,
                     "identity SQL connection deadline exceeded",

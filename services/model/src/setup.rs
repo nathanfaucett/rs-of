@@ -1,3 +1,6 @@
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, string::String, vec::Vec};
+
 use serde::{Deserialize, Serialize};
 
 use crate::setup as models;
@@ -5,6 +8,10 @@ use crate::setup as models;
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "preserve the public challenge wire field"
+)]
 pub struct Challenge {
     #[serde(rename = "challenge")]
     pub challenge: String,
@@ -104,6 +111,10 @@ pub struct IndependentCreateRequest {
         default,
         with = "::serde_with::rust::double_option",
         skip_serializing_if = "Option::is_none"
+    )]
+    #[allow(
+        clippy::option_option,
+        reason = "preserve absent, null, and string password wire states"
     )]
     pub password: Option<Option<String>>,
 }

@@ -1,11 +1,3 @@
-#[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
-
 use serde::{Deserialize, Serialize};
 
 /// Standard OAuth 2.0 error codes (RFC 6749 Section 5.2).

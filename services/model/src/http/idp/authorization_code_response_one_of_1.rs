@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP IdP API
@@ -12,7 +13,7 @@ use alloc::string::String;
 use crate::http::idp as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthorizationCodeResponseOneOf1 {
     #[serde(rename = "error")]
     pub error: models::ErrorCode,
@@ -25,8 +26,9 @@ pub struct AuthorizationCodeResponseOneOf1 {
 }
 
 impl AuthorizationCodeResponseOneOf1 {
-    pub fn new(error: models::ErrorCode, state: String) -> AuthorizationCodeResponseOneOf1 {
-        AuthorizationCodeResponseOneOf1 {
+    #[must_use]
+    pub const fn new(error: models::ErrorCode, state: String) -> Self {
+        Self {
             error,
             error_description: None,
             error_uri: None,

@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -10,10 +11,12 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum JwsAlgorithm {
     #[serde(rename = "RS256")]
+    #[default]
     Rs256,
     #[serde(rename = "RS384")]
     Rs384,
@@ -37,8 +40,8 @@ pub enum JwsAlgorithm {
     EdDsa,
 }
 
-impl core::fmt::Display for JwsAlgorithm {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for JwsAlgorithm {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Rs256 => write!(f, "RS256"),
             Self::Rs384 => write!(f, "RS384"),
@@ -52,11 +55,5 @@ impl core::fmt::Display for JwsAlgorithm {
             Self::Ps512 => write!(f, "PS512"),
             Self::EdDsa => write!(f, "EdDSA"),
         }
-    }
-}
-
-impl Default for JwsAlgorithm {
-    fn default() -> JwsAlgorithm {
-        Self::Rs256
     }
 }

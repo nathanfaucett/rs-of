@@ -1,18 +1,30 @@
-use alloc::{string::String, vec, vec::Vec};
+use alloc::vec;
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
 
-use base64::Engine;
+#[cfg(feature = "std")]
+use std::{
+    env, process, thread,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
+
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
 use crate::password_config::PasswordConfig;
 
+/// # Panics
+/// Panics if the operating system random source fails or, in debug builds, if `N` is zero.
 #[must_use]
 pub fn generate_random_string<const N: usize>() -> String {
     // TODO: use generic_const_exprs once stablized to enforce N > 0 at compile time
     debug_assert_ne!(N, 0);
     let mut bytes = [0u8; N];
     getrandom::fill(&mut bytes).expect("Failed to generate random bytes");
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
+/// # Panics
+/// Panics if the operating system random source fails.
 #[must_use]
 pub fn random_bytes(size: usize) -> Vec<u8> {
     let mut bytes = vec![0u8; size];
@@ -20,6 +32,8 @@ pub fn random_bytes(size: usize) -> Vec<u8> {
     bytes.clone()
 }
 
+/// # Errors
+/// Returns an Argon2 error if secure randomness or password hashing fails.
 pub fn encrypt_password(config: &PasswordConfig, input: &str) -> argon2::Result<String> {
     #[cfg(feature = "std")]
     let _observation = PasswordObservation::start("hash");
@@ -30,6 +44,8 @@ pub fn encrypt_password(config: &PasswordConfig, input: &str) -> argon2::Result<
     )
 }
 
+/// # Errors
+/// Returns an Argon2 error if the stored verifier is malformed or verification fails.
 pub fn verify_password(input: &str, encrypted_password: &str) -> argon2::Result<bool> {
     if encrypted_password.is_empty() {
         return Ok(false);
@@ -40,22 +56,22 @@ pub fn verify_password(input: &str, encrypted_password: &str) -> argon2::Result<
 }
 
 #[cfg(feature = "std")]
-struct PasswordObservation(Option<(&'static str, std::time::Instant)>);
+struct PasswordObservation(Option<(&'static str, Instant)>);
 
 #[cfg(feature = "std")]
 impl PasswordObservation {
     fn start(phase: &'static str) -> Self {
-        let started = std::env::var_os("OF_SETUP_TIMEOUT_TIMING").map(|_| {
+        let started = env::var_os("OF_SETUP_TIMEOUT_TIMING").map(|_| {
             eprintln!(
                 "seam=password phase={phase}_start pid={} thread={:?} wall_ms={}",
-                std::process::id(),
-                std::thread::current().id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
+                process::id(),
+                thread::current().id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
                     .expect("system clock")
                     .as_millis()
             );
-            (phase, std::time::Instant::now())
+            (phase, Instant::now())
         });
         Self(started)
     }
@@ -67,10 +83,10 @@ impl Drop for PasswordObservation {
         if let Some((phase, started)) = self.0 {
             eprintln!(
                 "seam=password phase={phase}_end pid={} thread={:?} wall_ms={} elapsed_ms={}",
-                std::process::id(),
-                std::thread::current().id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
+                process::id(),
+                thread::current().id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
                     .expect("system clock")
                     .as_millis(),
                 started.elapsed().as_millis()

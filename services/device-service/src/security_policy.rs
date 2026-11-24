@@ -1,17 +1,20 @@
+use core::fmt;
+
 #[cfg(feature = "ofdb")]
 use std::io;
 
 use idp_service::{
     ofdb::LocalIdentity,
-    security_sync::{PUBLIC_IDENTITY_POLICY_TABLES, public_security_tables},
+    security_sync::{PUBLIC_IDENTITY_POLICY_TABLES, PublicSecurityTable, public_security_tables},
 };
 use management_service::LocalPermissions;
+use of_model::device::contract::device_state::DeviceState;
 use of_model::id::Id;
 use of_model::idp::contract::permission_evaluation::IdentityAction;
 use of_model::idp::contract::permission_evaluation::IdentityResource;
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
 use of_model::idp::contract::permission_evaluation::PermissionTarget;
-use ofdb_sql::Value;
+use ofdb_sql::{Client, SyncCandidateView, Value};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -29,14 +32,16 @@ pub enum SecurityContext {
 }
 
 impl SecurityContext {
-    pub fn histories(self) -> &'static [SecurityHistory] {
+    #[must_use]
+    pub const fn histories(self) -> &'static [SecurityHistory] {
         match self {
             Self::Idp => &[SecurityHistory::Idp],
             Self::Device => &[SecurityHistory::IdentityPolicy, SecurityHistory::Devices],
         }
     }
 
-    pub fn permission(self) -> (IdentityAction, IdentityResource) {
+    #[must_use]
+    pub const fn permission(self) -> (IdentityAction, IdentityResource) {
         match self {
             Self::Idp => (
                 IdentityAction::IdpSecuritySync,
@@ -58,7 +63,8 @@ pub enum SecurityHistory {
 }
 
 impl SecurityHistory {
-    pub fn name(self) -> &'static str {
+    #[must_use]
+    pub const fn name(self) -> &'static str {
         match self {
             Self::Idp => "idp",
             Self::IdentityPolicy => "policy-identity",
@@ -66,11 +72,12 @@ impl SecurityHistory {
         }
     }
 
+    #[must_use]
     pub fn tables(self) -> Vec<&'static str> {
         match self {
             Self::Idp => public_security_tables()
                 .into_iter()
-                .map(|table| table.name())
+                .map(PublicSecurityTable::name)
                 .filter(|name| {
                     !PUBLIC_IDENTITY_POLICY_TABLES
                         .iter()
@@ -81,10 +88,13 @@ impl SecurityHistory {
                 .iter()
                 .map(|table| table.name())
                 .collect(),
-            Self::Devices => PUBLIC_DEVICE_TABLES.iter().copied().collect(),
+            Self::Devices => PUBLIC_DEVICE_TABLES.to_vec(),
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the table, column, or historical value is not public.
     pub fn validate_value(
         self,
         table: &str,
@@ -104,7 +114,6 @@ impl SecurityHistory {
                 if !public.permits_historical_value(column, value) {
                     return Err(format!("invalid idp value: {table}.{column}"));
                 }
-                Ok(())
             }
             Self::IdentityPolicy => {
                 let public = public_security_tables()
@@ -117,7 +126,6 @@ impl SecurityHistory {
                 if !public.permits_historical_value(column, value) {
                     return Err(format!("invalid identity policy value: {table}.{column}"));
                 }
-                Ok(())
             }
             Self::Devices => {
                 if !permits_device_table(table) {
@@ -131,14 +139,17 @@ impl SecurityHistory {
                 if !security_candidates::permits_device_value(table, column, value) {
                     return Err(format!("invalid device value: {table}.{column}"));
                 }
-                Ok(())
             }
         }
+        Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when a candidate violates the selected public security contract.
     pub fn validate_candidate(
         self,
-        view: &ofdb_sql::SyncCandidateView,
+        view: &SyncCandidateView,
         bindings: &[PeerBinding],
     ) -> Result<(), io::Error> {
         match self {
@@ -149,11 +160,10 @@ impl SecurityHistory {
         }
     }
 
-    pub async fn validate_schema(
-        self,
-        client: &ofdb_sql::Client,
-        tables: &[&str],
-    ) -> Result<(), io::Error> {
+    /// # Errors
+    ///
+    /// Returns an error when a security table is unavailable or has an unreviewed schema.
+    pub async fn validate_schema(self, client: &Client, tables: &[&str]) -> Result<(), io::Error> {
         let public = public_security_tables();
         for table in tables {
             let expected = match self {
@@ -212,7 +222,7 @@ pub struct Device {
     pub name: String,
     pub public_key: Vec<u8>,
     pub address: String,
-    pub state: of_model::device::contract::device_state::DeviceState,
+    pub state: DeviceState,
     pub approved_at: Option<i64>,
     pub revoked_at: Option<i64>,
     pub created_at: i64,
@@ -226,8 +236,15 @@ pub struct SecuritySync<'a> {
     policy: &'a LocalPermissions,
 }
 
+impl fmt::Debug for SecuritySync<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecuritySync").finish_non_exhaustive()
+    }
+}
+
 impl<'a> SecuritySync<'a> {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         idp: &'a LocalIdentity,
         devices: &'a DbDeviceRepo,
         policy: &'a LocalPermissions,
@@ -239,6 +256,9 @@ impl<'a> SecuritySync<'a> {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns permission denied when no history is authorized or policy evaluation fails.
     pub async fn binding(
         &self,
         context: SecurityContext,
@@ -259,7 +279,11 @@ impl<'a> SecuritySync<'a> {
                 action,
                 target: PermissionTarget::Installation { resource },
             };
-            let permitted = self.policy.evaluate(&request).await.map_err(|_| denied())?;
+            let permitted = self
+                .policy
+                .evaluate(&request)
+                .await
+                .map_err(|_error| denied())?;
             if permitted {
                 return Ok(*history);
             }
@@ -267,6 +291,9 @@ impl<'a> SecuritySync<'a> {
         Err(denied())
     }
 
+    /// # Errors
+    ///
+    /// Returns permission denied when the request is not authorized.
     pub async fn authorize(
         &self,
         context: SecurityContext,
@@ -276,24 +303,35 @@ impl<'a> SecuritySync<'a> {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns permission denied when the request is not authorized or policy evaluation fails.
     pub async fn check_permission(
         &self,
         request: &PermissionEvaluationRequest,
     ) -> Result<(), io::Error> {
-        if !self.policy.evaluate(request).await.map_err(|_| denied())? {
+        if !self
+            .policy
+            .evaluate(request)
+            .await
+            .map_err(|_error| denied())?
+        {
             return Err(denied());
         }
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns permission denied when the endpoint, Device, or owner is not currently authorized.
     pub async fn endpoint_binding(&self, endpoint: &str) -> Result<PeerBinding, io::Error> {
         let device = self
             .devices
             .find_approved_by_public_key(endpoint)
             .await
-            .map_err(|_| denied())?
+            .map_err(|_error| denied())?
             .ok_or_else(denied)?;
-        let owner = device.owner_subject.parse().map_err(|_| denied())?;
+        let owner = device.owner_subject.parse().map_err(|_error| denied())?;
         if !self.idp.is_active_user(owner).await? {
             return Err(denied());
         }
@@ -304,6 +342,9 @@ impl<'a> SecuritySync<'a> {
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns permission denied when the endpoint does not match the requested member.
     pub async fn peer_binding(&self, endpoint: &str, member: Id) -> Result<PeerBinding, io::Error> {
         let binding = self.endpoint_binding(endpoint).await?;
         if binding.member != member {

@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -10,10 +11,12 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum ClientProfile {
     #[serde(rename = "web_application")]
+    #[default]
     WebApplication,
     #[serde(rename = "user_agent_based_application")]
     UserAgentBasedApplication,
@@ -21,18 +24,12 @@ pub enum ClientProfile {
     NativeApplication,
 }
 
-impl core::fmt::Display for ClientProfile {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for ClientProfile {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::WebApplication => write!(f, "web_application"),
             Self::UserAgentBasedApplication => write!(f, "user_agent_based_application"),
             Self::NativeApplication => write!(f, "native_application"),
         }
-    }
-}
-
-impl Default for ClientProfile {
-    fn default() -> ClientProfile {
-        Self::WebApplication
     }
 }

@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -10,26 +11,22 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum ResponseMode {
     #[serde(rename = "query")]
+    #[default]
     Query,
     #[serde(rename = "form_post")]
     FormPost,
 }
 
-impl core::fmt::Display for ResponseMode {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for ResponseMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Query => write!(f, "query"),
             Self::FormPost => write!(f, "form_post"),
         }
-    }
-}
-
-impl Default for ResponseMode {
-    fn default() -> ResponseMode {
-        Self::Query
     }
 }

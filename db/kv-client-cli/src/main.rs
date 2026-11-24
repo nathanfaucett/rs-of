@@ -88,6 +88,13 @@ async fn main() -> ExitCode {
         _ => None,
     };
 
+    #[cfg_attr(
+        not(any(feature = "remote", feature = "in-memory", feature = "redb")),
+        allow(
+            unused_variables,
+            reason = "input is validated even when every execution backend is disabled"
+        )
+    )]
     let input = match &args.command {
         Command::Set { value, .. } => {
             let bytes = bytes
@@ -106,49 +113,47 @@ async fn main() -> ExitCode {
     };
 
     let operation = async {
+        #[cfg(feature = "remote")]
         if let Some(endpoint) = &args.endpoint {
-            #[cfg(feature = "remote")]
-            {
-                let client = match (&args.tls_ca, &args.tls_cert, &args.tls_key) {
-                    (Some(ca), Some(certificate), Some(private_key)) => {
-                        Client::connect_with_identity(
-                            endpoint,
-                            fs::read(ca).map_err(|error| error.to_string())?,
-                            fs::read(certificate).map_err(|error| error.to_string())?,
-                            fs::read(private_key).map_err(|error| error.to_string())?,
-                        )
-                        .await
-                        .map_err(|error| error.to_string())?
-                    }
-                    (Some(ca), None, None) => Client::connect_with_ca(
-                        endpoint,
-                        fs::read(ca).map_err(|error| error.to_string())?,
-                    )
+            let client = match (&args.tls_ca, &args.tls_cert, &args.tls_key) {
+                (Some(ca), Some(certificate), Some(private_key)) => Client::connect_with_identity(
+                    endpoint,
+                    fs::read(ca).map_err(|error| error.to_string())?,
+                    fs::read(certificate).map_err(|error| error.to_string())?,
+                    fs::read(private_key).map_err(|error| error.to_string())?,
+                )
+                .await
+                .map_err(|error| error.to_string())?,
+                (Some(ca), None, None) => Client::connect_with_ca(
+                    endpoint,
+                    fs::read(ca).map_err(|error| error.to_string())?,
+                )
+                .await
+                .map_err(|error| error.to_string())?,
+                (None, None, None) => Client::connect(endpoint)
                     .await
                     .map_err(|error| error.to_string())?,
-                    (None, None, None) => Client::connect(endpoint)
-                        .await
-                        .map_err(|error| error.to_string())?,
-                    _ => {
-                        return Err(
-                            "--tls-cert and --tls-key require --tls-ca and each other".to_owned()
-                        );
-                    }
-                };
-                return execute_client(&client, &args.command, input).await;
-            }
-            #[cfg(not(feature = "remote"))]
+                _ => {
+                    return Err(
+                        "--tls-cert and --tls-key require --tls-ca and each other".to_owned()
+                    );
+                }
+            };
+            return execute_client(&client, &args.command, input).await;
+        }
+        #[cfg(not(feature = "remote"))]
+        if args.endpoint.is_some() {
             return Err("kv-cli was built without the `remote` feature".to_owned());
         }
+        #[cfg(all(feature = "remote", unix))]
         if let Some(path) = &args.unix_socket {
-            #[cfg(all(feature = "remote", unix))]
-            {
-                let client = Client::connect_unix(path)
-                    .await
-                    .map_err(|error| error.to_string())?;
-                return execute_client(&client, &args.command, input).await;
-            }
-            #[cfg(not(all(feature = "remote", unix)))]
+            let client = Client::connect_unix(path)
+                .await
+                .map_err(|error| error.to_string())?;
+            return execute_client(&client, &args.command, input).await;
+        }
+        #[cfg(not(all(feature = "remote", unix)))]
+        if args.unix_socket.is_some() {
             return Err("Unix sockets require a Unix build with the `remote` feature".to_owned());
         }
         if args.memory {
@@ -161,14 +166,14 @@ async fn main() -> ExitCode {
             #[cfg(not(feature = "in-memory"))]
             return Err("kv-cli was built without the `in-memory` feature".to_owned());
         }
+        #[cfg(feature = "redb")]
         if let Some(path) = &args.database {
-            #[cfg(feature = "redb")]
-            {
-                let database = Database::open(path).map_err(|error| error.to_string())?;
-                let client = database.client();
-                return execute_client(&client, &args.command, input).await;
-            }
-            #[cfg(not(feature = "redb"))]
+            let database = Database::open(path).map_err(|error| error.to_string())?;
+            let client = database.client();
+            return execute_client(&client, &args.command, input).await;
+        }
+        #[cfg(not(feature = "redb"))]
+        if args.database.is_some() {
             return Err("kv-cli was built without the `redb` feature".to_owned());
         }
         Err("select exactly one target".to_owned())

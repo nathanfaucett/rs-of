@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
 /*
  * LIDP Device API
@@ -12,7 +13,7 @@ use alloc::string::String;
 use crate::http::device as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SelectionRequest {
     #[serde(rename = "applicationId")]
@@ -26,13 +27,14 @@ pub struct SelectionRequest {
 }
 
 impl SelectionRequest {
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         application_id: String,
         id: String,
         kind: models::SelectionKind,
         storage_access_token: String,
-    ) -> SelectionRequest {
-        SelectionRequest {
+    ) -> Self {
+        Self {
             application_id,
             id,
             kind,

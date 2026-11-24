@@ -1,3 +1,6 @@
+use core::fmt;
+
+#[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
 use of_model::contract::authorization_details::AuthorizationDetail;
@@ -14,6 +17,12 @@ pub struct OAuth2RefreshToken {
     pub authorization_details: Option<Vec<AuthorizationDetail>>,
     pub expires_at: i64,
     pub created_at: i64,
+}
+
+impl fmt::Debug for OAuth2RefreshToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuth2RefreshToken").finish_non_exhaustive()
+    }
 }
 
 pub trait OAuth2RefreshTokenRepo {

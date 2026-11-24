@@ -45,11 +45,16 @@ pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 24] = [
     IdentityAction::ClientsRegister,
 ];
 
+#[derive(Debug)]
 pub struct ManagementService<P, R> {
     permission_repo: P,
     role_repo: R,
 }
 
+#[allow(
+    clippy::future_not_send,
+    reason = "PermissionRepo and RoleRepo do not require Send futures"
+)]
 impl<P, R> ManagementService<P, R>
 where
     P: PermissionRepo,
@@ -62,10 +67,13 @@ where
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
     pub async fn has_user_application_permission(
         &self,
-        user_id: of_model::id::Id,
-        application_id: of_model::id::Id,
+        user_id: Id,
+        application_id: Id,
         permission_name: &str,
     ) -> Result<bool, ManagementError> {
         if application_id.is_nil() || user_id.is_nil() {
@@ -76,6 +84,9 @@ where
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
     pub async fn evaluate_permission(
         &self,
         request: &PermissionEvaluationRequest,
@@ -92,9 +103,12 @@ where
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
     pub async fn list_roles(
         &self,
-        application_id: of_model::id::Id,
+        application_id: Id,
         offset: u32,
         limit: u32,
     ) -> Result<Vec<Role>, ManagementError> {
@@ -103,9 +117,12 @@ where
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
     pub async fn create_role(
         &self,
-        application_id: of_model::id::Id,
+        application_id: Id,
         name: &str,
         description: Option<&str>,
     ) -> Result<Role, ManagementError> {
@@ -114,70 +131,91 @@ where
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
     pub async fn find_role_by_id(
         &self,
-        application_id: of_model::id::Id,
-        role_id: of_model::id::Id,
+        application_id: Id,
+        role_id: Id,
     ) -> Result<Option<Role>, ManagementError> {
         self.role_repo
             .find_role_by_id(application_id, role_id)
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
     pub async fn delete_role_by_id(
         &self,
-        application_id: of_model::id::Id,
-        role_id: of_model::id::Id,
+        application_id: Id,
+        role_id: Id,
     ) -> Result<(), ManagementError> {
         self.role_repo
             .delete_role_by_id(application_id, role_id)
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
     pub async fn add_role_to_user(
         &self,
-        application_id: of_model::id::Id,
-        user_id: of_model::id::Id,
-        role_id: of_model::id::Id,
+        application_id: Id,
+        user_id: Id,
+        role_id: Id,
     ) -> Result<(), ManagementError> {
         self.role_repo
             .add_role_to_user(application_id, user_id, role_id)
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
     pub async fn remove_role_from_user(
         &self,
-        application_id: of_model::id::Id,
-        user_id: of_model::id::Id,
-        role_id: of_model::id::Id,
+        application_id: Id,
+        user_id: Id,
+        role_id: Id,
     ) -> Result<(), ManagementError> {
         self.role_repo
             .remove_role_from_user(application_id, user_id, role_id)
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
     pub async fn list_user_roles(
         &self,
-        application_id: of_model::id::Id,
-        user_id: of_model::id::Id,
+        application_id: Id,
+        user_id: Id,
     ) -> Result<Vec<Role>, ManagementError> {
         self.role_repo
             .list_user_roles(application_id, user_id)
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
     pub async fn list_user_roles_across_applications(
         &self,
-        user_id: of_model::id::Id,
+        user_id: Id,
     ) -> Result<Vec<Role>, ManagementError> {
         self.role_repo
             .list_user_roles_across_applications(user_id)
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the permission repository fails.
     pub async fn list_permissions(
         &self,
-        application_id: of_model::id::Id,
+        application_id: Id,
         offset: u32,
         limit: u32,
     ) -> Result<Vec<Permission>, ManagementError> {
@@ -186,9 +224,12 @@ where
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the permission repository fails.
     pub async fn create_permission(
         &self,
-        application_id: of_model::id::Id,
+        application_id: Id,
         name: &str,
         description: Option<&str>,
     ) -> Result<Permission, ManagementError> {
@@ -197,52 +238,67 @@ where
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the permission repository fails.
     pub async fn find_permission_by_id(
         &self,
-        application_id: of_model::id::Id,
-        permission_id: of_model::id::Id,
+        application_id: Id,
+        permission_id: Id,
     ) -> Result<Option<Permission>, ManagementError> {
         self.permission_repo
             .find_permission_by_id(application_id, permission_id)
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the permission repository fails.
     pub async fn delete_permission_by_id(
         &self,
-        application_id: of_model::id::Id,
-        permission_id: of_model::id::Id,
+        application_id: Id,
+        permission_id: Id,
     ) -> Result<(), ManagementError> {
         self.permission_repo
             .delete_permission_by_id(application_id, permission_id)
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the permission repository fails.
     pub async fn list_role_permissions(
         &self,
-        application_id: of_model::id::Id,
-        role_id: of_model::id::Id,
+        application_id: Id,
+        role_id: Id,
     ) -> Result<Vec<Permission>, ManagementError> {
         self.permission_repo
             .list_role_permissions(application_id, role_id)
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the permission repository fails.
     pub async fn add_permission_to_role(
         &self,
-        application_id: of_model::id::Id,
-        role_id: of_model::id::Id,
-        permission_id: of_model::id::Id,
+        application_id: Id,
+        role_id: Id,
+        permission_id: Id,
     ) -> Result<(), ManagementError> {
         self.permission_repo
             .add_permission_to_role(application_id, role_id, permission_id)
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the permission repository fails.
     pub async fn remove_permission_from_role(
         &self,
-        application_id: of_model::id::Id,
-        role_id: of_model::id::Id,
-        permission_id: of_model::id::Id,
+        application_id: Id,
+        role_id: Id,
+        permission_id: Id,
     ) -> Result<(), ManagementError> {
         self.permission_repo
             .remove_permission_from_role(application_id, role_id, permission_id)
@@ -541,6 +597,77 @@ mod tests {
                 .await
                 .expect("find permission"),
             Some(permission)
+        );
+    }
+
+    #[tokio::test]
+    async fn cross_application_references_do_not_grant_policy() {
+        let engine = ofdb_sql::Database::in_memory();
+        up(&engine.client())
+            .await
+            .expect("initialize policy schema");
+        let service = ManagementService::new(
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
+        );
+        let role_application = Id::now_v7();
+        let permission_application = Id::now_v7();
+        let user = Id::now_v7();
+        let role = service
+            .create_role(role_application, "operator", None)
+            .await
+            .expect("create role");
+        let permission = service
+            .create_permission(permission_application, "operate", None)
+            .await
+            .expect("create permission");
+
+        // Synchronized references to another application's policy must stay inert.
+        for (sql, params) in [
+            (
+                "INSERT INTO application_user_roles (user_id, application_id, role_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $4)",
+                ofdb_sql::QueryParams::Positional(vec![
+                    ofdb_sql::Value::Uuid(user),
+                    ofdb_sql::Value::Uuid(permission_application),
+                    ofdb_sql::Value::Uuid(role.id),
+                    ofdb_sql::Value::Integer(0),
+                ]),
+            ),
+            (
+                "INSERT INTO role_permissions (role_id, permission_id, created_at, updated_at) VALUES ($1, $2, $3, $3)",
+                ofdb_sql::QueryParams::Positional(vec![
+                    ofdb_sql::Value::Uuid(role.id),
+                    ofdb_sql::Value::Uuid(permission.id),
+                    ofdb_sql::Value::Integer(0),
+                ]),
+            ),
+        ] {
+            engine
+                .client()
+                .execute_sql(sql, Some(&params))
+                .await
+                .expect("insert cross-application reference");
+        }
+
+        assert!(
+            service
+                .list_user_roles(permission_application, user)
+                .await
+                .expect("list scoped roles")
+                .is_empty()
+        );
+        assert!(
+            service
+                .list_user_roles_across_applications(user)
+                .await
+                .expect("list roles across applications")
+                .is_empty()
+        );
+        assert!(
+            !service
+                .has_user_application_permission(user, permission_application, "operate")
+                .await
+                .expect("cross-application policy must not authorize")
         );
     }
 }

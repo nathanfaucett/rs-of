@@ -373,15 +373,20 @@ fn fresh_replica_retains_generated_uuid_keys_from_history() {
 #[cfg(all(feature = "in-memory", feature = "validated-history"))]
 #[tokio::test]
 async fn peer_session_preserves_generated_keys_and_applies_later_edits() {
+    use core::future::ready;
+
     use ofdb_sql::history::{SessionConfig, SyncRole, SyncTransport};
-    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+    use tokio::{
+        sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+        time::timeout,
+    };
 
     struct Channel(UnboundedSender<Vec<u8>>, UnboundedReceiver<Vec<u8>>);
     impl SyncTransport for Channel {
         type Error = &'static str;
 
-        async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
-            self.0.send(frame).map_err(|_| "peer closed")
+        fn send(&mut self, frame: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
+            ready(self.0.send(frame).map_err(|_error| "peer closed"))
         }
 
         async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
@@ -425,7 +430,7 @@ async fn peer_session_preserves_generated_keys_and_applies_later_edits() {
         let (b_send, b_recv) = unbounded_channel();
         let left = Channel(a_send, b_recv);
         let right = Channel(b_send, a_recv);
-        let (a_sync, b_sync) = tokio::time::timeout(Duration::from_secs(10), async {
+        let (a_sync, b_sync) = timeout(Duration::from_secs(10), async {
             tokio::join!(
                 async {
                     let mut transport = left;

@@ -10,6 +10,10 @@ const ADMINISTRATOR: &str = "installation-administrator";
 
 /// Provision the original administrator on the Installation's identity owner.
 /// Exact setup retries do not change policy, including after a grant or policy is deleted.
+///
+/// # Errors
+///
+/// Returns an error for invalid administrator grants or a database failure.
 pub async fn provision_initial_administrator(
     client: &Client,
     user_id: Id,
@@ -35,13 +39,11 @@ pub async fn provision_initial_administrator(
     }
     names.sort_unstable();
     let mut tx = client.transaction().await.map_err(db_error)?;
-    match provision(&mut tx, user_id, &names).await {
-        Ok(()) => tx.commit().await.map_err(db_error),
-        Err(error) => {
-            tx.rollback().await.map_err(db_error)?;
-            Err(error)
-        }
+    if let Err(error) = provision(&mut tx, user_id, &names).await {
+        tx.rollback().await.map_err(db_error)?;
+        return Err(error);
     }
+    tx.commit().await.map_err(db_error)
 }
 
 async fn provision(tx: &mut Transaction, user: Id, names: &[&str]) -> ManagementResult<()> {

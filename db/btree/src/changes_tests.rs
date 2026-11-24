@@ -59,7 +59,7 @@ async fn merged_notifications_close_only_after_all_senders_close() {
 #[cfg(test)]
 mod change_event_tests {
     use crate::changes::{ChangeEvent, ChangeSignal, StorageKey};
-    use futures::{StreamExt, pin_mut};
+    use futures::{StreamExt, pin_mut, task::noop_waker};
 
     #[tokio::test]
     async fn committed_with_events_single_event() {
@@ -191,7 +191,7 @@ mod change_event_tests {
         let mut stream = changes.events();
         let waiting = stream.next();
         pin_mut!(waiting);
-        let waker = futures::task::noop_waker();
+        let waker = noop_waker();
         let mut context = core::task::Context::from_waker(&waker);
         assert!(
             waiting.as_mut().poll(&mut context).is_pending(),

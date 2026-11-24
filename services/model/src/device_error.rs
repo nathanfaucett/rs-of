@@ -1,5 +1,12 @@
+#[cfg(not(feature = "std"))]
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+};
+
 use core::error::Error;
-use std::string::ToString;
+
+use serde::de::value::Error as SerdeError;
 
 use crate::idp::contract::error_code::ErrorCode;
 use crate::idp::contract::error_response::ErrorResponse;
@@ -7,7 +14,7 @@ use crate::idp::contract::error_response::ErrorResponse;
 #[derive(Debug, thiserror::Error)]
 pub enum DeviceError {
     #[error("deserialize error: {0}")]
-    DeserializeError(serde::de::value::Error),
+    DeserializeError(SerdeError),
 
     #[error("invalid input: {0}")]
     InvalidInput(String),
@@ -32,8 +39,8 @@ impl From<DeviceError> for ErrorResponse {
 
 pub type DeviceResult<T> = Result<T, DeviceError>;
 
-impl From<serde::de::value::Error> for DeviceError {
-    fn from(error: serde::de::value::Error) -> Self {
+impl From<SerdeError> for DeviceError {
+    fn from(error: SerdeError) -> Self {
         Self::DeserializeError(error)
     }
 }

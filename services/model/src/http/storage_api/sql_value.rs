@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 /*
  * Storage Server
@@ -26,13 +27,15 @@ pub enum SqlValue {
 
 impl Default for SqlValue {
     fn default() -> Self {
-        Self::SqlValueOneOf(Default::default())
+        Self::SqlValueOneOf(Box::default())
     }
 }
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum Type {
     #[serde(rename = "null")]
+    #[default]
     Null,
     #[serde(rename = "boolean")]
     Boolean,
@@ -46,10 +49,4 @@ pub enum Type {
     Uuid,
     #[serde(rename = "blob")]
     Blob,
-}
-
-impl Default for Type {
-    fn default() -> Type {
-        Self::Null
-    }
 }

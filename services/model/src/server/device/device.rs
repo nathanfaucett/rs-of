@@ -1,6 +1,9 @@
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Device {

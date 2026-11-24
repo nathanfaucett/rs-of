@@ -1,3 +1,5 @@
+use core::fmt::{self, Display};
+
 use super::insert::{generated_id, generated_insert};
 use crate::repo::{OAuth2UserConsentRepo, RepoError, RepoResult};
 use chrono::{DateTime, Utc};
@@ -35,6 +37,13 @@ const COLUMNS: [&str; 7] = [
 
 pub struct DbOAuth2UserConsentRepo {
     engine: ofdb_sql::Client,
+}
+
+impl fmt::Debug for DbOAuth2UserConsentRepo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DbOAuth2UserConsentRepo")
+            .finish_non_exhaustive()
+    }
 }
 
 impl DbOAuth2UserConsentRepo {
@@ -97,21 +106,23 @@ impl OAuth2UserConsentRepo for DbOAuth2UserConsentRepo {
             .find(identity(user_id, client_id, redirect_uri, scope))
             .await?;
         let now = now();
-        let (consent, existing) = match existing {
-            Some(consent) => (consent, true),
-            None => (
-                OAuth2UserConsent {
-                    id: Id::nil(),
-                    user_id,
-                    client_id: client_id.into(),
-                    redirect_uri: redirect_uri.into(),
-                    scope: scope.into(),
-                    created_at: now,
-                    updated_at: now,
-                },
-                false,
-            ),
-        };
+        let (consent, existing) = existing.map_or_else(
+            || {
+                (
+                    OAuth2UserConsent {
+                        id: Id::nil(),
+                        user_id,
+                        client_id: client_id.into(),
+                        redirect_uri: redirect_uri.into(),
+                        scope: scope.into(),
+                        created_at: now,
+                        updated_at: now,
+                    },
+                    false,
+                )
+            },
+            |consent| (consent, true),
+        );
         let updated_at = if existing && now.timestamp() <= consent.updated_at.timestamp() {
             consent.updated_at + chrono::Duration::seconds(1)
         } else {
@@ -282,10 +293,10 @@ fn timestamp(value: i64) -> RepoResult<DateTime<Utc>> {
     DateTime::from_timestamp(value, 0)
         .ok_or_else(|| RepoError::InvalidInput("invalid user consent timestamp".into()))
 }
-fn db_error(error: ofdb_sql::QueryError) -> RepoError {
+fn db_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
-fn row_error(error: FromRowError) -> RepoError {
+fn row_error(error: impl Display) -> RepoError {
     RepoError::InvalidInput(error.to_string())
 }
 fn from() -> QueryFrom {

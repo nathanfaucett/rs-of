@@ -8,11 +8,15 @@
 
 Work: resolved
 
-- [ ] The Markdown checker implementation and every Just, package, contributor, and CI invocation are deleted without a replacement checker.
-- [ ] The CI documentation job and every dependency on it are removed; all remaining jobs and dependency references stay valid.
-- [ ] Documentation-check commands and automatic-link-check claims are removed from root guidance, contributor guidance, current support documentation, and product milestones.
-- [ ] Every tracked specification and ticket removes documentation-check acceptance language while retaining behavioral and other qualification requirements.
-- [ ] The general whitespace diff check and unrelated Rust, TypeScript, browser, synchronization, OpenAPI, and deployment validation remain available.
-- [ ] Just command discovery parses correctly, and the package manifest passes its existing format validation.
-- [ ] A complete tracked-file search finds no deleted script, command alias, CI documentation job, or documentation-check acceptance reference.
-- [ ] The final diff preserves unrelated working-tree and CI workflow changes and passes the whitespace diff check.
+- [x] The Markdown checker implementation and every Just, package, contributor, and CI invocation are deleted without a replacement checker.
+- [x] The CI documentation job and every dependency on it are removed; all remaining jobs and dependency references stay valid.
+- [x] Documentation-check commands and automatic-link-check claims are removed from root guidance, contributor guidance, current support documentation, and product milestones.
+- [x] Every tracked specification and ticket removes documentation-check acceptance language while retaining behavioral and other qualification requirements.
+- [x] The general whitespace diff check and unrelated Rust, TypeScript, browser, synchronization, OpenAPI, and deployment validation remain available.
+- [x] Just command discovery parses correctly, and the package manifest passes its existing format validation.
+- [x] A complete tracked-file search finds no deleted script, command alias, CI documentation job, or documentation-check acceptance reference.
+- [x] The final diff preserves unrelated working-tree and CI workflow changes and passes the whitespace diff check.
+
+## Comments
+
+2026-11-24: `just --list`, `pnpm format`, the tracked-file checker search, and `git diff --check` passed. No replacement checker was added. Existing unrelated work was preserved.

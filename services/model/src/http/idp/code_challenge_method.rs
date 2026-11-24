@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -12,22 +13,19 @@ use serde::{Deserialize, Serialize};
 
 /// CodeChallengeMethod : PKCE code challenge methods (RFC 7636). the `plain` method is not included as it is not recommended in OAuth 2.1 due to security weaknesses. Only `S256` is supported for better security.
 /// PKCE code challenge methods (RFC 7636). the `plain` method is not included as it is not recommended in OAuth 2.1 due to security weaknesses. Only `S256` is supported for better security.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum CodeChallengeMethod {
     #[serde(rename = "S256")]
+    #[default]
     S256,
 }
 
-impl core::fmt::Display for CodeChallengeMethod {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for CodeChallengeMethod {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::S256 => write!(f, "S256"),
         }
-    }
-}
-
-impl Default for CodeChallengeMethod {
-    fn default() -> CodeChallengeMethod {
-        Self::S256
     }
 }

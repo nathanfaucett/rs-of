@@ -1,5 +1,7 @@
 //! Storage Client errors.
 
+use core::result::Result as CoreResult;
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -47,7 +49,7 @@ pub enum StorageClientError {
     Internal(String),
 }
 
-pub type Result<T> = core::result::Result<T, StorageClientError>;
+pub type Result<T> = CoreResult<T, StorageClientError>;
 
 impl From<StorageClientError> for String {
     fn from(e: StorageClientError) -> Self {

@@ -1,7 +1,21 @@
 use alloc::sync::Arc;
-use core::pin::Pin;
+use core::{fmt, pin::Pin};
 
 use futures_util::{SinkExt, StreamExt};
+#[cfg(all(feature = "browser", target_arch = "wasm32"))]
+use gloo_net::websocket::{Message, futures::WebSocket};
+#[cfg(any(
+    all(feature = "native", not(target_arch = "wasm32")),
+    all(feature = "browser", target_arch = "wasm32")
+))]
+use ofdb_sql::history::SyncTransport;
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
+use tokio::net::TcpStream;
+#[cfg(all(feature = "native", not(target_arch = "wasm32")))]
+use tokio_tungstenite::{
+    MaybeTlsStream, WebSocketStream,
+    tungstenite::{Message, protocol::WebSocketConfig},
+};
 
 use crate::{
     error::{Result, StorageClientError},
@@ -30,8 +44,8 @@ impl TransportConfig {
         Self { sync_ws_url }
     }
 }
-impl core::fmt::Debug for TransportConfig {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for TransportConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TransportConfig")
             .field("sync_ws_url", &self.sync_ws_url)
             .finish_non_exhaustive()
@@ -39,10 +53,9 @@ impl core::fmt::Debug for TransportConfig {
 }
 
 #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
-type Socket =
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 #[cfg(all(feature = "browser", target_arch = "wasm32"))]
-type Socket = gloo_net::websocket::futures::WebSocket;
+type Socket = WebSocket;
 
 #[cfg(any(
     all(feature = "native", not(target_arch = "wasm32")),
@@ -61,13 +74,17 @@ pub struct OwnerTransport {
     all(feature = "browser", target_arch = "wasm32")
 ))]
 impl OwnerTransport {
+    /// Connects and performs the Storage Hello/Attach handshake.
+    ///
+    /// # Errors
+    /// Returns an error if the socket, framing, protocol handshake, or attach authorization fails.
     pub async fn connect(url: &str, identity: &StoreIdentity, token: String) -> Result<Self> {
         #[cfg(not(target_arch = "wasm32"))]
         let socket = {
             let (socket, _) = tokio_tungstenite::connect_async_with_config(
                 url,
                 Some(
-                    tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+                    WebSocketConfig::default()
                         .max_message_size(Some(MAX_FRAME_PAYLOAD as usize + 10))
                         .max_frame_size(Some(MAX_FRAME_PAYLOAD as usize + 10)),
                 ),
@@ -152,9 +169,9 @@ impl OwnerTransport {
         .map_err(|e| StorageClientError::Protocol(alloc::format!("{e:?}")))?;
         self.account(bytes.len())?;
         #[cfg(not(target_arch = "wasm32"))]
-        let message = tokio_tungstenite::tungstenite::Message::Binary(bytes.into());
+        let message = Message::Binary(bytes.into());
         #[cfg(target_arch = "wasm32")]
-        let message = gloo_net::websocket::Message::Bytes(bytes);
+        let message = Message::Bytes(bytes);
         self.socket
             .send(message)
             .await
@@ -170,9 +187,8 @@ impl OwnerTransport {
                 .map_err(|e| StorageClientError::Transport(e.to_string()))?;
             #[cfg(not(target_arch = "wasm32"))]
             let bytes = match message {
-                tokio_tungstenite::tungstenite::Message::Binary(bytes) => bytes.to_vec(),
-                tokio_tungstenite::tungstenite::Message::Ping(bytes)
-                | tokio_tungstenite::tungstenite::Message::Pong(bytes) => {
+                Message::Binary(bytes) => bytes.to_vec(),
+                Message::Ping(bytes) | Message::Pong(bytes) => {
                     self.account(bytes.len())?;
                     continue;
                 }
@@ -183,7 +199,7 @@ impl OwnerTransport {
                 }
             };
             #[cfg(target_arch = "wasm32")]
-            let gloo_net::websocket::Message::Bytes(bytes) = message else {
+            let Message::Bytes(bytes) = message else {
                 return Err(StorageClientError::Protocol(
                     "binary sync frame required".into(),
                 ));
@@ -206,7 +222,7 @@ impl OwnerTransport {
     all(feature = "native", not(target_arch = "wasm32")),
     all(feature = "browser", target_arch = "wasm32")
 ))]
-impl ofdb_sql::history::SyncTransport for OwnerTransport {
+impl SyncTransport for OwnerTransport {
     type Error = StorageClientError;
     async fn receive(&mut self) -> Result<Vec<u8>> {
         loop {
@@ -229,10 +245,10 @@ impl ofdb_sql::history::SyncTransport for OwnerTransport {
             }
         }
     }
-    async fn send(&mut self, payload: Vec<u8>) -> Result<()> {
+    async fn send(&mut self, frame: Vec<u8>) -> Result<()> {
         self.send_message(SyncMessage::OwnerMessage {
             protocol_id: ProtocolId::OfdbSqlV7,
-            payload,
+            payload: frame,
         })
         .await
     }

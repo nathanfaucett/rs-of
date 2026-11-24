@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, string::String, vec::Vec};
 /*
  * LIDP Device API
@@ -13,7 +14,7 @@ use crate::http::device as models;
 use serde::{Deserialize, Serialize};
 
 /// SelectedResourcesResponse : Current policy for an IdP-approved endpoint with an active owner. Pending cleanup is service-only evidence, never replication approval or cacheable permission.
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectedResourcesResponse {
     #[serde(rename = "adminAllowed")]
     pub admin_allowed: bool,
@@ -36,14 +37,15 @@ pub struct SelectedResourcesResponse {
 
 impl SelectedResourcesResponse {
     /// Current policy for an IdP-approved endpoint with an active owner. Pending cleanup is service-only evidence, never replication approval or cacheable permission.
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         admin_allowed: bool,
         device_id: String,
         endpoint_id: String,
         owner_subject: String,
         resources: Vec<models::SelectedResource>,
-    ) -> SelectedResourcesResponse {
-        SelectedResourcesResponse {
+    ) -> Self {
+        Self {
             admin_allowed,
             device_id,
             endpoint_id,

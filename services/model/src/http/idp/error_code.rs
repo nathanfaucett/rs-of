@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -12,9 +13,12 @@ use serde::{Deserialize, Serialize};
 
 /// ErrorCode : Standard OAuth 2.0 error codes (RFC 6749 Section 5.2).
 /// Standard OAuth 2.0 error codes (RFC 6749 Section 5.2).
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum ErrorCode {
     #[serde(rename = "not_found")]
+    #[default]
     NotFound,
     #[serde(rename = "unauthorized_client")]
     UnauthorizedClient,
@@ -44,8 +48,8 @@ pub enum ErrorCode {
     NotImplemented,
 }
 
-impl core::fmt::Display for ErrorCode {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::NotFound => write!(f, "not_found"),
             Self::UnauthorizedClient => write!(f, "unauthorized_client"),
@@ -62,11 +66,5 @@ impl core::fmt::Display for ErrorCode {
             Self::UnsupportedGrantType => write!(f, "unsupported_grant_type"),
             Self::NotImplemented => write!(f, "not_implemented"),
         }
-    }
-}
-
-impl Default for ErrorCode {
-    fn default() -> ErrorCode {
-        Self::NotFound
     }
 }

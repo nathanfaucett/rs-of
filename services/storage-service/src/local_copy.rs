@@ -8,7 +8,10 @@ use std::{
 
 use of_model::id::Id;
 use of_model::storage::namespace::StorageNamespace;
+use ofdb_kv::{Client as KvClient, Value as KvValue};
 use serde::{Deserialize, Serialize};
+
+use crate::persistence::{error, run};
 
 #[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -35,11 +38,11 @@ pub struct LocalCopyPolicy {
 
 enum PolicyStorage {
     File(PathBuf),
-    Kv(ofdb_kv::Client),
+    Kv(KvClient),
 }
 
 impl LocalCopyPolicy {
-    pub const fn with_store(store: ofdb_kv::Client) -> Self {
+    pub const fn with_store(store: KvClient) -> Self {
         Self {
             storage: PolicyStorage::Kv(store),
             lock: Mutex::new(()),
@@ -60,7 +63,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         let policy = self.read()?;
         if policy.retired_owners.contains(scope.user_sub())
             || policy.pending.contains(&key(scope, resource))
@@ -78,7 +81,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         if self.read()?.retired_owners.contains(owner) {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -92,7 +95,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         let mut policy = self.read()?;
         let changed = if retired {
             policy.retired_owners.insert(owner.to_owned())
@@ -109,7 +112,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         let mut policy = self.read()?;
         let selected = selected.iter().cloned().collect::<BTreeSet<_>>();
         let retired = policy
@@ -148,7 +151,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         let mut policy = self.read()?;
         if !policy.removed.contains(&key(scope, resource))
             && policy.pending.insert(key(scope, resource))
@@ -162,7 +165,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         Ok(self.read()?.pending.into_iter().collect())
     }
 
@@ -174,7 +177,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         Ok(self
             .read()?
             .generations
@@ -205,7 +208,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         let mut policy = self.read()?;
         let key = key(scope, resource);
         if policy.pending.remove(&key) {
@@ -235,7 +238,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         Ok(self
             .read()?
             .sql_initializing
@@ -251,7 +254,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         let mut policy = self.read()?;
         let changed = if initializing {
             policy.sql_initializing.insert(key(scope, resource))
@@ -272,7 +275,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         Ok(self.read()?.passthrough.contains(&key(scope, resource)))
     }
 
@@ -285,7 +288,7 @@ impl LocalCopyPolicy {
         let _guard = self
             .lock
             .lock()
-            .map_err(|_| io::Error::other("local copy policy lock poisoned"))?;
+            .map_err(|_error| io::Error::other("local copy policy lock poisoned"))?;
         let mut policy = self.read()?;
         if passthrough {
             policy.passthrough.insert(key(scope, resource));
@@ -298,12 +301,12 @@ impl LocalCopyPolicy {
     fn write(&self, policy: &CopyPolicy) -> io::Result<()> {
         let path = match &self.storage {
             PolicyStorage::Kv(store) => {
-                return crate::persistence::run(async {
+                return run(async {
                     let value = serde_json::to_vec(policy).map_err(io::Error::other)?;
                     store
-                        .set("policy", ofdb_kv::Value::Blob(value), None)
+                        .set("policy", KvValue::Blob(value), None)
                         .await
-                        .map_err(crate::persistence::error)
+                        .map_err(error)
                 });
             }
             PolicyStorage::File(path) => path,
@@ -326,19 +329,14 @@ impl LocalCopyPolicy {
     fn read(&self) -> io::Result<CopyPolicy> {
         let path = match &self.storage {
             PolicyStorage::Kv(store) => {
-                return crate::persistence::run(async {
-                    match store
-                        .get("policy")
-                        .await
-                        .map_err(crate::persistence::error)?
-                    {
+                return run(async {
+                    match store.get("policy").await.map_err(error)? {
                         None => Ok(CopyPolicy::default()),
                         Some(ofdb_kv::Value::Blob(value)) => {
                             serde_json::from_slice(&value).map_err(io::Error::other)
                         }
-                        Some(ofdb_kv::Value::Json(value)) => serde_json::from_value(
-                            serde_json::Value::try_from(value)
-                                .map_err(crate::persistence::error)?,
+                        Some(KvValue::Json(value)) => serde_json::from_value(
+                            serde_json::Value::try_from(value).map_err(error)?,
                         )
                         .map_err(io::Error::other),
                         _ => Err(io::Error::new(

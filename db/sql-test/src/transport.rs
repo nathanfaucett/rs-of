@@ -1,8 +1,8 @@
 use core::{fmt, future::ready};
 
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 
-use futures::{StreamExt, channel::mpsc};
+use futures::{StreamExt, channel::mpsc, lock::Mutex};
 
 use sync::{Message, SyncTransport};
 
@@ -31,7 +31,7 @@ impl Error for InMemoryTransportError {}
 
 #[derive(Debug)]
 pub struct InMemoryTransport {
-    receiver: mpsc::UnboundedReceiver<Message>,
+    receiver: Arc<Mutex<mpsc::UnboundedReceiver<Message>>>,
     sender: Option<mpsc::UnboundedSender<Message>>,
     fail_at: Option<usize>,
     sent: usize,
@@ -61,11 +61,16 @@ impl SyncTransport for InMemoryTransport {
         )
     }
 
-    async fn receive(&mut self) -> Result<Message, Self::Error> {
-        self.receiver
-            .next()
-            .await
-            .ok_or(InMemoryTransportError::Closed)
+    fn receive(&mut self) -> impl Future<Output = Result<Message, Self::Error>> + Send + 'static {
+        let receiver = Arc::clone(&self.receiver);
+        async move {
+            receiver
+                .lock()
+                .await
+                .next()
+                .await
+                .ok_or(InMemoryTransportError::Closed)
+        }
     }
 }
 
@@ -92,13 +97,13 @@ pub fn in_memory_transport_pair_failing(
     let right_fails = direction == Some(TransportDirection::RightToLeft);
     (
         InMemoryTransport {
-            receiver: left_receiver,
+            receiver: Arc::new(Mutex::new(left_receiver)),
             sender: Some(left_sender),
             fail_at: left_fails.then_some(fail_at).flatten(),
             sent: 0,
         },
         InMemoryTransport {
-            receiver: right_receiver,
+            receiver: Arc::new(Mutex::new(right_receiver)),
             sender: Some(right_sender),
             fail_at: right_fails.then_some(fail_at).flatten(),
             sent: 0,

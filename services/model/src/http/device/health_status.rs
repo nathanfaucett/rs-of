@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, string::String};
 /*
  * LIDP Device API
@@ -12,7 +13,7 @@ use alloc::{boxed::Box, string::String};
 use crate::http::device as models;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum HealthStatus {
     String(String),
@@ -21,6 +22,6 @@ pub enum HealthStatus {
 
 impl Default for HealthStatus {
     fn default() -> Self {
-        Self::String(Default::default())
+        Self::String(String::default())
     }
 }

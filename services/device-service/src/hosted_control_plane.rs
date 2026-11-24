@@ -1,5 +1,7 @@
+use core::fmt;
+
 use std::{
-    future::Future,
+    net::IpAddr,
     pin::Pin,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -9,6 +11,7 @@ use idp_service::oauth2::{decode_jwt, verify_jwt};
 
 use iroh::EndpointId;
 use of_idp_client::apis::{
+    Error,
     configuration::Configuration,
     default_api::{TokenParams, jwks, token},
     super_routes_active_user_api::{ActiveUserParams, active_user},
@@ -16,17 +19,20 @@ use of_idp_client::apis::{
 };
 use of_model::contract::{
     authorization_details::{AuthorizationDetail, StorageAuthorizationAction},
+    principal_type::PrincipalType,
     standard_claims::StandardClaims,
     token_response::TokenResponse,
     token_type::TokenType,
     token_use::TokenUse,
 };
+use of_model::http::idp::introspection_request::IntrospectionRequest;
 use of_model::id::Id;
 use of_model::idp::contract::introspection_response::IntrospectionResponse;
 use of_model::idp::contract::jwks::Jwks;
 use of_model::storage::resource_catalog::ResourceKind;
-use of_storage_api_client::apis::resources_api::{
-    GetDatabaseParams, GetFileSystemParams, get_database, get_file_system,
+use of_storage_api_client::apis::{
+    configuration::Configuration as StorageConfiguration,
+    resources_api::{GetDatabaseParams, GetFileSystemParams, get_database, get_file_system},
 };
 use reqwest::{Client, Url, redirect::Policy};
 
@@ -53,6 +59,12 @@ pub struct HostedControlPlane {
     device_identity: Option<Arc<DeviceIdentity>>,
 }
 
+impl fmt::Debug for HostedControlPlane {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HostedControlPlane").finish_non_exhaustive()
+    }
+}
+
 type LocalCall<I, O> =
     Arc<dyn Fn(I) -> Pin<Box<dyn Future<Output = Result<O, String>> + Send>> + Send + Sync>;
 
@@ -63,21 +75,31 @@ struct LocalIdp {
 }
 
 impl HostedControlPlane {
+    /// # Errors
+    ///
+    /// Returns an error when the service URLs or issuer are invalid.
     pub fn new(base_url: &str) -> Result<Self, String> {
         Self::new_with_services(base_url, base_url, base_url.trim_end_matches('/'))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the service URLs or issuer are invalid.
     pub fn new_with_issuer(base_url: &str, expected_issuer: &str) -> Result<Self, String> {
         Self::new_with_services(base_url, base_url, expected_issuer)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when a service URL or the issuer is invalid, or the HTTP client cannot be built.
     pub fn new_with_services(
         idp_base_url: &str,
         storage_base_url: &str,
         expected_issuer: &str,
     ) -> Result<Self, String> {
-        let issuer = Url::parse(expected_issuer)
-            .map_err(|_| "issuer must be an HTTP URL without a query or fragment".to_owned())?;
+        let issuer = Url::parse(expected_issuer).map_err(|_error| {
+            "issuer must be an HTTP URL without a query or fragment".to_owned()
+        })?;
         if !matches!(issuer.scheme(), "http" | "https")
             || issuer.host().is_none()
             || issuer.query().is_some()
@@ -95,10 +117,6 @@ impl HostedControlPlane {
             expected_issuer: expected_issuer.to_owned(),
             permission_evaluator_client_id: None,
             service_token_client: None,
-            local_idp: None,
-            #[cfg(feature = "ofdb")]
-            local_devices: None,
-            device_identity: None,
             client: Client::builder()
                 .tls_built_in_native_certs(true)
                 .connect_timeout(Duration::from_secs(3))
@@ -106,10 +124,15 @@ impl HostedControlPlane {
                 .redirect(Policy::none())
                 .build()
                 .map_err(|error| error.to_string())?,
+            local_idp: None,
+            #[cfg(feature = "ofdb")]
+            local_devices: None,
+            device_identity: None,
         })
     }
 
-    /// Callbacks must validate against the current local IdP owner on every call.
+    /// Callbacks must validate against the current local `IdP` owner on every call.
+    #[must_use]
     pub fn with_local_idp<F, T, U, V>(mut self, inspect: F, active_user: U) -> Self
     where
         F: Fn(String) -> T + Send + Sync + 'static,
@@ -125,29 +148,40 @@ impl HostedControlPlane {
     }
 
     #[cfg(feature = "ofdb")]
+    #[must_use]
     pub fn with_local_devices(mut self, devices: Arc<DbDeviceRepo>) -> Self {
         self.local_devices = Some(devices);
         self
     }
 
     #[cfg(feature = "ofdb")]
+    /// # Errors
+    ///
+    /// Returns an error when no local Device repository is configured.
     pub fn device_repo(&self) -> Result<&Arc<DbDeviceRepo>, String> {
         self.local_devices
             .as_ref()
             .ok_or_else(|| "Device owner is unavailable".into())
     }
 
+    #[must_use]
     pub fn with_device_identity(mut self, identity: Arc<DeviceIdentity>) -> Self {
         self.device_identity = Some(identity);
         self
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when no local endpoint identity is configured.
     pub fn device_identity(&self) -> Result<&DeviceIdentity, String> {
         self.device_identity
             .as_deref()
             .ok_or_else(|| "local endpoint identity is unavailable".into())
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the User is invalid, inactive, or cannot be checked.
     pub async fn active_user(&self, user: Id) -> Result<(), String> {
         if user.is_nil() {
             return Err("invalid User ID".into());
@@ -163,9 +197,12 @@ impl HostedControlPlane {
             },
         )
         .await
-        .map_err(|_| "IdP User is not currently active or lookup is unavailable".to_owned())
+        .map_err(|_error| "IdP User is not currently active or lookup is unavailable".to_owned())
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the client ID is empty or duplicates the service client.
     pub fn with_permission_evaluator(mut self, client_id: &str) -> Result<Self, String> {
         if client_id.trim().is_empty()
             || self
@@ -179,15 +216,20 @@ impl HostedControlPlane {
         Ok(self)
     }
 
+    #[must_use]
     pub fn permission_evaluator_client_id(&self) -> Option<&str> {
         self.permission_evaluator_client_id.as_deref()
     }
 
+    #[must_use]
     pub fn with_http_client(mut self, client: Client) -> Self {
         self.client = client;
         self
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the client ID, secret, or audience is invalid.
     pub fn with_idp_service_client(
         self,
         client_id: impl Into<String>,
@@ -240,7 +282,7 @@ impl HostedControlPlane {
             let cached = token_client
                 .cached
                 .lock()
-                .map_err(|_| "IdP service token cache is unavailable".to_owned())?;
+                .map_err(|_error| "IdP service token cache is unavailable".to_owned())?;
             cached
                 .as_ref()
                 .filter(|token| {
@@ -268,13 +310,14 @@ impl HostedControlPlane {
             },
         )
         .await
-        .map_err(|_| {
+        .map_err(|_error| {
             "IdP token endpoint is unavailable or rejected the Storage service client".to_owned()
         })?;
         let token: TokenResponse = serde_json::from_value(
-            serde_json::to_value(response).map_err(|_| "invalid IdP token response".to_owned())?,
+            serde_json::to_value(response)
+                .map_err(|_error| "invalid IdP token response".to_owned())?,
         )
-        .map_err(|_| "invalid IdP token response".to_owned())?;
+        .map_err(|_error| "invalid IdP token response".to_owned())?;
         if token.token_type != TokenType::Bearer
             || token.issuer.as_deref() != Some(self.expected_issuer.as_str())
             || !token.scope.as_deref().is_some_and(|scope| {
@@ -297,7 +340,7 @@ impl HostedControlPlane {
         *token_client
             .cached
             .lock()
-            .map_err(|_| "IdP service token cache is unavailable".to_owned())? =
+            .map_err(|_error| "IdP service token cache is unavailable".to_owned())? =
             Some(CachedServiceToken {
                 value: value.clone(),
                 valid_until,
@@ -305,7 +348,11 @@ impl HostedControlPlane {
         Ok(value)
     }
 
-    /// Validates an actor token through the local IdP owner or authenticated introspection.
+    /// Validates an actor token through the local `IdP` owner or authenticated introspection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when actor validation fails or the response contains invalid claims.
     pub async fn validate_actor_token(
         &self,
         actor_token: &str,
@@ -325,27 +372,24 @@ impl HostedControlPlane {
         let response = introspect(
             &self.idp_configuration(Some(service_token)),
             IntrospectParams {
-                introspection_request:
-                    of_model::http::idp::introspection_request::IntrospectionRequest {
-                        token: actor_token.to_owned(),
-                        token_type_hint: Some(Some("access_token".to_owned())),
-                    },
+                introspection_request: IntrospectionRequest {
+                    token: actor_token.to_owned(),
+                    token_type_hint: Some(Some("access_token".to_owned())),
+                },
             },
         )
         .await
         .map_err(|error| match error {
-            of_idp_client::apis::Error::ResponseError(response)
-                if response.status.as_u16() == 401 =>
-            {
+            Error::ResponseError(response) if response.status.as_u16() == 401 => {
                 "actor token was rejected by IdP".to_owned()
             }
             error => format!("IdP token validation is unavailable: {error}"),
         })?;
         serde_json::from_value(
             serde_json::to_value(response)
-                .map_err(|_| "invalid IdP token validation response".to_owned())?,
+                .map_err(|_error| "invalid IdP token validation response".to_owned())?,
         )
-        .map_err(|_| "invalid IdP token validation response".to_owned())
+        .map_err(|_error| "invalid IdP token validation response".to_owned())
     }
 
     fn validate_actor_response(
@@ -355,12 +399,15 @@ impl HostedControlPlane {
         let application_id = response
             .application_id
             .parse()
-            .map_err(|_| "invalid application ID in IdP response".to_owned())?;
+            .map_err(|_error| "invalid application ID in IdP response".to_owned())?;
         self.check_issuer(&response.claims)?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| "invalid local clock".to_owned())?
-            .as_secs() as i64;
+        let now = i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_error| "invalid local clock".to_owned())?
+                .as_secs(),
+        )
+        .map_err(|_error| "invalid local clock".to_owned())?;
         if response.claims.r#type != TokenType::Bearer
             || response.claims.r#use != TokenUse::Access
             || response.claims.exp <= now
@@ -376,13 +423,16 @@ impl HostedControlPlane {
         Ok((response.claims, application_id))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint is invalid, unapproved, or has no active owner.
     pub async fn get_storage_endpoint_identity(
         &self,
         endpoint_id: &str,
     ) -> Result<DeviceEndpointIdentity, String> {
         let endpoint = endpoint_id
             .parse::<EndpointId>()
-            .map_err(|_| "invalid endpoint ID")?;
+            .map_err(|_error| "invalid endpoint ID")?;
         if endpoint.to_string() != endpoint_id {
             return Err("invalid endpoint ID".into());
         }
@@ -397,7 +447,7 @@ impl HostedControlPlane {
             let owner = device
                 .owner_subject
                 .parse::<Id>()
-                .map_err(|_| "invalid Device owner")?;
+                .map_err(|_error| "invalid Device owner")?;
             if device.id.is_nil() || owner.is_nil() || owner.to_string() != device.owner_subject {
                 return Err("invalid Device owner binding".into());
             }
@@ -413,6 +463,9 @@ impl HostedControlPlane {
     }
 
     #[cfg(feature = "ofdb")]
+    /// # Errors
+    ///
+    /// Returns an error when Device lookup or endpoint validation fails.
     pub async fn approved_device_endpoints(&self) -> Result<Vec<String>, String> {
         let mut endpoints = Vec::new();
         for device in self
@@ -434,6 +487,9 @@ impl HostedControlPlane {
         Ok(endpoints)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when access-token or Resource validation fails.
     pub async fn validate_storage_resource(
         &self,
         read_token: &str,
@@ -458,11 +514,11 @@ impl HostedControlPlane {
     ) -> Result<Id, String> {
         let id: Id = resource_id
             .parse()
-            .map_err(|_| "invalid storage resource ID".to_owned())?;
+            .map_err(|_error| "invalid storage resource ID".to_owned())?;
         if resource_id != id.to_string() {
             return Err("invalid storage resource ID".to_owned());
         }
-        let configuration = of_storage_api_client::apis::configuration::Configuration {
+        let configuration = StorageConfiguration {
             base_path: self
                 .storage_base_url
                 .as_str()
@@ -502,13 +558,16 @@ impl HostedControlPlane {
         }
         let application_id: Id = application_id
             .parse()
-            .map_err(|_| "invalid storage application ID".to_owned())?;
+            .map_err(|_error| "invalid storage application ID".to_owned())?;
         if application_id != expected_application_id {
             return Err("storage application ID mismatch".to_owned());
         }
         Ok(application_id)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the Device is missing, invalid, or has no approved endpoint binding.
     pub async fn get_storage_device_identity(
         &self,
         device_id: Id,
@@ -538,6 +597,9 @@ impl HostedControlPlane {
         Err("Device owner is unavailable".into())
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when token verification or claim validation fails.
     pub async fn verify_access_token(&self, token: &str) -> Result<StandardClaims, String> {
         let claims = if self.local_idp.is_some() {
             self.validate_actor_token(token).await?.0
@@ -545,10 +607,13 @@ impl HostedControlPlane {
             self.verify_remote_signature(token).await?
         };
         self.check_issuer(&claims)?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| "system clock is before Unix epoch".to_owned())?
-            .as_secs() as i64;
+        let now = i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_error| "system clock is before Unix epoch".to_owned())?
+                .as_secs(),
+        )
+        .map_err(|_error| "system clock is before Unix epoch".to_owned())?;
         if claims.r#type != TokenType::Bearer
             || claims.r#use != TokenUse::Access
             || claims.exp <= now
@@ -556,7 +621,7 @@ impl HostedControlPlane {
             || claims.nbf > now
             || claims.sub.is_empty()
             || claims.aud.is_empty()
-            || claims.principal_type != of_model::contract::principal_type::PrincipalType::User
+            || claims.principal_type != PrincipalType::User
         {
             return Err("invalid storage access token".to_owned());
         }
@@ -565,7 +630,7 @@ impl HostedControlPlane {
 
     async fn verify_remote_signature(&self, token: &str) -> Result<StandardClaims, String> {
         let (header, _) =
-            decode_jwt::<StandardClaims>(token).map_err(|_| "invalid token".to_owned())?;
+            decode_jwt::<StandardClaims>(token).map_err(|_error| "invalid token".to_owned())?;
         let response = jwks(&self.idp_configuration(None))
             .await
             .map_err(|error| error.to_string())?;
@@ -578,8 +643,8 @@ impl HostedControlPlane {
             .iter()
             .find(|jwk| jwk.kid == header.kid)
             .ok_or_else(|| "token signing key is not trusted".to_owned())?;
-        let (_, claims) =
-            verify_jwt::<StandardClaims>(jwk, token).map_err(|_| "invalid token".to_owned())?;
+        let (_, claims) = verify_jwt::<StandardClaims>(jwk, token)
+            .map_err(|_error| "invalid token".to_owned())?;
         Ok(claims)
     }
 
@@ -602,7 +667,7 @@ impl HostedControlPlane {
 }
 
 pub(crate) fn normalize_service_url(value: &str) -> Result<Url, String> {
-    let mut url = Url::parse(value).map_err(|_| "invalid service URI".to_owned())?;
+    let mut url = Url::parse(value).map_err(|_error| "invalid service URI".to_owned())?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host().is_none()
         || url.query().is_some()
@@ -626,7 +691,7 @@ fn is_loopback(url: &Url) -> bool {
     host.eq_ignore_ascii_case("localhost")
         || host.to_ascii_lowercase().ends_with(".localhost")
         || host
-            .parse::<std::net::IpAddr>()
+            .parse::<IpAddr>()
             .is_ok_and(|address| address.is_loopback())
 }
 

@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -10,10 +11,12 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum TokenUse {
     #[serde(rename = "Id")]
+    #[default]
     Id,
     #[serde(rename = "Access")]
     Access,
@@ -21,18 +24,12 @@ pub enum TokenUse {
     Refresh,
 }
 
-impl core::fmt::Display for TokenUse {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for TokenUse {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Id => write!(f, "Id"),
             Self::Access => write!(f, "Access"),
             Self::Refresh => write!(f, "Refresh"),
         }
-    }
-}
-
-impl Default for TokenUse {
-    fn default() -> TokenUse {
-        Self::Id
     }
 }

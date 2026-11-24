@@ -14,7 +14,7 @@ name = "key"
 
 [features]
 default = ["std"]
-headless = []
+headless = ["dep:linux-keyutils-keyring-store"]
 secure-store = [
     "std",
     "dep:android-native-keyring-store",
@@ -55,6 +55,8 @@ keyring-core = { version = "1.0", default-features = false, features = [
 [target.'cfg(target_os = "linux")'.dependencies]
 dbus-secret-service-keyring-store = { version = "1.0", default-features = false, features = [
     "crypto-rust",
+], optional = true }
+linux-keyutils-keyring-store = { version = "1.0", default-features = false, features = [
 ], optional = true }
 
 # Windows-only dependency

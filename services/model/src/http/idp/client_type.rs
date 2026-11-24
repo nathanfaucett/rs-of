@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -10,26 +11,22 @@
 
 use serde::{Deserialize, Serialize};
 
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum ClientType {
     #[serde(rename = "confidential")]
+    #[default]
     Confidential,
     #[serde(rename = "public")]
     Public,
 }
 
-impl core::fmt::Display for ClientType {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for ClientType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Confidential => write!(f, "confidential"),
             Self::Public => write!(f, "public"),
         }
-    }
-}
-
-impl Default for ClientType {
-    fn default() -> ClientType {
-        Self::Confidential
     }
 }

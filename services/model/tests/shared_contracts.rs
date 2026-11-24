@@ -1,5 +1,6 @@
 use of_model::{
     config::ServerConfig,
+    http::device::selection_request::SelectionRequest as ClientSelectionRequest,
     server::{device::device_selection::SelectionRequest, storage::sql::SqlRequest},
     storage::resource_catalog::ResourceKind,
 };
@@ -12,7 +13,7 @@ fn device_client_and_server_accept_the_same_selection_contract() {
         "id":"00000000-0000-7000-8000-000000000002",
         "storageAccessToken":"scoped-token"
     }"#;
-    let client: of_model::http::device::selection_request::SelectionRequest =
+    let client: ClientSelectionRequest =
         serde_json::from_str(fixture).expect("client selection contract");
     let request: SelectionRequest =
         serde_json::from_value(serde_json::to_value(client).expect("serialize client request"))
@@ -21,9 +22,10 @@ fn device_client_and_server_accept_the_same_selection_contract() {
     assert_eq!(request.kind.storage_audience(), "storage:databases");
     assert_eq!(request.kind.policy_kind(), "database");
     assert_eq!(request.storage_access_token, "scoped-token");
-    assert!(serde_json::from_str::<SelectionRequest>(
-        r#"{"applicationId":"00000000-0000-7000-8000-000000000001","kind":"database","id":"00000000-0000-7000-8000-000000000002"}"#
-    ).is_err());
+    serde_json::from_str::<SelectionRequest>(
+        r#"{"applicationId":"00000000-0000-7000-8000-000000000001","kind":"database","id":"00000000-0000-7000-8000-000000000002"}"#,
+    )
+    .expect_err("selection requires a storage access token");
 }
 
 #[test]
@@ -32,9 +34,8 @@ fn sql_contract_keeps_default_parameters_and_rejects_unknown_fields() {
         serde_json::from_str(r#"{"statements":[{"sql":"SELECT id FROM users"}]}"#)
             .expect("SQL request without parameters");
     assert!(request.statements[0].params.is_empty());
-    assert!(
-        serde_json::from_str::<SqlRequest>(r#"{"statements":[],"untrustedOption":true}"#,).is_err()
-    );
+    serde_json::from_str::<SqlRequest>(r#"{"statements":[],"untrustedOption":true}"#)
+        .expect_err("SQL requests reject unknown fields");
 }
 
 #[test]

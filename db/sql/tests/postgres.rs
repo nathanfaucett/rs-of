@@ -1,4 +1,4 @@
-#![cfg(feature = "postgres")]
+#![cfg(all(feature = "postgres", feature = "sql"))]
 
 use std::env;
 

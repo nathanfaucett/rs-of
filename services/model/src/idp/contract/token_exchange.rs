@@ -1,10 +1,5 @@
 #[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::string::String;
 
 use crate::contract::token_type::TokenType;
 use serde::{Deserialize, Serialize};

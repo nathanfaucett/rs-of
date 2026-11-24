@@ -1,3 +1,4 @@
+use core::fmt;
 /*
  * LIDP IdP API
  *
@@ -12,9 +13,12 @@ use serde::{Deserialize, Serialize};
 
 /// TokenEndpointAuthMethod : Client token endpoint authentication methods (RFC 7591 / OIDC).
 /// Client token endpoint authentication methods (RFC 7591 / OIDC).
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, Default,
+)]
 pub enum TokenEndpointAuthMethod {
     #[serde(rename = "client_secret_basic")]
+    #[default]
     ClientSecretBasic,
     #[serde(rename = "client_secret_post")]
     ClientSecretPost,
@@ -26,8 +30,8 @@ pub enum TokenEndpointAuthMethod {
     None,
 }
 
-impl core::fmt::Display for TokenEndpointAuthMethod {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+impl fmt::Display for TokenEndpointAuthMethod {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::ClientSecretBasic => write!(f, "client_secret_basic"),
             Self::ClientSecretPost => write!(f, "client_secret_post"),
@@ -35,11 +39,5 @@ impl core::fmt::Display for TokenEndpointAuthMethod {
             Self::ClientSecretJwt => write!(f, "client_secret_jwt"),
             Self::None => write!(f, "none"),
         }
-    }
-}
-
-impl Default for TokenEndpointAuthMethod {
-    fn default() -> TokenEndpointAuthMethod {
-        Self::ClientSecretBasic
     }
 }

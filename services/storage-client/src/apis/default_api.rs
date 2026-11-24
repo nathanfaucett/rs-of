@@ -58,6 +58,8 @@ pub enum VersionError {
     UnknownValue(serde_json::Value),
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn health(
     configuration: &configuration::Configuration,
 ) -> Result<serde_json::Value, Error<HealthError>> {
@@ -80,23 +82,21 @@ pub async fn health(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `serde_json::Value`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `serde_json::Value`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `serde_json::Value`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<HealthError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
@@ -106,6 +106,8 @@ pub async fn health(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn openapi_json(
     configuration: &configuration::Configuration,
 ) -> Result<(), Error<OpenapiJsonError>> {
@@ -122,7 +124,7 @@ pub async fn openapi_json(
 
     let status = resp.status();
 
-    if status.as_u16() == 200 || false {
+    if status.as_u16() == 200 {
         Ok(())
     } else {
         let content = configuration::bounded_text(resp, configuration.response_limit).await?;
@@ -136,31 +138,36 @@ pub async fn openapi_json(
 }
 
 /// HTTP WebSocket upgrade only; generated HTTP clients do not implement subsequent Storage messages. User token and filesystem resource authorization are checked before upgrade.
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
+/// Builds the WebSocket upgrade request without executing it.
+///
+/// # Errors
+/// Returns an error when the request cannot be constructed or exceeds its configured limit.
 pub fn upgrade_socket_request(
     configuration: &configuration::Configuration,
     params: UpgradeSocketParams,
 ) -> Result<reqwest::Request, Error<UpgradeSocketError>> {
-    let uri_str = format!("{}", configuration.base_path);
+    let uri_str = configuration.base_path.clone();
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
-    req_builder = req_builder.query(&[("access_token", &params.access_token.to_string())]);
-    req_builder = req_builder.query(&[("filesystem_id", &params.filesystem_id.to_string())]);
+    req_builder = req_builder.query(&[("access_token", params.access_token.as_str())]);
+    req_builder = req_builder.query(&[("filesystem_id", params.filesystem_id.as_str())]);
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
-    req_builder = req_builder.header("Upgrade", params.upgrade.to_string());
-    req_builder = req_builder.header("Connection", params.connection.to_string());
-    req_builder = req_builder.header("Sec-WebSocket-Key", params.sec_web_socket_key.to_string());
-    req_builder = req_builder.header(
-        "Sec-WebSocket-Version",
-        params.sec_web_socket_version.to_string(),
-    );
+    req_builder = req_builder.header("Upgrade", params.upgrade);
+    req_builder = req_builder.header("Connection", params.connection);
+    req_builder = req_builder.header("Sec-WebSocket-Key", params.sec_web_socket_key);
+    req_builder = req_builder.header("Sec-WebSocket-Version", params.sec_web_socket_version);
 
     let req = req_builder.build()?;
     configuration::check_request(&req, configuration.request_limit)?;
     Ok(req)
 }
 
+/// # Errors
+/// Returns an error when the upgrade request or response cannot be processed.
 pub async fn upgrade_socket(
     configuration: &configuration::Configuration,
     params: UpgradeSocketParams,
@@ -183,6 +190,8 @@ pub async fn upgrade_socket(
     }
 }
 
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
 pub async fn version(
     configuration: &configuration::Configuration,
 ) -> Result<models::VersionResponse, Error<VersionError>> {
@@ -205,23 +214,21 @@ pub async fn version(
         .unwrap_or("application/octet-stream");
     let content_type = super::ContentType::from(content_type);
 
-    if status.as_u16() == 200 || false {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
         match content_type {
             ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
-            ContentType::Text => {
-                return Err(Error::from(serde_json::Error::custom(
-                    "Received `text/plain` content type response that cannot be converted to `models::VersionResponse`",
-                )));
-            }
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::VersionResponse`",
+            ))),
             ContentType::Unsupported(unknown_type) => {
-                return Err(Error::from(serde_json::Error::custom(format!(
+                Err(Error::from(serde_json::Error::custom(format!(
                     "Received `{unknown_type}` content type response that cannot be converted to `models::VersionResponse`"
-                ))));
+                ))))
             }
         }
     } else {
-        let content = configuration::bounded_text(resp, configuration.response_limit).await?;
         let entity: Option<VersionError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,

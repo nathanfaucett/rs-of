@@ -93,12 +93,12 @@ export interface AuthorizationServerMetadata {
   requirePkce?: boolean | undefined;
   /**
    * List of supported `response_mode` values.
-   * Defaults to ["query", "fragment"] if omitted.
+   * Defaults to `["query", "fragment"]` if omitted.
    */
   responseModesSupported?: Array<ResponseMode> | undefined;
   /**
    * REQUIRED. List of supported `response_type` values.
-   * In OAuth 2.1 this should primarily be ["code"].
+   * In OAuth 2.1 this should primarily be `["code"]`.
    */
   responseTypesSupported?: Array<ResponseType> | undefined;
   /**
