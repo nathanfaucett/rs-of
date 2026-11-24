@@ -44,23 +44,12 @@ Run these commands from the repository root. They require only this checkout.
 pnpm install --frozen-lockfile
 ```
 
-For `sql`, `kv`, `net`, and `file-system`, generated `pkg/`, `esm/`, and `types/`
-output is not tracked. On a fresh checkout, create the WASM and TypeScript
-output before a full package build or before consuming their generated entry
-points:
+The full build requires `wasm-pack` and the `wasm32-unknown-unknown` Rust target.
+It generates WASM bindings before compiling their TypeScript wrappers.
 
 ```sh
-pnpm --filter @ofsdk/sql run build:all
-pnpm --filter @ofsdk/kv run build:all
-pnpm --filter @ofsdk/net run build
-pnpm --filter @ofsdk/file-system run build
-```
-
-Then build and test the direct package workspaces:
-
-```sh
-# Build every direct package workspace.
-pnpm --filter "./packages/*" run build
+# Build package and service workspaces and their dependencies.
+pnpm packages:build
 
 # Install the browser used by the SQL tests on the first test run.
 pnpm --filter @ofsdk/sql exec playwright install chromium
@@ -69,13 +58,9 @@ pnpm --filter @ofsdk/sql exec playwright install chromium
 pnpm --filter "./packages/*" run test
 
 # Build or test one package.
-pnpm --filter @ofsdk/sdk run build
+pnpm --filter '@ofsdk/sdk...' run build
 pnpm --filter @ofsdk/sdk test
 ```
-
-For later TypeScript-only changes, use each package's `build` script after its
-WASM output exists. Other packages also generate entry points such as `esm/`,
-`types/`, or `dist/`; build their workspace dependencies before running consumers.
 
 ## Related documentation
 

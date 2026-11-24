@@ -38,15 +38,14 @@ Run from the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm --filter @ofsdk/kv run build:all
+pnpm --filter @ofsdk/kv run build
 pnpm --filter @ofsdk/kv run check
 pnpm --filter @ofsdk/kv run lint
 ```
 
-`build:all` builds the WASM module and the TypeScript and browser outputs. The
-generated `pkg/`, `esm/`, `types/`, and `browser/` directories are not tracked.
-After the WASM output exists, use `pnpm --filter @ofsdk/kv run build` for a
-TypeScript-only rebuild. This package has no `test` script.
+`build` generates the WASM module and the TypeScript and browser outputs. The
+`pkg/`, `esm/`, `types/`, and `browser/` directories are not tracked. This package
+has no `test` script.
 
 ## Related
 

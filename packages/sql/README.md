@@ -413,14 +413,14 @@ build dependencies. Run from the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm --filter @ofsdk/sql run build:all
+pnpm --filter @ofsdk/sql run build
 pnpm --filter @ofsdk/sql exec playwright install chromium
 pnpm --filter @ofsdk/sql test
 pnpm --filter @ofsdk/sql run test:package
 ```
 
-`build:all` uses a release build, a fixed stack, the lockfile, and no wasm-opt step.
-The build script bounds WASM compilation to 240 seconds. An existing
+`build` uses a release build, a fixed stack, the lockfile, and no wasm-opt step.
+The build script limits WASM compilation to 10 minutes. An existing
 `CARGO_TARGET_DIR` can be used to share build dependencies. `BROWSER_PATH` can
 select an existing Chromium executable. Each browser test is bounded to 30
 seconds. `test:package` packs the tarball, writes `artifacts/SHA256SUMS`, installs

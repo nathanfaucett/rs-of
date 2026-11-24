@@ -44,8 +44,8 @@ cargo test -p ofdb-sql --all-targets
 cargo test -p ofdb-kv --all-targets
 
 # Browser TypeScript packages
-pnpm --filter @ofsdk/sql run build:all
-pnpm --filter @ofsdk/kv run build:all
+pnpm --filter @ofsdk/sql run build
+pnpm --filter @ofsdk/kv run build
 ```
 
 Use feature powersets and the repository validation policy for public behavior changes. WASM output is generated locally and is not a second source tree.

@@ -7,7 +7,7 @@ function run(command, args, env = process.env) {
     cwd: root,
     env,
     stdio: "inherit",
-    timeout: 240000,
+    timeout: 600000,
   });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);

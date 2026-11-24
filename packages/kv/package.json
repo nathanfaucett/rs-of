@@ -27,9 +27,9 @@
   "scripts": {
     "build:esm": "tsc",
     "build:browser": "rolldown -c",
-    "build": "pnpm run clean && pnpm run build:esm && pnpm run build:browser",
+    "build": "pnpm run build:wasm && pnpm run clean && pnpm run build:esm && pnpm run build:browser",
     "build:wasm": "cd ../../db/wasm && wasm-pack build --target web --out-dir ../../packages/kv/pkg --features sync --locked",
-    "build:all": "pnpm run build:wasm && pnpm run clean && pnpm run build:esm && pnpm run build:browser",
+    "build:all": "pnpm run build",
     "clean": "shx rm -rf esm types browser tsconfig.tsbuildinfo",
     "check": "tsc --noEmit",
     "lint": "biome check --error-on-warnings .",

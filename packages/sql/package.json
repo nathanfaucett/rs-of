@@ -36,9 +36,9 @@
   "scripts": {
     "build:esm": "tsc",
     "build:browser": "rolldown -c",
-    "build": "pnpm run clean && pnpm run build:esm && pnpm run build:browser",
+    "build": "pnpm run build:wasm && pnpm run clean && pnpm run build:esm && pnpm run build:browser",
     "build:wasm": "node ../../scripts/build-sql-wasm.mjs",
-    "build:all": "pnpm run build:wasm && pnpm run clean && pnpm run build:esm && pnpm run build:browser",
+    "build:all": "pnpm run build",
     "clean": "shx rm -rf esm types browser tsconfig.tsbuildinfo",
     "test": "playwright test",
     "test:package": "node browser-tests/package.mjs && SQL_TEST_PAGE=/consumer/index.html playwright test",
