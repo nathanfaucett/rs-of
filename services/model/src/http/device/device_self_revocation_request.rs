@@ -14,8 +14,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceSelfRevocationRequest {
+    /// Canonical Iroh endpoint public key of the Device to revoke.
     #[serde(rename = "publicKey")]
     pub public_key: String,
+    /// Ed25519 signature over the UTF-8 self-revocation payload, made with the endpoint private key and encoded as base64url without padding.
     #[serde(rename = "signature")]
     pub signature: String,
 }

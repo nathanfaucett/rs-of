@@ -12,24 +12,28 @@ use alloc::string::String;
 
 use serde::{Deserialize, Serialize};
 
-/// OwnerCopyCleanup : Exact current Management binding; only an authenticated Storage service may acknowledge it.
+/// OwnerCopyCleanup : Exact cleanup binding for a Device owner transfer; only an authenticated Storage service may acknowledge it.
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OwnerCopyCleanup {
     #[serde(rename = "cleanupId")]
     pub cleanup_id: String,
+    /// Device record ID, not an endpoint public key.
     #[serde(rename = "deviceId")]
     pub device_id: String,
+    /// Canonical Iroh endpoint public key.
     #[serde(rename = "endpointId")]
     pub endpoint_id: String,
+    /// New User subject in the legacy Device owner binding, not the request actor or the endpoint identity.
     #[serde(rename = "newOwnerSubject")]
     pub new_owner_subject: String,
+    /// Previous User subject in the legacy Device owner binding, not the request actor or the endpoint identity.
     #[serde(rename = "oldOwnerSubject")]
     pub old_owner_subject: String,
 }
 
 impl OwnerCopyCleanup {
-    /// Exact current Management binding; only an authenticated Storage service may acknowledge it.
+    /// Exact cleanup binding for a Device owner transfer; only an authenticated Storage service may acknowledge it.
     #[must_use]
     pub const fn new(
         cleanup_id: String,

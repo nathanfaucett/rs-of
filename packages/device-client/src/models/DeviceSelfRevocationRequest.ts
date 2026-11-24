@@ -19,11 +19,11 @@
  */
 export interface DeviceSelfRevocationRequest {
   /**
-   *
+   * Canonical Iroh endpoint public key of the Device to revoke.
    */
   publicKey: string;
   /**
-   *
+   * Ed25519 signature over the UTF-8 self-revocation payload, made with the endpoint private key and encoded as base64url without padding.
    */
   signature: string;
 }

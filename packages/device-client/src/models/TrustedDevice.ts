@@ -23,7 +23,7 @@ export interface TrustedDevice {
    */
   address: string;
   /**
-   *
+   * Canonical Iroh endpoint public key.
    */
   publicKey: string;
 }

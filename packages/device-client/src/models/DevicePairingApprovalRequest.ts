@@ -19,7 +19,7 @@
  */
 export interface DevicePairingApprovalRequest {
   /**
-   *
+   * Ed25519 signature over the exact UTF-8 approval payload, made with the new endpoint private key and encoded as base64url without padding.
    */
   signature: string;
 }

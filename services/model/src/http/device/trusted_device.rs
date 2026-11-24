@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 pub struct TrustedDevice {
     #[serde(rename = "address")]
     pub address: String,
+    /// Canonical Iroh endpoint public key.
     #[serde(rename = "publicKey")]
     pub public_key: String,
 }

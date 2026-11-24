@@ -19,10 +19,12 @@ pub struct DeviceInfo {
     pub address: String,
     #[serde(rename = "createdAt")]
     pub created_at: i64,
+    /// Device record ID, not an endpoint public key.
     #[serde(rename = "id")]
     pub id: String,
     #[serde(rename = "name")]
     pub name: String,
+    /// Canonical Iroh endpoint public key.
     #[serde(rename = "publicKey")]
     pub public_key: String,
     #[serde(

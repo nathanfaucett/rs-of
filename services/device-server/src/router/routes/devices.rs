@@ -33,7 +33,8 @@ use crate::router::{
     state::RouterState,
 };
 
-#[utoipa::path(put, path = "/devices/{device_id}/owner", params(("device_id" = String, Path)), request_body = of_model::device::contract::update_device_request::DeviceTransferRequest,
+#[utoipa::path(put, path = "/devices/{device_id}/owner",
+    description = "Transfer the legacy owner binding. The Device-audience access token identifies the acting User; ownerSubject names the new owner.", params(("device_id" = String, Path, description = "Device record ID")), request_body = of_model::device::contract::update_device_request::DeviceTransferRequest,
     responses((status = 204, description = "Ownership updated; each Node must finish learned local cleanup before new-owner use")), security(("authorization" = [])))]
 pub(crate) async fn transfer_device(
     State(state): State<RouterState>,
@@ -96,7 +97,7 @@ const DEVICE_LIST_SCOPE: &str = MANAGEMENT_DEVICE_LIST_SCOPE;
     path = "/devices/endpoints/{endpoint_id}",
     params(("endpoint_id" = String, Path, description = "Iroh endpoint public key")),
     responses(
-        (status = 200, description = "Approved endpoint identity", body = DeviceEndpointIdentity),
+        (status = 200, description = "Approved Device endpoint binding with an active legacy owner", body = DeviceEndpointIdentity),
         (status = 401, description = "Invalid client access token"),
         (status = 403, description = "Client lacks device lookup permission"),
         (status = 404, description = "Endpoint is not an approved device")
@@ -147,8 +148,8 @@ pub(crate) async fn lookup_device_endpoint(
 #[utoipa::path(
     get,
     path = "/devices/identities/{device_id}",
-    params(("device_id" = String, Path, description = "Device ID")),
-    responses((status = 200, description = "Locally trusted Device owner", body = DeviceEndpointIdentity)),
+    params(("device_id" = String, Path, description = "Device record ID")),
+    responses((status = 200, description = "Approved Device endpoint binding with an active legacy owner", body = DeviceEndpointIdentity)),
     security(("authorization" = []))
 )]
 pub(crate) async fn lookup_device_identity(
@@ -216,7 +217,7 @@ fn unavailable(_: String) -> ErrorResponse {
     get,
     path = "/devices/endpoints",
     responses(
-        (status = 200, description = "Approved endpoint IDs", body = ApprovedDeviceEndpoints),
+        (status = 200, description = "Iroh endpoint public keys of approved Devices", body = ApprovedDeviceEndpoints),
         (status = 401, description = "Invalid client access token"),
         (status = 403, description = "Client lacks device-list permission")
     ),
@@ -278,7 +279,7 @@ fn can_lookup_device_endpoint(
 #[utoipa::path(
     get,
     path = "/devices/trusted",
-    responses((status = 200, description = "Approved devices", body = [TrustedDevice])),
+    responses((status = 200, description = "Approved endpoints whose legacy owner matches the User subject in the Device-audience access token", body = [TrustedDevice])),
     security(("authorization" = []))
 )]
 pub(crate) async fn trusted_devices(
@@ -369,7 +370,8 @@ pub(crate) async fn enroll_device(
         .map(Json)
 }
 
-#[utoipa::path(post, path = "/devices/pairings", request_body = DevicePairingRequest,
+#[utoipa::path(post, path = "/devices/pairings",
+    description = "An active User with the Installation permission management.devices.enroll creates a pending pairing. The Device-audience access token identifies the User. The accepting endpoint must already be approved.", request_body = DevicePairingRequest,
     responses((status = 200, description = "Pending Device pairing", body = DeviceEnrollment),
         (status = 401, description = "User authentication required"), (status = 403, description = "Enrollment not authorized")),
     security(("authorization" = [])))]
@@ -386,7 +388,8 @@ pub(crate) async fn request_pairing(
 }
 
 #[utoipa::path(get, path = "/devices/pairings/{device_id}/payload",
-    params(("device_id" = String, Path)),
+    description = "Use a Device-audience access token for an active User with the Installation permission management.devices.enroll. Give the exact payload to the new endpoint to sign.",
+    params(("device_id" = String, Path, description = "Device record ID")),
     responses((status = 200, description = "Exact payload to sign with the new Device key", body = DevicePairingApprovalPayload),
         (status = 401, description = "User authentication required"), (status = 403, description = "Pairing not authorized or no longer pending")),
     security(("authorization" = [])))]
@@ -402,9 +405,10 @@ pub(crate) async fn pairing_approval_payload(
         .map(|payload| Json(DevicePairingApprovalPayload { payload }))
 }
 
-#[utoipa::path(post, path = "/devices/pairings/{device_id}/approve", request_body = DevicePairingApprovalRequest,
-    params(("device_id" = String, Path)),
-    responses((status = 200, description = "Approved Device after proof of its endpoint key", body = DeviceInfo),
+#[utoipa::path(post, path = "/devices/pairings/{device_id}/approve",
+    description = "The Device-audience access token identifies the active User, who must have the Installation permission management.devices.enroll. Device checks that the accepting endpoint is still approved and its legacy owner binding matches the pairing, then verifies the new endpoint signature. Approval does not create a Selection or grant Resource access.", request_body = DevicePairingApprovalRequest,
+    params(("device_id" = String, Path, description = "Device record ID")),
+    responses((status = 200, description = "Device approved after proof of possession of the new endpoint key", body = DeviceInfo),
         (status = 401, description = "User authentication required"), (status = 403, description = "Proof or enrollment permission denied")),
     security(("authorization" = [])))]
 pub(crate) async fn approve_pairing(
@@ -439,7 +443,7 @@ async fn require_pairing_permission(
 #[utoipa::path(
     get,
     path = "/devices",
-    responses((status = 200, description = "Devices", body = [DeviceInfo])),
+    responses((status = 200, description = "Device records whose legacy owner matches the User subject in the Device-audience access token", body = [DeviceInfo])),
     security(("authorization" = []))
 )]
 pub(crate) async fn list_devices(
@@ -464,7 +468,8 @@ pub(crate) async fn list_devices(
 #[utoipa::path(
     patch,
     path = "/devices/{id}",
-    params(("id" = String, Path, description = "Device ID")),
+    description = "Rename by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.rename.",
+    params(("id" = String, Path, description = "Device record ID")),
     request_body = UpdateDeviceRequest,
     responses((status = 200, description = "Updated device", body = DeviceInfo)),
     security(("authorization" = []))
@@ -495,7 +500,8 @@ pub(crate) async fn update_device(
 #[utoipa::path(
     delete,
     path = "/devices/{id}",
-    params(("id" = String, Path, description = "Device ID")),
+    description = "Revoke by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.revoke. This operation does not use an endpoint signature or erase existing copies.",
+    params(("id" = String, Path, description = "Device record ID")),
     responses((status = 204, description = "Revoked device")),
     security(("authorization" = []))
 )]
@@ -530,7 +536,8 @@ pub(crate) async fn revoke_device(
 }
 
 #[utoipa::path(post, path = "/devices/enrollments/{device_id}/approve",
-    params(("device_id" = String, Path)),
+    description = "Approve a legacy pending enrollment, not a pairing. Pairing approval requires proof of possession of the new endpoint key.",
+    params(("device_id" = String, Path, description = "Device record ID")),
     responses((status = 200, description = "Approved enrollment", body = DeviceEnrollment)),
     security(("authorization" = [])))]
 pub(crate) async fn approve_enrollment(

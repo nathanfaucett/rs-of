@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct DeviceEnrollmentRequest {
     pub name: String,
+    /// Canonical Iroh endpoint public key.
     pub public_key: String,
     pub address: String,
 }

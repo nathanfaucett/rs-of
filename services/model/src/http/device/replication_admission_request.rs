@@ -23,8 +23,10 @@ pub struct ReplicationAdmissionRequest {
     pub operation: String,
     #[serde(rename = "resourceId")]
     pub resource_id: String,
+    /// Canonical Iroh endpoint public key of the source Device.
     #[serde(rename = "sourceEndpointId")]
     pub source_endpoint_id: String,
+    /// Canonical Iroh endpoint public key of the target Device.
     #[serde(rename = "targetEndpointId")]
     pub target_endpoint_id: String,
 }

@@ -19,7 +19,7 @@
  */
 export interface ApprovedDeviceEndpoints {
   /**
-   *
+   * Canonical Iroh endpoint public keys, not Device record IDs.
    */
   endpointIds: Array<string>;
 }

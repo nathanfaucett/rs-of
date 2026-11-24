@@ -52,7 +52,7 @@ async fn binding(
     Ok(identity.owner_subject)
 }
 
-#[utoipa::path(get, path = "/devices/{device_id}/restriction", params(("device_id" = String, Path)),
+#[utoipa::path(get, path = "/devices/{device_id}/restriction", params(("device_id" = String, Path, description = "Device record ID")),
     responses((status = 200, description = "Current Device restriction", body = DeviceRestriction)), security(("authorization" = [])))]
 pub(crate) async fn get_device_restriction(
     State(state): State<RouterState>,
@@ -77,7 +77,7 @@ pub(crate) async fn get_device_restriction(
     }))
 }
 
-#[utoipa::path(put, path = "/devices/{device_id}/restriction", params(("device_id" = String, Path)), request_body = DeviceRestriction,
+#[utoipa::path(put, path = "/devices/{device_id}/restriction", params(("device_id" = String, Path, description = "Device record ID")), request_body = DeviceRestriction,
     responses((status = 204, description = "Device restriction updated")), security(("authorization" = [])))]
 pub(crate) async fn put_device_restriction(
     State(state): State<RouterState>,

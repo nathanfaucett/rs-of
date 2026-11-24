@@ -19,7 +19,7 @@
  */
 export interface DeviceTransferRequest {
   /**
-   *
+   * User subject to set in the legacy Device owner binding, not the authenticated request actor or the endpoint identity.
    */
   ownerSubject: string;
 }

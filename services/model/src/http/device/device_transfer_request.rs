@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeviceTransferRequest {
+    /// User subject to set in the legacy Device owner binding, not the authenticated request actor or the endpoint identity.
     #[serde(rename = "ownerSubject")]
     pub owner_subject: String,
 }

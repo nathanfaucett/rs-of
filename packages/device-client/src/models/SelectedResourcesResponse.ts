@@ -18,7 +18,7 @@ import type { SelectedResource } from "./SelectedResource.js";
 import { SelectedResourceFromJSON, SelectedResourceToJSON } from "./SelectedResource.js";
 
 /**
- * Current policy for an IdP-approved endpoint with an active owner.
+ * Current policy for a Device-approved endpoint whose legacy owner is an active IdP User.
  * Pending cleanup is service-only evidence, never replication approval or cacheable permission.
  * @export
  * @interface SelectedResourcesResponse
@@ -29,15 +29,15 @@ export interface SelectedResourcesResponse {
    */
   adminAllowed: boolean;
   /**
-   *
+   * Device record ID, not an endpoint public key.
    */
   deviceId: string;
   /**
-   *
+   * Canonical Iroh endpoint public key.
    */
   endpointId: string;
   /**
-   *
+   * User subject in the legacy Device owner binding, not the authenticated request actor or the endpoint identity.
    */
   ownerSubject: string;
   /**

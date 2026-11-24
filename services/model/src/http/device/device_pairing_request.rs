@@ -14,12 +14,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevicePairingRequest {
+    /// Canonical Iroh endpoint public key of the approved accepting Device.
     #[serde(rename = "acceptingPublicKey")]
     pub accepting_public_key: String,
     #[serde(rename = "address")]
     pub address: String,
     #[serde(rename = "name")]
     pub name: String,
+    /// Canonical Iroh endpoint public key of the new Device.
     #[serde(rename = "publicKey")]
     pub public_key: String,
 }

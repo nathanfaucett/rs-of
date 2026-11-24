@@ -19,7 +19,7 @@
  */
 export interface DevicePairingApprovalPayload {
   /**
-   *
+   * Exact text to sign as UTF-8 with the new endpoint private key.
    */
   payload: string;
 }

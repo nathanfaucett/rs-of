@@ -26,7 +26,7 @@ export interface DeviceEnrollment {
    */
   approvalCode?: (string | null) | undefined;
   /**
-   *
+   * Device record ID, not an endpoint public key.
    */
   id: string;
   /**

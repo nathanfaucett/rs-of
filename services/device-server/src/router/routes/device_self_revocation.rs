@@ -11,6 +11,7 @@ use crate::router::state::RouterState;
 #[utoipa::path(
     post,
     path = "/devices/revoke-self",
+    description = "Revoke the Device identified by its endpoint public key. The signature proves possession of that key. No User token or Management permission is required.",
     request_body = DeviceSelfRevocationRequest,
     responses((status = 200, description = "Device revoked"))
 )]

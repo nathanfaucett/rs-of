@@ -27,7 +27,7 @@ export interface DeviceEnrollmentRequest {
    */
   name: string;
   /**
-   *
+   * Canonical Iroh endpoint public key.
    */
   publicKey: string;
 }

@@ -35,11 +35,11 @@ export interface ReplicationAdmissionRequest {
    */
   resourceId: string;
   /**
-   *
+   * Canonical Iroh endpoint public key of the source Device.
    */
   sourceEndpointId: string;
   /**
-   *
+   * Canonical Iroh endpoint public key of the target Device.
    */
   targetEndpointId: string;
 }

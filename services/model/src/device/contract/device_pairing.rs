@@ -10,8 +10,10 @@ use crate::id::Id;
 #[serde(rename_all = "camelCase")]
 pub struct DevicePairingRequest {
     pub name: String,
+    /// Canonical Iroh endpoint public key of the new Device.
     pub public_key: String,
     pub address: String,
+    /// Canonical Iroh endpoint public key of the approved accepting Device.
     pub accepting_public_key: String,
 }
 
@@ -19,6 +21,7 @@ pub struct DevicePairingRequest {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DevicePairingApprovalRequest {
+    /// Ed25519 signature over the exact UTF-8 approval payload, made with the new endpoint private key and encoded as base64url without padding.
     pub signature: String,
 }
 
@@ -26,6 +29,7 @@ pub struct DevicePairingApprovalRequest {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DevicePairingApprovalPayload {
+    /// Exact text to sign as UTF-8 with the new endpoint private key.
     pub payload: String,
 }
 

@@ -18,6 +18,7 @@ pub struct SelectedResource {
     pub application_id: String,
     #[serde(rename = "kind")]
     pub kind: String,
+    /// User subject in the Resource namespace, matched to the legacy Device owner binding. It is not the request actor or the endpoint identity.
     #[serde(rename = "ownerSubject")]
     pub owner_subject: String,
     #[serde(rename = "resourceId")]

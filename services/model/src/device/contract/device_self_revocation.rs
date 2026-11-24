@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceSelfRevocationRequest {
+    /// Canonical Iroh endpoint public key of the Device to revoke.
     pub public_key: String,
+    /// Ed25519 signature over the UTF-8 self-revocation payload, made with the endpoint private key and encoded as base64url without padding.
     pub signature: String,
 }
 

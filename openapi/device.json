@@ -5,6 +5,7 @@
         "additionalProperties": false,
         "properties": {
           "endpointIds": {
+            "description": "Canonical Iroh endpoint public keys, not Device record IDs.",
             "items": {
               "type": "string"
             },
@@ -37,6 +38,7 @@
             "type": "string"
           },
           "publicKey": {
+            "description": "Canonical Iroh endpoint public key.",
             "type": "string"
           }
         },
@@ -46,12 +48,15 @@
       "DeviceEndpointIdentity": {
         "properties": {
           "deviceId": {
+            "description": "Device record ID, not an endpoint public key.",
             "type": "string"
           },
           "endpointId": {
+            "description": "Canonical Iroh endpoint public key.",
             "type": "string"
           },
           "ownerSubject": {
+            "description": "User subject in the legacy Device owner binding, not the authenticated request actor or the endpoint identity.",
             "type": "string"
           }
         },
@@ -64,6 +69,7 @@
             "type": ["string", "null"]
           },
           "id": {
+            "description": "Device record ID, not an endpoint public key.",
             "type": "string"
           },
           "state": {
@@ -82,6 +88,7 @@
             "type": "string"
           },
           "publicKey": {
+            "description": "Canonical Iroh endpoint public key.",
             "type": "string"
           }
         },
@@ -98,12 +105,14 @@
             "type": "integer"
           },
           "id": {
+            "description": "Device record ID, not an endpoint public key.",
             "type": "string"
           },
           "name": {
             "type": "string"
           },
           "publicKey": {
+            "description": "Canonical Iroh endpoint public key.",
             "type": "string"
           },
           "revokedAt": {
@@ -124,6 +133,7 @@
       "DevicePairingApprovalPayload": {
         "properties": {
           "payload": {
+            "description": "Exact text to sign as UTF-8 with the new endpoint private key.",
             "type": "string"
           }
         },
@@ -133,6 +143,7 @@
       "DevicePairingApprovalRequest": {
         "properties": {
           "signature": {
+            "description": "Ed25519 signature over the exact UTF-8 approval payload, made with the new endpoint private key and encoded as base64url without padding.",
             "type": "string"
           }
         },
@@ -142,6 +153,7 @@
       "DevicePairingRequest": {
         "properties": {
           "acceptingPublicKey": {
+            "description": "Canonical Iroh endpoint public key of the approved accepting Device.",
             "type": "string"
           },
           "address": {
@@ -151,6 +163,7 @@
             "type": "string"
           },
           "publicKey": {
+            "description": "Canonical Iroh endpoint public key of the new Device.",
             "type": "string"
           }
         },
@@ -170,9 +183,11 @@
       "DeviceSelfRevocationRequest": {
         "properties": {
           "publicKey": {
+            "description": "Canonical Iroh endpoint public key of the Device to revoke.",
             "type": "string"
           },
           "signature": {
+            "description": "Ed25519 signature over the UTF-8 self-revocation payload, made with the endpoint private key and encoded as base64url without padding.",
             "type": "string"
           }
         },
@@ -187,6 +202,7 @@
         "additionalProperties": false,
         "properties": {
           "ownerSubject": {
+            "description": "User subject to set in the legacy Device owner binding, not the authenticated request actor or the endpoint identity.",
             "type": "string"
           }
         },
@@ -300,21 +316,25 @@
       },
       "OwnerCopyCleanup": {
         "additionalProperties": false,
-        "description": "Exact current Management binding; only an authenticated Storage service may acknowledge it.",
+        "description": "Exact cleanup binding for a Device owner transfer; only an authenticated Storage service may acknowledge it.",
         "properties": {
           "cleanupId": {
             "type": "string"
           },
           "deviceId": {
+            "description": "Device record ID, not an endpoint public key.",
             "type": "string"
           },
           "endpointId": {
+            "description": "Canonical Iroh endpoint public key.",
             "type": "string"
           },
           "newOwnerSubject": {
+            "description": "New User subject in the legacy Device owner binding, not the request actor or the endpoint identity.",
             "type": "string"
           },
           "oldOwnerSubject": {
+            "description": "Previous User subject in the legacy Device owner binding, not the request actor or the endpoint identity.",
             "type": "string"
           }
         },
@@ -375,9 +395,11 @@
             "type": "string"
           },
           "sourceEndpointId": {
+            "description": "Canonical Iroh endpoint public key of the source Device.",
             "type": "string"
           },
           "targetEndpointId": {
+            "description": "Canonical Iroh endpoint public key of the target Device.",
             "type": "string"
           }
         },
@@ -400,6 +422,7 @@
             "type": "string"
           },
           "ownerSubject": {
+            "description": "User subject in the Resource namespace, matched to the legacy Device owner binding. It is not the request actor or the endpoint identity.",
             "type": "string"
           },
           "resourceId": {
@@ -410,18 +433,21 @@
         "type": "object"
       },
       "SelectedResourcesResponse": {
-        "description": "Current policy for an IdP-approved endpoint with an active owner.\nPending cleanup is service-only evidence, never replication approval or cacheable permission.",
+        "description": "Current policy for a Device-approved endpoint whose legacy owner is an active IdP User.\nPending cleanup is service-only evidence, never replication approval or cacheable permission.",
         "properties": {
           "adminAllowed": {
             "type": "boolean"
           },
           "deviceId": {
+            "description": "Device record ID, not an endpoint public key.",
             "type": "string"
           },
           "endpointId": {
+            "description": "Canonical Iroh endpoint public key.",
             "type": "string"
           },
           "ownerSubject": {
+            "description": "User subject in the legacy Device owner binding, not the authenticated request actor or the endpoint identity.",
             "type": "string"
           },
           "pendingCleanup": {
@@ -473,6 +499,7 @@
             "type": "string"
           },
           "publicKey": {
+            "description": "Canonical Iroh endpoint public key.",
             "type": "string"
           }
         },
@@ -551,7 +578,7 @@
                 }
               }
             },
-            "description": "Local device identity"
+            "description": "Local endpoint public key and address; not a Device record ID or proof of approval"
           }
         }
       }
@@ -571,7 +598,7 @@
                 }
               }
             },
-            "description": "Devices"
+            "description": "Device records whose legacy owner matches the User subject in the Device-audience access token"
           }
         },
         "security": [
@@ -593,7 +620,7 @@
                 }
               }
             },
-            "description": "Approved endpoint IDs"
+            "description": "Iroh endpoint public keys of approved Devices"
           },
           "401": {
             "description": "Invalid client access token"
@@ -632,7 +659,7 @@
                 }
               }
             },
-            "description": "Approved endpoint identity"
+            "description": "Approved Device endpoint binding with an active legacy owner"
           },
           "401": {
             "description": "Invalid client access token"
@@ -708,9 +735,11 @@
     },
     "/devices/enrollments/{device_id}/approve": {
       "post": {
+        "description": "Approve a legacy pending enrollment, not a pairing. Pairing approval requires proof of possession of the new endpoint key.",
         "operationId": "approve_enrollment",
         "parameters": [
           {
+            "description": "Device record ID",
             "in": "path",
             "name": "device_id",
             "required": true,
@@ -743,7 +772,7 @@
         "operationId": "lookup_device_identity",
         "parameters": [
           {
-            "description": "Device ID",
+            "description": "Device record ID",
             "in": "path",
             "name": "device_id",
             "required": true,
@@ -761,7 +790,7 @@
                 }
               }
             },
-            "description": "Locally trusted Device owner"
+            "description": "Approved Device endpoint binding with an active legacy owner"
           }
         },
         "security": [
@@ -773,6 +802,7 @@
     },
     "/devices/pairings": {
       "post": {
+        "description": "An active User with the Installation permission management.devices.enroll creates a pending pairing. The Device-audience access token identifies the User. The accepting endpoint must already be approved.",
         "operationId": "request_pairing",
         "requestBody": {
           "content": {
@@ -811,9 +841,11 @@
     },
     "/devices/pairings/{device_id}/approve": {
       "post": {
+        "description": "The Device-audience access token identifies the active User, who must have the Installation permission management.devices.enroll. Device checks that the accepting endpoint is still approved and its legacy owner binding matches the pairing, then verifies the new endpoint signature. Approval does not create a Selection or grant Resource access.",
         "operationId": "approve_pairing",
         "parameters": [
           {
+            "description": "Device record ID",
             "in": "path",
             "name": "device_id",
             "required": true,
@@ -841,7 +873,7 @@
                 }
               }
             },
-            "description": "Approved Device after proof of its endpoint key"
+            "description": "Device approved after proof of possession of the new endpoint key"
           },
           "401": {
             "description": "User authentication required"
@@ -859,9 +891,11 @@
     },
     "/devices/pairings/{device_id}/payload": {
       "get": {
+        "description": "Use a Device-audience access token for an active User with the Installation permission management.devices.enroll. Give the exact payload to the new endpoint to sign.",
         "operationId": "pairing_approval_payload",
         "parameters": [
           {
+            "description": "Device record ID",
             "in": "path",
             "name": "device_id",
             "required": true,
@@ -897,6 +931,7 @@
     },
     "/devices/revoke-self": {
       "post": {
+        "description": "Revoke the Device identified by its endpoint public key. The signature proves possession of that key. No User token or Management permission is required.",
         "operationId": "revoke_self",
         "requestBody": {
           "content": {
@@ -930,7 +965,7 @@
                 }
               }
             },
-            "description": "Approved devices"
+            "description": "Approved endpoints whose legacy owner matches the User subject in the Device-audience access token"
           }
         },
         "security": [
@@ -942,9 +977,11 @@
     },
     "/devices/{device_id}/owner": {
       "put": {
+        "description": "Transfer the legacy owner binding. The Device-audience access token identifies the acting User; ownerSubject names the new owner.",
         "operationId": "transfer_device",
         "parameters": [
           {
+            "description": "Device record ID",
             "in": "path",
             "name": "device_id",
             "required": true,
@@ -980,6 +1017,7 @@
         "operationId": "get_device_restriction",
         "parameters": [
           {
+            "description": "Device record ID",
             "in": "path",
             "name": "device_id",
             "required": true,
@@ -1010,6 +1048,7 @@
         "operationId": "put_device_restriction",
         "parameters": [
           {
+            "description": "Device record ID",
             "in": "path",
             "name": "device_id",
             "required": true,
@@ -1045,7 +1084,7 @@
         "operationId": "put_device_selection",
         "parameters": [
           {
-            "description": "Device ID",
+            "description": "Device record ID",
             "in": "path",
             "name": "device_id",
             "required": true,
@@ -1081,7 +1120,7 @@
         "operationId": "delete_device_resource_selection",
         "parameters": [
           {
-            "description": "Device ID",
+            "description": "Device record ID",
             "in": "path",
             "name": "device_id",
             "required": true,
@@ -1131,10 +1170,11 @@
     },
     "/devices/{id}": {
       "delete": {
+        "description": "Revoke by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.revoke. This operation does not use an endpoint signature or erase existing copies.",
         "operationId": "revoke_device",
         "parameters": [
           {
-            "description": "Device ID",
+            "description": "Device record ID",
             "in": "path",
             "name": "id",
             "required": true,
@@ -1155,10 +1195,11 @@
         ]
       },
       "patch": {
+        "description": "Rename by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.rename.",
         "operationId": "update_device",
         "parameters": [
           {
-            "description": "Device ID",
+            "description": "Device record ID",
             "in": "path",
             "name": "id",
             "required": true,

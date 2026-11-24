@@ -18,6 +18,7 @@ pub struct DeviceEnrollmentRequest {
     pub address: String,
     #[serde(rename = "name")]
     pub name: String,
+    /// Canonical Iroh endpoint public key.
     #[serde(rename = "publicKey")]
     pub public_key: String,
 }

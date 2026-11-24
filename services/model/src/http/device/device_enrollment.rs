@@ -22,6 +22,7 @@ pub struct DeviceEnrollment {
         skip_serializing_if = "Option::is_none"
     )]
     pub approval_code: Option<Option<String>>,
+    /// Device record ID, not an endpoint public key.
     #[serde(rename = "id")]
     pub id: String,
     #[serde(rename = "state")]

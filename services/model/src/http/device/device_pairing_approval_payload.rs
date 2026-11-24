@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevicePairingApprovalPayload {
+    /// Exact text to sign as UTF-8 with the new endpoint private key.
     #[serde(rename = "payload")]
     pub payload: String,
 }

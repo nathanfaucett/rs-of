@@ -64,14 +64,14 @@ import * as runtime from "../runtime.js";
 
 export interface ApproveEnrollmentRequest {
   /**
-   *
+   * Device record ID
    */
   deviceId: string;
 }
 
 export interface ApprovePairingRequest {
   /**
-   *
+   * Device record ID
    */
   deviceId: string;
   /**
@@ -82,7 +82,7 @@ export interface ApprovePairingRequest {
 
 export interface DeleteDeviceResourceSelectionRequest {
   /**
-   * Device ID
+   * Device record ID
    */
   deviceId: string;
   /**
@@ -108,7 +108,7 @@ export interface EnrollDeviceRequest {
 
 export interface GetDeviceRestrictionRequest {
   /**
-   *
+   * Device record ID
    */
   deviceId: string;
 }
@@ -122,21 +122,21 @@ export interface LookupDeviceEndpointRequest {
 
 export interface LookupDeviceIdentityRequest {
   /**
-   * Device ID
+   * Device record ID
    */
   deviceId: string;
 }
 
 export interface PairingApprovalPayloadRequest {
   /**
-   *
+   * Device record ID
    */
   deviceId: string;
 }
 
 export interface PutDeviceRestrictionRequest {
   /**
-   *
+   * Device record ID
    */
   deviceId: string;
   /**
@@ -147,7 +147,7 @@ export interface PutDeviceRestrictionRequest {
 
 export interface PutDeviceSelectionRequest {
   /**
-   * Device ID
+   * Device record ID
    */
   deviceId: string;
   /**
@@ -165,7 +165,7 @@ export interface RequestPairingRequest {
 
 export interface RevokeDeviceRequest {
   /**
-   * Device ID
+   * Device record ID
    */
   id: string;
 }
@@ -179,7 +179,7 @@ export interface RevokeSelfRequest {
 
 export interface TransferDeviceRequest {
   /**
-   *
+   * Device record ID
    */
   deviceId: string;
   /**
@@ -190,7 +190,7 @@ export interface TransferDeviceRequest {
 
 export interface UpdateDeviceOperationRequest {
   /**
-   * Device ID
+   * Device record ID
    */
   id: string;
   /**
@@ -208,7 +208,7 @@ export interface UpdateDeviceOperationRequest {
 export interface DefaultApiInterface {
   /**
    * Creates request options for approveEnrollment without sending the request
-   * @param {string} deviceId
+   * @param {string} deviceId Device record ID
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
    */
@@ -217,8 +217,8 @@ export interface DefaultApiInterface {
   ): Promise<runtime.RequestOpts>;
 
   /**
-   *
-   * @param {string} deviceId
+   * Approve a legacy pending enrollment, not a pairing. Pairing approval requires proof of possession of the new endpoint key.
+   * @param {string} deviceId Device record ID
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -229,6 +229,7 @@ export interface DefaultApiInterface {
   ): Promise<runtime.ApiResponse<DeviceEnrollment>>;
 
   /**
+   * Approve a legacy pending enrollment, not a pairing. Pairing approval requires proof of possession of the new endpoint key.
    */
   approveEnrollment(
     requestParameters: ApproveEnrollmentRequest,
@@ -237,7 +238,7 @@ export interface DefaultApiInterface {
 
   /**
    * Creates request options for approvePairing without sending the request
-   * @param {string} deviceId
+   * @param {string} deviceId Device record ID
    * @param {DevicePairingApprovalRequest} devicePairingApprovalRequest
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -245,8 +246,8 @@ export interface DefaultApiInterface {
   approvePairingRequestOpts(requestParameters: ApprovePairingRequest): Promise<runtime.RequestOpts>;
 
   /**
-   *
-   * @param {string} deviceId
+   * The Device-audience access token identifies the active User, who must have the Installation permission management.devices.enroll. Device checks that the accepting endpoint is still approved and its legacy owner binding matches the pairing, then verifies the new endpoint signature. Approval does not create a Selection or grant Resource access.
+   * @param {string} deviceId Device record ID
    * @param {DevicePairingApprovalRequest} devicePairingApprovalRequest
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -258,6 +259,7 @@ export interface DefaultApiInterface {
   ): Promise<runtime.ApiResponse<DeviceInfo>>;
 
   /**
+   * The Device-audience access token identifies the active User, who must have the Installation permission management.devices.enroll. Device checks that the accepting endpoint is still approved and its legacy owner binding matches the pairing, then verifies the new endpoint signature. Approval does not create a Selection or grant Resource access.
    */
   approvePairing(
     requestParameters: ApprovePairingRequest,
@@ -266,7 +268,7 @@ export interface DefaultApiInterface {
 
   /**
    * Creates request options for deleteDeviceResourceSelection without sending the request
-   * @param {string} deviceId Device ID
+   * @param {string} deviceId Device record ID
    * @param {string} applicationId Application ID
    * @param {string} kind Resource kind
    * @param {string} resourceId Resource ID
@@ -279,7 +281,7 @@ export interface DefaultApiInterface {
 
   /**
    *
-   * @param {string} deviceId Device ID
+   * @param {string} deviceId Device record ID
    * @param {string} applicationId Application ID
    * @param {string} kind Resource kind
    * @param {string} resourceId Resource ID
@@ -349,7 +351,7 @@ export interface DefaultApiInterface {
 
   /**
    * Creates request options for getDeviceRestriction without sending the request
-   * @param {string} deviceId
+   * @param {string} deviceId Device record ID
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
    */
@@ -359,7 +361,7 @@ export interface DefaultApiInterface {
 
   /**
    *
-   * @param {string} deviceId
+   * @param {string} deviceId Device record ID
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -497,7 +499,7 @@ export interface DefaultApiInterface {
 
   /**
    * Creates request options for lookupDeviceIdentity without sending the request
-   * @param {string} deviceId Device ID
+   * @param {string} deviceId Device record ID
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
    */
@@ -507,7 +509,7 @@ export interface DefaultApiInterface {
 
   /**
    *
-   * @param {string} deviceId Device ID
+   * @param {string} deviceId Device record ID
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -547,7 +549,7 @@ export interface DefaultApiInterface {
 
   /**
    * Creates request options for pairingApprovalPayload without sending the request
-   * @param {string} deviceId
+   * @param {string} deviceId Device record ID
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
    */
@@ -556,8 +558,8 @@ export interface DefaultApiInterface {
   ): Promise<runtime.RequestOpts>;
 
   /**
-   *
-   * @param {string} deviceId
+   * Use a Device-audience access token for an active User with the Installation permission management.devices.enroll. Give the exact payload to the new endpoint to sign.
+   * @param {string} deviceId Device record ID
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -568,6 +570,7 @@ export interface DefaultApiInterface {
   ): Promise<runtime.ApiResponse<DevicePairingApprovalPayload>>;
 
   /**
+   * Use a Device-audience access token for an active User with the Installation permission management.devices.enroll. Give the exact payload to the new endpoint to sign.
    */
   pairingApprovalPayload(
     requestParameters: PairingApprovalPayloadRequest,
@@ -576,7 +579,7 @@ export interface DefaultApiInterface {
 
   /**
    * Creates request options for putDeviceRestriction without sending the request
-   * @param {string} deviceId
+   * @param {string} deviceId Device record ID
    * @param {DeviceRestriction} deviceRestriction
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -587,7 +590,7 @@ export interface DefaultApiInterface {
 
   /**
    *
-   * @param {string} deviceId
+   * @param {string} deviceId Device record ID
    * @param {DeviceRestriction} deviceRestriction
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -607,7 +610,7 @@ export interface DefaultApiInterface {
 
   /**
    * Creates request options for putDeviceSelection without sending the request
-   * @param {string} deviceId Device ID
+   * @param {string} deviceId Device record ID
    * @param {SelectionRequest} selectionRequest
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -618,7 +621,7 @@ export interface DefaultApiInterface {
 
   /**
    *
-   * @param {string} deviceId Device ID
+   * @param {string} deviceId Device record ID
    * @param {SelectionRequest} selectionRequest
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -645,7 +648,7 @@ export interface DefaultApiInterface {
   requestPairingRequestOpts(requestParameters: RequestPairingRequest): Promise<runtime.RequestOpts>;
 
   /**
-   *
+   * An active User with the Installation permission management.devices.enroll creates a pending pairing. The Device-audience access token identifies the User. The accepting endpoint must already be approved.
    * @param {DevicePairingRequest} devicePairingRequest
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -657,6 +660,7 @@ export interface DefaultApiInterface {
   ): Promise<runtime.ApiResponse<DeviceEnrollment>>;
 
   /**
+   * An active User with the Installation permission management.devices.enroll creates a pending pairing. The Device-audience access token identifies the User. The accepting endpoint must already be approved.
    */
   requestPairing(
     requestParameters: RequestPairingRequest,
@@ -665,15 +669,15 @@ export interface DefaultApiInterface {
 
   /**
    * Creates request options for revokeDevice without sending the request
-   * @param {string} id Device ID
+   * @param {string} id Device record ID
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
    */
   revokeDeviceRequestOpts(requestParameters: RevokeDeviceRequest): Promise<runtime.RequestOpts>;
 
   /**
-   *
-   * @param {string} id Device ID
+   * Revoke by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.revoke. This operation does not use an endpoint signature or erase existing copies.
+   * @param {string} id Device record ID
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -684,6 +688,7 @@ export interface DefaultApiInterface {
   ): Promise<runtime.ApiResponse<void>>;
 
   /**
+   * Revoke by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.revoke. This operation does not use an endpoint signature or erase existing copies.
    */
   revokeDevice(
     requestParameters: RevokeDeviceRequest,
@@ -699,7 +704,7 @@ export interface DefaultApiInterface {
   revokeSelfRequestOpts(requestParameters: RevokeSelfRequest): Promise<runtime.RequestOpts>;
 
   /**
-   *
+   * Revoke the Device identified by its endpoint public key. The signature proves possession of that key. No User token or Management permission is required.
    * @param {DeviceSelfRevocationRequest} deviceSelfRevocationRequest
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -711,6 +716,7 @@ export interface DefaultApiInterface {
   ): Promise<runtime.ApiResponse<void>>;
 
   /**
+   * Revoke the Device identified by its endpoint public key. The signature proves possession of that key. No User token or Management permission is required.
    */
   revokeSelf(
     requestParameters: RevokeSelfRequest,
@@ -719,7 +725,7 @@ export interface DefaultApiInterface {
 
   /**
    * Creates request options for transferDevice without sending the request
-   * @param {string} deviceId
+   * @param {string} deviceId Device record ID
    * @param {DeviceTransferRequest} deviceTransferRequest
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -727,8 +733,8 @@ export interface DefaultApiInterface {
   transferDeviceRequestOpts(requestParameters: TransferDeviceRequest): Promise<runtime.RequestOpts>;
 
   /**
-   *
-   * @param {string} deviceId
+   * Transfer the legacy owner binding. The Device-audience access token identifies the acting User; ownerSubject names the new owner.
+   * @param {string} deviceId Device record ID
    * @param {DeviceTransferRequest} deviceTransferRequest
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -740,6 +746,7 @@ export interface DefaultApiInterface {
   ): Promise<runtime.ApiResponse<void>>;
 
   /**
+   * Transfer the legacy owner binding. The Device-audience access token identifies the acting User; ownerSubject names the new owner.
    */
   transferDevice(
     requestParameters: TransferDeviceRequest,
@@ -771,7 +778,7 @@ export interface DefaultApiInterface {
 
   /**
    * Creates request options for updateDevice without sending the request
-   * @param {string} id Device ID
+   * @param {string} id Device record ID
    * @param {UpdateDeviceRequest} updateDeviceRequest
    * @throws {RequiredError}
    * @memberof DefaultApiInterface
@@ -781,8 +788,8 @@ export interface DefaultApiInterface {
   ): Promise<runtime.RequestOpts>;
 
   /**
-   *
-   * @param {string} id Device ID
+   * Rename by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.rename.
+   * @param {string} id Device record ID
    * @param {UpdateDeviceRequest} updateDeviceRequest
    * @param {*} [options] Override http request option.
    * @throws {RequiredError}
@@ -794,6 +801,7 @@ export interface DefaultApiInterface {
   ): Promise<runtime.ApiResponse<DeviceInfo>>;
 
   /**
+   * Rename by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.rename.
    */
   updateDevice(
     requestParameters: UpdateDeviceOperationRequest,
@@ -867,6 +875,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Approve a legacy pending enrollment, not a pairing. Pairing approval requires proof of possession of the new endpoint key.
    */
   async approveEnrollmentRaw(
     requestParameters: ApproveEnrollmentRequest,
@@ -881,6 +890,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Approve a legacy pending enrollment, not a pairing. Pairing approval requires proof of possession of the new endpoint key.
    */
   async approveEnrollment(
     requestParameters: ApproveEnrollmentRequest,
@@ -941,6 +951,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * The Device-audience access token identifies the active User, who must have the Installation permission management.devices.enroll. Device checks that the accepting endpoint is still approved and its legacy owner binding matches the pairing, then verifies the new endpoint signature. Approval does not create a Selection or grant Resource access.
    */
   async approvePairingRaw(
     requestParameters: ApprovePairingRequest,
@@ -953,6 +964,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * The Device-audience access token identifies the active User, who must have the Installation permission management.devices.enroll. Device checks that the accepting endpoint is still approved and its legacy owner binding matches the pairing, then verifies the new endpoint signature. Approval does not create a Selection or grant Resource access.
    */
   async approvePairing(
     requestParameters: ApprovePairingRequest,
@@ -1603,6 +1615,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Use a Device-audience access token for an active User with the Installation permission management.devices.enroll. Give the exact payload to the new endpoint to sign.
    */
   async pairingApprovalPayloadRaw(
     requestParameters: PairingApprovalPayloadRequest,
@@ -1617,6 +1630,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Use a Device-audience access token for an active User with the Installation permission management.devices.enroll. Give the exact payload to the new endpoint to sign.
    */
   async pairingApprovalPayload(
     requestParameters: PairingApprovalPayloadRequest,
@@ -1808,6 +1822,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * An active User with the Installation permission management.devices.enroll creates a pending pairing. The Device-audience access token identifies the User. The accepting endpoint must already be approved.
    */
   async requestPairingRaw(
     requestParameters: RequestPairingRequest,
@@ -1822,6 +1837,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * An active User with the Installation permission management.devices.enroll creates a pending pairing. The Device-audience access token identifies the User. The accepting endpoint must already be approved.
    */
   async requestPairing(
     requestParameters: RequestPairingRequest,
@@ -1869,6 +1885,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Revoke by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.revoke. This operation does not use an endpoint signature or erase existing copies.
    */
   async revokeDeviceRaw(
     requestParameters: RevokeDeviceRequest,
@@ -1881,6 +1898,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Revoke by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.revoke. This operation does not use an endpoint signature or erase existing copies.
    */
   async revokeDevice(
     requestParameters: RevokeDeviceRequest,
@@ -1918,6 +1936,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Revoke the Device identified by its endpoint public key. The signature proves possession of that key. No User token or Management permission is required.
    */
   async revokeSelfRaw(
     requestParameters: RevokeSelfRequest,
@@ -1930,6 +1949,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Revoke the Device identified by its endpoint public key. The signature proves possession of that key. No User token or Management permission is required.
    */
   async revokeSelf(
     requestParameters: RevokeSelfRequest,
@@ -1989,6 +2009,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Transfer the legacy owner binding. The Device-audience access token identifies the acting User; ownerSubject names the new owner.
    */
   async transferDeviceRaw(
     requestParameters: TransferDeviceRequest,
@@ -2001,6 +2022,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Transfer the legacy owner binding. The Device-audience access token identifies the acting User; ownerSubject names the new owner.
    */
   async transferDevice(
     requestParameters: TransferDeviceRequest,
@@ -2106,6 +2128,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Rename by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.rename.
    */
   async updateDeviceRaw(
     requestParameters: UpdateDeviceOperationRequest,
@@ -2118,6 +2141,7 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
   }
 
   /**
+   * Rename by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.rename.
    */
   async updateDevice(
     requestParameters: UpdateDeviceOperationRequest,

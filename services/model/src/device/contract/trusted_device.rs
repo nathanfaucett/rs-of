@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct TrustedDevice {
+    /// Canonical Iroh endpoint public key.
     pub public_key: String,
     pub address: String,
 }

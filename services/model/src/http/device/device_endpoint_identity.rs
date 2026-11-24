@@ -14,10 +14,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceEndpointIdentity {
+    /// Device record ID, not an endpoint public key.
     #[serde(rename = "deviceId")]
     pub device_id: String,
+    /// Canonical Iroh endpoint public key.
     #[serde(rename = "endpointId")]
     pub endpoint_id: String,
+    /// User subject in the legacy Device owner binding, not the authenticated request actor or the endpoint identity.
     #[serde(rename = "ownerSubject")]
     pub owner_subject: String,
 }

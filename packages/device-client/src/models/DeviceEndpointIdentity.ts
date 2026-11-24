@@ -19,15 +19,15 @@
  */
 export interface DeviceEndpointIdentity {
   /**
-   *
+   * Device record ID, not an endpoint public key.
    */
   deviceId: string;
   /**
-   *
+   * Canonical Iroh endpoint public key.
    */
   endpointId: string;
   /**
-   *
+   * User subject in the legacy Device owner binding, not the authenticated request actor or the endpoint identity.
    */
   ownerSubject: string;
 }

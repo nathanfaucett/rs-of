@@ -19,7 +19,7 @@
  */
 export interface DevicePairingRequest {
   /**
-   *
+   * Canonical Iroh endpoint public key of the approved accepting Device.
    */
   acceptingPublicKey: string;
   /**
@@ -31,7 +31,7 @@ export interface DevicePairingRequest {
    */
   name: string;
   /**
-   *
+   * Canonical Iroh endpoint public key of the new Device.
    */
   publicKey: string;
 }

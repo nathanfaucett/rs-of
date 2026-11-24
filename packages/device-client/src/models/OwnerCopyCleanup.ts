@@ -13,7 +13,7 @@
  */
 
 /**
- * Exact current Management binding; only an authenticated Storage service may acknowledge it.
+ * Exact cleanup binding for a Device owner transfer; only an authenticated Storage service may acknowledge it.
  * @export
  * @interface OwnerCopyCleanup
  */
@@ -23,19 +23,19 @@ export interface OwnerCopyCleanup {
    */
   cleanupId: string;
   /**
-   *
+   * Device record ID, not an endpoint public key.
    */
   deviceId: string;
   /**
-   *
+   * Canonical Iroh endpoint public key.
    */
   endpointId: string;
   /**
-   *
+   * New User subject in the legacy Device owner binding, not the request actor or the endpoint identity.
    */
   newOwnerSubject: string;
   /**
-   *
+   * Previous User subject in the legacy Device owner binding, not the request actor or the endpoint identity.
    */
   oldOwnerSubject: string;
 }

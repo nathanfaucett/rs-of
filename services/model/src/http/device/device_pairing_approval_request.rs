@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevicePairingApprovalRequest {
+    /// Ed25519 signature over the exact UTF-8 approval payload, made with the new endpoint private key and encoded as base64url without padding.
     #[serde(rename = "signature")]
     pub signature: String,
 }

@@ -23,7 +23,7 @@ export interface Device {
    */
   address: string;
   /**
-   *
+   * Canonical Iroh endpoint public key.
    */
   publicKey: string;
 }

@@ -11,9 +11,11 @@ use crate::device::contract::device_state::DeviceState;
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
+    /// Device record ID, not an endpoint public key.
     #[cfg_attr(feature = "utoipa", schema(value_type = String))]
     pub id: Id,
     pub name: String,
+    /// Canonical Iroh endpoint public key.
     pub public_key: String,
     pub address: String,
     pub state: DeviceState,

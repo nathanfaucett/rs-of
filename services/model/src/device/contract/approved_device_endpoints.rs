@@ -7,5 +7,6 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApprovedDeviceEndpoints {
+    /// Canonical Iroh endpoint public keys, not Device record IDs.
     pub endpoint_ids: Vec<String>,
 }

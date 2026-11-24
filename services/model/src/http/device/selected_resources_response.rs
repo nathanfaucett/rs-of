@@ -13,15 +13,18 @@ use alloc::{boxed::Box, string::String, vec::Vec};
 use crate::http::device as models;
 use serde::{Deserialize, Serialize};
 
-/// SelectedResourcesResponse : Current policy for an IdP-approved endpoint with an active owner. Pending cleanup is service-only evidence, never replication approval or cacheable permission.
+/// SelectedResourcesResponse : Current policy for a Device-approved endpoint whose legacy owner is an active IdP User. Pending cleanup is service-only evidence, never replication approval or cacheable permission.
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectedResourcesResponse {
     #[serde(rename = "adminAllowed")]
     pub admin_allowed: bool,
+    /// Device record ID, not an endpoint public key.
     #[serde(rename = "deviceId")]
     pub device_id: String,
+    /// Canonical Iroh endpoint public key.
     #[serde(rename = "endpointId")]
     pub endpoint_id: String,
+    /// User subject in the legacy Device owner binding, not the authenticated request actor or the endpoint identity.
     #[serde(rename = "ownerSubject")]
     pub owner_subject: String,
     #[serde(
@@ -36,7 +39,7 @@ pub struct SelectedResourcesResponse {
 }
 
 impl SelectedResourcesResponse {
-    /// Current policy for an IdP-approved endpoint with an active owner. Pending cleanup is service-only evidence, never replication approval or cacheable permission.
+    /// Current policy for a Device-approved endpoint whose legacy owner is an active IdP User. Pending cleanup is service-only evidence, never replication approval or cacheable permission.
     #[must_use]
     pub const fn new(
         admin_allowed: bool,

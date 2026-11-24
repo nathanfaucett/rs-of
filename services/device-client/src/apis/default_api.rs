@@ -15,12 +15,14 @@ use serde::{Deserialize, Serialize, de::Error as _};
 /// struct for passing parameters to the method [`approve_enrollment`]
 #[derive(Clone, Debug)]
 pub struct ApproveEnrollmentParams {
+    /// Device record ID
     pub device_id: String,
 }
 
 /// struct for passing parameters to the method [`approve_pairing`]
 #[derive(Clone, Debug)]
 pub struct ApprovePairingParams {
+    /// Device record ID
     pub device_id: String,
     pub device_pairing_approval_request: models::DevicePairingApprovalRequest,
 }
@@ -28,7 +30,7 @@ pub struct ApprovePairingParams {
 /// struct for passing parameters to the method [`delete_device_resource_selection`]
 #[derive(Clone, Debug)]
 pub struct DeleteDeviceResourceSelectionParams {
-    /// Device ID
+    /// Device record ID
     pub device_id: String,
     /// Application ID
     pub application_id: String,
@@ -47,6 +49,7 @@ pub struct EnrollDeviceParams {
 /// struct for passing parameters to the method [`get_device_restriction`]
 #[derive(Clone, Debug)]
 pub struct GetDeviceRestrictionParams {
+    /// Device record ID
     pub device_id: String,
 }
 
@@ -60,19 +63,21 @@ pub struct LookupDeviceEndpointParams {
 /// struct for passing parameters to the method [`lookup_device_identity`]
 #[derive(Clone, Debug)]
 pub struct LookupDeviceIdentityParams {
-    /// Device ID
+    /// Device record ID
     pub device_id: String,
 }
 
 /// struct for passing parameters to the method [`pairing_approval_payload`]
 #[derive(Clone, Debug)]
 pub struct PairingApprovalPayloadParams {
+    /// Device record ID
     pub device_id: String,
 }
 
 /// struct for passing parameters to the method [`put_device_restriction`]
 #[derive(Clone, Debug)]
 pub struct PutDeviceRestrictionParams {
+    /// Device record ID
     pub device_id: String,
     pub device_restriction: models::DeviceRestriction,
 }
@@ -80,7 +85,7 @@ pub struct PutDeviceRestrictionParams {
 /// struct for passing parameters to the method [`put_device_selection`]
 #[derive(Clone, Debug)]
 pub struct PutDeviceSelectionParams {
-    /// Device ID
+    /// Device record ID
     pub device_id: String,
     pub selection_request: models::SelectionRequest,
 }
@@ -94,7 +99,7 @@ pub struct RequestPairingParams {
 /// struct for passing parameters to the method [`revoke_device`]
 #[derive(Clone, Debug)]
 pub struct RevokeDeviceParams {
-    /// Device ID
+    /// Device record ID
     pub id: String,
 }
 
@@ -107,6 +112,7 @@ pub struct RevokeSelfParams {
 /// struct for passing parameters to the method [`transfer_device`]
 #[derive(Clone, Debug)]
 pub struct TransferDeviceParams {
+    /// Device record ID
     pub device_id: String,
     pub device_transfer_request: models::DeviceTransferRequest,
 }
@@ -114,7 +120,7 @@ pub struct TransferDeviceParams {
 /// struct for passing parameters to the method [`update_device`]
 #[derive(Clone, Debug)]
 pub struct UpdateDeviceParams {
-    /// Device ID
+    /// Device record ID
     pub id: String,
     pub update_device_request: models::UpdateDeviceRequest,
 }
@@ -291,6 +297,7 @@ pub enum VersionError {
     UnknownValue(serde_json::Value),
 }
 
+/// Approve a legacy pending enrollment, not a pairing. Pairing approval requires proof of possession of the new endpoint key.
 /// # Errors
 /// Returns an error when the request or response cannot be processed.
 pub async fn approve_enrollment(
@@ -349,6 +356,7 @@ pub async fn approve_enrollment(
     }
 }
 
+/// The Device-audience access token identifies the active User, who must have the Installation permission management.devices.enroll. Device checks that the accepting endpoint is still approved and its legacy owner binding matches the pairing, then verifies the new endpoint signature. Approval does not create a Selection or grant Resource access.
 /// # Errors
 /// Returns an error when the request or response cannot be processed.
 pub async fn approve_pairing(
@@ -956,6 +964,7 @@ pub async fn openapi_json(
     }
 }
 
+/// Use a Device-audience access token for an active User with the Installation permission management.devices.enroll. Give the exact payload to the new endpoint to sign.
 /// # Errors
 /// Returns an error when the request or response cannot be processed.
 pub async fn pairing_approval_payload(
@@ -1092,6 +1101,7 @@ pub async fn put_device_selection(
     }
 }
 
+/// An active User with the Installation permission management.devices.enroll creates a pending pairing. The Device-audience access token identifies the User. The accepting endpoint must already be approved.
 /// # Errors
 /// Returns an error when the request or response cannot be processed.
 pub async fn request_pairing(
@@ -1147,6 +1157,7 @@ pub async fn request_pairing(
     }
 }
 
+/// Revoke by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.revoke. This operation does not use an endpoint signature or erase existing copies.
 /// # Errors
 /// Returns an error when the request or response cannot be processed.
 pub async fn revoke_device(
@@ -1188,6 +1199,7 @@ pub async fn revoke_device(
     }
 }
 
+/// Revoke the Device identified by its endpoint public key. The signature proves possession of that key. No User token or Management permission is required.
 /// # Errors
 /// Returns an error when the request or response cannot be processed.
 pub async fn revoke_self(
@@ -1223,6 +1235,7 @@ pub async fn revoke_self(
     }
 }
 
+/// Transfer the legacy owner binding. The Device-audience access token identifies the acting User; ownerSubject names the new owner.
 /// # Errors
 /// Returns an error when the request or response cannot be processed.
 pub async fn transfer_device(
@@ -1314,6 +1327,7 @@ pub async fn trusted_devices(
     }
 }
 
+/// Rename by Device record ID. The Device-audience access token identifies the active User, who must match the legacy owner and have the Installation permission management.devices.rename.
 /// # Errors
 /// Returns an error when the request or response cannot be processed.
 pub async fn update_device(

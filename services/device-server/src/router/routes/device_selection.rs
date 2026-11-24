@@ -20,7 +20,7 @@ const SELECTION_PERMISSION: &str = "devices.select";
 #[utoipa::path(
     put,
     path = "/devices/{device_id}/selection",
-    params(("device_id" = String, Path, description = "Device ID")),
+    params(("device_id" = String, Path, description = "Device record ID")),
     request_body = SelectionRequest,
     responses((status = 204, description = "Device selection updated")),
     security(("authorization" = []))
@@ -93,7 +93,7 @@ pub(crate) async fn put_device_selection(
     delete,
     path = "/devices/{device_id}/selection/{application_id}/{kind}/{resource_id}",
     params(
-        ("device_id" = String, Path, description = "Device ID"),
+        ("device_id" = String, Path, description = "Device record ID"),
         ("application_id" = String, Path, description = "Application ID"),
         ("kind" = String, Path, description = "Resource kind"),
         ("resource_id" = String, Path, description = "Resource ID")

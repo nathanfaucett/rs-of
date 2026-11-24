@@ -30,7 +30,7 @@ export interface DeviceInfo {
    */
   createdAt: number;
   /**
-   *
+   * Device record ID, not an endpoint public key.
    */
   id: string;
   /**
@@ -38,7 +38,7 @@ export interface DeviceInfo {
    */
   name: string;
   /**
-   *
+   * Canonical Iroh endpoint public key.
    */
   publicKey: string;
   /**

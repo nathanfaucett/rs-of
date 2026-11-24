@@ -73,14 +73,14 @@ Storage engines and implementation types stay behind this boundary. `ofdb` does 
 | --- | --- | --- |
 | IdP | Identity, credentials, Applications, OAuth Clients, grants, signing trust | Device records, Resource catalogs, Management assignments |
 | Management | Roles, permissions, assignments, administrative authorization | Device or User lifecycle, Resource content |
-| Device | Endpoint binding, approval/revocation, Device configuration | Resources and role definitions |
+| Device | Device records, endpoint binding, approval/revocation, Device configuration | Resources and role definitions |
 | Storage | Resource catalogs, namespaces, access, Selections, Resource synchronization | OAuth identity, role assignments, endpoint pairing mechanics |
 
 ## Identity, Device access, and Selection
 
 Each operation keeps three checks separate:
 
-1. **Identity:** which Principal made the request?
+1. **Identity:** which Principal made the request? IdP OAuth/OIDC trust identifies the Principal; Device approval and endpoint key possession are separate.
 2. **Resource access:** may that Principal act in this User/Application namespace?
 3. **Replica placement:** is the Device approved, and is the Resource selected for it?
 

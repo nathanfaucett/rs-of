@@ -27,7 +27,7 @@ export interface SelectedResource {
    */
   kind: string;
   /**
-   *
+   * User subject in the Resource namespace, matched to the legacy Device owner binding. It is not the request actor or the endpoint identity.
    */
   ownerSubject: string;
   /**
