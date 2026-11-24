@@ -51,7 +51,7 @@ Set any of the three port variables to a free fixed port for debugging. Without 
 
 ## Browser configuration and desktop isolation
 
-The app permits setup-free browser login only when `PUBLIC_IDP_BASE_URL` and `PUBLIC_OIDC_CLIENT_ID` are explicitly set and the selected IdP matches. Live discovery must confirm the exact issuer and token endpoint. Only HTTPS or HTTP loopback is accepted. No seeded host or client is inferred. Tauri never takes this browser path; independent desktop setup remains separate. Without an explicit browser client, the existing setup gate remains.
+The app permits setup-free browser login only when `PUBLIC_IDP_BASE_URL` and `PUBLIC_OIDC_CLIENT_ID` are configured and the selected IdP matches. The standard Portless dev server supplies the local defaults; the test runner supplies its own values. Live discovery must confirm the exact issuer and token endpoint. Only HTTPS or HTTP loopback is accepted. Tauri never takes this browser path; independent desktop setup remains separate. Without a configured browser client, the setup gate remains.
 
 `appEnv` uses `local-login`; password-manager uses `password-manager`. Configure `PUBLIC_OIDC_APPLICATION_URI` to the expected Application identity, not the redirect origin. The runner derives these identities from `appURL`, and the local seed uses both runner origins for client redirect URIs. These are runner settings, not production defaults. Password-manager fails closed when this identity is missing. `PUBLIC_OIDC_SCOPES` overrides the existing default; the local seed accepts `openid profile email storage`.
 

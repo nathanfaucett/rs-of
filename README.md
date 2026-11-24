@@ -17,14 +17,13 @@ The repository is migrating to the [accepted target architecture](docs/architect
 | Two-Device offline convergence         | Not qualified                                                                                                                                                                   |
 | Browser synchronization                | Single-Node encrypted-vault sync passes real-backend Chromium tests; broader browser support remains incomplete                                                                 |
 | Linux FUSE mounts                      | Full Residency only; local file/directory operations and one authorized native two-Full sync/reopen scenario pass real mounts; broader multi-Device support remains unqualified |
-| Independent and desktop deployments    | Can create a first Installation. An existing Installation admits Devices, not additional server authorities. |
+| Independent and desktop deployments    | Can create a first Installation. An existing Installation admits Devices, not additional server authorities.                                                                    |
 
 GitHub Actions records current and historical check results.
 
 Installation setup requires fresh owner stores. If you have an older setup, back up its data and redo setup in an empty root. This change provides no migration, old-format reader, or version bump.
 
 To add a Device to an existing Installation, use the [Device owner pairing contract](openapi/device.json). An authorized User creates a pending request against an approved Device. The new Device signs the UTF-8 payload with its Ed25519 endpoint key and encodes the signature as base64url without padding. An authorized User submits that signature to approve the Device. No server setup or transport listener is required.
-
 
 ## Local backend
 
@@ -41,7 +40,9 @@ Portless terminates HTTPS and assigns a dynamic internal port. The server binds 
 - `https://unified.localhost:1355/device`
 - `https://unified.localhost:1355/storage`
 
-Each owner has a `/health` route. Local mode seeds test identities, including `admin@local.test` / `password`. Do not expose these credentials or the local listener to an untrusted network.
+Each owner has a `/health` route. In a second terminal, run `pnpm apps:dev` to start both frontends. Their default Portless URLs use the local backend without environment variables. Open [Password Manager](https://password-manager.localhost:1355) or the [main app](https://of.localhost:1355).
+
+Local mode seeds test identities, including `admin@local.test` / `password`. Do not expose these credentials or the local listener to an untrusted network.
 
 Direct `cargo run -p unified-server -- local` serves plain HTTP on a fixed loopback port. TLS belongs at Portless, nginx, or a load balancer. Local signer state is bound to the public issuer URL; use a fresh data directory when that URL changes. This mode is not production deployment.
 

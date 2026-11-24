@@ -15,6 +15,38 @@ async function requestConsent(page: Page) {
   await expect(page.getByRole("button", { name: "Deny", exact: true })).toBeEnabled();
 }
 
+test("sign in to sync is in the navigation sidebar for an unlocked local vault", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(passwordManagerURL);
+  await page.getByRole("button", { name: "Create new vault", exact: true }).click();
+  await page.getByLabel(/^Vault name/).fill("Sidebar test vault");
+  await page.getByLabel(/^Master password/).fill("synthetic-sidebar-password");
+  await page.getByLabel(/^Confirm password/).fill("synthetic-sidebar-password");
+  await page.getByRole("button", { name: "Create vault", exact: true }).click();
+  await expect(page).toHaveURL(`${passwordManagerURL}/vault`);
+
+  const signInLink = { name: "Sign in to sync", exact: true };
+  const navigation = page.getByRole("navigation", { name: "Main navigation" });
+  await expect(navigation.getByRole("link", signInLink)).toBeVisible();
+  await expect(page.getByRole("link", { ...signInLink, includeHidden: true })).toHaveCount(1);
+
+  await page.getByRole("button", { name: "Collapse navigation" }).click();
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  await navigation.getByRole("link", signInLink).click();
+  await expect(page).toHaveURL(`${passwordManagerURL}/login`);
+  await expect(page.getByRole("button", { name: "Sign in with IdP" })).toBeVisible();
+
+  await page.goBack();
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const lock = navigation.getByRole("button", { name: "Lock vault" });
+  await lock.press("Enter");
+  await expect(page).toHaveURL(`${passwordManagerURL}/`);
+  await expect(lock).toHaveCount(0);
+});
+
 test("denying real consent returns access_denied with the original state and no token exchange", async ({
   page,
 }) => {

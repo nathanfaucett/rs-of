@@ -1,5 +1,4 @@
 <script lang="ts">
-import { resolve } from "$app/paths";
 import { authState } from "$lib/auth/auth.svelte";
 import { syncStateModule } from "$lib/shared/state/sync.svelte";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
@@ -36,7 +35,6 @@ import { Alert, Card } from "$lib/ui";
       <p class="text-sm text-muted-foreground">
         Your vault is stored on this device. Sign in to your Sync Server to enable synchronization.
       </p>
-      <a class="btn btn-primary btn-md w-full" href={resolve("/login")}>Sign in to sync</a>
     {:else if syncStateModule.isInitializing}
       <p class="text-sm text-muted-foreground">Connecting to the Sync Server…</p>
     {:else if syncStateModule.initError}

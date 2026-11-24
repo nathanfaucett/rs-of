@@ -7,7 +7,10 @@ use platform::MaybeSend;
 use async_stream::stream;
 use automerge::legacy::{Key, ObjectId, OpType};
 use automerge::transaction::Transactable;
-use automerge::{ActorId, AutoCommit, Change, ROOT, ReadDoc, ScalarValue, Value as AutomergeValue};
+use automerge::{
+    ActorId, AutoCommit, Change, LoadOptions, OnPartialLoad, ROOT, ReadDoc, ScalarValue,
+    Value as AutomergeValue,
+};
 use btree::{BTreeRead, BTreeTransaction};
 use btree_automerge::{
     AutomergeBTreeTransaction, AutomergeChangeStore, DocumentChangeKey, DocumentId,
@@ -608,11 +611,14 @@ impl AutomergeRowCodec {
             let chunk = payload
                 .get(..end)
                 .ok_or_else(|| EngineError::custom("Truncated change payload"))?;
-            match AutoCommit::load(chunk) {
-                Ok(_) | Err(automerge::AutomergeError::MissingDeps) => (),
-                Err(error) => return Err(EngineError::custom(error)),
-            }
-            changes.push(Change::try_from(chunk).map_err(EngineError::custom)?);
+            let change = Change::try_from(chunk).map_err(EngineError::custom)?;
+            // Validate this single chunk's checksum without requiring its history.
+            AutoCommit::load_with_options(
+                chunk,
+                LoadOptions::new().on_partial_load(OnPartialLoad::Ignore),
+            )
+            .map_err(EngineError::custom)?;
+            changes.push(change);
             payload = &payload[end..];
         }
         Ok(changes)
@@ -1747,9 +1753,27 @@ where
 
 #[cfg(test)]
 mod tests {
+    use automerge::transaction::Transactable;
+    use automerge::{AutoCommit, ROOT};
     use uuid::Uuid;
 
     use super::AutomergeRowCodec;
+
+    #[test]
+    fn decodes_dependent_change_and_rejects_bad_checksum() {
+        let mut doc = AutoCommit::new();
+        doc.put(ROOT, "value", 1).expect("write initial value");
+        let heads = doc.get_heads();
+        doc.put(ROOT, "value", 2).expect("update value");
+        let mut delta = doc.save_after(&heads);
+
+        let changes = AutomergeRowCodec::native_changes(&delta).expect("decode dependent delta");
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].deps(), heads.as_slice());
+
+        delta[4] ^= 1;
+        assert!(AutomergeRowCodec::native_changes(&delta).is_err());
+    }
 
     #[test]
     fn uuid_round_trips_through_document_ids() {

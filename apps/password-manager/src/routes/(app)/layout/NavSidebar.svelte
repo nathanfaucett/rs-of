@@ -1,9 +1,11 @@
 <script lang="ts">
 
-import { ChevronLeft, ChevronRight, Key, Lock, Menu, Settings, Trash2, Vault } from "@lucide/svelte";
+import { ChevronLeft, ChevronRight, Key, Lock, LogIn, Menu, Settings, Trash2, Vault } from "@lucide/svelte";
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
+import { resolve } from "$app/paths";
 import { page } from "$app/state";
+import { authState } from "$lib/auth/auth.svelte";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 import NavSidebarItem from "./NavSidebarItem.svelte";
 
@@ -120,7 +122,7 @@ onMount(() => {
 	aria-label="Main navigation"
 	class="fixed left-0 top-0 z-50 h-full flex flex-col bg-surface border-r border-line transition-all duration-200 ease-out
 		{collapsed ? 'w-16' : 'w-64'}
-		{drawerOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}"
+		{drawerOpen ? 'translate-x-0' : 'invisible -translate-x-full lg:visible lg:translate-x-0'}"
 >
 	<div class="flex h-16 items-center px-4 border-b border-line shrink-0">
 		{#if !collapsed}
@@ -174,12 +176,26 @@ onMount(() => {
 	        </ul>
 
 	        {#if isUnlocked}
-	            <div class="px-3 pb-3 border-t border-line">
+	            <div class="grid gap-2 border-t border-line p-3">
+				{#if !authState.isAuthenticated && !vaultStateModule.vaultData?.isSynced}
+					<a
+						class={['btn btn-secondary btn-md w-full min-w-0', collapsed && 'px-0']}
+						href={resolve("/login")}
+						aria-label="Sign in to sync"
+						title={collapsed ? "Sign in to sync" : undefined}
+					>
+						<LogIn class="w-5 h-5 shrink-0" />
+						{#if !collapsed}
+							<span class="truncate">Sign in to sync</span>
+						{/if}
+					</a>
+				{/if}
 	                <button
-	class="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-destructive hover:text-destructive/80 hover:bg-destructive/10 rounded-lg transition-colors"
+	class={['btn btn-secondary btn-md w-full min-w-0', collapsed && 'px-0']}
 	type="button"
 	onclick={handleLockVault}
 	                    aria-label="Lock vault"
+							title={collapsed ? "Lock vault" : undefined}
 	                >
 	                    <Lock class="w-5 h-5 shrink-0" />
 	                    {#if !collapsed}
@@ -207,18 +223,18 @@ onMount(() => {
 			</span>
 		{/if}
 	</button>
+</nav>
 
-	{#if drawerOpen}
-		<button
-			class="fixed inset-0 z-40 bg-black/50 lg:hidden"
-			type="button"
-			aria-label="Close navigation"
-			onclick={handleOverlayClick}
-		></button>
-	{/if}
-
+{#if drawerOpen}
 	<button
-		class="lg:hidden fixed bottom-4 left-4 z-50 p-2 rounded-full bg-surface border border-line shadow-lg"
+		class="fixed inset-0 z-40 bg-black/50 lg:hidden"
+		type="button"
+		aria-label="Close navigation"
+		onclick={handleOverlayClick}
+	></button>
+{:else}
+	<button
+		class="lg:hidden fixed bottom-4 left-4 z-40 p-2 rounded-full bg-surface border border-line shadow-lg"
 		type="button"
 		onclick={openDrawer}
 		aria-label="Open navigation"
@@ -226,4 +242,4 @@ onMount(() => {
 	>
 		<Menu class="w-6 h-6" />
 	</button>
-</nav>
+{/if}

@@ -6,7 +6,7 @@ This Svelte application demonstrates the platform's north-star workflow. It is i
 
 - Vaults use the browser `@ofsdk/sql` package and IndexedDB.
 - Core local vault operations do not require an IdP account or Storage service.
-- The vault selector and local-only Sync Status panel link to the OIDC sign-in route.
+- The vault selector and the navigation sidebar for an unlocked local vault link to the OIDC sign-in route when you are signed out.
 - Vault records are encrypted with AES-256-GCM. The current key derivation uses PBKDF2-SHA-512 with 600,000 iterations.
 - Locking clears the decrypted application view. Browser local storage is not an encrypted backup.
 - The application includes local backup/recovery and offline-shell support; platform, eviction, update, and recovery limits still apply.
@@ -38,12 +38,12 @@ Use the toolchain versions in `rust-toolchain.toml`, `.nvmrc`, and the root cont
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm e2e:prepare
-pnpm --filter @ofsdk/password-manager dev
+pnpm apps:dev
 ```
 
 `pnpm e2e:prepare` builds local SQL/filesystem WASM and generated workspace dependencies. No sibling `ofdb` checkout is used. See [E2E setup](../../e2e/README.md) for prerequisites and validation limits.
 
-Local vault use needs no service configuration. OIDC sign-in requires a matching IdP, OAuth Client, Application URI, redirect URI, and Storage URL. The isolated real-backend runner supplies and documents its [test configuration](../../e2e/README.md#browser-configuration-and-desktop-isolation); those test URLs are not production defaults.
+Local vault use needs no service configuration. For sign-in, run `just unified` in a separate terminal, then open [Password Manager sign-in](https://password-manager.localhost:1355/login). `pnpm apps:dev` starts both the password manager and the sign-in and consent app with local defaults. For other deployments, configure a matching IdP, OAuth Client, Application URI, redirect URI, and Storage URL. See the [real-backend test configuration](../../e2e/README.md#browser-configuration-and-desktop-isolation) for an example.
 
 The browser must allow IndexedDB, Web Crypto, Web Locks, and the relevant service-worker/cache APIs for offline delivery. Use HTTPS or a secure loopback development context.
 
