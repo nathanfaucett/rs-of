@@ -5,13 +5,16 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { createServer, request as httpsRequest } from "node:https";
 import { createServer as reserve } from "node:net";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+import { passwordManagerIngress } from "./password-manager-ingress.mjs";
+
 const root = fileURLToPath(new URL("../", import.meta.url));
-const helper = join(root, "target/debug/join-node");
-const unified = join(root, "target/debug/unified-server");
+const helper = resolve(root, process.env.E2E_JOIN_HELPER_BIN ?? "target/debug/join-node");
+const unified = resolve(root, process.env.E2E_BACKEND_BIN ?? "target/debug/unified-server");
 const hostname = "127.0.0.1";
 const children = [];
 const servers = [];
@@ -47,9 +50,10 @@ async function ports(count) {
 }
 
 function call(url, ca, options = {}) {
-  const { bearer, form, json } = options;
+  const { bearer, form, json, origin } = options;
   const body = form ? new URLSearchParams(form).toString() : json ? JSON.stringify(json) : null;
   const headers = {};
+  if (origin) headers.Origin = origin;
   if (bearer) headers.Authorization = `Bearer ${bearer}`;
   if (body) {
     headers["content-type"] = form ? "application/x-www-form-urlencoded" : "application/json";
@@ -87,11 +91,12 @@ async function ready(url, ca) {
 }
 
 async function main() {
-  await mkdir(join(root, ".tmp"), { recursive: true });
-  scratch = await mkdtemp(join(root, ".tmp/join-fixture-"));
-  const [remotePort, appPort, helperPort, backendPort, vitePort] = await ports(5);
+  scratch = await mkdtemp(join(tmpdir(), "of-join-"));
+  const [remotePort, appPort, helperPort, backendPort, vitePort, pmPort, pmVitePort] =
+    await ports(7);
   const remote = `https://${hostname}:${remotePort}`;
   const app = `https://${hostname}:${appPort}`;
+  const pm = `https://${hostname}:${pmPort}`;
   const issuer = `${remote}/idp`;
   const device = `${remote}/device`;
   const storage = `${remote}/storage`;
@@ -153,7 +158,8 @@ async function main() {
   const cert = `${await readFile(leafPath)}\n${ca}`;
   const key = await readFile(leafKey);
   const caBundle = join(scratch, "test-cas.pem");
-  await writeFile(caBundle, `${ca}\n${await readFile(join(joinRoot, "tls/ca.pem"))}`);
+  const trusted = `${ca}\n${await readFile(join(joinRoot, "tls/ca.pem"))}`;
+  await writeFile(caBundle, trusted);
   const browserHome = join(scratch, "browser");
   const nss = `sql:${join(browserHome, ".pki/nssdb")}`;
   await mkdir(join(browserHome, ".pki/nssdb"), { recursive: true });
@@ -173,16 +179,38 @@ async function main() {
 
   // Route to the real owners. Lose exactly one successful pairing response after the owner commits.
   let dropPairing = true;
-  for (const [port, isRemote] of [
-    [remotePort, true],
-    [appPort, false],
-  ]) {
-    const server = createServer({ cert, key }, (req, res) => {
+  for (const port of [remotePort, appPort, pmPort]) {
+    const server = createServer({ cert, key }, async (req, res) => {
+      const isRemote = port === remotePort;
+      if (
+        port === appPort &&
+        req.headers.origin === pm &&
+        req.method === "GET" &&
+        req.url === "/setup/node"
+      ) {
+        const state = await call(`https://${hostname}:${helperPort}/setup/join`, trusted, {
+          origin: app,
+        })
+          .then((value) => JSON.parse(value).stage)
+          .catch(() => undefined);
+        if (
+          passwordManagerIngress(
+            req,
+            res,
+            pm,
+            state === "approved"
+              ? { state: "ready", idp: issuer, storage }
+              : { state: "awaiting_choice" }
+          )
+        )
+          return;
+      }
+      if (isRemote && passwordManagerIngress(req, res, pm)) return;
       const owner = isRemote && /^\/(idp|device|management|storage)\//.test(req.url);
       const upstream = httpRequest(
         {
           hostname,
-          port: owner ? backendPort : vitePort,
+          port: owner ? backendPort : port === pmPort ? pmVitePort : vitePort,
           path: req.url,
           method: req.method,
           headers: req.headers,
@@ -200,7 +228,7 @@ async function main() {
             response.once("end", () => res.destroy());
             return;
           }
-          res.writeHead(response.statusCode, response.headers);
+          res.writeHead(response.statusCode, { ...response.headers, ...res.getHeaders() });
           response.pipe(res);
         }
       );
@@ -248,6 +276,13 @@ async function main() {
     },
     join(root, "apps/app")
   );
+  start(
+    process.execPath,
+    ["node_modules/vite/bin/vite.js", "dev", "--host", hostname, "--strictPort"],
+    { PORT: String(pmVitePort), PUBLIC_UNIFIED_ORIGIN: app },
+    join(root, "apps/password-manager")
+  );
+  await ready(pm, ca);
   await ready(`${issuer}/health`, ca);
   const username = "admin@local.test";
   const password = "password";
@@ -319,6 +354,7 @@ async function main() {
       JOIN_TEST_PORT: String(helperPort),
       JOIN_TEST_BIN: helper,
       JOIN_TEST_APP_ORIGIN: app,
+      JOIN_TEST_PASSWORD_MANAGER: pm,
       JOIN_TEST_DEVICE: device,
       JOIN_TEST_ISSUER: issuer,
       JOIN_TEST_STORAGE: storage,

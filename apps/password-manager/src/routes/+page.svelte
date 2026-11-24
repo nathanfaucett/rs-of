@@ -43,7 +43,7 @@ async function createVault() {
     busy = true;
     const pwd = password;
     try {
-        await vaultStateModule.createVault(pwd, vaultName.trim());
+        await vaultStateModule.createVault(pwd, vaultName.trim(), vaultStateModule.state.status === "create-vault" && vaultStateModule.state.synced);
         password = "";
         confirmPassword = "";
         vaultName = "";
@@ -65,7 +65,7 @@ async function unlockVault() {
     busy = true;
     const pwd = password;
     try {
-        await vaultStateModule.unlockExistingVault(pwd, vaultStateModule.state.identity.id);
+        await vaultStateModule.unlockExistingVault(pwd, vaultStateModule.state.identity);
         password = "";
     } catch (cause) {
         if (isRedirect(cause)) throw cause;
@@ -75,19 +75,33 @@ async function unlockVault() {
     }
 }
 
-function selectVault(identity: VaultIdentity) {
+function selectVault(identity: VaultIdentity & { synced?: boolean }) {
     notice = "";
     error = "";
     password = "";
     vaultStateModule.state = { status: "unlock-vault", identity };
 }
 
-function showCreateVault() {
+function showCreateVault(synced = false) {
     error = "";
     password = "";
     confirmPassword = "";
     vaultName = "";
-    vaultStateModule.state = { status: "create-vault" };
+    vaultStateModule.state = { status: "create-vault", synced };
+}
+
+async function showSyncedVaults() {
+    if (busy) return;
+    error = "";
+    notice = "";
+    busy = true;
+    try {
+        if (await vaultStateModule.showSyncedVaults() === 0) notice = "No synced vaults.";
+    } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Failed to list synced vaults.";
+    } finally {
+        busy = false;
+    }
 }
 
 async function restored(identity: { id: string; name: string }) {
@@ -111,23 +125,26 @@ async function restored(identity: { id: string; name: string }) {
                 description="Select a vault to unlock, or create a new one."
             />
             {#if notice}<p role="status">{notice}</p>{/if}
+            {#if error}<Alert tone="danger">{error}</Alert>{/if}
             <Card>
                 <div class="flex flex-col gap-4">
                     {#if !authState.isAuthenticated}
                         <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
-                        <hr class="my-2" />
+                    {:else}
+                        <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showSyncedVaults}>Show synced vaults</button>
+                        <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => showCreateVault(true)}>Create synced vault</button>
                     {/if}
                     <button class="btn btn-secondary btn-md" type="button" onclick={() => { notice = ""; vaultStateModule.state = { status: "restore-vault" }; }}>Restore encrypted backup</button>
                     {#if vaultStateModule.state.vaults.length > 0}
                         <div class="flex flex-col gap-2">
                             <p class="text-sm font-medium text-muted-foreground">Existing vaults</p>
-                            {#each vaultStateModule.state.vaults as identity (identity.id)}
+                            {#each vaultStateModule.state.vaults as identity (`${identity.synced ? "synced" : "local"}:${identity.id}`)}
                                 <button
                                     class="btn btn-secondary btn-md text-left"
                                     type="button"
                                     onclick={() => selectVault(identity)}
                                 >
-                                    <span class="vault-name">{identity.name}</span>
+                                    <span class="vault-name">{identity.name}{identity.synced ? " (synced)" : ""}</span>
                                     <span class="block break-all text-xs">ID: {identity.id}</span>
                                 </button>
                             {/each}
@@ -137,7 +154,7 @@ async function restored(identity: { id: string; name: string }) {
                     <button
                         class="btn btn-primary btn-md"
                         type="button"
-                        onclick={showCreateVault}
+                        onclick={() => showCreateVault()}
                     >
                         Create new vault
                     </button>
@@ -152,7 +169,7 @@ async function restored(identity: { id: string; name: string }) {
         <Page width="narrow">
             <PageHeader
                 title="Create your vault"
-                description="Your passwords are stored locally, encrypted with your master password. No account or server needed."
+                description={vaultStateModule.state.synced ? "Your vault is encrypted with your master password before sync." : "Your passwords are stored locally, encrypted with your master password. No account or server needed."}
             />
             <Card>
                 <div class="flex flex-col gap-4">

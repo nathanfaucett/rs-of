@@ -1,25 +1,25 @@
 import { goto } from "$app/navigation";
-import { authState } from "$lib/auth/auth.svelte";
 import { createInactivityLock, type LockSettings } from "$lib/vault/lock";
 import { createSyncVault, listSyncVaults, unlockSyncVault } from "$lib/vault/sync-vault";
 import type { VaultHandleLike } from "$lib/vault/types";
 import {
   createVault as createVaultHandle,
   listVaults,
-  unlockAndMigrateVault,
   unlockVault,
   type VaultIdentity,
 } from "$lib/vault/vault";
 import { syncStateModule } from "./sync.svelte";
 
+type VaultChoice = VaultIdentity & { synced?: boolean };
+
 type VaultState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "locked" }
-  | { status: "select-vault"; vaults: VaultIdentity[] }
-  | { status: "create-vault" }
+  | { status: "select-vault"; vaults: VaultChoice[] }
+  | { status: "create-vault"; synced?: boolean }
   | { status: "restore-vault" }
-  | { status: "unlock-vault"; identity: VaultIdentity }
+  | { status: "unlock-vault"; identity: VaultChoice }
   | {
       status: "unlocked";
       vault: VaultHandleLike;
@@ -44,33 +44,32 @@ function getVaultData() {
   return null;
 }
 
-function isSyncEnabled(): boolean {
-  return authState.isAuthenticated && !!syncStateModule.sdk;
-}
-
 async function openMainDatabase() {
   const databases = await syncStateModule.listDatabases();
   const database = databases.find((entry) => entry.name === "password-manager-main");
   return database ? syncStateModule.openDatabase(database.id) : null;
 }
 
-async function loadVaults() {
-  if (isSyncEnabled()) {
-    const handle = await openMainDatabase();
-    if (handle) {
-      const vaults = await listSyncVaults(handle);
-      await handle.close();
-      return vaults;
-    }
+async function showSyncedVaults() {
+  const previous = vaultState;
+  if (previous.status !== "select-vault") return;
+  const handle = await openMainDatabase();
+  const synced = handle ? await listSyncVaults(handle) : [];
+  if (vaultState === previous) {
+    vaultState = {
+      ...previous,
+      vaults: [
+        ...previous.vaults.filter((entry) => !entry.synced),
+        ...synced.map((entry) => ({ ...entry, synced: true })),
+      ],
+    };
   }
-  const vaults = await listVaults();
-  return vaults;
+  return synced.length;
 }
 
-async function createVault(password: string, name: string) {
-  if (isSyncEnabled()) {
+async function createVault(password: string, name: string, synced = false) {
+  if (synced) {
     const handle = await syncStateModule.createDatabase("password-manager-main");
-    if (!handle) throw new Error("Failed to create sync database");
     const vault = await createSyncVault(password, name.trim(), handle);
     const request = session;
     const settings = await vault.loadLockSettings();
@@ -102,34 +101,12 @@ async function createVault(password: string, name: string) {
   await goto("/vault");
 }
 
-async function unlockExistingVault(password: string, id: string) {
-  if (isSyncEnabled()) {
+async function unlockExistingVault(password: string, { id, synced }: VaultChoice) {
+  if (synced) {
     const handle = await openMainDatabase();
     if (!handle) throw new Error("Failed to open sync database");
-
-    // Try to unlock as sync vault first
-    let vault: VaultHandleLike | null = await unlockSyncVault(password, id, handle);
-    let isSynced = true;
-
-    // If sync vault doesn't exist, try to migrate local vault
-    if (!vault) {
-      const syncClient = {
-        createDatabase: async (name: string) => {
-          const database = await syncStateModule.createDatabase(name);
-          if (!database) throw new Error("Failed to create sync database");
-          return database;
-        },
-        openDatabase: async (id: string) => {
-          const database = await syncStateModule.openDatabase(id);
-          if (!database) throw new Error("Failed to open sync database");
-          return database;
-        },
-      };
-      const result = await unlockAndMigrateVault(password, id, syncClient);
-      vault = result.vault;
-      isSynced = result.isSynced;
-    }
-
+    const vault = await unlockSyncVault(password, id, handle);
+    if (!vault) throw new Error("Wrong password or synced vault unavailable.");
     const request = session;
     const settings = await vault.loadLockSettings();
     const inactivity = createInactivityLock(() => {
@@ -141,7 +118,7 @@ async function unlockExistingVault(password: string, id: string) {
       return;
     }
     await handle.sync({ direction: "bidirectional" });
-    vaultState = { status: "unlocked", vault, lockSettings: settings, inactivity, isSynced };
+    vaultState = { status: "unlocked", vault, lockSettings: settings, inactivity, isSynced: true };
     await goto("/vault");
     return;
   }
@@ -175,7 +152,7 @@ async function showVaultSelector() {
   selector = (async () => {
     vaultState = { status: "loading" };
     try {
-      const vaults = await loadVaults();
+      const vaults = await listVaults();
       vaultState = { status: "select-vault", vaults };
     } catch (cause) {
       vaultState = {
@@ -207,5 +184,6 @@ export const vaultStateModule = {
   unlockExistingVault,
   lockVault,
   showVaultSelector,
+  showSyncedVaults,
   init,
 };

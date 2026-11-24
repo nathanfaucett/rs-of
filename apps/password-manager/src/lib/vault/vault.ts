@@ -1,5 +1,4 @@
 import type { Client, Row } from "@ofsdk/sql";
-import type { DatabaseHandle } from "@ofsdk/sync-sdk";
 import * as v from "valibot";
 import {
   type Folder,
@@ -26,7 +25,6 @@ import {
 } from "./storage/crypto";
 import {
   getSharedClient,
-  migrateLocalVaultToSync,
   migrateToSharedTables,
   needsMigration,
 } from "./storage/migrate-to-shared";
@@ -41,7 +39,6 @@ import {
   parseVaultRow,
 } from "./storage/schema";
 import { createVaultRegistry } from "./storage/VaultRegistry";
-import type { VaultHandleLike } from "./types";
 
 interface VaultMeta {
   id: string;
@@ -487,32 +484,6 @@ export async function unlockVault(password: string, id: string): Promise<VaultHa
   };
 
   return VaultHandle.create(key, client, vaultMeta, meta.id);
-}
-
-/**
- * Migrate a local vault to a synced vault.
- * This is called when an authenticated user unlocks a vault that was created locally.
- * Returns a SyncVaultHandle if migration succeeds, or the original VaultHandle if not.
- */
-export async function unlockAndMigrateVault(
-  password: string,
-  id: string,
-  syncClient: {
-    createDatabase: (name: string) => Promise<DatabaseHandle>;
-    openDatabase: (id: string) => Promise<DatabaseHandle>;
-  }
-): Promise<{ vault: VaultHandleLike; isSynced: boolean; syncHandle?: DatabaseHandle }> {
-  // First try to unlock as local vault
-  const vault = await unlockVault(password, id);
-
-  // Try to migrate to sync
-  try {
-    const result = await migrateLocalVaultToSync(id, password, syncClient);
-    return { vault: result.syncDb, isSynced: true, syncHandle: result.syncHandle };
-  } catch (e) {
-    console.warn("Failed to migrate vault to sync:", e);
-    return { vault, isSynced: false };
-  }
 }
 
 export async function listVaults(): Promise<

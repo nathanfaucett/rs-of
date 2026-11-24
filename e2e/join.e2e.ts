@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import { expect, test } from "@playwright/test";
+import { passwordManagerSignin } from "./password-manager-setup";
 
 function setting(name: string): string {
   const value = process.env[`JOIN_TEST_${name}`];
@@ -9,6 +10,7 @@ function setting(name: string): string {
 }
 
 test("an authorized User joins without creating a local authority, and restart retains the Device", async ({
+  browser,
   page,
   request,
 }) => {
@@ -132,6 +134,16 @@ test("an authorized User joins without creating a local authority, and restart r
       publicKey: pending.publicKey,
       state: "approved",
     });
+    const beforeSignin = await ownerRecords();
+    const pm = await browser.newPage();
+    await passwordManagerSignin(pm, {
+      origin: setting("PASSWORD_MANAGER"),
+      idp: setting("ISSUER"),
+      storage: setting("STORAGE"),
+      username: setting("USERNAME"),
+      password: setting("PASSWORD"),
+    });
+    expect(await ownerRecords()).toEqual(beforeSignin);
   } finally {
     await stop();
   }

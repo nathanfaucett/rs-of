@@ -1,123 +1,91 @@
+import type { OidcClient, OidcUserInfo } from "@ofsdk/oidc-client";
 import { goto } from "$app/navigation";
+import { resolve } from "$app/paths";
 import { env } from "$env/dynamic/public";
-import { type OidcAuthConfig, oidcAuth } from "./oidc";
+import { authConfig } from "./installation";
+import { createOidcClient, type OidcAuthConfig } from "./oidc";
 
-interface UserInfo {
-  sub: string;
-  email?: string | undefined;
-  name?: string | undefined;
-  preferred_username?: string | undefined;
-}
-
-const DEFAULT_IDP_BASE = "https://idp.localhost:1355";
-const DEFAULT_CLIENT_ID = "password-manager";
-const DEFAULT_REDIRECT_URI = "https://password-manager.localhost:1355/callback";
-const DEFAULT_SCOPES = "openid profile email storage:read storage:write";
-
-let user = $state<UserInfo | null>(null);
-let isLoading = $state(true);
+let client: OidcClient | undefined;
+let startup: Promise<void> | undefined;
+let session = $state.raw<{
+  user: OidcUserInfo;
+  idp: string;
+  storage: string;
+  clientId: string;
+} | null>(null);
 let error = $state<string | null>(null);
 
-function getIdpBaseUrl(): string {
-  const { PUBLIC_IDP_BASE_URL: baseUrl } = env;
-  return baseUrl ?? DEFAULT_IDP_BASE;
+function config() {
+  return authConfig(env, new URL(resolve("/callback"), window.location.origin).href);
 }
 
-function getClientId(): string {
-  const { PUBLIC_OIDC_CLIENT_ID: clientId } = env;
-  return clientId ?? DEFAULT_CLIENT_ID;
-}
-
-function getRedirectUri(): string {
-  const { PUBLIC_OIDC_REDIRECT_URI: redirectUri } = env;
-  return redirectUri ?? DEFAULT_REDIRECT_URI;
-}
-
-async function initialize(): Promise<void> {
-  isLoading = true;
-  error = null;
-
+async function restore(): Promise<void> {
   try {
-    const {
-      PUBLIC_OIDC_APPLICATION_URI: applicationUri,
-      PUBLIC_OIDC_SCOPES: scopes = DEFAULT_SCOPES,
-    } = env;
-    const config: OidcAuthConfig = {
-      authority: getIdpBaseUrl(),
-      ...(applicationUri === undefined ? {} : { applicationUri }),
-      clientId: getClientId(),
-      redirectUri: getRedirectUri(),
-      scopes,
-    };
-
-    await oidcAuth.initialize(config);
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get("code");
-    const errorParam = urlParams.get("error");
-
-    if (errorParam) {
-      error = errorParam;
-      isLoading = false;
-      return;
-    }
-
-    if (code) {
-      await oidcAuth.handleCallback();
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-
-    if (oidcAuth.isAuthenticated()) {
-      const userInfo = await oidcAuth.getUserInfo();
-      if (userInfo) {
-        const { email, name, preferred_username } = userInfo as Record<string, unknown>;
-        user = {
-          sub: userInfo.sub,
-          email: email as string | undefined,
-          name: name as string | undefined,
-          preferred_username: preferred_username as string | undefined,
-        };
+    const selected = await config();
+    const oidc = createOidcClient(selected);
+    client = oidc;
+    if (window.location.pathname === new URL(selected.redirectUri).pathname) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("error")) throw new Error(params.get("error") ?? "Authentication failed");
+      if (params.has("code")) {
+        await oidc.handleSigninCallback();
+        window.history.replaceState(window.history.state, "", window.location.pathname);
       }
     }
-  } catch (e) {
-    error = e instanceof Error ? e.message : "Authentication failed";
-  } finally {
-    isLoading = false;
+    if (oidc.getStoredTokenResponse()) await establishSession(oidc, selected);
+  } catch (cause) {
+    error = cause instanceof Error ? cause.message : "Authentication failed";
   }
 }
 
+async function establishSession(oidc: OidcClient, { idp, storage }: OidcAuthConfig) {
+  const { userInfo } = await oidc.getVerifiedIdentity();
+  const clientId = oidc.registeredClientId;
+  if (!clientId) throw new Error("No verified OAuth Client ID");
+  session = { user: userInfo, idp, storage, clientId };
+}
+
+function initialize(): Promise<void> {
+  startup ??= restore();
+  return startup;
+}
+
 async function login(): Promise<void> {
+  await initialize();
   error = null;
   try {
-    await oidcAuth.login();
-  } catch (e) {
-    error = e instanceof Error ? e.message : "Login failed";
+    if (session) {
+      await goto(resolve("/"));
+      return;
+    }
+    client = createOidcClient(await config());
+    await client.signin();
+  } catch (cause) {
+    error = cause instanceof Error ? cause.message : "Login failed";
   }
 }
 
 async function logout(): Promise<void> {
-  await oidcAuth.logout();
-  user = null;
-  await goto("/");
+  const oidc = client;
+  client = undefined;
+  session = null;
+  await oidc?.signout();
+  await goto(resolve("/"));
 }
 
-async function getAccessToken(): Promise<string> {
-  return oidcAuth.getAccessToken();
-}
-
-function getIsAuthenticated(): boolean {
-  return oidcAuth.isAuthenticated();
+async function getAccessToken(expected: NonNullable<typeof session>): Promise<string> {
+  if (!client || session !== expected) throw new Error("Sign in to sync first");
+  const token = await client.getAccessToken();
+  if (session !== expected) throw new Error("Sign-in session ended");
+  return token;
 }
 
 export const authState = {
-  get user() {
-    return user;
+  get session() {
+    return session;
   },
   get isAuthenticated() {
-    return getIsAuthenticated();
-  },
-  get isLoading() {
-    return isLoading;
+    return session !== null;
   },
   get error() {
     return error;

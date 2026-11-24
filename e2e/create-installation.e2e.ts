@@ -1,12 +1,17 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createServer as createProxy, request as forward } from "node:http";
 import { request } from "node:https";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium, expect, type Page, test } from "@playwright/test";
+
+import { passwordManagerIngress } from "./password-manager-ingress.mjs";
+import { passwordManagerSignin, passwordManagerWhileWaiting } from "./password-manager-setup";
 
 const { E2E_CREATE_BACKEND_BIN, RUST_MIN_STACK } = process.env;
 const owners = ["idp", "device", "storage"] as const;
@@ -66,7 +71,7 @@ async function tlsFixture(root: string) {
   ]);
   await writeFile(
     files("tls.ext"),
-    "basicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:of.localhost,DNS:unified.localhost,DNS:*.of.localhost,DNS:*.unified.localhost\n"
+    "basicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:of.localhost,DNS:unified.localhost,DNS:password-manager.localhost,DNS:*.of.localhost,DNS:*.unified.localhost,DNS:*.password-manager.localhost\n"
   );
   run("openssl", [
     "x509",
@@ -141,12 +146,40 @@ async function fillCodes(page: Page, root: string) {
 }
 
 test("protected Create resumes after interruption and keeps the new identity after restart", async () => {
-  await mkdir(resolve(cwd, ".tmp"), { recursive: true });
-  const root = await mkdtemp(resolve(cwd, ".tmp/c"));
+  const root = await mkdtemp(resolve(tmpdir(), "of-create-"));
   const data = resolve(root, "d");
   let proxy: ChildProcess | undefined;
   let backend: ChildProcess | undefined;
   let frontend: ChildProcess | undefined;
+  let passwordManager: ChildProcess | undefined;
+  let upstreamPort: number;
+  let descriptorReady = false;
+  const ingress = createProxy((req, res) => {
+    const descriptor = descriptorReady
+      ? { state: "ready", idp, storage }
+      : { state: "awaiting_choice" };
+    if (passwordManagerIngress(req, res, pm, descriptor)) return;
+    const upstream = forward(
+      {
+        hostname: "127.0.0.1",
+        port: upstreamPort,
+        path: req.url,
+        method: req.method,
+        headers: req.headers,
+      },
+      (response) => {
+        res.writeHead(response.statusCode ?? 502, { ...response.headers, ...res.getHeaders() });
+        response.pipe(res);
+      }
+    );
+    upstream.on("error", () => {
+      res.writeHead(502).end();
+    });
+    req.pipe(upstream);
+  });
+  let pm: string;
+  let idp: string;
+  let storage: string;
   try {
     const tls = await tlsFixture(root);
     const ca = await readFile(tls.ca);
@@ -186,23 +219,34 @@ test("protected Create resumes after interruption and keeps the new identity aft
     await expect.poll(() => status(`https://unified.localhost:${port}`, ca)).not.toBe(0);
     const base = run("pnpm", ["exec", "portless", "get", "unified"], env);
     const app = run("pnpm", ["exec", "portless", "get", "of"], env);
-    const idp = `${base}/idp`;
+    idp = `${base}/idp`;
+    storage = `${base}/storage`;
+    pm = run("pnpm", ["exec", "portless", "get", "password-manager"], env);
+    ingress.listen(0, "127.0.0.1");
+    await once(ingress, "listening");
+    const address = ingress.address();
+    if (!address || typeof address === "string") throw new Error("Missing fixture ingress");
+    run(
+      "pnpm",
+      [
+        "exec",
+        "portless",
+        "alias",
+        new URL(base).hostname.replace(/\.localhost$/, ""),
+        String(address.port),
+      ],
+      env
+    );
     const binary = resolve(cwd, E2E_CREATE_BACKEND_BIN ?? "target/debug/unified-server");
     const startBackend = async () => {
       const port = await freePort();
-      backend = launch([
-        "run",
-        "--name",
-        "unified",
-        "--app-port",
-        String(port),
-        binary,
-        "setup",
-        "--data-dir",
-        data,
-        "--origin",
-        app,
-      ]);
+      upstreamPort = port;
+      backend = spawn(binary, ["setup", "--data-dir", data, "--origin", app], {
+        cwd,
+        env: { ...env, PORT: String(port), PORTLESS_URL: base },
+        detached: true,
+        stdio: "inherit",
+      });
       await expect.poll(() => status(`${idp}/setup/owner/status`, ca)).toBe(200);
       return port;
     };
@@ -218,7 +262,19 @@ test("protected Create resumes after interruption and keeps the new identity aft
       "vite",
       "dev",
     ]);
+    passwordManager = launch([
+      "run",
+      "--name",
+      "password-manager",
+      "pnpm",
+      "--filter",
+      "@ofsdk/password-manager",
+      "exec",
+      "vite",
+      "dev",
+    ]);
     await expect.poll(() => status(app, ca)).toBe(200);
+    await expect.poll(() => status(pm, ca)).toBe(200);
     const browser = await chromium.launch({ env: { ...process.env, HOME: tls.home } });
     try {
       const page = await browser.newPage();
@@ -322,11 +378,18 @@ test("protected Create resumes after interruption and keeps the new identity aft
       await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
       expect((await evidence()).facts).toEqual(ready.facts);
       expect(await signIn(username, password)).toBe(true);
+      expect(await status(`${idp}/.well-known/openid-configuration`, ca)).toBe(200);
+      const pmPage = await browser.newPage();
+      await passwordManagerWhileWaiting(pmPage, pm, base);
+      descriptorReady = true;
+      await passwordManagerSignin(pmPage, { origin: pm, idp, storage, username, password }, true);
     } finally {
       await browser.close();
     }
   } finally {
-    await Promise.all([stop(backend), stop(frontend), stop(proxy)]);
+    await Promise.all([stop(backend), stop(frontend), stop(passwordManager), stop(proxy)]);
+    ingress.closeAllConnections();
+    ingress.close();
     await rm(root, { recursive: true, force: true });
   }
 });

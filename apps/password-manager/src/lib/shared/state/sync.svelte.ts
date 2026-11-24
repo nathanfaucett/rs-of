@@ -1,93 +1,55 @@
-import type { DatabaseHandle, SyncConfig, SyncSDK } from "@ofsdk/sync-sdk";
-import { createSync } from "@ofsdk/sync-sdk/browser";
-import { env } from "$env/dynamic/public";
+import type { SyncSDK } from "@ofsdk/sync-sdk";
+import { BrowserSyncSDK } from "@ofsdk/sync-sdk/browser";
 import { authState } from "$lib/auth/auth.svelte";
 import { StorageClient } from "../../../../../../packages/storage-client/src/index";
 
-const { PUBLIC_STORAGE_URL } = env;
-const STORAGE_SERVICE_URL = PUBLIC_STORAGE_URL ?? "https://storage.localhost:1355";
-const APP_ID = "password-manager";
+let sdk: SyncSDK | undefined;
 
-let syncSDK = $state<SyncSDK | null>(null);
-let isInitializing = $state(false);
-let initError = $state<string | null>(null);
-
-function getUserId(): string | null {
-  return authState.user?.sub ?? null;
+function storageAccess() {
+  const session = authState.session;
+  if (!session) throw new Error("Sign in to sync first");
+  const getToken = () => authState.getAccessToken(session);
+  const client = new StorageClient({
+    idpBaseUrl: session.idp,
+    storageBaseUrl: session.storage,
+    clientId: session.clientId,
+    bearerToken: getToken,
+    fetch: (input, init) => fetch(input, { ...init, credentials: "omit", redirect: "error" }),
+  });
+  return { session, client, getToken };
 }
 
-async function initializeSync(): Promise<void> {
-  if (syncSDK || isInitializing) return;
-
-  const userId = getUserId();
-  if (!userId) {
-    initError = "No authenticated user";
-    return;
+function getSync() {
+  const { session, client, getToken } = storageAccess();
+  // The legacy replication SDK derives its IdP from the Storage URL. Do not send credentials to that guess.
+  if (session.storage.replace("/storage", "/idp") !== session.idp) {
+    throw new Error("Vault replication is not available with separate IdP and Storage bases.");
   }
-
-  isInitializing = true;
-  initError = null;
-
-  try {
-    const getToken = () => authState.getAccessToken();
-    const storageClient = new StorageClient({
-      idpBaseUrl: STORAGE_SERVICE_URL.replace("/storage", "/idp"),
-      storageBaseUrl: STORAGE_SERVICE_URL,
-      clientId: APP_ID,
-      bearerToken: getToken,
-    });
-    const config: SyncConfig = {
-      apiUrl: STORAGE_SERVICE_URL,
-      appId: APP_ID,
-      userId,
-      getToken,
-      getStorageToken: (resource, actions) => storageClient.getStorageToken(resource, actions),
-    };
-
-    syncSDK = await createSync(config);
-  } catch (e) {
-    initError = e instanceof Error ? e.message : "Failed to initialize sync";
-    syncSDK = null;
-  } finally {
-    isInitializing = false;
-  }
+  sdk ??= new BrowserSyncSDK({
+    apiUrl: session.storage,
+    appId: session.clientId,
+    userId: session.user.sub,
+    getToken,
+    getStorageToken: (resource, actions) => client.getStorageToken(resource, actions),
+  });
+  return sdk;
 }
 
 async function closeSync(): Promise<void> {
-  if (syncSDK) {
-    await syncSDK.close();
-    syncSDK = null;
-  }
-}
-
-async function createDatabase(name: string): Promise<DatabaseHandle | null> {
-  if (!syncSDK) return null;
-  return syncSDK.sql.create(name);
-}
-
-async function openDatabase(databaseId: string): Promise<DatabaseHandle | null> {
-  if (!syncSDK) return null;
-  return syncSDK.sql.open(databaseId);
-}
-
-async function listDatabases(): Promise<{ id: string; name: string | null }[]> {
-  if (!syncSDK) return [];
-  return syncSDK.sql.list();
+  const previous = sdk;
+  sdk = undefined;
+  await previous?.close();
 }
 
 export const syncStateModule = {
-  get sdk() {
-    return syncSDK;
-  },
-  get isInitializing() {
-    return isInitializing;
-  },
-  get initError() {
-    return initError;
-  },
-  initializeSync,
   closeSync,
-  createDatabase,
-  openDatabase,
-  listDatabases,
+  async createDatabase(name: string) {
+    return getSync().sql.create(name);
+  },
+  async openDatabase(id: string) {
+    return getSync().sql.open(id);
+  },
+  async listDatabases() {
+    return storageAccess().client.listSqlDatabases();
+  },
 };

@@ -13,21 +13,18 @@ function parseInteger(value: string | undefined, defaultValue: number): number {
 }
 
 export default defineConfig(({ command, mode, isPreview }) => {
-  if (
-    command === "serve" &&
-    !isPreview &&
-    PORTLESS_URL === "https://password-manager.localhost:1355"
-  ) {
-    const localDefaults = {
-      PUBLIC_IDP_BASE_URL: "https://unified.localhost:1355/idp",
-      PUBLIC_OIDC_APPLICATION_URI: "https://of.localhost:1355/password-manager",
-      PUBLIC_OIDC_SCOPES: "openid profile email storage",
-      PUBLIC_STORAGE_URL: "https://unified.localhost:1355/storage",
-    };
-    const env = loadEnv(mode, fileURLToPath(new URL(".", import.meta.url)), "PUBLIC_");
-    for (const [key, value] of Object.entries(localDefaults)) {
-      process.env[key] ??= env[key] ?? value;
-    }
+  const portless = PORTLESS_URL?.match(
+    /^https:\/\/([a-z0-9-]+\.)?password-manager\.localhost(:[0-9]+)?$/
+  );
+  if (command === "serve" && !isPreview && portless) {
+    const env: Record<string, string | undefined> = loadEnv(
+      mode,
+      fileURLToPath(new URL(".", import.meta.url)),
+      "PUBLIC_"
+    );
+    const key = "PUBLIC_UNIFIED_ORIGIN";
+    process.env[key] ??=
+      env[key] ?? `https://${portless[1] ?? ""}unified.localhost${portless[2] ?? ""}`;
   }
 
   return {
