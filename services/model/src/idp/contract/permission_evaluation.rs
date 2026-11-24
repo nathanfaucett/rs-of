@@ -299,54 +299,64 @@ mod tests {
     use crate::idp::contract::permission_evaluation::PermissionTarget;
 
     #[test]
-    fn enrollment_approval_permission_requires_valid_device_and_installation_scope() {
-        let mut request = PermissionEvaluationRequest {
-            request_id: Id::now_v7(),
-            subject: PermissionSubject::User { id: Id::now_v7() },
-            action: IdentityAction::DevicesEnroll,
-            target: PermissionTarget::Installation {
-                resource: IdentityResource::Device {
-                    id: Some(Id::from_u128(1)),
+    fn device_administration_requires_installation_scope_and_a_valid_device_target() {
+        let device = Id::from_u128(3);
+        for (action, permission, collection_allowed) in [
+            (
+                IdentityAction::DevicesEnroll,
+                "management.devices.enroll",
+                true,
+            ),
+            (
+                IdentityAction::DevicesRename,
+                "management.devices.rename",
+                false,
+            ),
+            (
+                IdentityAction::DevicesRevoke,
+                "management.devices.revoke",
+                false,
+            ),
+        ] {
+            assert_eq!(action.permission(), permission);
+            let mut request = PermissionEvaluationRequest {
+                request_id: Id::from_u128(1),
+                subject: PermissionSubject::User {
+                    id: Id::from_u128(2),
                 },
-            },
-        };
-        assert_eq!(request.policy_namespace(), Some(INSTALLATION_POLICY_ID));
-        request.target = PermissionTarget::Installation {
-            resource: IdentityResource::Device {
-                id: Some(Id::nil()),
-            },
-        };
-        assert_eq!(request.policy_namespace(), None);
-        request.target = PermissionTarget::Application {
-            application_id: Id::from_u128(2),
-            resource: IdentityResource::Device {
-                id: Some(Id::from_u128(1)),
-            },
-        };
-        assert_eq!(request.policy_namespace(), None);
-    }
-
-    #[test]
-    fn device_mutation_permission_requires_exact_device_and_installation_scope() {
-        let device = Id::now_v7();
-        let mut request = PermissionEvaluationRequest {
-            request_id: Id::now_v7(),
-            subject: PermissionSubject::User { id: Id::now_v7() },
-            action: IdentityAction::DevicesRename,
-            target: PermissionTarget::Installation {
+                action,
+                target: PermissionTarget::Installation {
+                    resource: IdentityResource::Device { id: Some(device) },
+                },
+            };
+            assert_eq!(request.policy_namespace(), Some(INSTALLATION_POLICY_ID));
+            for (resource, expected) in [
+                (
+                    IdentityResource::Device { id: None },
+                    collection_allowed.then_some(INSTALLATION_POLICY_ID),
+                ),
+                (
+                    IdentityResource::Device {
+                        id: Some(Id::nil()),
+                    },
+                    None,
+                ),
+                (IdentityResource::User { id: Some(device) }, None),
+            ] {
+                request.target = PermissionTarget::Installation { resource };
+                assert_eq!(
+                    request.policy_namespace(),
+                    expected,
+                    "{action:?} {:?}",
+                    request.target
+                );
+            }
+            request.target = PermissionTarget::Application {
+                application_id: Id::from_u128(4),
                 resource: IdentityResource::Device { id: Some(device) },
-            },
-        };
-        assert_eq!(request.policy_namespace(), Some(Id::nil()));
-        request.target = PermissionTarget::Installation {
-            resource: IdentityResource::Device { id: None },
-        };
-        assert_eq!(request.policy_namespace(), None);
-        request.target = PermissionTarget::Application {
-            application_id: Id::now_v7(),
-            resource: IdentityResource::Device { id: Some(device) },
-        };
-        assert_eq!(request.policy_namespace(), None);
+            };
+            assert_eq!(request.policy_namespace(), None);
+        }
     }
 
     #[test]
