@@ -3,7 +3,8 @@ use std::{io, sync::Arc, time::Duration};
 use axum::{
     Router,
     extract::Request,
-    http::{HeaderValue, StatusCode},
+    http::{HeaderName, HeaderValue, StatusCode},
+    middleware::{self, Next},
     response::IntoResponse,
 };
 use db::adapters::EmbeddedDatabase;
@@ -157,10 +158,28 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
         .ascii_serialization()
         .parse()
         .map_err(io::Error::other)?;
+    let fixture = HeaderName::from_static("x-of-seeded-fixture");
+    let idp = idp.layer(middleware::from_fn({
+        let fixture = fixture.clone();
+        move |request: Request, next: Next| {
+            let fixture = fixture.clone();
+            async move {
+                let discovery = request.uri().path() == "/idp/.well-known/openid-configuration";
+                let mut response = next.run(request).await;
+                if discovery && response.status().is_success() {
+                    response
+                        .headers_mut()
+                        .insert(fixture, HeaderValue::from_static("1"));
+                }
+                response
+            }
+        }
+    }));
     let cors = CorsLayer::new()
         .allow_origin(vec![app_origin, password_manager_origin])
         .allow_methods(Any)
         .allow_headers(Any)
+        .expose_headers([fixture])
         .allow_private_network(true);
     Ok(compose_router(idp, management, device, storage.router()).layer(cors))
 }

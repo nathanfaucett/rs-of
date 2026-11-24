@@ -145,7 +145,11 @@ impl IndependentReset {
     fn capture(owner: &str, domain: &Path, directory: &Path, phase: &Phase) -> io::Result<Journal> {
         let host: Value = serde_json::from_slice(&read_private(&directory.join("host.json"))?)?;
         let settings: HostSettings = serde_json::from_value(host.clone())?;
-        if host["version"] != 1 || settings.owner != owner || settings.domain != domain {
+        if host["version"] != 1
+            || !settings.is_native()
+            || settings.owner != owner
+            || settings.domain != domain
+        {
             return Err(io::Error::other(
                 "retained setup does not own selected domain root",
             ));

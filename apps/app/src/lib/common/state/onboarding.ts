@@ -109,29 +109,39 @@ export async function observeOnboarding(): Promise<OnboardingObservation> {
   try {
     const clientId = configuredWebLoginClient(env, selected.idp, isTauri());
     if (clientId) {
-      const metadata = await new DefaultApi(
+      const { PUBLIC_REQUIRE_SEEDED_FIXTURE_HEADER: requireFixtureHeader } = env;
+      const fixtureOnly = requireFixtureHeader === "1";
+      const response = await new DefaultApi(
         new Configuration({
           basePath: selected.idp,
           fetchApi: fetch,
         })
-      ).openidConfiguration();
+      )
+        .openidConfigurationRaw({ cache: "no-store", redirect: "error" })
+        .catch((error: unknown) => {
+          if (!fixtureOnly) throw error;
+          return undefined;
+        });
       if (!sameSelection(selected)) return blocked(selection(), "retry");
-      if (
-        metadata.issuer !== selected.idp ||
-        metadata.tokenEndpoint !== `${selected.idp}/oauth2/token`
-      ) {
-        return blocked(target, "prerequisite");
+      if (response && (!fixtureOnly || response.raw.headers.get("x-of-seeded-fixture") === "1")) {
+        const metadata = await response.value();
+        if (
+          metadata.issuer !== selected.idp ||
+          metadata.tokenEndpoint !== `${selected.idp}/oauth2/token`
+        ) {
+          return blocked(target, "prerequisite");
+        }
+        return {
+          target: { ...target, idp: selected.idp },
+          hosts: [],
+          state: "ready",
+          action: "sign_in",
+          loginClient: {
+            client_id: clientId,
+            scopes: ["openid", "profile", "email"],
+          },
+        };
       }
-      return {
-        target: { ...target, idp: selected.idp },
-        hosts: [],
-        state: "ready",
-        action: "sign_in",
-        loginClient: {
-          client_id: clientId,
-          scopes: ["openid", "profile", "email"],
-        },
-      };
     }
     if (selected.kind === "bundled") {
       const native = await invoke<NativeHostObservation>("get_onboarding_host");

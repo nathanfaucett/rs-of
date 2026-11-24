@@ -3,6 +3,8 @@
 #[cfg(feature = "cli")]
 pub mod cli;
 mod config;
+#[cfg(all(unix, feature = "cli", feature = "independent-contracts"))]
+mod first_run;
 mod runtime;
 
 #[cfg(feature = "cli")]

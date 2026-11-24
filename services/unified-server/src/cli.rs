@@ -10,6 +10,8 @@ use tokio::spawn;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::{SeedConfig, UnifiedConfig};
+#[cfg(all(unix, feature = "independent-contracts"))]
+use crate::first_run::serve as serve_first_run;
 use crate::runtime::serve;
 
 #[derive(Parser)]
@@ -39,6 +41,14 @@ enum Command {
         )]
         seed: Option<PathBuf>,
     },
+    #[cfg(all(unix, feature = "independent-contracts"))]
+    /// Create a new Installation through local Portless HTTPS, without seed data.
+    Setup {
+        #[arg(long, default_value = ".data/setup")]
+        data_dir: PathBuf,
+        #[arg(long, default_value = "https://of.localhost:1355")]
+        origin: String,
+    },
     #[cfg(feature = "completions")]
     Completions { shell: clap_complete::Shell },
 }
@@ -57,6 +67,23 @@ pub async fn run() -> io::Result<()> {
             password_manager_origin,
             seed,
         } => (data_dir, port, origin, password_manager_origin, seed),
+        #[cfg(all(unix, feature = "independent-contracts"))]
+        Command::Setup { data_dir, origin } => {
+            let public_origin = env::var("PORTLESS_URL")
+                .map_err(|_error| io::Error::other("setup requires the Portless HTTPS URL"))?;
+            let port = env::var("PORT")
+                .ok()
+                .and_then(|port| port.parse::<u16>().ok())
+                .filter(|port| *port != 0)
+                .ok_or_else(|| io::Error::other("setup requires a nonzero Portless PORT"))?;
+            if env::var("PUBLIC_BASE_URL").is_ok_and(|url| url != public_origin) {
+                return Err(io::Error::other("setup public URL must match PORTLESS_URL"));
+            }
+            return with_shutdown(|shutdown| {
+                serve_first_run(data_dir, origin, public_origin, port, shutdown)
+            })
+            .await;
+        }
         #[cfg(feature = "completions")]
         Command::Completions { shell } => {
             use clap::CommandFactory;
@@ -87,10 +114,16 @@ pub async fn run() -> io::Result<()> {
         password_manager_origin,
         seed,
     };
+    with_shutdown(|shutdown| serve(config, shutdown)).await
+}
+
+async fn with_shutdown<F: Future<Output = io::Result<()>>>(
+    run: impl FnOnce(CancellationToken) -> F,
+) -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let cancellation = CancellationToken::new();
     let signal = spawn(shutdown_signal(cancellation.clone()));
-    let result = serve(config, cancellation).await;
+    let result = run(cancellation).await;
     signal.abort();
     result
 }

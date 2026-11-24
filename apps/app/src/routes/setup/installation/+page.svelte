@@ -50,7 +50,7 @@
     });
 </script>
 <Page width="narrow">
-    <PageHeader title="Installation setup" />
+    <PageHeader title="Set up this Node" />
     <Card>
         {#if observation.state === "blocked" && observation.hosts.some((host) => host.status.state === "unfinished")}
             <Alert tone="danger">{observation.message}</Alert>

@@ -254,14 +254,18 @@ async fn assert_local_surface(
             );
         }
     }
-    let metadata: Value = client
+    let discovery = client
         .get(format!("{base}/idp/.well-known/openid-configuration"))
+        .header("origin", "http://localhost:5173")
         .send()
         .await
-        .expect("discovery")
-        .json()
-        .await
-        .expect("metadata");
+        .expect("discovery");
+    assert_eq!(discovery.headers()["x-of-seeded-fixture"], "1");
+    assert_eq!(
+        discovery.headers()["access-control-expose-headers"],
+        "x-of-seeded-fixture"
+    );
+    let metadata: Value = discovery.json().await.expect("metadata");
     assert_eq!(metadata["issuer"], format!("{base}/idp"));
     assert_eq!(
         metadata["token_endpoint"],
