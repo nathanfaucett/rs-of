@@ -147,10 +147,28 @@ mod tests {
             call(token.clone(), of_model::id::Id::now_v7()).await,
             StatusCode::NOT_FOUND
         );
-        fixture
-            .state
-            .oauth2_service
-            .user_repo
+        let idp = &fixture.state.oauth2_service;
+        idp.set_user_blocked(fixture.owner, true, None)
+            .await
+            .expect("block User");
+        assert_eq!(
+            call(token.clone(), fixture.owner).await,
+            StatusCode::NOT_FOUND
+        );
+        assert!(
+            idp.find_user_info(fixture.owner)
+                .await
+                .expect("blocked User profile")
+                .blocked
+        );
+        idp.set_user_blocked(fixture.owner, false, None)
+            .await
+            .expect("unblock User");
+        assert_eq!(
+            call(token.clone(), fixture.owner).await,
+            StatusCode::NO_CONTENT
+        );
+        idp.user_repo
             .delete_user_by_id(fixture.owner)
             .await
             .expect("learn User deletion");

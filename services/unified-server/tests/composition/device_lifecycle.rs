@@ -155,7 +155,6 @@ async fn assert_signed_self_revocation(
 }
 
 #[tokio::test]
-#[ignore = "IdP active-User lookup accepts blocked Users; run explicitly until fixed"]
 async fn blocked_user_with_an_existing_device_token_and_enroll_grant_cannot_approve() {
     let fixture = OwnerFixture::start().await;
     let OwnerFixture {

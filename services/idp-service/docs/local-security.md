@@ -8,6 +8,8 @@ Bind each authenticated administrative request to the verified actor, service au
 
 Bundled composition may use local Management and IdP service interfaces without HTTP self-calls. Independent deployment uses authenticated HTTPS relationships. IdP never opens Management or Device repositories. Management authorizes administration but does not own Device records.
 
+The IdP active-User check denies blocked or missing Users and failed status lookups. The local interface and authenticated HTTP route use the same check. This check does not change access token verification or User profile lookups.
+
 Client registration and Application creation require their exact Installation permissions. Application-scoped administration, authentication, and consent do not imply Installation authority. Existing Installations need explicit policy grants; startup must not invent an all-User grant or silently backfill permissions.
 
 ## Signers and tokens

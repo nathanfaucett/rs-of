@@ -1,3 +1,4 @@
+use idp_service::ofdb::LocalIdentity;
 use of_model::id::Id;
 use of_model::idp::contract::error_code::ErrorCode;
 use of_model::idp::contract::introspection_response::IntrospectionResponse;
@@ -23,16 +24,22 @@ pub async fn authorize_management_bearer(
     })
 }
 
+/// Checks current `IdP` User status independently of token validation.
+///
+/// # Errors
+/// Returns an error if the User ID is invalid, the User is absent or blocked,
+/// or current status cannot be determined.
 pub async fn active_management_user(state: &RouterState, user_id: Id) -> Result<(), String> {
     if user_id.is_nil() {
         return Err("invalid User ID".into());
     }
-    state
-        .oauth2_service
-        .find_user_info(user_id)
+    match LocalIdentity::new(state.engine.clone())
+        .is_active_user(user_id)
         .await
-        .map(|_| ())
-        .map_err(|_| "IdP User is not currently active".into())
+    {
+        Ok(true) => Ok(()),
+        Ok(false) | Err(_) => Err("IdP User is not currently active".into()),
+    }
 }
 
 #[cfg(test)]
