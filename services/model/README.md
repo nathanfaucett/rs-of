@@ -14,9 +14,9 @@
 | `server` | HTTP contracts shared by router handlers |
 | `http` | Generated Rust wire models and re-exports used by generated clients |
 | `setup`, `oauth_user` | Setup and User payload contracts |
-| `ofdb` | The shared SQL migration text exported as `MIGRATION` |
+| `ofdb` | Embedded SQL migration directory |
 
-The crate also contains `id`, error, JSON, and parsing helpers. With the `ofdb` feature, `idp::replica` applies the current IdP and Management schema through `ofdb_sql::Client` transactions.
+The crate also contains `id`, error, JSON, and parsing helpers.
 
 ## Features
 

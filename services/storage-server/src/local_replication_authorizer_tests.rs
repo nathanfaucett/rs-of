@@ -5,9 +5,7 @@ use ofdb_sql::Database;
 use device_service::device_repo::DeviceRepo;
 use device_service::ofdb::device_repo::DbDeviceRepo;
 use device_service::ofdb::selection_policy::DbSelectionPolicyRepo;
-use idp_service::{
-    password_config::PasswordConfig, replica::DbUserRepo, repo::user_repo::UserRepo,
-};
+use idp_service::{ofdb::DbUserRepo, password_config::PasswordConfig, repo::user_repo::UserRepo};
 use of_model::contract::replication::SelectedResource;
 use of_model::device::selection_policy::SelectionPolicy;
 use of_model::id::Id;

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::security_policy::{SecurityHistory, SecuritySync};
 use db::DatabaseTransport;
-use idp_service::replica::LocalIdentity;
+use idp_service::ofdb::LocalIdentity;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh_chain::Server;
 use management_service::LocalPermissions;

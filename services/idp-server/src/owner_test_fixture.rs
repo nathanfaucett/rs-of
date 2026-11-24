@@ -147,7 +147,7 @@ pub(crate) async fn owner_fixture_for_issuer(issuer: String) -> OwnerFixture {
     device_service::ofdb::schema::up(&management)
         .await
         .expect("device schema");
-    let devices = device_service::replica::DbDeviceRepo::new(management.client());
+    let devices = device_service::ofdb::DbDeviceRepo::new(management.client());
     use device_service::DeviceRepo;
     let device = devices
         .create(
@@ -167,7 +167,7 @@ pub(crate) async fn owner_fixture_for_issuer(issuer: String) -> OwnerFixture {
         "idp-services",
         engine.clone(),
         Arc::new(provisioner.oauth2),
-        Some(Arc::new(device_service::replica::DbDeviceRepo::new(
+        Some(Arc::new(device_service::ofdb::DbDeviceRepo::new(
             management.clone().client(),
         ))),
         Arc::new(

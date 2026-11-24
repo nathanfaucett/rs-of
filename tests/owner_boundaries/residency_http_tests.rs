@@ -1,6 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
-use device_service::replica::DbSelectionPolicyRepo;
+use device_service::ofdb::DbSelectionPolicyRepo;
 use idp_service::repo::ClientRepo;
 use of_model::contract::authorization_details::StorageAuthorizationAction;
 use of_model::device::selection_policy::SelectionPolicy;

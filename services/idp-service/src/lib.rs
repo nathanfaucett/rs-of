@@ -16,8 +16,6 @@ pub use ofdb_sql as db_sql;
 pub mod oauth2;
 #[cfg(feature = "ofdb")]
 pub mod ofdb;
-#[cfg(feature = "ofdb")]
-pub mod replica;
 pub mod repo;
 pub mod security_sync;
 #[cfg(feature = "std")]

@@ -1309,7 +1309,7 @@ mod tests {
     use ofdb_sql::Uuid;
     use ofdb_sql::Value;
 
-    use crate::{device_repo::DeviceRepo, replica::device_repo::DbDeviceRepo};
+    use crate::{device_repo::DeviceRepo, ofdb::device_repo::DbDeviceRepo};
 
     use crate::ofdb::selection_policy::DbSelectionPolicyRepo;
 

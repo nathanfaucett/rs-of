@@ -23,11 +23,11 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation() {
     let identity = Arc::new(Database::in_memory());
-    of_model::idp::replica::up(&identity.client())
+    of_model::ofdb::up(&identity.client())
         .await
         .expect("identity owner schema");
     let devices = Arc::new(Database::in_memory());
-    device_service::replica::up(&devices)
+    device_service::ofdb::up(&devices)
         .await
         .expect("Device owner schema");
     let owner = Id::now_v7();
@@ -172,7 +172,7 @@ async fn device_http_and_storage_share_isolated_authority_and_recheck_revocation
     }
     // Keep another approved member: revoking the last approved Device is forbidden.
     use device_service::DeviceRepo;
-    let peers = device_service::replica::DbDeviceRepo::new(devices.client());
+    let peers = device_service::ofdb::DbDeviceRepo::new(devices.client());
     let peer = peers
         .create(
             owner.to_string(),

@@ -7,11 +7,11 @@ use axum::{
 };
 use idp_service::{
     oauth2::{config::OAuth2Config, service::OAuth2Service},
-    password_config::PasswordConfig,
-    replica::{
+    ofdb::{
         DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
         DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
     },
+    password_config::PasswordConfig,
     repo::{key_service::KeyService, private_key_keyring_repo::PrivateKeyKeyringRepo},
 };
 use of_model::idp::contract::authorization_request::AuthorizationRequest;

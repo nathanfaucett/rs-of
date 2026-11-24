@@ -21,7 +21,7 @@ pub async fn signer(
     issuer: &str,
 ) -> io::Result<idp_service::oauth2::node_signer::NodeSignerBinding> {
     use idp_service::{
-        replica::{DbIssuerKeyRepo, DbKeyRepo},
+        ofdb::{DbIssuerKeyRepo, DbKeyRepo},
         repo::{KeyService, PrivateKeyKeyringRepo},
     };
     use sha2::{Digest, Sha256};

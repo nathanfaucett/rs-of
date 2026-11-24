@@ -27,7 +27,6 @@ ofdb = [
     "db/network",
     "of-model/ofdb",
     "idp-service/ofdb",
-    "idp-service/replica",
 
     "dep:ofdb-sql",
     "dep:ofdb-kv",

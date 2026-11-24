@@ -6,7 +6,7 @@ use std::{
 
 use idp_service::{
     oauth2::service::OAuth2Service,
-    replica::{
+    ofdb::{
         DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
         DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
     },

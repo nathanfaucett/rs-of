@@ -22,7 +22,7 @@ use ofdb_sql_history::{SyncMessage, apply_sync_state_batch_for, export_sync_stat
 use super::{Pair, Poison, RecoveryAttack, sync_fixture, unvalidated_initiate};
 use crate::{
     device_repo::DeviceRepo,
-    replica::DbDeviceRepo,
+    ofdb::DbDeviceRepo,
     security_policy::SecurityContext,
     security_protocol::test_fixtures::{insert_device, sql},
 };

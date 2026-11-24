@@ -12,7 +12,7 @@ use std::{
 };
 
 use db::Database;
-use device_service::replica::DbSelectionPolicyRepo;
+use device_service::ofdb::DbSelectionPolicyRepo;
 use of_model::device::selection_policy::SelectionPolicy;
 use of_model::idp::model::Id;
 use tower::ServiceExt;
@@ -114,8 +114,8 @@ async fn independent_transfer_https_child() {
         };
         use device_service::DeviceRepo;
         use device_service::HostedControlPlane;
-        use device_service::replica::DbDeviceRepo;
-        use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
+        use device_service::ofdb::DbDeviceRepo;
+        use idp_service::{PasswordConfig, ofdb::DbUserRepo, repo::UserRepo};
         use of_model::contract::replication::{OwnerCopyCleanup, SelectedResourcesResponse};
         use storage_server::{DeviceClient, LocalReplicationAuthorizer, StorageCopyRetirement};
         use storage_service::{DatabaseRuntime, ScopedFileSystemRuntime};

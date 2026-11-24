@@ -31,7 +31,7 @@ pub(crate) fn local_storage_idp_client(idp: Arc<IdpRuntime>) -> IdpClient {
 
 pub(crate) fn build_control_plane(
     idp: Arc<IdpRuntime>,
-    devices: Arc<device_service::replica::DbDeviceRepo>,
+    devices: Arc<device_service::ofdb::DbDeviceRepo>,
     idp_api_base: &str,
     storage_api_base: &str,
     issuer: &str,

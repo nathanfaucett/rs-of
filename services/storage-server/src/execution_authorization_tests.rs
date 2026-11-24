@@ -12,9 +12,7 @@ use ofdb_sql::Database;
 use device_service::device_repo::DeviceRepo;
 use device_service::ofdb::device_repo::DbDeviceRepo;
 use file_system::FileResponse;
-use idp_service::{
-    password_config::PasswordConfig, replica::DbUserRepo, repo::user_repo::UserRepo,
-};
+use idp_service::{ofdb::DbUserRepo, password_config::PasswordConfig, repo::user_repo::UserRepo};
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets};
 use management_service::ofdb::permission_repo::DbPermissionRepo;
 use management_service::ofdb::role_repo::DbRoleRepo;

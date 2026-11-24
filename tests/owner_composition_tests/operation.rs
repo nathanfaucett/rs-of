@@ -12,7 +12,7 @@ use std::{
 };
 
 use device_service::DeviceRepo;
-use device_service::replica::DbDeviceRepo;
+use device_service::ofdb::DbDeviceRepo;
 use of_model::idp::model::Id;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
@@ -157,7 +157,7 @@ async fn operation_child() {
     let idp_worker = fs::read(root.join("idp.setup-host/worker.json")).expect("retained signer");
     {
         let engine = Arc::new(db::Database::open(root.join("idp/idp.redb")).expect("stopped IdP"));
-        let signers = idp_service::replica::DbIssuerKeyRepo::new(engine.client())
+        let signers = idp_service::ofdb::DbIssuerKeyRepo::new(engine.client())
             .keys(
                 &intent.issuer,
                 std::time::SystemTime::now()

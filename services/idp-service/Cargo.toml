@@ -24,7 +24,7 @@ ofdb = [
     "dep:ofdb-kv",
     "dep:ofdb-sql",
 ]
-replica = ["ofdb"]
+local-private-keys = ["ofdb"]
 redb = []
 test-support = []
 std = [

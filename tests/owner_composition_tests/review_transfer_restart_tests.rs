@@ -1,7 +1,7 @@
 use std::{fs, net::SocketAddr, path::Path, sync::Arc, time::Duration};
 
-use device_service::replica::DbDeviceRepo;
-use device_service::replica::DbSelectionPolicyRepo;
+use device_service::ofdb::DbDeviceRepo;
+use device_service::ofdb::DbSelectionPolicyRepo;
 use of_model::idp::model::Id;
 use reqwest::{Client, StatusCode};
 use server_common::IndependentCreateIntent;

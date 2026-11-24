@@ -27,6 +27,8 @@ axum = ["dep:axum"]
 wasm = ["dep:tsify", "dep:serde-wasm-bindgen", "dep:wasm-bindgen"]
 
 [dependencies]
+include_dir = { version = "0.7", default-features = false }
+
 # Internal
 key = { path = "../key", default-features = false, features = [] }
 

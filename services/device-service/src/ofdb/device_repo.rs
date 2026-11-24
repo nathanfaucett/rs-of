@@ -889,7 +889,7 @@ mod tests {
     use of_model::device::contract::device_state::DeviceState;
     use ofdb_sql::Database;
 
-    use crate::{device_repo::DeviceRepo, replica::device_repo::DbDeviceRepo};
+    use crate::{device_repo::DeviceRepo, ofdb::device_repo::DbDeviceRepo};
 
     async fn repo() -> DbDeviceRepo {
         let engine = Arc::new(ofdb_sql::Database::in_memory());

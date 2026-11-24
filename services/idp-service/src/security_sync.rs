@@ -272,7 +272,7 @@ impl PublicSecurityTable {
     }
 
     /// Check disclosure safety of an assignment or schema default, not complete-row validity.
-    #[cfg(any(feature = "replica", feature = "ofdb"))]
+    #[cfg(feature = "ofdb")]
     #[must_use]
     pub fn permits_historical_value(self, column: &str, value: &ofdb_sql::Value) -> bool {
         if !self.columns().contains(&column) {
@@ -341,7 +341,7 @@ pub fn public_security_tables() -> Vec<PublicSecurityTable> {
 #[cfg(test)]
 mod tests {
     use super::PublicSecurityTable;
-    #[cfg(any(feature = "replica", feature = "ofdb"))]
+    #[cfg(feature = "ofdb")]
     use super::public_security_tables;
 
     #[test]
@@ -352,7 +352,7 @@ mod tests {
         }
     }
 
-    #[cfg(any(feature = "replica", feature = "ofdb"))]
+    #[cfg(feature = "ofdb")]
     #[test]
     fn historical_consent_client_id_is_public_oauth_text_not_internal_uuid() {
         assert!(
@@ -372,7 +372,7 @@ mod tests {
         }
     }
 
-    #[cfg(any(feature = "replica", feature = "ofdb"))]
+    #[cfg(feature = "ofdb")]
     #[test]
     fn historical_values_reject_private_jwks_and_raw_grants() {
         let public = serde_json::json!({"kid": "node-key", "use": "sig", "alg": "ES256K", "kty": "Ec", "crv": "secp256k1",
@@ -487,7 +487,7 @@ mod tests {
         }
     }
 
-    #[cfg(any(feature = "replica", feature = "ofdb"))]
+    #[cfg(feature = "ofdb")]
     #[tokio::test]
     async fn projections_match_query_columns_and_validate_record_types() {
         let engine = alloc::sync::Arc::new(ofdb_sql::Database::in_memory());

@@ -105,7 +105,7 @@ use crate::oauth2::scope::validate_scopes;
 
 use crate::oauth2::pkce::verify_code_challenge;
 
-#[cfg(all(test, feature = "replica"))]
+#[cfg(all(test, feature = "ofdb"))]
 #[path = "refresh_tests.rs"]
 mod refresh_tests;
 

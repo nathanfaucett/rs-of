@@ -1064,11 +1064,11 @@ async fn independent_create_child() {
 
 pub(super) async fn seed_endpoint_negatives(root: &Path) -> Vec<(String, StatusCode, bool)> {
     use device_service::DeviceRepo;
-    use device_service::replica::DbDeviceRepo;
-    use device_service::replica::DbSelectionPolicyRepo;
+    use device_service::ofdb::DbDeviceRepo;
+    use device_service::ofdb::DbSelectionPolicyRepo;
     use management_service::ManagementService;
-    use management_service::replica::DbPermissionRepo;
-    use management_service::replica::DbRoleRepo;
+    use management_service::ofdb::DbPermissionRepo;
+    use management_service::ofdb::DbRoleRepo;
     use of_model::device::selection_policy::SelectionPolicy;
     use of_model::idp::contract::IdentityAction;
     let record: serde_json::Value = serde_json::from_slice(

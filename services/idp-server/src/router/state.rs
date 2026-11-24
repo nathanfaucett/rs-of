@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use device_service::{DeviceIdentity, HostedControlPlane, replica::DbDeviceRepo};
+use device_service::{DeviceIdentity, HostedControlPlane, ofdb::DbDeviceRepo};
 use idp_service::{
     oauth2::service::OAuth2Service,
-    replica::{
+    ofdb::{
         DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
         DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
     },

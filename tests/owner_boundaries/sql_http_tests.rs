@@ -408,7 +408,7 @@ async fn canonical_application_shares_clients_but_isolates_other_users_and_appli
         .status(),
         404
     );
-    use idp_service::{replica::DbUserRepo, repo::UserRepo};
+    use idp_service::{ofdb::DbUserRepo, repo::UserRepo};
     use of_model::idp::contract::EntityType;
     let user = DbUserRepo::new(f.idp.client(), Default::default())
         .create_user_with_password("other-user", "valid-password")
@@ -690,7 +690,7 @@ async fn generated_sql_contract_roundtrips_lossless_wire_scalars() {
 
 #[tokio::test]
 async fn learned_device_restriction_denies_subsequent_sql_and_creation() {
-    use device_service::replica::DbSelectionPolicyRepo;
+    use device_service::ofdb::DbSelectionPolicyRepo;
     use of_model::device::selection_policy::SelectionPolicy;
     use std::sync::{Arc, OnceLock};
     let mut f = Fixture::new(Default::default()).await;

@@ -1067,17 +1067,17 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use of_model::idp::{
-        contract::{
+    use of_model::{
+        idp::contract::{
             application_registration::ApplicationRegistration, client_profile::ClientProfile,
             grant_type::GrantType, response_type::ResponseType,
         },
-        replica::up,
+        ofdb::up,
     };
 
     use crate::{
         oauth2::{config::OAuth2Config, service::OAuth2Service},
-        replica::{
+        ofdb::{
             DbApplicationRepo, DbOAuth2AuthorizationCodeRepo, DbOAuth2RefreshTokenRepo,
             DbOAuth2UserConsentRepo, DbUserRepo,
         },

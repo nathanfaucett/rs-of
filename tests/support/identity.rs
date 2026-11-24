@@ -1,9 +1,9 @@
 use db::Database;
 use device_service::DeviceRepo;
-use device_service::replica::DbDeviceRepo;
+use device_service::ofdb::DbDeviceRepo;
 use idp_service::{
     PasswordConfig,
-    replica::{DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2UserConsentRepo, DbUserRepo},
+    ofdb::{DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2UserConsentRepo, DbUserRepo},
     repo::{
         ApplicationRepo, ClientRepo, KeyService, OAuth2UserConsentRepo, PrivateKeyKeyringRepo,
         UserRepo,
@@ -247,7 +247,7 @@ pub(crate) async fn seed_idp_with_config(
     fs::create_dir_all(root.join("device")).expect("create Device fixture directory");
     let management =
         Arc::new(Database::open(root.join("device/devices.redb")).expect("Device owner"));
-    device_service::replica::up(&management)
+    device_service::ofdb::up(&management)
         .await
         .expect("Device fixture schema");
     let devices = DbDeviceRepo::new(management.client());
@@ -261,7 +261,7 @@ pub(crate) async fn seed_idp_with_config(
     let public_jwk = owner
         .prepare_node_signer(&local_signer)
         .expect("prepare local issuer key");
-    idp_service::replica::DbIssuerKeyRepo::new(engine.clone())
+    idp_service::ofdb::DbIssuerKeyRepo::new(engine.clone())
         .install_initial(issuer, &public_jwk)
         .await
         .expect("publish local issuer key");
@@ -306,7 +306,7 @@ pub(crate) async fn seed_permissions_at(path: &std::path::Path, fixture: &mut Pe
     fs::create_dir_all(path.parent().expect("database directory"))
         .expect("create Management data directory");
     let engine = Arc::new(Database::open(path).expect("open Management fixture"));
-    of_model::idp::replica::up_policy(&engine.client())
+    of_model::ofdb::up(&engine.client())
         .await
         .expect("initialize Management schema");
     seed_permissions_on(engine.client(), fixture).await;
@@ -315,7 +315,7 @@ pub(crate) async fn seed_permissions_at(path: &std::path::Path, fixture: &mut Pe
 pub(crate) async fn seed_permissions_on(engine: db::Client, fixture: &mut PermissionFixture) {
     use management_service::{
         ManagementService,
-        replica::{DbPermissionRepo, DbRoleRepo},
+        ofdb::{DbPermissionRepo, DbRoleRepo},
     };
     let service = ManagementService::new(
         DbPermissionRepo::new(engine.clone()),

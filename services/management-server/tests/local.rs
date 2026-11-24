@@ -51,7 +51,7 @@ async fn local_constructor_accepts_shared_and_owner_databases_without_setup() {
 async fn synchronized_management_history_preserves_policy_and_learns_deletion() {
     use management_service::{
         ManagementService,
-        replica::{DbPermissionRepo, DbRoleRepo},
+        ofdb::{DbPermissionRepo, DbRoleRepo},
     };
     use of_model::id::Id;
     use of_model::idp::contract::permission_evaluation::{

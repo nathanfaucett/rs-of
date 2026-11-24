@@ -8,7 +8,7 @@ use std::{
 };
 
 use device_service::{DeviceRepo, ofdb::DbDeviceRepo};
-use idp_service::{PasswordConfig, replica::DbUserRepo, repo::UserRepo};
+use idp_service::{PasswordConfig, ofdb::DbUserRepo, repo::UserRepo};
 use of_model::idp::model::Id;
 use reqwest::StatusCode;
 use server_common::{IndependentCreateIntent, LocalTls};
@@ -148,11 +148,11 @@ async fn remote_setup_child() {
             .expect("address JSON");
     fs::create_dir(root.join("owners")).expect("separate domain owner roots");
     let identity = db::Database::open(root.join("owners/identity.redb")).expect("identity owner");
-    of_model::idp::replica::up(&identity.client())
+    of_model::ofdb::up(&identity.client())
         .await
         .expect("identity migration");
     let devices = db::Database::open(root.join("owners/devices.redb")).expect("Device owner");
-    device_service::replica::up(&devices)
+    device_service::ofdb::up(&devices)
         .await
         .expect("Device migration");
     let identity_address = std::net::TcpListener::bind("127.0.0.1:0")

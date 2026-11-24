@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use device_service::hosted_control_plane::HostedControlPlane;
-use management_service::replica::{DbPermissionRepo, DbRoleRepo};
+use management_service::ofdb::{DbPermissionRepo, DbRoleRepo};
 use management_service::service::ManagementService;
 
 type DbPermission = DbPermissionRepo;

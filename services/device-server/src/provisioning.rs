@@ -315,7 +315,7 @@ mod tests {
 
     #[tokio::test]
     async fn local_device_open_initializes_schema_and_reopens_through_owner() {
-        use device_service::{device_repo::DeviceRepo, replica::device_repo::DbDeviceRepo};
+        use device_service::{device_repo::DeviceRepo, ofdb::device_repo::DbDeviceRepo};
 
         let root = std::env::temp_dir().join(format!("device-open-{}", Id::now_v7()));
         let config = AppConfig {

@@ -5,7 +5,7 @@ mod remote_identity_process_tests;
 use std::sync::Arc;
 
 use db::Database;
-use device_service::replica::DbDeviceRepo;
+use device_service::ofdb::DbDeviceRepo;
 use of_model::idp::contract::{
     IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
     PermissionTarget,

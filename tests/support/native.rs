@@ -9,7 +9,7 @@ use db::Database;
 use futures_util::{SinkExt, StreamExt};
 use idp_service::{
     oauth2::NodeSignerBinding,
-    replica::{DbClientRepo, DbKeyRepo},
+    ofdb::{DbClientRepo, DbKeyRepo},
     repo::{ClientRepo, KeyService, PrivateKeyKeyringRepo, UserRepo},
 };
 use iroh::{SecretKey, endpoint::presets};
@@ -315,10 +315,10 @@ impl Fixture {
         let device_database = Arc::new(
             Database::open(directory.0.join("devices.redb")).expect("separate Device store"),
         );
-        device_service::replica::up(&device_database)
+        device_service::ofdb::up(&device_database)
             .await
             .expect("native policy schema");
-        let devices = Arc::new(device_service::replica::DbDeviceRepo::new(
+        let devices = Arc::new(device_service::ofdb::DbDeviceRepo::new(
             device_database.clone().client(),
         ));
         crate::support::seed_approved_device(
@@ -555,7 +555,7 @@ impl Fixture {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("valid test clock")
             .as_secs() as i64;
-        idp_service::replica::DbIssuerKeyRepo::new(self.idp.client())
+        idp_service::ofdb::DbIssuerKeyRepo::new(self.idp.client())
             .withdraw(&self.issuer, self.binding.key_id, now)
             .await
             .expect("learn issuer key withdrawal");

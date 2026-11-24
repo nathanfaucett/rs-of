@@ -39,11 +39,11 @@ use crate::{
         principal::UserPrincipal,
         service::OAuth2Service,
     },
-    password_config::PasswordConfig,
-    replica::{
+    ofdb::{
         DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
         DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
     },
+    password_config::PasswordConfig,
     repo::{
         client_repo::ClientRepo,
         error::RepoResult,
@@ -125,7 +125,7 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
         .prepare_node_signer(&binding)
         .expect("prepare independent local signer");
 
-    crate::replica::DbIssuerKeyRepo::new(engine.client())
+    crate::ofdb::DbIssuerKeyRepo::new(engine.client())
         .install_initial(&service.oauth_config.issuer, &public_jwk)
         .await
         .expect("install issuer key");

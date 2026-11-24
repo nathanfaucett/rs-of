@@ -193,10 +193,14 @@ impl Pair {
                 Database::open(root.join("baseline-idp.redb")).expect("open public baseline"),
             );
             if let Some(default) = default {
-                let migration = include_str!("../../model/migrations/0001_init.up.sql").replace(
-                    "public_jwk TEXT\n",
-                    &format!("public_jwk TEXT DEFAULT '{default}'\n"),
-                );
+                let migration = of_model::ofdb::MIGRATIONS
+                    .get_file("0001_init.up.sql")
+                    .and_then(|file| file.contents_utf8())
+                    .expect("embedded initial schema")
+                    .replace(
+                        "public_jwk TEXT\n",
+                        &format!("public_jwk TEXT DEFAULT '{default}'\n"),
+                    );
                 sql(&idp, &migration).await;
             }
             db::ofdb::up(&idp.client())

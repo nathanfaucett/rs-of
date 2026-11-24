@@ -13,13 +13,13 @@ use key::init_credential_store;
 use super::PrivateKeyRepo;
 use super::error::{RepoError, RepoResult};
 
-#[cfg(feature = "replica")]
+#[cfg(feature = "local-private-keys")]
 #[path = "local_private_keys.rs"]
 pub mod local_private_keys;
 
 enum PrivateKeyStorage {
     Keyring(Arc<keyring_core::CredentialStore>),
-    #[cfg(feature = "replica")]
+    #[cfg(feature = "local-private-keys")]
     Local(local_private_keys::LocalPrivateKeys),
 }
 
@@ -63,7 +63,7 @@ impl PrivateKeyKeyringRepo {
     }
 
     /// Uses a private KV namespace in the local shared host, separate from every SQL catalog.
-    #[cfg(feature = "replica")]
+    #[cfg(feature = "local-private-keys")]
     /// # Errors
     /// Returns [`RepoError`] if the local private key namespace cannot be opened.
     pub fn new_local(storage: &btree_redb::SharedDatabase) -> RepoResult<Self> {
@@ -82,7 +82,7 @@ impl PrivateKeyRepo for PrivateKeyKeyringRepo {
     ) -> RepoResult<Option<DerivedKey>> {
         let store = match &self.storage {
             PrivateKeyStorage::Keyring(store) => store,
-            #[cfg(feature = "replica")]
+            #[cfg(feature = "local-private-keys")]
             PrivateKeyStorage::Local(keys) => return keys.load(namespace, derivation_path),
         };
         let entry_name = derived_key_entry_name(namespace, &derivation_path.to_string());
@@ -102,7 +102,7 @@ impl PrivateKeyRepo for PrivateKeyKeyringRepo {
     fn store(&self, namespace: &str, derived_key: &DerivedKey) -> RepoResult<()> {
         let store = match &self.storage {
             PrivateKeyStorage::Keyring(store) => store,
-            #[cfg(feature = "replica")]
+            #[cfg(feature = "local-private-keys")]
             PrivateKeyStorage::Local(keys) => return keys.store(namespace, derived_key),
         };
         let entry_name =
@@ -115,7 +115,7 @@ impl PrivateKeyRepo for PrivateKeyKeyringRepo {
     fn delete(&self, namespace: &str, derivation_path: &DerivationPath) -> RepoResult<()> {
         let store = match &self.storage {
             PrivateKeyStorage::Keyring(store) => store,
-            #[cfg(feature = "replica")]
+            #[cfg(feature = "local-private-keys")]
             PrivateKeyStorage::Local(keys) => return keys.delete(namespace, derivation_path),
         };
         let entry_name = derived_key_entry_name(namespace, &derivation_path.to_string());

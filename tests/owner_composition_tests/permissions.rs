@@ -11,12 +11,12 @@ use std::{
 use db::Database;
 use device_service::HostedControlPlane;
 use idp_service::{
-    replica::{DbApplicationRepo, DbClientRepo, DbKeyRepo},
+    ofdb::{DbApplicationRepo, DbClientRepo, DbKeyRepo},
     repo::{ApplicationRepo, ClientRepo, KeyService, PrivateKeyKeyringRepo},
 };
 use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
+use management_service::ofdb::DbPermissionRepo;
+use management_service::ofdb::DbRoleRepo;
 use of_model::idp::{
     contract::{
         IdentityAction, IdentityResource, MANAGEMENT_PERMISSION_EVALUATE_SCOPE,

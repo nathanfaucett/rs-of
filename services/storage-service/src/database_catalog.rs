@@ -5,7 +5,7 @@ mod sql_catalog;
 
 use of_model::{
     id::Id,
-    ofdb::STORAGE_CATALOG_SCHEMA,
+    ofdb::up_storage_catalog,
     storage::{
         namespace::StorageNamespace,
         resource_catalog::{ResourceCatalog, ResourceIdentity, ResourceKind},
@@ -60,13 +60,7 @@ impl DatabaseCatalog {
             ));
         }
         let client = Database::open(catalog).map_err(error)?.client();
-        run(async {
-            client
-                .execute_sql(STORAGE_CATALOG_SCHEMA, None)
-                .await
-                .map_err(error)?;
-            Ok(())
-        })?;
+        run(async { up_storage_catalog(&client).await.map_err(error) })?;
         Ok(Self::with_client(client))
     }
 
@@ -429,6 +423,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn standalone_catalog_does_not_create_other_owners_tables() {
+        let root = env::temp_dir().join(format!("database-catalog-schema-{}", Id::now_v7()));
+        let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
+        for table in ["users", "devices"] {
+            catalog
+                .client
+                .execute_sql(&format!("SELECT * FROM {table} LIMIT 0"), None)
+                .await
+                .expect_err("standalone catalog must not create other owners' tables");
+        }
+        drop(catalog);
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[tokio::test]
     async fn resources_are_isolated_persistent_and_tombstoned() {
         let root = env::temp_dir().join(format!(
             "database-catalog-{}-{}",
@@ -448,6 +457,7 @@ mod tests {
             ..scope
         };
         let catalog = DatabaseCatalog::new(root.clone()).expect("catalog root is created");
+
         let first = catalog
             .create(&scope, Some("same name".into()))
             .expect("first resource is created");

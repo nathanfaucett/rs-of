@@ -22,7 +22,6 @@ pub use of_model::device::device::Device;
 
 #[cfg(feature = "ofdb")]
 pub mod ofdb;
-pub mod replica;
 
 #[cfg(feature = "std")]
 mod device_enrollment;

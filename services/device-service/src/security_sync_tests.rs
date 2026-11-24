@@ -10,7 +10,7 @@ use ofdb_sql::Database;
 use idp_service::{
     oauth2::node_signer::NodeSignerBinding,
     password_config::PasswordConfig,
-    replica::DbUserRepo,
+    ofdb::DbUserRepo,
     repo::user_repo::UserRepo,
 };
 use iroh::{Endpoint, address_lookup::MemoryLookup, endpoint::presets, protocol::Router};
@@ -22,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     device_repo::DeviceRepo,
-    replica::DbDeviceRepo,
+    ofdb::DbDeviceRepo,
     security_policy::SecurityContext,
     security_protocol::{
         SecurityProtocol,
@@ -142,8 +142,8 @@ async fn exchange_history() {
         created_at: 100,
     };
     use idp_service::repo::oauth2_refresh_token_repo::OAuth2RefreshTokenRepo;
-    let grants_a = idp_service::replica::DbOAuth2RefreshTokenRepo::new(idp_a.client());
-    let grants_b = idp_service::replica::DbOAuth2RefreshTokenRepo::new(idp_b.client());
+    let grants_a = idp_service::ofdb::DbOAuth2RefreshTokenRepo::new(idp_a.client());
+    let grants_b = idp_service::ofdb::DbOAuth2RefreshTokenRepo::new(idp_b.client());
     grants_a
         .issue_refresh_token(grant("private-bearer-original"), None)
         .await

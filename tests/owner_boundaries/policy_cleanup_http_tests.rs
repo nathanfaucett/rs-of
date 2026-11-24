@@ -1,14 +1,14 @@
 use std::sync::{Arc, OnceLock};
 
 use device_service::HostedControlPlane;
-use device_service::replica::DbSelectionPolicyRepo;
+use device_service::ofdb::DbSelectionPolicyRepo;
 use idp_service::{
-    replica::DbUserRepo,
+    ofdb::DbUserRepo,
     repo::{ClientRepo, UserRepo},
 };
 use management_service::ManagementService;
-use management_service::replica::DbPermissionRepo;
-use management_service::replica::DbRoleRepo;
+use management_service::ofdb::DbPermissionRepo;
+use management_service::ofdb::DbRoleRepo;
 use of_model::contract::{
     authorization_details::StorageAuthorizationAction, token_response::TokenResponse,
 };
@@ -212,7 +212,7 @@ async fn real_policy_http_chain_retires_copies_reselects_generation_and_gates_tr
         "idp-services",
     )
     .expect("scoped introspection")
-    .with_local_devices(Arc::new(device_service::replica::DbDeviceRepo::new(
+    .with_local_devices(Arc::new(device_service::ofdb::DbDeviceRepo::new(
         fixture.devices.clone().client(),
     )));
     let control = Arc::new(control);

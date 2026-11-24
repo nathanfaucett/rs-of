@@ -1,4 +1,4 @@
-#![cfg(feature = "replica")]
+#![cfg(feature = "local-private-keys")]
 
 use bip32::DerivationPath;
 use idp_service::repo::{

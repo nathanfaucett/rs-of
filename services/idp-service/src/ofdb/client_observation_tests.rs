@@ -14,7 +14,7 @@ use ofdb_sql::{
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{
-    replica::DbKeyRepo,
+    ofdb::DbKeyRepo,
     repo::{client_repo::ClientRepo, key_service::KeyService},
 };
 
@@ -50,7 +50,10 @@ impl Fixture {
             reads: Arc::clone(&reads),
         };
         let engine = Engine::new(kernel.clone(), AutomergeRowCodec::new());
-        let migration = include_str!("../../../model/migrations/0001_init.up.sql");
+        let migration = of_model::ofdb::MIGRATIONS
+            .get_file("0001_init.up.sql")
+            .and_then(|file| file.contents_utf8())
+            .expect("embedded initial schema");
         for statement in migration.split(';').map(str::trim).filter(|statement| {
             statement.starts_with("CREATE TABLE IF NOT EXISTS clients (")
                 || statement

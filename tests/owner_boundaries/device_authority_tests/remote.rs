@@ -16,7 +16,7 @@ use axum::{
 use db::Database;
 use device_service::{
     HostedControlPlane,
-    replica::{DbDeviceRepo, DbSelectionPolicyRepo},
+    ofdb::{DbDeviceRepo, DbSelectionPolicyRepo},
 };
 use of_model::contract::principal_type::PrincipalType;
 use of_model::contract::standard_claims::StandardClaims;
@@ -239,7 +239,7 @@ async fn remote_device_child() {
         .expect("address");
     if mode == "sql" {
         let database = Database::open(root.join("devices.redb")).expect("domain owner");
-        device_service::replica::up(&database)
+        device_service::ofdb::up(&database)
             .await
             .expect("owner migration");
         let repo = DbDeviceRepo::new(Arc::new(database.clone()).client());
@@ -322,7 +322,7 @@ async fn remote_device_child() {
             .parse()
             .expect("owner ID");
         let identity = Database::in_memory();
-        of_model::idp::replica::up(&identity.client())
+        of_model::ofdb::up(&identity.client())
             .await
             .expect("identity schema");
         management_service::provision_initial_administrator(

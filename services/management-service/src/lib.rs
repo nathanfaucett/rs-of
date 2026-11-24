@@ -13,8 +13,6 @@ mod local_permissions;
 #[cfg(feature = "ofdb")]
 pub mod ofdb;
 pub mod permission_repo;
-#[cfg(feature = "ofdb")]
-pub mod replica;
 pub mod role_repo;
 pub mod service;
 

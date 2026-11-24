@@ -14,7 +14,7 @@ categories = ["database", "filesystem"]
 # Internal
 file-system = { path = "../../fs/file-system", default-features = false, features = [
 ] }
-of-model = { path = "../model", default-features = false, features = ["std"] }
+of-model = { path = "../model", default-features = false, features = ["ofdb"] }
 ofdb-kv = { path = "../../db/kv", default-features = false, features = [
     "redb",
     "sync",
