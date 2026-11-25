@@ -1,13 +1,12 @@
 <script lang="ts">
 import { onDestroy } from "svelte";
 import { parse } from "valibot";
-import type { VaultHandleLike } from "$lib/vault/types";
+
 import { LOCK_TIMEOUT_OPTIONS, type LockSettings, LockSettingsSchema } from "./lock";
 
-let { vault, settings, onsaved }: {
-    vault: VaultHandleLike;
+let { settings, onsave }: {
     settings: LockSettings;
-    onsaved: (settings: LockSettings) => void;
+    onsave: (settings: LockSettings) => Promise<boolean>;
 } = $props();
 let selected = $state<number | null>(null);
 let timeout = $derived(selected ?? settings.timeoutMinutes);
@@ -22,16 +21,18 @@ async function save() {
     busy = true;
     feedback = "";
     try {
-        const confirmed = await vault.saveLockSettings(parse(LockSettingsSchema, { timeoutMinutes: timeout }));
+        const applied = await onsave(parse(LockSettingsSchema, { timeoutMinutes: timeout }));
         if (!active) return;
-        onsaved(confirmed);
-        if (!active) return;
-        failed = false;
-        feedback = "Lock settings saved.";
+        selected = null;
+        if (applied) {
+            failed = false;
+            feedback = "Lock settings saved.";
+        }
     } catch {
         if (!active) return;
+        selected = null;
         failed = true;
-        feedback = "Lock settings could not be confirmed. Lock, reopen, and verify before retrying. The previous session timeout remains active.";
+        feedback = "Could not confirm the lock settings. The previous timeout is still active. Lock and reopen the vault to check the saved value before you retry.";
     } finally {
         if (active) busy = false;
     }
@@ -46,7 +47,7 @@ async function save() {
             <option value={opt.value}>{opt.label}</option>
         {/each}
     </select>
-    <p>Saved in this encrypted vault. Each unlock starts a new deadline. Reload requires your master password.</p>
+    <p>Saving applies the timeout now and stores it in this encrypted vault. Reload requires your master password.</p>
     <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => void save()}>{busy ? "Saving lock settings…" : "Save lock settings"}</button>
     {#if feedback}<p role={failed ? "alert" : "status"}>{feedback}</p>{/if}
 </fieldset>

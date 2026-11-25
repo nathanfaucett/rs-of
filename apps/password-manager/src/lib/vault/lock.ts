@@ -63,33 +63,40 @@ export async function decryptLockSettings(
 export function createInactivityLock(onlock: () => void, timeProvider: () => number = Date.now) {
   let deadline: number | null = null;
   let duration = 0;
-  let browserSession = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  function stop() {
+    clearTimeout(timer);
+    deadline = null;
+  }
+
+  function check() {
+    if (deadline === null || timeProvider() < deadline) return false;
+    stop();
+    onlock();
+    return true;
+  }
+
+  function schedule() {
+    if (deadline === null) return;
+    timer = setTimeout(() => {
+      if (!check()) schedule();
+    }, deadline - timeProvider());
+  }
+
   return {
     start(settings: LockSettings) {
-      browserSession = isBrowserSession(settings);
-      if (browserSession) {
-        deadline = null;
-        duration = 0;
-        return;
-      }
       duration = v.parse(LockSettingsSchema, settings).timeoutMinutes * 60_000;
+      stop();
+      if (duration === 0) return;
       deadline = timeProvider() + duration;
+      schedule();
     },
-    check() {
-      if (browserSession) return false;
-      if (deadline === null || timeProvider() < deadline) return false;
-      deadline = null;
-      onlock();
-      return true;
-    },
+    check,
     activity() {
-      if (browserSession) return;
-      if (this.check() || deadline === null) return;
+      if (deadline === null || check()) return;
       deadline = timeProvider() + duration;
     },
-    stop() {
-      deadline = null;
-      browserSession = false;
-    },
+    stop,
   };
 }
