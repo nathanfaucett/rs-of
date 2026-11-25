@@ -202,6 +202,48 @@ async fn setup() -> (Arc<TestEngine>, TestService, Client, UserPrincipal) {
 }
 
 #[tokio::test]
+async fn created_user_can_sign_in_without_private_user_keys() {
+    use of_model::idp::contract::password_grant_request::PasswordGrantRequest;
+    use of_model::oauth_user::CreateUserRequest;
+
+    let (_, service, client, _) = setup().await;
+    let email = "created-user@example.test";
+    let password = "created-user-password";
+    service
+        .create_user(CreateUserRequest::new(
+            "Created User".into(),
+            email.into(),
+            password.into(),
+        ))
+        .await
+        .expect("create User with a sign-in root");
+    service
+        .token(
+            TokenRequest::Password(PasswordGrantRequest {
+                client_id: client.client_id.clone(),
+                username: email.into(),
+                password: password.into(),
+                scope: Some("openid".into()),
+                resource: None,
+            }),
+            Some(auth(&client)),
+        )
+        .await
+        .expect("created User can sign in");
+    assert_eq!(
+        service
+            .key_service
+            .private_key_repo()
+            .0
+            .lock()
+            .expect("private store")
+            .len(),
+        1,
+        "only the Node signer needs private material"
+    );
+}
+
+#[tokio::test]
 async fn password_reset_replaces_the_sign_in_password() {
     use of_model::idp::contract::password_grant_request::PasswordGrantRequest;
 

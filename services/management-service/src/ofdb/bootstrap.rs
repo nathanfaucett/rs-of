@@ -4,12 +4,14 @@ use of_model::idp::contract::permission_evaluation::{INSTALLATION_POLICY_ID, Ide
 use of_model::management_error::{ManagementError, ManagementResult};
 use ofdb_sql::{Client, QueryParams, QueryResult, Transaction, Value};
 
+use crate::INITIAL_ADMINISTRATOR_ACTIONS;
+
 use super::insert::{db_error, policy_insert, returned_id};
 
 const ADMINISTRATOR: &str = "installation-administrator";
 
 /// Provision the original administrator on the Installation's identity owner.
-/// Exact setup retries do not change policy, including after a grant or policy is deleted.
+/// Setup retries do not change policy, including after a grant or policy is deleted.
 ///
 /// # Errors
 ///
@@ -49,7 +51,7 @@ pub async fn provision_initial_administrator(
 async fn provision(tx: &mut Transaction, user: Id, names: &[&str]) -> ManagementResult<()> {
     let key = Value::Text(ADMINISTRATOR.into());
     let user = Value::Uuid(user);
-    let inventory = Value::Text(names.join("\n"));
+    let inventory = names.join("\n");
     // The receipt commits with the grants and prevents setup from reissuing deleted policy.
     let receipt = execute(
         tx,
@@ -58,7 +60,9 @@ async fn provision(tx: &mut Transaction, user: Id, names: &[&str]) -> Management
     )
     .await?;
     if let Some(row) = receipt.first().and_then(|result| result.rows.first()) {
-        return if row.values.as_slice() == [user, inventory] {
+        return if matches!(row.values.as_slice(), [stored_user, Value::Text(stored)]
+            if *stored_user == user && (*stored == inventory || previous_user_creation_inventory(stored, names)))
+        {
             Ok(())
         } else {
             Err(ManagementError::InvalidInput(
@@ -84,10 +88,23 @@ async fn provision(tx: &mut Transaction, user: Id, names: &[&str]) -> Management
     execute(
         tx,
         "INSERT INTO administrator_provisioning (name, user_id, actions) VALUES ($1, $2, $3)",
-        QueryParams::Positional(vec![key, user, inventory]),
+        QueryParams::Positional(vec![key, user, Value::Text(inventory)]),
     )
     .await?;
     Ok(())
+}
+
+fn previous_user_creation_inventory(stored: &str, requested: &[&str]) -> bool {
+    // Accept only the previous default recipe, without issuing any grants on retry.
+    requested.len() == INITIAL_ADMINISTRATOR_ACTIONS.len()
+        && INITIAL_ADMINISTRATOR_ACTIONS
+            .iter()
+            .all(|action| requested.contains(&action.permission()))
+        && requested
+            .iter()
+            .copied()
+            .filter(|name| *name != IdentityAction::UsersCreate.permission())
+            .eq(stored.split('\n'))
 }
 
 async fn execute(

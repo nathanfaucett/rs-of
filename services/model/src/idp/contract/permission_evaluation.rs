@@ -211,10 +211,9 @@ impl PermissionEvaluationRequest {
                 A::ApplicationsRead | A::ApplicationsUpdate | A::ApplicationsDelete,
                 IdentityResource::Application { id: Some(id) },
             ) => !id.is_nil(),
-            (A::UsersRead, IdentityResource::User { id: None }) => true,
+            (A::UsersRead | A::UsersCreate, IdentityResource::User { id: None }) => true,
             (
                 A::UsersRead
-                | A::UsersCreate
                 | A::UsersUpdate
                 | A::UsersDelete
                 | A::UsersResetPassword
@@ -402,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn user_collection_read_allows_reading_but_not_mutating_users() {
+    fn user_collection_does_not_allow_updates_or_deletes() {
         let mut request = PermissionEvaluationRequest {
             request_id: Id::now_v7(),
             subject: PermissionSubject::User { id: Id::now_v7() },
@@ -421,6 +420,30 @@ mod tests {
             request.action = action;
             assert!(request.policy_namespace().is_none());
         }
+    }
+
+    #[test]
+    fn user_creation_targets_only_the_installation_collection() {
+        let mut request = PermissionEvaluationRequest {
+            request_id: Id::now_v7(),
+            subject: PermissionSubject::User { id: Id::now_v7() },
+            action: IdentityAction::UsersCreate,
+            target: PermissionTarget::Installation {
+                resource: IdentityResource::User { id: None },
+            },
+        };
+        assert_eq!(request.policy_namespace(), Some(INSTALLATION_POLICY_ID));
+        request.target = PermissionTarget::Installation {
+            resource: IdentityResource::User {
+                id: Some(Id::now_v7()),
+            },
+        };
+        assert_eq!(request.policy_namespace(), None);
+        request.target = PermissionTarget::Application {
+            application_id: Id::now_v7(),
+            resource: IdentityResource::User { id: None },
+        };
+        assert_eq!(request.policy_namespace(), None);
     }
 
     #[test]

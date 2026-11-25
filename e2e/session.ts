@@ -97,10 +97,10 @@ export function storageClient(clientId: string, accessToken: string) {
   });
 }
 
-export async function signIn(page: Page) {
+export async function signIn(page: Page, email = "admin@local.test", password = "password") {
   const username = page.getByRole("textbox", { name: "Username", exact: true });
   await expect(username, "Sign-in must be available without installation setup").toBeVisible();
-  await username.fill("admin@local.test");
-  await page.getByLabel("Password", { exact: true }).fill("password");
+  await username.fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
 }
