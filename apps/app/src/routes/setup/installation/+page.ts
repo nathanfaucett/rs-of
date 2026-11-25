@@ -1,10 +1,13 @@
 import { redirect } from "@sveltejs/kit";
 import { isTauri } from "@tauri-apps/api/core";
 import { getIdpApiUrl } from "$lib/common/state/idpClient.svelte";
+import { nodeSetupRoute } from "$lib/common/state/nodeSetup";
 import { observeOnboarding } from "$lib/common/state/onboarding";
 
 export async function load() {
   if (!isTauri() && !getIdpApiUrl()) throw redirect(302, "/config");
+  const route = await nodeSetupRoute();
+  if (route === "/setup" || route === "/setup/join") redirect(302, route);
   const observation = await observeOnboarding();
   if (
     observation.target.kind === "remote" &&

@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile);
 const fixture = `
 const http = require('node:http');
 const fs = require('node:fs');
-if (process.argv[2] === 'local') {
+if (process.argv[2] === 'seeded') {
   const assert = require('node:assert/strict');
   const args = process.argv.slice(2);
   assert.equal(args[args.indexOf('--data-dir') + 1], process.env.E2E_DATA_DIR);
@@ -120,7 +120,7 @@ test("reports a child exit without waiting for the health deadline", async () =>
   await assert.rejects(startBackend(config), /exited.*23/);
 });
 
-test("starts a prebuilt executable with the local CLI and an isolated data directory", async () => {
+test("starts a prebuilt executable with the seeded CLI and an isolated data directory", async () => {
   const directory = await mkdtemp(join(tmpdir(), "of-launcher-test-"));
   const binary = join(directory, "server.cjs");
   await writeFile(binary, `#!${process.execPath}\n${fixture}`, { mode: 0o755 });

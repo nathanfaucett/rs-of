@@ -1,0 +1,167 @@
+{
+  "components": {
+    "schemas": {
+      "Choice": {
+        "enum": ["create", "join"],
+        "type": "string"
+      },
+      "Descriptor": {
+        "oneOf": [
+          {
+            "properties": {
+              "state": {
+                "enum": ["awaiting_choice"],
+                "type": "string"
+              }
+            },
+            "required": ["state"],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "state": {
+                "enum": ["starting"],
+                "type": "string"
+              }
+            },
+            "required": ["state"],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "state": {
+                "enum": ["creating"],
+                "type": "string"
+              }
+            },
+            "required": ["state"],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "state": {
+                "enum": ["joining"],
+                "type": "string"
+              }
+            },
+            "required": ["state"],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "state": {
+                "enum": ["blocked"],
+                "type": "string"
+              }
+            },
+            "required": ["state"],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "idp": {
+                "type": "string"
+              },
+              "state": {
+                "enum": ["ready"],
+                "type": "string"
+              },
+              "storage": {
+                "type": "string"
+              }
+            },
+            "required": ["idp", "storage", "state"],
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "securitySchemes": {
+      "node_setup_code": {
+        "description": "Setup <protected Node code>",
+        "in": "header",
+        "name": "Authorization",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "name": "nathanfaucett@gmail.com"
+    },
+    "description": "Composition host for unified service deployment",
+    "license": {
+      "identifier": "MIT OR Apache-2.0",
+      "name": "MIT OR Apache-2.0"
+    },
+    "title": "unified-server",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/setup/node": {
+      "get": {
+        "operationId": "node_setup_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Descriptor"
+                }
+              }
+            },
+            "description": "Current Node setup. Only verified completion publishes the selected service bases."
+          },
+          "503": {
+            "description": "The Node setup runtime is unavailable"
+          }
+        },
+        "tags": []
+      }
+    },
+    "/setup/node/choice": {
+      "post": {
+        "operationId": "select_node_setup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Choice"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Choice is retained; this does not mean setup is complete"
+          },
+          "401": {
+            "description": "Protected Node code missing or invalid"
+          },
+          "403": {
+            "description": "Browser origin not allowed"
+          },
+          "409": {
+            "description": "A different choice is already retained"
+          },
+          "503": {
+            "description": "Protected retained state is unavailable"
+          }
+        },
+        "security": [
+          {
+            "node_setup_code": []
+          }
+        ],
+        "tags": []
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://unified.localhost:1355"
+    }
+  ]
+}

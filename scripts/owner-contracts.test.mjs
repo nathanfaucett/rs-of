@@ -3,11 +3,12 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const root = new URL("../", import.meta.url);
-test("exactly four owner contracts and service Rust clients", () => {
+test("four owner contracts and service Rust clients, plus the Node setup contract", () => {
   assert.deepEqual(readdirSync(new URL("openapi/", root)).sort(), [
     "device.json",
     "idp.json",
     "management.json",
+    "node.json",
     "storage.json",
   ]);
   const workspace = readFileSync(new URL("Cargo.toml", root), "utf8");

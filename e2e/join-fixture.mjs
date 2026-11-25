@@ -246,7 +246,7 @@ async function main() {
   start(
     unified,
     [
-      "local",
+      "seeded",
       "--data-dir",
       join(scratch, "installation"),
       "--origin",

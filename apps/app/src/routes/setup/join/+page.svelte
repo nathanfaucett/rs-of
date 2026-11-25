@@ -3,6 +3,7 @@
     import { onMount } from "svelte";
     import { replaceState } from "$app/navigation";
     import { resolve } from "$app/paths";
+    import { unifiedNode } from "$lib/common/state/nodeSetup";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
     import { type JoinIntent, type JoinView, joinAction, joinClient, joinStatus } from "./joinApi";
 
@@ -21,7 +22,8 @@
         issuer: "", device: "", storage: "", clientId: "", application: "",
         acceptingPublicKey: "", name: "", address: "",
     });
-    let helper = $state("");
+    const node = unifiedNode();
+    let helper = $state(node ?? "");
     let code = $state("");
     let view = $state.raw<JoinView>({ stage: "setup" });
     let ready = $state(false);
@@ -82,15 +84,15 @@
         ready = true;
         void run(async () => {
             const raw = sessionStorage.getItem(storageKey);
-            if (!raw) return;
-            const saved = JSON.parse(raw) as { helper: string; view: JoinView };
-            helper = saved.helper;
+            const saved = raw ? JSON.parse(raw) as { helper: string; view: JoinView } : undefined;
+            helper = node ?? saved?.helper ?? "";
+            if (!helper) return;
             const current = await joinStatus(helper);
             if (current.stage === "approved") {
                 remember(current);
                 return;
             }
-            if (saved.view.stage !== "prepared" && saved.view.stage !== "pending") return;
+            if (saved?.helper !== helper || (saved.view.stage !== "prepared" && saved.view.stage !== "pending")) return;
             const params = new URLSearchParams(location.search);
             view = saved.view;
             await resumeSignIn(view.intent, params.has("code") || params.has("error"));
@@ -152,11 +154,11 @@
             <p>Approval does not grant Resource access or select Resources.</p>
         {:else if ready}
             <form onsubmit={(event) => { event.preventDefault(); if (view.stage === "setup") void prepare(); }}>
-                <Field label="Local join helper">
+                {#if !node}<Field label="Local join helper">
                     {#snippet children({ id })}
                         <input {id} type="url" bind:value={helper} disabled={busy || view.stage !== "setup"} class="input" />
                     {/snippet}
-                </Field>
+                </Field>{/if}
                 <Field label="Local setup code">
                     {#snippet children({ id })}
                         <input {id} type="password" bind:value={code} disabled={busy} autocomplete="off" class="input" />

@@ -14,7 +14,7 @@ function parseInteger(value: string | undefined, defaultValue: number): number {
 
 export default defineConfig(({ command, mode, isPreview }) => {
   const portless = PORTLESS_URL?.match(
-    /^https:\/\/([a-z0-9-]+\.)?password-manager\.localhost(:[0-9]+)?$/
+    /^https:\/\/((?:[a-z0-9-]+\.)*)password-manager\.localhost(:[0-9]+)?$/
   );
   if (command === "serve" && !isPreview && portless) {
     const env: Record<string, string | undefined> = loadEnv(
@@ -22,9 +22,21 @@ export default defineConfig(({ command, mode, isPreview }) => {
       fileURLToPath(new URL(".", import.meta.url)),
       "PUBLIC_"
     );
-    const key = "PUBLIC_UNIFIED_ORIGIN";
-    process.env[key] ??=
-      env[key] ?? `https://${portless[1] ?? ""}unified.localhost${portless[2] ?? ""}`;
+    const suffix = `${portless[2] ?? ""}`;
+    const prefix = portless[1] ?? "";
+    const unified = `https://${prefix}unified.localhost${suffix}`;
+    const defaults =
+      mode === "seeded"
+        ? {
+            PUBLIC_OIDC_CLIENT_ID: "password-manager",
+            PUBLIC_OIDC_APPLICATION_URI: `https://${prefix}of.localhost${suffix}/password-manager`,
+            PUBLIC_IDP_BASE_URL: `${unified}/idp`,
+            PUBLIC_STORAGE_BASE_URL: `${unified}/storage`,
+          }
+        : { PUBLIC_UNIFIED_ORIGIN: unified };
+    for (const [key, value] of Object.entries(defaults)) {
+      process.env[key] ??= env[key] ?? value;
+    }
   }
 
   return {

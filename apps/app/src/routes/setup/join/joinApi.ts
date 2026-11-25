@@ -1,5 +1,6 @@
 import { OidcClient } from "@ofsdk/oidc-client";
 import * as v from "valibot";
+import { unifiedNode } from "$lib/common/state/nodeSetup";
 
 const intentSchema = v.object({
   issuer: v.string(),
@@ -35,6 +36,7 @@ const safeFetch: typeof fetch = (input, init) =>
 
 function endpoint(base: string): string {
   const url = new URL(base);
+  if (location.protocol === "https:" && base === unifiedNode()) return `${url.origin}/setup/join`;
   if (
     location.protocol !== "https:" ||
     url.protocol !== "https:" ||

@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "portless of vite dev",
+    "dev": "portless run --name of vite dev",
+    "dev:seeded": "portless run --name of vite dev --mode seeded",
     "build": "vite build",
     "desktop:dev": "portless of-desktop vite dev",
     "desktop": "tauri dev",

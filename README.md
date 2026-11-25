@@ -10,7 +10,7 @@ The repository is migrating to the [accepted target architecture](docs/architect
 
 | Area                                   | Current state                                                                                                                                                                   |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Local unified backend                  | Available for loopback development; mounts IdP, Management, Device, and Storage APIs                                                                                            |
+| Local unified backend                  | First-run setup over Portless HTTPS: create an Installation or join one as a Device                                                                                            |
 | OIDC and remote Storage SQL            | Discovery, consent/PKCE sign-in, session reload, and remote Storage SQL CRUD pass real-backend Playwright tests                                                                 |
 | Local encrypted password vault         | Development reference application, not a production password manager                                                                                                            |
 | Shared multi-User Installation Devices | Accepted target; migration is incomplete                                                                                                                                        |
@@ -29,22 +29,27 @@ To add a Device to an existing Installation, use the [Device owner pairing contr
 
 Prerequisites are defined by `rust-toolchain.toml`, `Cargo.toml`, and `.nvmrc`. Install `just` and pnpm 12.4.1 for the full development workflow.
 
+First-run setup requires Unix. If Portless is not running, start the trusted HTTPS proxy on the development port:
+
 ```bash
-just unified
+pnpm exec portless proxy start --port 1355
 ```
 
-Portless terminates HTTPS and assigns a dynamic internal port. The server binds to loopback and exposes:
+Start the backend and the two apps in separate terminals:
 
-- `https://unified.localhost:1355/idp`
-- `https://unified.localhost:1355/management`
-- `https://unified.localhost:1355/device`
-- `https://unified.localhost:1355/storage`
+```bash
+just unified
+pnpm apps:dev
+```
 
-Each owner has a `/health` route. In a second terminal, run `pnpm apps:dev` to start both frontends. Their default Portless URLs use the local backend without environment variables. Open [Password Manager](https://password-manager.localhost:1355) or the [main app](https://of.localhost:1355).
+Open the [main app](https://of.localhost:1355). On a fresh Node, enter the protected setup code from the file printed by the server and choose **Start a new Installation** or **Join an existing Installation**. Portless can prefix these hostnames in a Git worktree; use the URLs it prints. You do not need to set environment variables.
 
-Local mode seeds test identities, including `admin@local.test` / `password`. Do not expose these credentials or the local listener to an untrusted network.
+- **Create** sets the first administrator and starts the local owner APIs. It does not seed any accounts. Wait for setup to verify readiness before signing in.
+- **Join** uses an existing Installation's Device pairing and approval. It does not start local owner APIs or create accounts.
 
-Direct `cargo run -p unified-server -- local` serves plain HTTP on a fixed loopback port. TLS belongs at Portless, nginx, or a load balancer. Local signer state is bound to the public issuer URL; use a fresh data directory when that URL changes. This mode is not production deployment.
+The [Password Manager](https://password-manager.localhost:1355) can use local vaults immediately. For sign-in it reads the selected IdP and Storage from the [Node setup descriptor](openapi/node.json) after setup completes.
+
+Restart with the same data root and public URLs to continue or use the retained setup. The default root is `.data`. The server rejects seeded roots without changing them. Preserve an old root and run `just unified --data-dir <fresh-private-path>` to start setup. There is no migration from seeded state or the earlier opt-in Create root. See [local setup and recovery](services/unified-server/README.md).
 
 ## Repository map
 

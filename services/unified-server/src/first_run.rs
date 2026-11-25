@@ -15,7 +15,11 @@ use axum::{
     routing::get,
 };
 use reqwest::{Client, Url};
-use server_common::{IndependentSetupHost, LocalTls, ServerConfig, random_capability, setup_files};
+use server_common::{
+    IndependentCreateHost, IndependentSetupHost, LocalTls, ServerConfig, random_capability,
+    setup_files,
+};
+use setup::join::JoinHost;
 use tokio::{
     net::TcpListener,
     sync::watch,
@@ -26,9 +30,11 @@ use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::compose_router;
+use crate::{
+    compose_router,
+    node_setup::{ADMISSION, Choice, Completion, NodeSetup, OWNERS},
+};
 
-const OWNERS: [&str; 3] = ["idp", "device", "storage"];
 const ROOT_MARKER: &str = "unified-setup.lock";
 const HOSTS_MARKER: &str = "unified-setup-hosts";
 const PROBE_PATH: &str = "/.well-known/unified-setup-probe";
@@ -37,17 +43,20 @@ pub async fn serve(
     root: PathBuf,
     ui_origin: String,
     public_origin: String,
+    pm_origin: String,
     port: u16,
     shutdown: CancellationToken,
 ) -> io::Result<()> {
     let url = Url::parse(&public_origin).map_err(io::Error::other)?;
     server_common::setup_origin(&public_origin)?;
     server_common::setup_origin(&ui_origin)?;
+    server_common::setup_origin(&pm_origin)?;
     if url.scheme() != "https"
         || !url
             .host_str()
             .is_some_and(|host| host.ends_with(".localhost"))
         || !ui_origin.starts_with("https://")
+        || !pm_origin.starts_with("https://")
     {
         return Err(io::Error::other("setup requires local Portless HTTPS"));
     }
@@ -98,35 +107,54 @@ pub async fn serve(
         result = verify_proxy(&client, &public_origin, &proof) => result,
         () = shutdown.cancelled() => Err(io::Error::new(io::ErrorKind::Interrupted, "setup stopped")),
     };
-    let result = match verified {
-        Ok(()) => {
-            run_owners(
-                &root,
-                &ui_origin,
-                &public_origin,
-                client,
-                published,
-                &shutdown,
-                &mut jobs,
-            )
-            .await
-        }
-        Err(error) => Err(error),
-    };
+    let result = async {
+        verified?;
+        let _root_lock = open_root(&root)?;
+        let mut owners = None;
+        let result = async {
+            let node = NodeSetup::open(&root, &ui_origin, &pm_origin, &public_origin)?;
+            let mut selection = node.choice();
+            published.send_replace(Some(node.router(Completion::Starting)));
+            let choice = tokio::select! {
+                () = shutdown.cancelled() => return Ok(()),
+                result = jobs.join_next() => return flatten(result),
+                value = selection.wait_for(Option::is_some) => value.map_err(io::Error::other)?.expect("retained choice"),
+            };
+            match choice {
+                Choice::Create => owners = Some(run_owners(
+                    &root, (&ui_origin, &public_origin, &pm_origin), &client,
+                    &node, &published, &shutdown, &mut jobs,
+                )?),
+                Choice::Join => {
+                    let path = root.join("join");
+                    let join = Arc::new(JoinHost::open_for_proxy(&path, &ui_origin)?);
+                    println!("Protected Join setup-code retrieval path: {}", path.join("admission/state").display());
+                    published.send_replace(Some(join.router().merge(node.router(Completion::Join(join)))));
+                }
+            }
+            tokio::select! {
+                () = shutdown.cancelled() => Ok(()),
+                result = jobs.join_next() => flatten(result),
+            }
+        }.await;
+        shutdown.cancel();
+        let result = drain(&mut jobs, result).await;
+        drop(owners);
+        result
+    }.await;
     shutdown.cancel();
     drain(&mut jobs, result).await
 }
 
-async fn run_owners(
+fn run_owners(
     root: &Path,
-    ui_origin: &str,
-    public_origin: &str,
-    client: Client,
-    published: watch::Sender<Option<Router>>,
+    (ui_origin, public_origin, pm_origin): (&str, &str, &str),
+    client: &Client,
+    node: &NodeSetup,
+    published: &watch::Sender<Option<Router>>,
     shutdown: &CancellationToken,
     jobs: &mut JoinSet<io::Result<()>>,
-) -> io::Result<()> {
-    let _root_lock = open_root(root)?;
+) -> io::Result<[IndependentCreateHost; 3]> {
     let [idp, device, storage] = OWNERS.map(|owner| {
         IndependentSetupHost::prepare_for_proxy(
             owner,
@@ -154,7 +182,7 @@ async fn run_owners(
     let management = management_routes(
         &management_base,
         server_common::setup_origin(ui_origin)?,
-        management_router,
+        management_router.clone(),
     );
     jobs.spawn(idp_server::run_owner_setup(
         Arc::new(idp_config),
@@ -187,26 +215,30 @@ async fn run_owners(
         stop.cancelled().await;
         Ok(())
     });
-    published.send_replace(Some(compose_router(
-        idp.router(),
-        management,
-        device.router(),
-        storage.router(),
-    )));
+    let api_origins = [
+        server_common::setup_origin(ui_origin)?,
+        server_common::setup_origin(pm_origin)?,
+    ];
+    let completion = Completion::Create {
+        owners: [idp.control(), device.control(), storage.control()],
+        management: management_router,
+    };
+    published.send_replace(Some(
+        compose_router(
+            idp.router_with_api_origins(api_origins.clone()),
+            management,
+            device.router(),
+            storage.router_with_api_origins(api_origins),
+        )
+        .merge(node.router(completion)),
+    ));
     for (owner, path) in OWNERS.into_iter().zip(paths) {
         println!(
             "Protected {owner} setup-code retrieval path: {}",
             path.display()
         );
     }
-    let result = tokio::select! {
-        () = shutdown.cancelled() => Ok(()),
-        result = jobs.join_next() => flatten(result),
-    };
-    shutdown.cancel();
-    let result = drain(jobs, result).await;
-    drop((idp, device, storage));
-    result
+    Ok([idp, device, storage])
 }
 
 fn owner_configs(
@@ -328,6 +360,8 @@ fn validate_root(root: &Path) -> io::Result<()> {
             || ![
                 ROOT_MARKER,
                 HOSTS_MARKER,
+                ADMISSION,
+                "join",
                 "idp",
                 "device",
                 "storage",

@@ -102,10 +102,10 @@ try {
     "packages/management-client/src",
     "packages/device-client/src",
     "packages/storage-client/src",
-    ...readdirSync(path.join(root, "openapi")).map((file) => {
-      const owner = file.replace(/\.json$/, "");
-      return `services/${owner === "storage" ? "storage-api" : owner}-client`;
-    }),
+    "services/idp-client",
+    "services/management-client",
+    "services/device-client",
+    "services/storage-api-client",
     "services/model/src/http",
   ];
   const before = artifacts.map((dir) => digest(path.join(root, dir)));

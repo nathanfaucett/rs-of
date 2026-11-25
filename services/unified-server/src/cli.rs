@@ -26,14 +26,15 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
-    Local {
-        #[arg(long, default_value = ".data")]
+    /// Start the explicit seeded development fixture.
+    Seeded {
+        #[arg(long, default_value = ".tmp/unified-seeded")]
         data_dir: PathBuf,
         #[arg(long, default_value_t = 1355)]
         port: u16,
-        #[arg(long, default_value = "https://of.localhost:1355")]
-        origin: String,
-        #[arg(long, default_value = "https://password-manager.localhost:1355")]
+        #[arg(long)]
+        origin: Option<String>,
+        #[arg(long)]
         password_manager_origin: Option<String>,
         #[arg(
             long,
@@ -42,12 +43,14 @@ enum Command {
         seed: Option<PathBuf>,
     },
     #[cfg(all(unix, feature = "independent-contracts"))]
-    /// Create a new Installation through local Portless HTTPS, without seed data.
+    /// Set up this Node through local Portless HTTPS, without seed data.
     Setup {
-        #[arg(long, default_value = ".data/setup")]
+        #[arg(long, default_value = ".data")]
         data_dir: PathBuf,
-        #[arg(long, default_value = "https://of.localhost:1355")]
-        origin: String,
+        #[arg(long)]
+        origin: Option<String>,
+        #[arg(long)]
+        password_manager_origin: Option<String>,
     },
     #[cfg(feature = "completions")]
     Completions { shell: clap_complete::Shell },
@@ -60,7 +63,7 @@ enum Command {
 pub async fn run() -> io::Result<()> {
     let args = Args::parse();
     let (data_dir, port, origin, password_manager_origin, seed) = match args.command {
-        Command::Local {
+        Command::Seeded {
             data_dir,
             port,
             origin,
@@ -68,7 +71,11 @@ pub async fn run() -> io::Result<()> {
             seed,
         } => (data_dir, port, origin, password_manager_origin, seed),
         #[cfg(all(unix, feature = "independent-contracts"))]
-        Command::Setup { data_dir, origin } => {
+        Command::Setup {
+            data_dir,
+            origin,
+            password_manager_origin,
+        } => {
             let public_origin = env::var("PORTLESS_URL")
                 .map_err(|_error| io::Error::other("setup requires the Portless HTTPS URL"))?;
             let port = env::var("PORT")
@@ -79,8 +86,18 @@ pub async fn run() -> io::Result<()> {
             if env::var("PUBLIC_BASE_URL").is_ok_and(|url| url != public_origin) {
                 return Err(io::Error::other("setup public URL must match PORTLESS_URL"));
             }
+            let origin = origin.map_or_else(|| portless_app(&public_origin, "of"), Ok)?;
+            let password_manager_origin = password_manager_origin
+                .map_or_else(|| portless_app(&public_origin, "password-manager"), Ok)?;
             return with_shutdown(|shutdown| {
-                serve_first_run(data_dir, origin, public_origin, port, shutdown)
+                serve_first_run(
+                    data_dir,
+                    origin,
+                    public_origin,
+                    password_manager_origin,
+                    port,
+                    shutdown,
+                )
             })
             .await;
         }
@@ -102,6 +119,15 @@ pub async fn run() -> io::Result<()> {
         })
         .transpose()?;
     let public_base_url = server_common::public_base_url();
+    let fixture_origin = |app: &str| {
+        public_base_url
+            .as_deref()
+            .and_then(|base| portless_app(base, app).ok())
+            .unwrap_or_else(|| format!("https://{app}.localhost:1355"))
+    };
+    let origin = origin.unwrap_or_else(|| fixture_origin("of"));
+    let password_manager_origin =
+        Some(password_manager_origin.unwrap_or_else(|| fixture_origin("password-manager")));
     let port = env::var("PORT")
         .ok()
         .and_then(|port| port.parse::<u16>().ok())
@@ -126,4 +152,21 @@ async fn with_shutdown<F: Future<Output = io::Result<()>>>(
     let result = run(cancellation).await;
     signal.abort();
     result
+}
+
+fn portless_app(base: &str, app: &str) -> io::Result<String> {
+    let mut url = reqwest::Url::parse(base).map_err(io::Error::other)?;
+    let prefix = match url.host_str() {
+        Some("unified.localhost") => "",
+        Some(host) => host
+            .strip_suffix("unified.localhost")
+            .filter(|prefix| prefix.ends_with('.'))
+            .ok_or_else(|| {
+                io::Error::other("use the unified Portless name or pass the exact app origins")
+            })?,
+        None => return Err(io::Error::other("Portless URL has no hostname")),
+    };
+    let host = format!("{prefix}{app}.localhost");
+    url.set_host(Some(&host)).map_err(io::Error::other)?;
+    Ok(url.origin().ascii_serialization())
 }

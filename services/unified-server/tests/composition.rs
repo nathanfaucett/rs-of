@@ -50,7 +50,7 @@ async fn portless_server_restarts_with_retained_state() {
         let started = Instant::now();
         let mut server = Server(
             Command::new(env!("CARGO_BIN_EXE_unified-server"))
-                .args(["local", "--data-dir"])
+                .args(["seeded", "--data-dir"])
                 .arg(root.path())
                 .env("PORT", port.to_string())
                 .env("PORTLESS_URL", format!("http://127.0.0.1:{port}"))
@@ -121,7 +121,7 @@ async fn smoke() {
         let start = Instant::now();
         let mut command = Command::new(env!("CARGO_BIN_EXE_unified-server"));
         command
-            .args(["local", "--data-dir"])
+            .args(["seeded", "--data-dir"])
             .arg(root.path())
             .args([
                 "--port",

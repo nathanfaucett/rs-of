@@ -8666,6 +8666,7 @@ dependencies = [
  "serde",
  "serde_json",
  "server-common",
+ "setup",
  "storage-server",
  "tempfile",
  "tokio",

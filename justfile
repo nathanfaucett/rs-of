@@ -31,7 +31,8 @@ help:
     @printf "  management [CONFIG] Run the Management server via portless (cargo run)\n"
     @printf "  device [CONFIG] Run the Device server via portless (cargo run)\n"
     @printf "  storage [CONFIG] Run the Storage server via portless (cargo run)\n"
-    @printf "  unified        Run the local unified server via portless (cargo run)\n"
+    @printf "  unified        Run Node setup via Portless (cargo run)\n"
+    @printf "  unified-seeded  Run the explicit seeded fixture via Portless\n"
     @printf "  openapi-export Export OpenAPI spec\n"
     @printf "  openapi-generate Generate TypeScript clients\n"
 
@@ -209,7 +210,10 @@ storage config="config/storage/config.yaml" *args:
     npx portless run --name storage cargo run -p storage-server --features cli --bin storage-server -- --config "{{ config }}" {{ args }}
 
 unified *args:
-    npx portless run --name unified cargo run -p unified-server -- local {{ args }}
+    pnpm exec portless run --name unified cargo run --locked -p unified-server -- setup {{ args }}
+
+unified-seeded *args:
+    pnpm exec portless run --name unified cargo run --locked -p unified-server -- seeded {{ args }}
 
 openapi-export:
     pnpm openapi:export

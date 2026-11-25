@@ -10,7 +10,7 @@ use axum::{
     Json, Router,
     extract::{Request, State},
     http::{
-        HeaderMap, Method, StatusCode,
+        HeaderMap, HeaderValue, Method, StatusCode,
         header::{AUTHORIZATION, CONTENT_TYPE},
     },
     middleware,
@@ -165,6 +165,15 @@ impl IndependentCreateHost {
     }
     pub fn router(&self) -> Router {
         let origin = setup_origin(&self.host.settings.origin).expect("validated host origin");
+        self.router_with_api_origins([origin])
+    }
+
+    /// Select browser origins for normal APIs without changing owner setup admission.
+    pub fn router_with_api_origins(
+        &self,
+        origins: impl IntoIterator<Item = HeaderValue>,
+    ) -> Router {
+        let origin = setup_origin(&self.host.settings.origin).expect("validated host origin");
         let setup_cors = CorsLayer::new()
             .allow_origin(origin.clone())
             .allow_methods([
@@ -200,7 +209,7 @@ impl IndependentCreateHost {
                 .with_state(self.control.clone())
                 .layer(
                     CorsLayer::very_permissive()
-                        .allow_origin(origin)
+                        .allow_origin(origins.into_iter().collect::<Vec<_>>())
                         .allow_private_network(true),
                 ),
         )
@@ -323,6 +332,20 @@ impl IndependentCreateControl {
             Some(Arc::new(move |control| Box::pin(check(control))));
         Ok(())
     }
+    /// The exact operation only when this owner is serving and passes its current checks.
+    pub async fn verified_intent(&self) -> Option<IndependentCreateIntent> {
+        self.0.admission.health().ok()?;
+        let operation = {
+            let state = self.0.lifecycle.lock().await;
+            if state.view != "ready" {
+                return None;
+            }
+            state.public.as_ref()?.operation.clone()
+        };
+        self.check_readiness().await.ok()?;
+        Some(operation)
+    }
+
     async fn check_readiness(&self) -> io::Result<()> {
         let check = self
             .0

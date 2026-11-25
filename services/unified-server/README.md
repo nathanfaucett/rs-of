@@ -1,24 +1,27 @@
-# Unified first-run setup
+# Unified development Node
 
-On Unix, opt in to creating a new Installation through local Portless HTTPS:
+Use the [default Portless workflow](../../README.md#local-backend). Both setup choices require Unix and run on the same local HTTPS origin. The browser and Rust must trust the Portless CA. Create also needs the normal OS credential store. On Linux, unlock the desktop Secret Service; it can ask you to create or unlock the `IdP` collection. There is no fallback to a file or an unverified TLS connection.
+
+## Set up and restart
+
+Use the Node setup code from the private file printed in the server terminal to select one option. The choice cannot be changed for that root.
+
+- To create an Installation, read the three owner setup codes from the private files printed after you select Create. Enter a new administrator username and password. If Create stops before completion, recover the exact operation and retry with the active owner codes and original IdP password.
+- To join an Installation, read the Join setup code from the private file printed after you select Join. Supply the existing Installation's HTTPS bases, an OAuth Client registered for this app's `/setup/join` redirect, and the accepting Device public key. Sign in to the existing Installation with permission to enroll Devices. Request pairing, then approve this Device. This does not grant Resource access or select any Resources. If interrupted, reopen the app and use **Resume join** with the Join code. No helper process is needed.
+
+Do not share setup codes or place them in URLs. Keep the data root, HTTPS origins, and native credential store unchanged on restart. If the retained data came from the seeded fixture or from the old opt-in Create runtime, preserve it and select a fresh root with `just unified --data-dir <fresh-private-path>`. The new runtime does not adopt or change those roots. For Create, use a short absolute path so the IdP Unix socket fits the OS path limit.
+
+The [Node setup contract](../../openapi/node.json) publishes IdP and Storage bases only after the Node verifies Create or records verified Device approval. The local Node permits Password Manager to read the descriptor. After Join, the existing Installation must permit the Password Manager origin on its own APIs.
+
+## Explicit seeded fixture
+
+Run `just unified-seeded` and `pnpm apps:dev:seeded` to use the seeded fixture with Portless. Its default data root is `.tmp/unified-seeded`; to open a preserved old seeded root, pass `--data-dir` with that path. The direct command `cargo run --locked -p unified-server -- seeded` serves loopback HTTP. Its seeded `admin@local.test` / `password` login is for tests only. Do not expose it to an untrusted network.
+
+## Browser qualification
+
+The [first-run Chromium tests](../../e2e/create-installation.e2e.ts) run the actual launch recipes behind a private Portless HTTPS proxy. See [E2E setup](../../e2e/README.md) for build and browser prerequisites. The tests need `just`, `openssl`, `certutil`, and an unlocked native credential store for Create.
 
 ```sh
-pnpm exec portless run --name unified cargo run --locked -p unified-server --features independent-contracts -- setup
-```
-
-In another terminal, run `pnpm apps:dev` and open `https://of.localhost:1355`.
-If Portless uses another app origin (for example, in a Git worktree), pass that exact HTTPS origin to `setup --origin`.
-Use the codes from the three protected local files printed by the server. Do not share the codes or put them in URLs.
-
-Portless must have a trusted certificate. The browser and Rust must both trust its CA. Use the same unlocked native credential store across restarts. On Linux the normal provider is the desktop Secret Service; it may ask to create or unlock the `IdP` collection. Setup does not fall back to a file or disable TLS verification.
-
-The default root is `.data/setup`, separate from the seeded owner stores. To use another root, pass `--data-dir` with a new private directory outside version control or the exact previously selected setup root. Do not point setup at a seeded `.data` root. Keep the public URLs and retained root unchanged when restarting. If Create was interrupted, recover the exact operation, then retry with the active owner codes and original IdP password.
-
-`just unified` still runs the seeded development fixture. This opt-in does not join another Installation or register a Password Manager OAuth Client.
-
-The [Create browser test](../../e2e/create-installation.e2e.ts) uses a private Portless proxy and explicit CA trust. On Linux it requires Chromium, `openssl`, `certutil`, built app dependencies, and an unlocked native Secret Service with the `IdP` collection. Build and run the test:
-
-```sh
-cargo build --locked -p unified-server --features independent-contracts
+cargo build --locked -p unified-server
 pnpm exec playwright test --config e2e/create.playwright.config.ts
 ```

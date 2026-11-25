@@ -1,6 +1,6 @@
 # Opt-in Device join
 
-The join helper serves only Device join on loopback HTTPS. It does not start an IdP, create a User, bind an Iroh listener, or make a Selection. It does not change the default `just unified` flow.
+The join helper serves only Device join on loopback HTTPS. It does not start an IdP, create a User, bind an Iroh listener, or make a Selection. The [default `just unified` flow](../README.md#local-backend) runs Join directly and does not need this helper.
 
 ## Run manually
 

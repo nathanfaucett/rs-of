@@ -52,10 +52,9 @@ use crate::{
 const PATH: &str = "/setup/join";
 const STORE: &str = "join-v1.json";
 
-/// Opt-in join host. It serves only the local join flow over loopback HTTPS.
+/// Protected local Device join, served over native or verified proxy HTTPS.
 pub struct JoinHost {
-    address: SocketAddr,
-    tls: LocalTls,
+    listener: Option<(SocketAddr, LocalTls)>,
     origin: HeaderValue,
     state: Arc<Host>,
 }
@@ -107,6 +106,35 @@ impl JoinHost {
         require_private(&root.join("admission"), true)?;
         let admission = Arc::new(SetupAdmission::open(&root.join("admission"))?);
         let tls = LocalTls::open(&TlsConfig(root.clone(), address))?;
+        Self::with_admission(root, origin, admission, Some((address, tls)))
+    }
+
+    /// Open the protected join flow for a caller-owned, verified HTTPS route.
+    /// The caller must lock the root and retain the exact public and browser origins.
+    ///
+    /// # Errors
+    /// Fails when the origin or protected retained evidence is invalid.
+    pub fn open_for_proxy(root: &Path, origin: &str) -> io::Result<Self> {
+        if !origin.starts_with("https://") {
+            return Err(io::Error::other("join requires an HTTPS browser origin"));
+        }
+        let root = absolute(root)?;
+        create_private_directory(&root, true)?;
+        require_private(&root, true)?;
+        let path = root.join("admission");
+        if present(&root.join(STORE))? {
+            require_private(&path, true)?;
+        }
+        let admission = Arc::new(SetupAdmission::open(&path)?);
+        Self::with_admission(root, origin, admission, None)
+    }
+
+    fn with_admission(
+        root: PathBuf,
+        origin: &str,
+        admission: Arc<SetupAdmission>,
+        listener: Option<(SocketAddr, LocalTls)>,
+    ) -> io::Result<Self> {
         let state = Arc::new(Host {
             root,
             admission,
@@ -116,8 +144,7 @@ impl JoinHost {
             io::Error::other("join state needs repair; retained data was not replaced")
         })?;
         Ok(Self {
-            address,
-            tls,
+            listener,
             origin: setup_origin(origin)?,
             state,
         })
@@ -126,13 +153,22 @@ impl JoinHost {
     /// # Errors
     /// Fails if the loopback HTTPS listener cannot bind or serve.
     pub async fn serve(self) -> io::Result<()> {
-        let listener = TcpListener::bind(self.address).await?;
+        let (address, tls) = self
+            .listener
+            .as_ref()
+            .ok_or_else(|| io::Error::other("proxy join requires caller-owned serving"))?;
+        let listener = TcpListener::bind(address).await?;
+        axum::serve(tls.listener(listener), self.router()).await
+    }
+
+    /// Serve the same protected operations through either transport.
+    pub fn router(&self) -> Router {
         let cors = CorsLayer::new()
             .allow_origin(self.origin.clone())
             .allow_methods([Method::GET, Method::POST])
             .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
             .allow_private_network(true);
-        let router = Router::new()
+        Router::new()
             .route(PATH, get(status))
             .merge(Router::new().route(PATH, post(action)).route_layer(
                 middleware::from_fn_with_state(
@@ -140,12 +176,30 @@ impl JoinHost {
                     setup_admission_middleware,
                 ),
             ))
-            .with_state(self.state)
-            .route_layer(middleware::from_fn_with_state(self.origin, require_origin))
+            .with_state(Arc::clone(&self.state))
+            .route_layer(middleware::from_fn_with_state(
+                self.origin.clone(),
+                require_origin,
+            ))
             .layer(DefaultBodyLimit::max(32 * 1024))
             .layer(cors)
-            .layer(middleware::from_fn(no_store));
-        axum::serve(self.tls.listener(listener), router).await
+            .layer(middleware::from_fn(no_store))
+    }
+
+    /// Returns the selected service bases only after verified approval and retirement.
+    ///
+    /// # Errors
+    /// Fails when retained approval evidence cannot be read or does not match.
+    pub async fn approved_bases(&self) -> io::Result<Option<(String, String)>> {
+        let _guard = self.state.operation.lock().await;
+        let read = || -> Result<_> {
+            let journal = self.state.load()?;
+            if !self.state.admission.is_retired()? {
+                return Ok(None);
+            }
+            Ok(journal.map(|value| (value.intent.issuer, value.intent.storage)))
+        };
+        read().map_err(|_error| io::Error::other("retained join evidence unavailable"))
     }
 }
 

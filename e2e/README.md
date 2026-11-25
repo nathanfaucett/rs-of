@@ -31,9 +31,13 @@ pnpm test:e2e
 
 Each app also has `pnpm test:e2e`. Run it from that app directory to select its Playwright project. The root Playwright run covers both frontends plus owner HTTP contracts. API coverage for both client registrations is in the app project.
 
+## Default first-run setup
+
+Run `pnpm exec playwright test --config e2e/create.playwright.config.ts` to test both choices and retained state through the default launchers, real Portless HTTPS, and the real Password Manager descriptor. See [unified-server](../services/unified-server/README.md#browser-qualification) for additional prerequisites.
+
 ## Lifecycle and isolation
 
-`backend.mjs` is the global setup for both runners. Vitest installs it on the Chromium instance only: installing the same setup on both the root and browser project starts two servers. By default it runs `cargo run --locked -p unified-server -- local ...` as plain HTTP on an OS-assigned loopback port, with a fresh OS temporary directory. Independent `startBackend` calls also allocate a port when `port` is omitted. It waits for all four owner health routes. It reports build/process failures and missing health routes. The default deadline is 180 seconds, including Cargo; set `E2E_START_TIMEOUT_MS` for a slower first build. This is not a three-second startup benchmark. The launcher sets `RUST_MIN_STACK=67108864` by default because the current backend startup overflows a smaller stack; set the variable explicitly to override that test environment.
+`backend.mjs` is the global setup for both runners. Vitest installs it on the Chromium instance only: installing the same setup on both the root and browser project starts two servers. It explicitly runs the seeded fixture with `cargo run --locked -p unified-server -- seeded ...` as plain HTTP on an OS-assigned loopback port, with a fresh OS temporary directory. Independent `startBackend` calls also allocate a port when `port` is omitted. It waits for all four owner health routes. It reports build/process failures and missing health routes. The default deadline is 180 seconds, including Cargo; set `E2E_START_TIMEOUT_MS` for a slower first build. This is not a three-second startup benchmark. The launcher sets `RUST_MIN_STACK=67108864` by default because the current backend startup overflows a smaller stack; set the variable explicitly to override that test environment.
 
 To use an already-built executable, set `E2E_BACKEND_BIN` to its path, relative to the repository root or absolute. This still starts a new process and new temporary data; it never connects to an existing developer backend. For the repository-local build above:
 
@@ -51,7 +55,7 @@ Set any of the three port variables to a free fixed port for debugging. Without 
 
 ## Browser configuration and desktop isolation
 
-The app permits setup-free browser login only when `PUBLIC_IDP_BASE_URL` and `PUBLIC_OIDC_CLIENT_ID` are configured and the selected IdP matches. The standard Portless dev server supplies the local defaults; the test runner supplies its own values. Live discovery must confirm the exact issuer and token endpoint. Only HTTPS or HTTP loopback is accepted. Tauri never takes this browser path; independent desktop setup remains separate. Without a configured browser client, the setup gate remains.
+The app permits setup-free browser login only when `PUBLIC_IDP_BASE_URL` and `PUBLIC_OIDC_CLIENT_ID` are configured and the selected IdP matches. The default Portless workflow uses verified Node setup instead. The seeded dev launch and seeded test runner supply explicit fixture Clients. Live discovery must confirm the exact issuer and token endpoint. Only HTTPS or HTTP loopback is accepted. Tauri never takes this browser path; independent desktop setup remains separate. Without a configured browser client, the setup gate remains.
 
 `appEnv` uses `local-login`; password-manager uses `password-manager`. Configure `PUBLIC_OIDC_APPLICATION_URI` to the expected Application identity, not the redirect origin. The runner derives these identities from `appURL`, and the local seed uses both runner origins for client redirect URIs. These are runner settings, not production defaults. Password-manager fails closed when this identity is missing. `PUBLIC_OIDC_SCOPES` overrides the existing default; the local seed accepts `openid profile email storage`.
 

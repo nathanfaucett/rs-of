@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "portless password-manager vite dev",
-    "dev:logs": "portless password-manager vite dev 2>&1 | tee .vite-dev.log",
+    "dev": "portless run --name password-manager vite dev",
+    "dev:seeded": "portless run --name password-manager vite dev --mode seeded",
+    "dev:logs": "portless run --name password-manager vite dev 2>&1 | tee .vite-dev.log",
     "build": "vite build",
     "preview": "portless password-manager vite preview",
     "prepare": "svelte-kit sync",

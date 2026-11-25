@@ -39,3 +39,26 @@ fn setup_rejects_plaintext_public_origin_before_writing_state() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("HTTPS"));
     assert_eq!(fs::read_dir(root.path()).expect("root entries").count(), 0);
 }
+
+#[test]
+fn setup_defaults_to_the_previous_local_root_and_rejects_seeded_state() {
+    let cwd = tempfile::tempdir().expect("private working directory");
+    let data = cwd.path().join(".data");
+    fs::create_dir(&data).expect("old data root");
+    fs::write(data.join("unified.redb"), b"old fixture").expect("old data");
+    let output = Command::new(env!("CARGO_BIN_EXE_unified-server"))
+        .current_dir(cwd.path())
+        .arg("setup")
+        .env_remove("PUBLIC_BASE_URL")
+        .env("PORTLESS_URL", "https://unified.localhost:1355")
+        .env("PORT", "12345")
+        .output()
+        .expect("run setup command");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("choose a fresh setup data root"));
+    assert_eq!(
+        fs::read(data.join("unified.redb")).expect("old data"),
+        b"old fixture"
+    );
+    assert_eq!(fs::read_dir(data).expect("root entries").count(), 1);
+}
