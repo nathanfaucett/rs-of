@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { UserInfo } from "@ofsdk/idp-client";
+    import { ResponseError, type UserInfo } from "@ofsdk/idp-client";
     import { onMount } from "svelte";
     import { resolve } from "$app/paths";
     import Modal from "$lib/common/components/Modal.svelte";
@@ -66,7 +66,9 @@
         createModalRef?.show();
     }
 
-    async function onCreateUser() {
+    async function onCreateUser(event: SubmitEvent) {
+        event.preventDefault();
+        if (creating) return;
         creating = true;
         createError = null;
         try {
@@ -77,17 +79,26 @@
                     password: newPassword,
                 },
             });
+            newPassword = "";
             notifications.add("User created", "success");
             createModalRef?.close();
             offset = 0;
             await loadUsers();
         } catch (cause) {
-            console.error(cause);
-            createError =
-                cause instanceof Error
-                    ? cause.message
-                    : "Failed to create user";
-            notifications.add("Failed to create user", "error");
+            const status =
+                cause instanceof ResponseError ? cause.response.status : null;
+            if (status === 403) {
+                createError =
+                    "You do not have permission to create users. Ask an administrator for access.";
+            } else if (status === 401) {
+                createError = "Sign in again to create users.";
+            } else if (status === 400 || status === 422) {
+                createError =
+                    "The service rejected the user details. Check the fields and try again.";
+            } else {
+                createError =
+                    "Could not confirm user creation. Check the Users list before you try again.";
+            }
         } finally {
             creating = false;
         }
@@ -164,37 +175,35 @@
     </div>
 
     <Modal bind:this={createModalRef} title="Create User">
-        <div class="flex flex-col gap-4">
-            <Field label="Name">
+        <form class="flex flex-col gap-4" onsubmit={onCreateUser}>
+            <Field label="Name" required>
                 {#snippet children(control)}
                     <input
                         type="text"
                         class="input"
                         bind:value={newName}
-                        required
                         {...control}
                     />
                 {/snippet}
             </Field>
-            <Field label="Email">
+            <Field label="Email" required>
                 {#snippet children(control)}
                     <input
                         type="email"
                         class="input"
                         bind:value={newEmail}
-                        required
                         {...control}
                     />
                 {/snippet}
             </Field>
-            <Field label="Password">
+            <Field label="Password" description="Use at least 8 characters." required>
                 {#snippet children(control)}
                     <input
                         type="password"
                         class="input"
                         bind:value={newPassword}
-                        required
                         minlength={8}
+                        autocomplete="new-password"
                         {...control}
                     />
                 {/snippet}
@@ -202,7 +211,7 @@
             {#if createError}
                 <Alert tone="danger">{createError}</Alert>
             {/if}
-            <form method="dialog" class="flex justify-end gap-2">
+            <div class="flex justify-end gap-2">
                 <button
                     class="btn btn-secondary btn-md"
                     type="button"
@@ -211,13 +220,12 @@
                 >
                 <button
                     class="btn btn-primary btn-md"
-                    type="button"
-                    onclick={onCreateUser}
-                    disabled={creating || !newName || !newEmail || !newPassword}
+                    type="submit"
+                    disabled={creating}
                 >
                     {creating ? "Creating..." : "Create"}
                 </button>
-            </form>
-        </div>
+            </div>
+        </form>
     </Modal>
 </Page>

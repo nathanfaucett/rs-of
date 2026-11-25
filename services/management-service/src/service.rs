@@ -31,7 +31,7 @@ pub const APPLICATION_POLICY_ADMINISTRATION: [&str; 4] = [
     PERMISSIONS_WRITE_PERMISSION,
 ];
 
-pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 24] = [
+pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 25] = [
     IdentityAction::InfrastructureClientsRead,
     IdentityAction::InfrastructureClientsCreate,
     IdentityAction::InfrastructureClientsUpdate,
@@ -41,6 +41,7 @@ pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 24] = [
     IdentityAction::ApplicationsUpdate,
     IdentityAction::ApplicationsDelete,
     IdentityAction::UsersRead,
+    IdentityAction::UsersCreate,
     IdentityAction::UsersUpdate,
     IdentityAction::UsersDelete,
     IdentityAction::UsersResetPassword,
@@ -423,6 +424,96 @@ mod tests {
                 .evaluate_permission(&request)
                 .await
                 .expect("setup retry cannot restore a deleted grant")
+        );
+    }
+
+    #[tokio::test]
+    async fn user_creation_requires_an_explicit_installation_grant() {
+        use of_model::idp::contract::permission_evaluation::{
+            IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
+            PermissionTarget,
+        };
+        let engine = ofdb_sql::Database::in_memory();
+        up(&engine.client())
+            .await
+            .expect("initialize policy schema");
+        let service = ManagementService::new(
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
+        );
+        let administrator = Id::now_v7();
+        crate::provision_initial_administrator(
+            &engine.client(),
+            administrator,
+            &crate::INITIAL_ADMINISTRATOR_ACTIONS,
+        )
+        .await
+        .expect("provision administrator");
+        let mut request = PermissionEvaluationRequest {
+            request_id: Id::now_v7(),
+            subject: PermissionSubject::User { id: administrator },
+            action: IdentityAction::UsersCreate,
+            target: PermissionTarget::Installation {
+                resource: IdentityResource::User { id: None },
+            },
+        };
+        assert!(
+            service
+                .evaluate_permission(&request)
+                .await
+                .expect("evaluate administrator")
+        );
+        request.subject = PermissionSubject::User { id: Id::now_v7() };
+        assert!(
+            !service
+                .evaluate_permission(&request)
+                .await
+                .expect("evaluate unassigned User")
+        );
+    }
+
+    #[tokio::test]
+    async fn retrying_setup_with_a_previous_inventory_does_not_grant_user_creation() {
+        use of_model::idp::contract::permission_evaluation::{
+            IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
+            PermissionTarget,
+        };
+        let engine = ofdb_sql::Database::in_memory();
+        let client = engine.client();
+        up(&client).await.expect("initialize policy schema");
+        let service = ManagementService::new(
+            DbPermissionRepo::new(engine.client()),
+            DbRoleRepo::new(engine.client()),
+        );
+        let administrator = Id::now_v7();
+        let previous: Vec<_> = crate::INITIAL_ADMINISTRATOR_ACTIONS
+            .iter()
+            .copied()
+            .filter(|action| *action != IdentityAction::UsersCreate)
+            .collect();
+        crate::provision_initial_administrator(&client, administrator, &previous)
+            .await
+            .expect("provision previous policy");
+        crate::provision_initial_administrator(
+            &client,
+            administrator,
+            &crate::INITIAL_ADMINISTRATOR_ACTIONS,
+        )
+        .await
+        .expect("resume setup without reissuing policy");
+        let request = PermissionEvaluationRequest {
+            request_id: Id::now_v7(),
+            subject: PermissionSubject::User { id: administrator },
+            action: IdentityAction::UsersCreate,
+            target: PermissionTarget::Installation {
+                resource: IdentityResource::User { id: None },
+            },
+        };
+        assert!(
+            !service
+                .evaluate_permission(&request)
+                .await
+                .expect("evaluate existing policy")
         );
     }
 

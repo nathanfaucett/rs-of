@@ -1940,7 +1940,7 @@ where
     }
 
     /// # Errors
-    /// Returns an OAuth error response if User creation or profile hydration fails.
+    /// Returns an OAuth error response if User, root key, or profile persistence fails.
     pub async fn create_user(&self, request: CreateUserRequest) -> ErrorResponseResult<UserInfo> {
         let user = self
             .user_repo
@@ -1958,6 +1958,16 @@ where
                 .await
                 .map_err(ErrorResponse::from)?;
         }
+
+        self.key_service
+            .create_initial_root_with_capture(
+                EntityType::User,
+                user.id,
+                "Local User".into(),
+                |_, _| Ok(()),
+            )
+            .await
+            .map_err(ErrorResponse::from)?;
 
         self.hydrate_user_info(user).await
     }

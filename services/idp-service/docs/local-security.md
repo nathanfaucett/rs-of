@@ -30,7 +30,7 @@ Unresolved security-record conflicts deny authentication, authorization, or issu
 
 ## Local sign-in verifiers
 
-Each User has at most one local password verifier. Reset replaces that verifier in the current row. It does not erase the local database history. User identity sync does not include password verifier data.
+Each User has at most one local password verifier. User creation also creates the User root metadata that sign-in requires, without creating private User key material. Reset replaces that verifier in the current row. It does not erase the local database history. User identity sync does not include password verifier data.
 
 Only confidential OAuth Clients that use `client_secret_basic` or `client_secret_post` have a local secret verifier. Public registration shares a non-secret revision for shared-secret Clients. The local verifier must match that revision. A peer that learns of a rotation cannot authenticate with its old verifier.
 

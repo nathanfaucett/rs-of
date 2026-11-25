@@ -29,6 +29,7 @@ export default defineConfig({
         "management-modals.e2e.ts",
         "management-policy.e2e.ts",
         "owners.e2e.ts",
+        "user-creation.e2e.ts",
       ],
     },
     { name: "password-manager", testMatch: "password-manager*.e2e.ts" },
