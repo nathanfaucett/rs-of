@@ -15,7 +15,6 @@ import SecretDetail from "./SecretDetail.svelte";
 
 interface Props {
     vault: VaultHandleLike;
-    initialTrash?: boolean;
     // Filter state (controlled by parent)
     searchText?: string;
     itemType?: ItemTypeFilter;
@@ -30,7 +29,6 @@ interface Props {
 
 let {
     vault,
-    initialTrash = false,
     searchText = "",
     itemType = "all",
     favoritesOnly = false,
@@ -44,7 +42,6 @@ let {
 
 const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
 
-$effect(() => { if (initialTrash) workflow.setTrashMode(true); });
 onDestroy(retire);
 
 let retired = $state(false);
@@ -71,7 +68,6 @@ async function cancelDelete() {
     await tick();
     trigger?.focus();
 }
-const records = $derived(workflow.trash ? workflow.trashRecords : results);
 const searchId = `${uid}-search`;
 let detailTrigger: HTMLButtonElement | undefined;
 const folderChoices = $derived.by(() => {
@@ -100,7 +96,6 @@ export function retire() {
     clearFilters();
     pendingDelete = null;
     deleteTrigger = null;
-    workflow.setTrashMode(false);
     folderControls?.retire();
     workflow.dispose();
 }
@@ -127,13 +122,13 @@ function navigate(action: () => void) {
 }} />
 
 <div class="flex flex-col gap-4">
-    <Card title={workflow.trash ? "Trash" : "Items"} description={workflow.trash ? "Items stay here until you restore or permanently delete them. No automatic deletion." : "Stored locally in your encrypted vault."}>
+    <Card title="Items" description="Stored locally in your encrypted vault.">
         {#snippet actions()}
             <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canRefresh}
                 onclick={() => navigate(() => void workflow.refresh())}>Refresh</button>
             <NewItemMenu disabled={!workflow.canEdit} onselect={(kind) => navigate(() => goto(resolve(`/vault/new?kind=${kind}`)))} />
             {/snippet}
-        {#if !retired && !workflow.trash}
+        {#if !retired}
             <div class="mb-4">
                 <Field id={`${searchId}-text`} label="Search items" description="Search names, usernames, websites, notes, and custom-field names.">
                     {#snippet children(control: FieldControl)}
@@ -201,10 +196,10 @@ function navigate(action: () => void) {
             {:else if workflow.notice}
                 <Alert tone="success">{workflow.notice}</Alert>
             {/if}
-            {#if !workflow.trash}<FolderControls bind:this={folderControls} {workflow} {navigate} />{/if}
+            <FolderControls bind:this={folderControls} {workflow} {navigate} />
             {#if pendingDelete}
-                <Dialog title={pendingDelete.deletedAt ? "Permanently delete?" : "Move to Trash?"} open onclose={cancelDelete}>
-                    <p class="text-ink">{pendingDelete.deletedAt ? `Permanently delete ${pendingDelete.name}? This cannot be undone. Existing backups can still contain this item.` : `Move ${pendingDelete.name} to Trash? You can restore it later.`}</p>
+                <Dialog title="Move to Trash?" open onclose={cancelDelete}>
+                    <p class="text-ink">Move {pendingDelete.name} to Trash? You can restore it later.</p>
                     <div class="flex gap-2 justify-end">
                         <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
                             onclick={cancelDelete}>Cancel</button>
@@ -213,33 +208,26 @@ function navigate(action: () => void) {
                                 const value = pendingDelete;
                                 pendingDelete = null;
                                 deleteTrigger = null;
-                                if (value) {
-                                    if (value.deletedAt) await workflow.deletePermanently(value);
-                                    else await workflow.delete(value);
-                                }
+                                if (value) await workflow.delete(value);
                                 document.getElementById(navigationId)?.focus();
-                            }}>{pendingDelete.deletedAt ? "Confirm permanent delete" : "Confirm delete"}</button>
+                            }}>Confirm delete</button>
                     </div>
                 </Dialog>
             {/if}
-            {#if records.length === 0}
-                <p class="mb-0" role="status">{workflow.trash ? "Trash is empty." : !workflow.hasItems ? "No items yet." : searchText.trim() || itemType !== "all" || favoritesOnly ? "No items match. Clear filters to show all items." : "No items in this folder view."}</p>
-                {#if !workflow.trash && !workflow.hasItems}
+            {#if results.length === 0}
+                <p class="mb-0" role="status">{!workflow.hasItems ? "No items yet." : searchText.trim() || itemType !== "all" || favoritesOnly ? "No items match. Clear filters to show all items." : "No items in this folder view."}</p>
+                {#if !workflow.hasItems}
                     <div class="mt-3 flex flex-wrap gap-2">
                         <a class="btn btn-primary btn-md" href={resolve("/vault/new?kind=login")}>New login</a>
                         <a class="btn btn-secondary btn-md" href={`${resolve("/settings")}#import-json`}>Import items</a>
                     </div>
                 {/if}
             {:else}
-                <p aria-live="polite" aria-atomic="true">{records.length} {records.length === 1 ? "item" : "items"} found.</p>
-                <ul aria-label={workflow.trash ? "Search results" : "Items"} class="flex list-none flex-col gap-2 p-0">
-                    {#each records as value (value.id)}
+                <p aria-live="polite" aria-atomic="true">{results.length} {results.length === 1 ? "item" : "items"} found.</p>
+                <ul aria-label="Items" class="flex list-none flex-col gap-2 p-0">
+                    {#each results as value (value.id)}
                         <li class="item-row rounded-control border border-line bg-surface-muted/40 px-3 py-2">
                             <div class="item-content">
-                                {#if workflow.trash}
-                                    <span class="font-medium">{value.name}</span>
-                                    <span class="text-sm text-ink-subtle">Deleted: <time datetime={value.deletedAt}>{value.deletedAt}</time></span>
-                                {:else}
                                 <button class="btn btn-ghost btn-md h-auto min-h-9 w-full justify-start whitespace-normal px-0 text-left font-medium"
                                     type="button" disabled={!workflow.canEdit} onclick={(event) => navigate(() => {
                                         detailTrigger = event.currentTarget;
@@ -251,13 +239,8 @@ function navigate(action: () => void) {
                                 {#each value.kind === "login" ? value.uris : [] as uri (uri)}
                                     <p class="wrap-anywhere text-xs text-ink-subtle">{uri.uri}</p>
                                 {/each}
-                                {/if}
                             </div>
                             <div class="item-actions">
-                                {#if workflow.trash}
-                                    <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
-                                        onclick={async () => { await workflow.restore(value); document.getElementById(navigationId)?.focus(); }}>Restore</button>
-                                {:else}
                                     <button class="btn btn-ghost btn-sm p-1.5 text-muted-foreground hover:text-ink hover:bg-surface-hover rounded"
                                         type="button" disabled={!workflow.canEdit} aria-label="Edit"
                                         onclick={() => navigate(() => goto(resolve(`/vault/edit/${value.id}`)))}>
@@ -268,7 +251,6 @@ function navigate(action: () => void) {
                                         onclick={(event) => navigate(() => { workflow.open(null); deleteTrigger = event.currentTarget; pendingDelete = value; })}>
                                         <Trash2 class="w-4 h-4" />
                                     </button>
-                                {/if}
                             </div>
                         </li>
                     {/each}
