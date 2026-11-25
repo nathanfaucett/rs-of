@@ -63,9 +63,11 @@ Password-manager uses the SDK's existing local storage mode so the PKCE verifier
 
 ## Test boundaries
 
+The fresh seeded fixture grants `idp.clients.read` to the test administrator only in the `local-login` Application. Registration by itself grants no read access. The tests confirm IdP lookup succeeds with the bound Application token and fails with a different Application token for the same User. The lookup retry test interrupts one browser request, then retries against the real IdP. This fixture does not change Installation setup policy or backfill existing data roots.
+
 - Playwright: owner health/discovery, failed sign-in, consent plus PKCE exchanges for both registered clients, Storage SQL CRUD, first-Device enrollment and signed second-Device approval through the Device owner, app session access, and the password-manager sign-in link, redirect, consent, callback, and session-reload flow.
 - Vitest with Chromium: real browser CORS, sign-in/User info, Device access, Storage writes, and encrypted password-manager vault CRUD through the real sync SDK. The vault test reads remote ciphertext through the public Storage API; it cannot pass with a local-only write.
-- Node lifecycle tests: a small child-process fixture checks supervision only. It is not an identity, Device, or Storage substitute. No domain test intercepts HTTP or supplies fake owner clients.
+- Node lifecycle tests: a small child-process fixture checks supervision only. It is not an identity, Device, or Storage substitute. Domain tests do not supply fake owner responses.
 
 Restored isolated native capability tests do not mock backend HTTP. Registration trust-boundary logic is tested separately. Essential authorization-page assertions now run through real browser login and server consent metadata, including deny/state behavior and malformed requests. Removed backend-mocked independent setup, revocation, residency, and failure-recovery cases are not all replaced by the local single-node suite. Independent/desktop qualification is a separate gap, not a claim made by these tests. Local vault tests keep their browser-storage failure injection; those are not backend mocks.
 

@@ -12,6 +12,7 @@
     import ConfigForm from "$lib/common/components/ConfigForm.svelte";
     import Modal from "$lib/common/components/Modal.svelte";
     import Notifications from "$lib/common/components/Notifications.svelte";
+    import { createdClients } from "$lib/common/state/createdClients.svelte";
     import { handleDeepLink } from "$lib/common/util/handleDeepLink";
     import { m } from "$lib/paraglide/messages";
     import type { LayoutProps } from "./$types";
@@ -19,6 +20,16 @@
     let { children }: LayoutProps = $props();
     let configForm = $state<ConfigForm>();
     let configModal = $state<Modal>();
+
+    function onSessionStorage({ key, storageArea }: StorageEvent) {
+        if (
+            storageArea === localStorage &&
+            (key === null ||
+                (key.startsWith("oidc.token:") && key.endsWith(":response")))
+        ) {
+            createdClients.clear();
+        }
+    }
 
     function showConfig() {
         configForm?.reset();
@@ -52,6 +63,8 @@
         };
     });
 </script>
+
+<svelte:window onstorage={onSessionStorage} />
 
 <svelte:head>
     <link rel="icon" href={favicon} />

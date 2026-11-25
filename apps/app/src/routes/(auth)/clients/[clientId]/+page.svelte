@@ -1,11 +1,12 @@
 <script lang="ts">
     import type { ClientRegistration } from "@ofsdk/idp-client";
-    import { ClientType } from "@ofsdk/idp-client";
+    import { ClientType, ResponseError } from "@ofsdk/idp-client";
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
     import { page } from "$app/state";
     import Modal from "$lib/common/components/Modal.svelte";
+    import { createdClients } from "$lib/common/state/createdClients.svelte";
     import {
         type ClientKey,
         idpAdministration,
@@ -17,10 +18,18 @@
     const clientId = page.params.clientId ?? "";
     if (!clientId) throw new Error("Client ID is required");
 
-    let loading = $state(false);
+    const applicationId = $derived(page.url.searchParams.get("application"));
+    const backHref = $derived(
+        applicationId &&
+            /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(applicationId)
+            ? resolve(`/applications/${applicationId}`)
+            : resolve("/clients"),
+    );
+
+    let loading = $state(true);
     let saving = $state(false);
     let deleting = $state(false);
-    let error = $state<string | null>(null);
+    let lookupError = $state<"missing" | "denied" | "failed" | null>(null);
     let client = $state<ClientRegistration | null>(null);
     let keysLoading = $state(false);
     let keysError = $state<string | null>(null);
@@ -77,21 +86,36 @@
 
     async function loadClient() {
         loading = true;
-        error = null;
+        lookupError = null;
 
         try {
-            const currentClient = await idpApi.getRegister({
-                clientId,
-            });
+            const currentClient = await idpApi.getRegister({ clientId });
             applyClient(currentClient);
             void loadClientKeys();
         } catch (cause) {
-            console.error(cause);
-            error =
-                cause instanceof Error
-                    ? cause.message
-                    : "Failed to load client";
-            notifications.add("Failed to load client", "error");
+            lookupError = "failed";
+            if (cause instanceof ResponseError) {
+                const { response } = cause;
+                if (response.status === 403) {
+                    lookupError = "denied";
+                } else if (
+                    response.url.endsWith(
+                        `/oauth2/register/${encodeURIComponent(clientId)}`,
+                    )
+                ) {
+                    // The registration endpoint reports an unknown ID as invalid_client.
+                    const body =
+                        response.status === 400
+                            ? await response.json().catch(() => null)
+                            : null;
+                    if (
+                        response.status === 404 ||
+                        body?.error === "invalid_client"
+                    ) {
+                        lookupError = "missing";
+                    }
+                }
+            }
         } finally {
             loading = false;
         }
@@ -201,8 +225,9 @@
         deleting = true;
         try {
             await idpApi.deleteRegister({ clientId });
+            createdClients.remove(clientId);
             notifications.add("Client deleted", "success");
-            await goto(resolve("/clients"));
+            await goto(backHref);
         } catch (cause) {
             console.error(cause);
             notifications.add("Failed to delete client", "error");
@@ -218,11 +243,35 @@
 
 <Page>
     <PageHeader title="Client Detail" />
+    <a href={backHref}>
+        {backHref === resolve("/clients")
+            ? "Back to client lookup"
+            : "Back to application"}
+    </a>
 
-    {#if error}
-        <Alert tone="danger">{error}</Alert>
-    {:else if loading}
+    {#if loading}
         <Card tone="subtle">Loading client...</Card>
+    {:else if lookupError === "missing"}
+        <Alert tone="danger">
+            Client not found. Check the client ID and try again.
+        </Alert>
+    {:else if lookupError === "denied"}
+        <Alert tone="danger">
+            You do not have permission to view this client. For an application
+            client, use a sign-in client for that application and an account
+            with client read permission.
+        </Alert>
+    {:else if lookupError === "failed"}
+        <Alert tone="danger">
+            Could not load the client. Check your connection and try again.
+        </Alert>
+        <button
+            class="btn btn-secondary btn-md"
+            type="button"
+            onclick={loadClient}
+        >
+            Retry lookup
+        </button>
     {:else if client}
         {@const currentClient = client}
         {#snippet cardActions()}

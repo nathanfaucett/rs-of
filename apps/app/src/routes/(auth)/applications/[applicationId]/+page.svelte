@@ -1,7 +1,6 @@
 <script lang="ts">
     import {
         ClientProfile,
-        type ClientRegistration,
         ClientType,
         GrantType,
         ResponseType,
@@ -15,7 +14,7 @@
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
     import { page } from "$app/state";
-    import Modal from "$lib/common/components/Modal.svelte";
+    import { createdClients } from "$lib/common/state/createdClients.svelte";
     import {
         type Application,
         idpAdministration,
@@ -29,10 +28,7 @@
     if (!applicationId) throw new Error("Application ID is required");
 
     const profileOptions = Object.values(ClientProfile);
-    const clientTypeOptions = Object.values(ClientType);
-    const tokenEndpointAuthMethodOptions = Object.values(
-        TokenEndpointAuthMethod,
-    );
+
     const defaultAllowedGrantTypes = [
         GrantType.AuthorizationCode,
         GrantType.RefreshToken,
@@ -74,28 +70,16 @@
     let revokingRolePermissionId = $state<string | null>(null);
 
     let creatingClient = $state(false);
-    let clients = $state<ClientRegistration[]>([]);
-    let secretModal = $state<{ clientId: string; clientSecret: string } | null>(
-        null,
-    );
 
     let clientName = $state("");
     let clientUri = $state("");
     let redirectUrisText = $state("");
     let allowedScopesText = $state("");
     let profile = $state(ClientProfile.WebApplication);
-    let clientType = $state(ClientType.Public);
-    let tokenEndpointAuthMethod = $state(TokenEndpointAuthMethod.None);
 
-    const applicationClients = $derived.by(() => {
-        const currentApplication = application;
-        return currentApplication
-            ? clients.filter(
-                  (client) =>
-                      client.application.uri === currentApplication.uri,
-              )
-            : [];
-    });
+    const applicationClients = $derived(
+        createdClients.forApplication(applicationId),
+    );
 
     function formatTimestamp(value: number): string {
         return new Date(value * 1000).toLocaleString();
@@ -149,8 +133,6 @@
         redirectUrisText = "";
         allowedScopesText = "";
         profile = ClientProfile.WebApplication;
-        clientType = ClientType.Public;
-        tokenEndpointAuthMethod = TokenEndpointAuthMethod.None;
     }
 
     async function loadApplication() {
@@ -450,7 +432,7 @@
     async function onCreateClient(event: SubmitEvent) {
         event.preventDefault();
 
-        if (!application) {
+        if (!application || creatingClient) {
             return;
         }
 
@@ -460,14 +442,15 @@
         }
 
         creatingClient = true;
+        const generation = createdClients.generation;
         try {
             const created = await idpApi.register({
                 clientRegistration: {
                     application: { uri: application.uri },
                     clientName: clientName.trim(),
                     profile,
-                    clientType,
-                    tokenEndpointAuthMethod,
+                    clientType: ClientType.Public,
+                    tokenEndpointAuthMethod: TokenEndpointAuthMethod.None,
                     allowedGrantTypes: defaultAllowedGrantTypes,
                     responseTypes: defaultResponseTypes,
                     redirectUris: parseLines(redirectUrisText),
@@ -475,16 +458,12 @@
                     clientUri: clientUri.trim() || undefined,
                 },
             });
+            if (generation !== createdClients.generation) return;
+            createdClients.add(applicationId, created);
             resetClientForm();
             notifications.add("Client created", "success");
-            clients = [...clients, created];
-            if (created.clientId && created.clientSecret) {
-                secretModal = {
-                    clientId: created.clientId,
-                    clientSecret: created.clientSecret,
-                };
-            }
         } catch (cause) {
+            if (generation !== createdClients.generation) return;
             console.error(cause);
             notifications.add("Failed to create client", "error");
         } finally {
@@ -888,7 +867,10 @@
             {/if}
         </Card>
 
-        <Card title="Clients">
+        <Card
+            title="Clients"
+            description="Register a public OAuth Client for this application."
+        >
             <form class="flex flex-col gap-4" onsubmit={onCreateClient}>
                 <Field label="Client name" required>
                     {#snippet children({
@@ -977,46 +959,6 @@
                             </select>
                         {/snippet}
                     </Field>
-                    <Field label="Client type">
-                        {#snippet children({
-                            id,
-                            "aria-describedby": describedby,
-                            "aria-invalid": invalid,
-                            required,
-                        })}
-                            <select
-                                {id}
-                                aria-describedby={describedby}
-                                aria-invalid={invalid}
-                                {required}
-                                bind:value={clientType}
-                            >
-                                {#each clientTypeOptions as option (option)}
-                                    <option value={option}>{option}</option>
-                                {/each}
-                            </select>
-                        {/snippet}
-                    </Field>
-                    <Field label="Token endpoint auth method">
-                        {#snippet children({
-                            id,
-                            "aria-describedby": describedby,
-                            "aria-invalid": invalid,
-                            required,
-                        })}
-                            <select
-                                {id}
-                                aria-describedby={describedby}
-                                aria-invalid={invalid}
-                                {required}
-                                bind:value={tokenEndpointAuthMethod}
-                            >
-                                {#each tokenEndpointAuthMethodOptions as option (option)}
-                                    <option value={option}>{option}</option>
-                                {/each}
-                            </select>
-                        {/snippet}
-                    </Field>
                 </div>
                 <div class="flex justify-end">
                     <button
@@ -1030,14 +972,15 @@
                 </div>
             </form>
 
-            {#if applicationClients.length === 0}
-                <p>
-                    Created clients appear here for this session. The IdP does
-                    not expose a client directory. <a href={resolve("/clients")}
-                        >Look up a client by ID</a
-                    >.
-                </p>
-            {:else}
+            <p>
+                This list shows only clients created here during this session.
+                Reloading clears this list, not the registrations. Save the
+                client IDs to <a href={resolve("/clients")}>
+                    look up a client by ID
+                </a> later. To open a registration, sign in through this application
+                with client read permission.
+            </p>
+            {#if applicationClients.length > 0}
                 <div
                     class="overflow-x-auto rounded-card border border-line bg-surface"
                 >
@@ -1051,18 +994,16 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {#each applicationClients as client (client.clientId ?? `${client.clientName}-${client.application.uri}`)}
+                            {#each applicationClients as client (client.clientId)}
                                 <tr>
                                     <td>
-                                        {#if client.clientId}
-                                            <a
-                                                href={resolve(
-                                                    `/clients/${client.clientId}`,
-                                                )}>{client.clientId}</a
-                                            >
-                                        {:else}
-                                            <span class="disabled">-</span>
-                                        {/if}
+                                        <a
+                                            href={resolve(
+                                                `/clients/${encodeURIComponent(client.clientId)}?application=${applicationId}`,
+                                            )}
+                                        >
+                                            {client.clientId}
+                                        </a>
                                     </td>
                                     <td>{client.clientName}</td>
                                     <td>{client.profile}</td>
@@ -1074,85 +1015,5 @@
                 </div>
             {/if}
         </Card>
-    {/if}
-    {#if secretModal}
-        {@const currentSecret = secretModal}
-        <Modal title="Client Credentials">
-            <div class="flex flex-col gap-4">
-                <p class="mb-0 text-sm text-ink-muted">
-                    Copy these credentials now. The secret will not be shown
-                    again.
-                </p>
-                <div class="grid gap-3 md:grid-cols-2">
-                    <div class="flex flex-col gap-2">
-                        <label
-                            for="secret-modal-client-id"
-                            class="text-sm font-medium">Client ID</label
-                        >
-                        <div class="flex gap-2">
-                            <input
-                                readonly
-                                id="secret-modal-client-id"
-                                value={currentSecret.clientId}
-                                class="flex-1 rounded-control border border-line bg-surface p-2 text-sm font-mono"
-                            />
-                            <button
-                                class="btn btn-secondary btn-md"
-                                type="button"
-                                onclick={() => {
-                                    void navigator.clipboard.writeText(
-                                        currentSecret.clientId,
-                                    );
-                                    notifications.add(
-                                        "Client ID copied",
-                                        "success",
-                                    );
-                                }}
-                            >
-                                Copy
-                            </button>
-                        </div>
-                    </div>
-                    <div class="flex flex-col gap-2">
-                        <label
-                            for="secret-modal-client-secret"
-                            class="text-sm font-medium">Client Secret</label
-                        >
-                        <div class="flex gap-2">
-                            <input
-                                readonly
-                                id="secret-modal-client-secret"
-                                value={currentSecret.clientSecret}
-                                class="flex-1 rounded-control border border-line bg-surface p-2 text-sm font-mono"
-                            />
-                            <button
-                                class="btn btn-secondary btn-md"
-                                type="button"
-                                onclick={() => {
-                                    void navigator.clipboard.writeText(
-                                        currentSecret.clientSecret,
-                                    );
-                                    notifications.add(
-                                        "Client secret copied",
-                                        "success",
-                                    );
-                                }}
-                            >
-                                Copy
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <form method="dialog" class="flex justify-end">
-                    <button
-                        class="btn btn-primary btn-md"
-                        type="submit"
-                        onclick={() => (secretModal = null)}
-                    >
-                        Done
-                    </button>
-                </form>
-            </div>
-        </Modal>
     {/if}
 </Page>

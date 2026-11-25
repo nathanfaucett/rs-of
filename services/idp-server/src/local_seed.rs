@@ -1,6 +1,7 @@
 use std::io;
 
 use idp_service::repo::{ClientRepo, KeyRepo, UserRepo};
+use management_service::ofdb::provision_seeded_client_reader;
 use management_service::{INITIAL_ADMINISTRATOR_ACTIONS, provision_initial_administrator};
 use of_model::id::Id;
 use of_model::idp::contract::application_registration::ApplicationRegistration;
@@ -9,6 +10,7 @@ use of_model::idp::contract::client_registration::ClientRegistration;
 use of_model::idp::contract::client_type::ClientType;
 use of_model::idp::contract::entity_type::EntityType;
 use of_model::idp::contract::grant_type::GrantType;
+
 use of_model::idp::contract::response_type::ResponseType;
 use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
@@ -206,11 +208,16 @@ pub async fn seed(
             software_version: None,
         };
 
-        oauth
+        let client = oauth
             .client_repo
             .create_client(registration)
             .await
             .map_err(io::Error::other)?;
+        if id == "local-login" {
+            provision_seeded_client_reader(&state.engine, client.application_id, user)
+                .await
+                .map_err(io::Error::other)?;
+        }
     }
     Ok(())
 }

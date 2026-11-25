@@ -23,6 +23,7 @@
     import { createForm } from "@aicacia/svelte-forms";
     import { isTauri } from "@tauri-apps/api/core";
     import { afterSigninRedirect } from "$lib/common/state/afterSigninRedirect.svelte";
+    import { createdClients } from "$lib/common/state/createdClients.svelte";
     import {
         ensureTauriIdpApiUrl,
         passwordToken,
@@ -80,6 +81,7 @@
                     : { expires_in: token.expiresIn }),
             });
 
+            createdClients.clear();
             await afterSigninRedirect.onReturn();
         } catch (e) {
             console.error("Error during sign-in:", e);
