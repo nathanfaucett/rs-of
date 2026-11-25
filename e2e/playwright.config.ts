@@ -15,12 +15,20 @@ export default defineConfig({
   forbidOnly: Boolean(CI),
   retries: 0,
   outputDir: `${root}.tmp/e2e-results`,
-  reporter: [["list"], ["html", { outputFolder: `${root}.tmp/e2e-report`, open: "never" }]],
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: `${root}.tmp/e2e-report`, open: "never" }],
+  ],
   use: { ...devices["Desktop Chrome"], trace: "retain-on-failure" },
   projects: [
     {
       name: "app",
-      testMatch: ["app.e2e.ts", "management-modals.e2e.ts", "owners.e2e.ts"],
+      testMatch: [
+        "app.e2e.ts",
+        "applications.e2e.ts",
+        "management-modals.e2e.ts",
+        "owners.e2e.ts",
+      ],
     },
     { name: "password-manager", testMatch: "password-manager*.e2e.ts" },
   ],

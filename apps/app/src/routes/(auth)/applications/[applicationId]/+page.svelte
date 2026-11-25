@@ -46,7 +46,6 @@
     let application = $state<Application | null>(null);
 
     let appName = $state("");
-    let appUri = $state("");
     let appDescription = $state("");
 
     let rolesLoading = $state(false);
@@ -162,7 +161,6 @@
                 applicationId,
             });
             appName = application.name;
-            appUri = application.uri;
             appDescription = application.description ?? "";
             await Promise.all([loadRoles(), loadPermissions()]);
         } catch (cause) {
@@ -258,13 +256,15 @@
     }
 
     async function onSaveApplication() {
+        if (!application) return;
+
         saving = true;
         try {
             await idpAdministration.updateApplication({
                 applicationId,
                 applicationRegistration: {
                     name: appName.trim() || undefined,
-                    uri: appUri.trim(),
+                    uri: application.uri,
                     description: appDescription.trim() || undefined,
                 },
             });
@@ -537,7 +537,8 @@
                             aria-describedby={describedby}
                             aria-invalid={invalid}
                             {required}
-                            bind:value={appUri}
+                            value={application?.uri}
+                            readonly
                             type="text"
                         />
                     {/snippet}

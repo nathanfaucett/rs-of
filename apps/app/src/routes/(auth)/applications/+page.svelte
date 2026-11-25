@@ -1,46 +1,58 @@
 <script lang="ts">
     import { onMount } from "svelte";
+
     import { resolve } from "$app/paths";
     import {
         type Application,
         idpAdministration,
     } from "$lib/common/state/idpAdministration";
-
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
+
+    import { isApplicationUri } from "./applicationUri";
 
     const limit = 25;
 
     let loading = $state(false);
     let creating = $state(false);
-    let error = $state<string | null>(null);
-    let applications = $state<Application[]>([]);
+    let failedOffset = $state<number | null>(null);
+    let applications = $state.raw<Application[]>([]);
+    let hasNext = $state(false);
     let offset = $state(0);
 
     let name = $state("");
     let uri = $state("");
     let description = $state("");
+    let uriSubmitted = $state(false);
+    let uriIssues = $derived(
+        uriSubmitted && !isApplicationUri(uri.trim())
+            ? [{ message: "Enter an HTTP or HTTPS URL without credentials, or a URN." }]
+            : [],
+    );
 
     function formatTimestamp(value: number): string {
         return new Date(value * 1000).toLocaleString();
     }
 
-    async function loadApplications() {
+    async function loadApplications(requestedOffset: number) {
+        if (loading) return;
         loading = true;
-        error = null;
+        failedOffset = null;
 
         try {
-            applications = await idpAdministration.listApplications({
-                offset,
-                limit,
+            // The IdP returns rows without a total. Read one extra row to detect an exact end.
+            const results = await idpAdministration.listApplications({
+                offset: requestedOffset,
+                limit: limit + 1,
             });
+            hasNext = results.length > limit;
+            // Records can disappear between the lookahead and the next request.
+            if (requestedOffset > offset && results.length === 0) return;
+            applications = results.slice(0, limit);
+            offset = requestedOffset;
         } catch (cause) {
             console.error(cause);
-            error =
-                cause instanceof Error
-                    ? cause.message
-                    : "Failed to load applications";
-            notifications.add("Failed to load applications", "error");
+            failedOffset = requestedOffset;
         } finally {
             loading = false;
         }
@@ -49,15 +61,15 @@
     async function onCreateApplication(event: SubmitEvent) {
         event.preventDefault();
 
+        if (creating || loading) return;
+
         if (!name.trim()) {
             notifications.add("Application name is required", "error");
             return;
         }
 
-        if (!uri.trim()) {
-            notifications.add("Application URI is required", "error");
-            return;
-        }
+        uriSubmitted = true;
+        if (uriIssues.length) return;
 
         creating = true;
         try {
@@ -70,10 +82,10 @@
             });
             name = "";
             uri = "";
+            uriSubmitted = false;
             description = "";
-            offset = 0;
             notifications.add("Application created", "success");
-            await loadApplications();
+            await loadApplications(0);
         } catch (cause) {
             console.error(cause);
             notifications.add("Failed to create application", "error");
@@ -87,21 +99,19 @@
             return;
         }
 
-        offset -= limit;
-        await loadApplications();
+        await loadApplications(offset - limit);
     }
 
     async function onNext() {
-        if (loading || creating) {
+        if (loading || creating || failedOffset !== null || !hasNext) {
             return;
         }
 
-        offset += limit;
-        await loadApplications();
+        await loadApplications(offset + limit);
     }
 
     onMount(() => {
-        void loadApplications();
+        void loadApplications(0);
     });
 </script>
 
@@ -127,7 +137,12 @@
                     />
                 {/snippet}
             </Field>
-            <Field label="URI" required>
+            <Field
+                label="URI"
+                description="Use an HTTP or HTTPS URL, or a URN. You cannot change it after creation."
+                required
+                issues={uriIssues}
+            >
                 {#snippet children({
                     id,
                     "aria-describedby": describedby,
@@ -171,13 +186,24 @@
         </form>
     </Card>
 
-    {#if error}
-        <Alert tone="danger">{error}</Alert>
-    {:else if loading}
+    {#if failedOffset !== null}
+        <Alert tone="danger" title="Could not load applications">
+            <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                disabled={creating}
+                onclick={() => {
+                    if (failedOffset !== null) void loadApplications(failedOffset);
+                }}>Retry</button
+            >
+        </Alert>
+    {/if}
+
+    {#if loading && applications.length === 0}
         <Card tone="subtle">Loading applications...</Card>
-    {:else if applications.length === 0}
+    {:else if applications.length === 0 && failedOffset === null}
         <Card tone="subtle">No applications found.</Card>
-    {:else}
+    {:else if applications.length > 0}
         <div class="overflow-x-auto rounded-card border border-line bg-surface">
             <table class="table">
                 <thead>
@@ -199,14 +225,12 @@
                                     )}>{application.id}</a
                                 ></td
                             >
-                            <td>{application.name}</td>
                             <td>
-                                <a
-                                    href={resolve(
-                                        `/applications/${application.id}`,
-                                    )}>{application.uri}</a
+                                <a href={resolve(`/applications/${application.id}`)}
+                                    >{application.name}</a
                                 >
                             </td>
+                            <td>{application.uri}</td>
                             <td>{application.description ?? "-"}</td>
                             <td>{formatTimestamp(application.updated_at)}</td>
                         </tr>
@@ -227,7 +251,7 @@
             class="btn btn-secondary btn-md"
             type="button"
             onclick={onNext}
-            disabled={loading || creating}>Next</button
+            disabled={loading || creating || failedOffset !== null || !hasNext}>Next</button
         >
     </div>
 </Page>
