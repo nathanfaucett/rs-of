@@ -154,6 +154,7 @@ mod tests {
             "local_client_secret_verifiers",
             "local_user_password_verifiers",
             "local_device_enrollments",
+            "local_device_pairing_requests",
             "unknown",
         ] {
             assert!(!permits_device_table(table));

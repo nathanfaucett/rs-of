@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] The join flow uses the existing Installation’s accounts. It creates no local IdP, administrator, or second server authority.
-- [ ] Sign-in alone does not approve the Device. Approval requires the pairing proof and authorization. Device approval does not grant Resource access or Selection.
-- [ ] A real-backend browser test verifies pending and approved states and confirms that the same approved Device identity persists across restart.
+Work status: resolved
+
+- [x] The join flow uses the existing Installation’s accounts. It creates no local IdP, administrator, or second server authority.
+- [x] Sign-in alone does not approve the Device. Approval requires the pairing proof and authorization. Device approval does not grant Resource access or Selection.
+- [x] A real-backend browser test verifies pending and approved states and confirms that the same approved Device identity persists across restart.

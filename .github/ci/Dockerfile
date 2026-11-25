@@ -13,8 +13,10 @@ COPY --from=rust /usr/local/rustup /usr/local/rustup
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     libdbus-1-dev \
+    libnss3-tools \
     libprotobuf-dev \
     openjdk-21-jdk-headless \
+    openssl \
     pkg-config \
     protobuf-compiler \
     python3 \

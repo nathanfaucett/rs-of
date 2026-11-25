@@ -23,6 +23,7 @@ import {
   toBase64,
   verifyAuthentication,
 } from "$lib/vault/storage/crypto";
+import { MIGRATIONS } from "$lib/vault/storage/schema";
 import type { VaultHandleLike } from "$lib/vault/types";
 
 interface VaultMeta {
@@ -389,6 +390,8 @@ export async function createSyncVault(
     createdAt: new Date().toISOString(),
   };
   const authentication = await createAuthentication(key, meta);
+
+  for (const { sql } of MIGRATIONS) await syncHandle.execute(sql);
 
   // Insert vault metadata
   await syncHandle.execute(

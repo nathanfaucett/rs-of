@@ -8,9 +8,9 @@ import { Alert, Card, Page, PageHeader } from "$lib/ui";
 let status = $state<"processing" | "success" | "error">("processing");
 let message = $state("");
 
-onMount(async () => {
+async function completeSignin() {
   try {
-
+    await authState.initialize();
     if (authState.isAuthenticated) {
       status = "success";
       message = "Sign in successful. Redirecting…";
@@ -23,7 +23,9 @@ onMount(async () => {
     status = "error";
     message = e instanceof Error ? e.message : "Authentication failed";
   }
-});
+}
+
+onMount(() => { void completeSignin(); });
 </script>
 
 <div class="flex min-h-screen items-center justify-center p-6 bg-background">

@@ -6,6 +6,12 @@
 
 **Status:** ready-for-agent
 
-- [ ] The default Password Manager dev URL can complete sign-in and establish a session with either setup path, without manual environment overrides or seeded OAuth clients.
-- [ ] Sign-in and Device approval stay separate. Sign-in does not unlock, replace, or migrate local vault data.
-- [ ] Real-backend browser tests verify sign-in for both setup choices and local vault use without sign-in.
+Work status: resolved
+
+- [x] The default Password Manager dev URL can complete sign-in and establish a session with either setup path, without manual environment overrides or seeded OAuth clients.
+- [x] Sign-in and Device approval stay separate. Sign-in does not unlock, replace, or migrate local vault data.
+- [x] Real-backend browser tests verify sign-in for both setup choices and local vault use without sign-in.
+
+## Comments
+
+Real-backend Chromium verified sign-in and Storage access after Create and Join through the default Node descriptor, without an adapter. A vault record saved before sign-in remained available. A joined Installation must allow the Password Manager origin.

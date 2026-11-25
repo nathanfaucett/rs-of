@@ -74,7 +74,7 @@ fn assert_contract(document: &Value) {
         .flat_map(|item| item.as_object().expect("path item").values())
         .filter(|operation| operation.get("operationId").is_some())
         .count();
-    assert_eq!(operations, 34, "complete Device operation inventory");
+    assert_eq!(operations, 35, "complete Device operation inventory");
     assert!(paths.contains_key("/openapi.json"));
     for (path, method) in [
         ("/replication/owner-cleanup", "post"),
@@ -87,6 +87,7 @@ fn assert_contract(document: &Value) {
         ("/devices/enrollments", "post"),
         ("/devices/revoke-self", "post"),
         ("/devices/pairings", "post"),
+        ("/devices/pairings", "put"),
         ("/devices/pairings/{device_id}/payload", "get"),
         ("/devices/pairings/{device_id}/approve", "post"),
         ("/devices/{id}", "patch"),

@@ -111,5 +111,5 @@ test("password-manager redirects to IdP, requests consent, and establishes a ses
   expect((await user.json()).email).toBe("admin@local.test");
   await page.reload();
   await expect(page).toHaveURL(`${passwordManagerURL}/`);
-  await expect(page.getByRole("button", { name: "Create new vault", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Show synced vaults", exact: true })).toBeVisible();
 });

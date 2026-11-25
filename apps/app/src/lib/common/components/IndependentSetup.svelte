@@ -147,7 +147,7 @@
                             bind:value={codes[owner]}
                             autocomplete="off"
                             spellcheck="false"
-                            pattern="[a-f0-9]{64}"
+                            pattern={"[a-f0-9]{64}"}
                             minlength="64"
                             maxlength="64"
                             disabled={session.busy || retrieving}

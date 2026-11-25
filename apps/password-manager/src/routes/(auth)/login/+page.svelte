@@ -12,20 +12,17 @@ async function handleLogin() {
   busy = true;
   try {
     await authState.login();
-  } catch {
-    // Error handled by authState.error
   } finally {
     busy = false;
   }
 }
 
 onMount(() => {
-  if (authState.isAuthenticated) {
-    void goto(resolve("/"));
-  }
-});</script>
-
-<svelte:window onfocus={() => {}} />
+  void authState.initialize().then(() => {
+    if (authState.isAuthenticated) void goto(resolve("/"));
+  });
+});
+</script>
 
 <div class="flex min-h-screen items-center justify-center p-6 bg-background">
   <Page width="narrow">

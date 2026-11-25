@@ -10,7 +10,7 @@ use axum::{
     Json, Router,
     extract::{Request, State},
     http::{
-        HeaderMap, Method, StatusCode,
+        HeaderMap, HeaderValue, Method, StatusCode,
         header::{AUTHORIZATION, CONTENT_TYPE},
     },
     middleware,
@@ -24,7 +24,7 @@ use tower_http::cors::CorsLayer;
 
 use crate::{
     IndependentCreateIntent, IndependentCreateRequest, IndependentOwnerPublic,
-    IndependentSetupHost, LocalTls, SetupAdmission,
+    IndependentSetupHost, SetupAdmission,
     setup_files::{present, private_options, read_private, sync_ancestry},
     setup_origin, setup_origin_guard,
 };
@@ -59,6 +59,7 @@ pub(crate) struct CreateLifecycle {
 pub(crate) struct CreateShared {
     pub(crate) owner: String,
     pub(crate) base: String,
+    proxy_origin: Option<String>,
     pub(crate) directory: PathBuf,
     pub(crate) admission: Arc<SetupAdmission>,
     pub(crate) lifecycle: Mutex<CreateLifecycle>,
@@ -91,14 +92,13 @@ impl IndependentSetupHost {
             .map_err(io::Error::other)?
             .map(|value| serde_json::from_str::<IndependentCreateIntent>(&value))
             .transpose()?;
-        let base = format!(
-            "{}{}",
-            LocalTls::api_base(self.local_addr())?,
-            self.settings.prefix
-        );
+        let base = self.base()?;
+        let proxy_origin = self.settings.proxy_origin.clone();
         if let Some(intent) = intent.as_ref() {
             intent.canonical()?;
-            if intent.base(&self.settings.owner)? != base {
+            if intent.base(&self.settings.owner)? != base
+                || !matches_proxy_intent(proxy_origin.as_deref(), intent)
+            {
                 return Err(io::Error::other("retained owner base disagrees"));
             }
         }
@@ -130,6 +130,7 @@ impl IndependentSetupHost {
         let shared = Arc::new(CreateShared {
             owner: self.settings.owner.clone(),
             base,
+            proxy_origin,
             directory,
             admission: self.admission.clone(),
             lifecycle: Mutex::new(CreateLifecycle {
@@ -145,7 +146,7 @@ impl IndependentSetupHost {
             readiness: RwLock::new(None),
             commands,
             shutdown,
-            client: self.tls.client()?,
+            client: self.http_client()?,
         });
         Ok((
             IndependentCreateHost {
@@ -163,6 +164,15 @@ impl IndependentCreateHost {
         self.control.clone()
     }
     pub fn router(&self) -> Router {
+        let origin = setup_origin(&self.host.settings.origin).expect("validated host origin");
+        self.router_with_api_origins([origin])
+    }
+
+    /// Select browser origins for normal APIs without changing owner setup admission.
+    pub fn router_with_api_origins(
+        &self,
+        origins: impl IntoIterator<Item = HeaderValue>,
+    ) -> Router {
         let origin = setup_origin(&self.host.settings.origin).expect("validated host origin");
         let setup_cors = CorsLayer::new()
             .allow_origin(origin.clone())
@@ -199,15 +209,14 @@ impl IndependentCreateHost {
                 .with_state(self.control.clone())
                 .layer(
                     CorsLayer::very_permissive()
-                        .allow_origin(origin)
+                        .allow_origin(origins.into_iter().collect::<Vec<_>>())
                         .allow_private_network(true),
                 ),
         )
     }
     pub async fn serve(self) -> io::Result<()> {
         let router = self.router();
-        let tls = self.host.tls.clone();
-        let address = self.host.local_addr();
+        let (tls, address) = self.host.native_listener()?;
         let path = format!("{}/setup/owner/status", self.host.settings.prefix);
         let admission = self.host.admission_path();
         let shutdown = self.control.0.shutdown.clone();
@@ -323,6 +332,20 @@ impl IndependentCreateControl {
             Some(Arc::new(move |control| Box::pin(check(control))));
         Ok(())
     }
+    /// The exact operation only when this owner is serving and passes its current checks.
+    pub async fn verified_intent(&self) -> Option<IndependentCreateIntent> {
+        self.0.admission.health().ok()?;
+        let operation = {
+            let state = self.0.lifecycle.lock().await;
+            if state.view != "ready" {
+                return None;
+            }
+            state.public.as_ref()?.operation.clone()
+        };
+        self.check_readiness().await.ok()?;
+        Some(operation)
+    }
+
     async fn check_readiness(&self) -> io::Result<()> {
         let check = self
             .0
@@ -487,6 +510,14 @@ pub(crate) async fn create(
     accept(control, headers, request).await
 }
 
+fn matches_proxy_intent(origin: Option<&str>, intent: &IndependentCreateIntent) -> bool {
+    origin.is_none_or(|origin| {
+        ["idp", "device", "storage"]
+            .into_iter()
+            .all(|owner| intent.base(owner).ok() == Some(format!("{origin}/{owner}").as_str()))
+    })
+}
+
 async fn accept(
     control: IndependentCreateControl,
     headers: HeaderMap,
@@ -501,6 +532,7 @@ async fn accept(
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
     if intent.base(control.owner()).ok() != Some(control.0.base.as_str())
+        || !matches_proxy_intent(control.0.proxy_origin.as_deref(), &intent)
         || (control.owner() == "idp"
             && request
                 .password

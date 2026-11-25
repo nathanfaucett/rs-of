@@ -50,7 +50,7 @@ async fn portless_server_restarts_with_retained_state() {
         let started = Instant::now();
         let mut server = Server(
             Command::new(env!("CARGO_BIN_EXE_unified-server"))
-                .args(["local", "--data-dir"])
+                .args(["seeded", "--data-dir"])
                 .arg(root.path())
                 .env("PORT", port.to_string())
                 .env("PORTLESS_URL", format!("http://127.0.0.1:{port}"))
@@ -121,7 +121,7 @@ async fn smoke() {
         let start = Instant::now();
         let mut command = Command::new(env!("CARGO_BIN_EXE_unified-server"));
         command
-            .args(["local", "--data-dir"])
+            .args(["seeded", "--data-dir"])
             .arg(root.path())
             .args([
                 "--port",
@@ -254,14 +254,18 @@ async fn assert_local_surface(
             );
         }
     }
-    let metadata: Value = client
+    let discovery = client
         .get(format!("{base}/idp/.well-known/openid-configuration"))
+        .header("origin", "http://localhost:5173")
         .send()
         .await
-        .expect("discovery")
-        .json()
-        .await
-        .expect("metadata");
+        .expect("discovery");
+    assert_eq!(discovery.headers()["x-of-seeded-fixture"], "1");
+    assert_eq!(
+        discovery.headers()["access-control-expose-headers"],
+        "x-of-seeded-fixture"
+    );
+    let metadata: Value = discovery.json().await.expect("metadata");
     assert_eq!(metadata["issuer"], format!("{base}/idp"));
     assert_eq!(
         metadata["token_endpoint"],

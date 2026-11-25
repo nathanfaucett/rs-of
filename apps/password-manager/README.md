@@ -43,7 +43,11 @@ pnpm apps:dev
 
 `pnpm e2e:prepare` builds local SQL/filesystem WASM and generated workspace dependencies. No sibling `ofdb` checkout is used. See [E2E setup](../../e2e/README.md) for prerequisites and validation limits.
 
-Local vault use needs no service configuration. For sign-in, run `just unified` in a separate terminal, then open [Password Manager sign-in](https://password-manager.localhost:1355/login). `pnpm apps:dev` starts both the password manager and the sign-in and consent app with local defaults. For other deployments, configure a matching IdP, OAuth Client, Application URI, redirect URI, and Storage URL. See the [real-backend test configuration](../../e2e/README.md#browser-configuration-and-desktop-isolation) for an example.
+Local vault use needs no service configuration. Use the [default Node setup](../../README.md#local-backend) to enable sign-in. Sign-in uses the ready Installation from the Node at `PUBLIC_UNIFIED_ORIGIN` (default: `https://unified.localhost:1355`; Portless also matches the worktree name and proxy port). The Node must publish the selected IdP and Storage bases and permit the Password Manager origin to read its status. The selected Installation must permit that origin to use IdP and Storage APIs and provide the existing sign-in and consent UI. The real-backend setup fixtures supply the Node status and cross-origin access until the default runtime provides them.
+
+For a new OAuth Client, sign in as a User allowed to register it. Select **Accept** to register Password Manager, then **Allow** to grant access. The Application URI defaults to the Password Manager origin. An explicit fixed-client configuration uses `PUBLIC_OIDC_CLIENT_ID`, `PUBLIC_OIDC_APPLICATION_URI`, `PUBLIC_IDP_BASE_URL`, and `PUBLIC_STORAGE_URL` (or `PUBLIC_STORAGE_BASE_URL`), as in the [seeded test fixture](../../e2e/README.md#browser-configuration-and-desktop-isolation). Do not use a seeded Client for an Installation created by Node setup.
+
+**Create new vault** always creates a local vault. A successful sign-in does not unlock a vault or move its data. Signed-in Users can explicitly show or create synced vaults; replication through the legacy browser sync SDK still requires paired `/idp` and `/storage` bases on the same server.
 
 The browser must allow IndexedDB, Web Crypto, Web Locks, and the relevant service-worker/cache APIs for offline delivery. Use HTTPS or a secure loopback development context.
 

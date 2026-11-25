@@ -21,15 +21,7 @@ Preserve each server's retained data and TLS/setup state across restart. Do not 
 
 ## Local composition
 
-Local mode does not consume these YAML files:
-
-```sh
-just unified
-```
-
-It mounts `/idp`, `/management`, `/device`, and `/storage` at `https://unified.localhost:1355`. Portless terminates HTTPS and assigns a dynamic internal loopback port. Direct `cargo run -p unified-server -- local` serves plain HTTP on a fixed port. Local signer state is bound to the public issuer URL; use a fresh data directory when that URL changes. This mode is for development and does not establish production Installation membership.
-
-Current local composition uses a shared embedded database implementation. That is a deployment choice, not an architectural requirement. One server process does not require one physical database file or one shared database host.
+`just unified` does not read these YAML files. See [local Node setup](../README.md#local-backend) for the default Create and Join flows, and [unified-server](../services/unified-server/README.md) for the explicit seeded fixture.
 
 ## Alternate configuration
 

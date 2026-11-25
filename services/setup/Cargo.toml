@@ -12,7 +12,13 @@ description = "Owner setup and provisioning"
 [lib]
 name = "setup"
 
+[[bin]]
+name = "join-node"
+path = "src/bin/join_node.rs"
+required-features = ["join"]
+
 [features]
+join = ["dep:base64", "dep:iroh-base", "dep:of-device-client", "dep:of-model", "dep:sha2"]
 default = []
 testing = []
 test-support = ["testing"]
@@ -74,14 +80,20 @@ getrandom = { version = "0.3", default-features = false }
 subtle = { version = "2.6", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
+base64 = { version = "0.22", default-features = false, optional = true }
+iroh-base = { version = "1.4", default-features = false, features = ["key"], optional = true }
+of-device-client = { path = "../device-client", default-features = false, optional = true }
+of-model = { path = "../model", default-features = false, features = ["std"], optional = true }
+sha2 = { version = "0.11", default-features = false, optional = true }
 rustix = { version = "1.1", default-features = false, features = [
     "fs",
     "process",
     "std",
 ] }
 
-[dev-dependencies]
 tempfile = { version = "3.27", default-features = false }
+
+[dev-dependencies]
 tokio = { version = "1.52", default-features = false, features = [
     "rt-multi-thread",
 ] }

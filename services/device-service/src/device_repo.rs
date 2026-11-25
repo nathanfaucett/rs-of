@@ -27,6 +27,12 @@ pub trait DeviceRepo {
         accepting_public_key: String,
     ) -> impl Future<Output = DeviceResult<Device>>;
 
+    fn request_pairing_once(
+        &self,
+        requester: String,
+        request: of_model::device::contract::device_pairing::DevicePairingRequest,
+    ) -> impl Future<Output = DeviceResult<Option<Device>>>;
+
     fn pending_pairing(
         &self,
         device_id: Id,

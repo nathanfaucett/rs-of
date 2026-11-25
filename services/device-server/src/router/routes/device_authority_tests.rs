@@ -40,7 +40,7 @@ use crate::runtime::build_router;
 
 fn inspect_actor(token: &str, owner: Id) -> Result<IntrospectionResponse, String> {
     let (principal_type, audience, scopes) = match token {
-        "user" | "nil-subject" | "invalid-subject" => {
+        "user" | "next-user" | "nil-subject" | "invalid-subject" => {
             (PrincipalType::User, "https://device.example", vec![])
         }
         "wrong-audience" => (PrincipalType::User, "idp-services", vec![]),
@@ -125,7 +125,16 @@ impl Fixture {
         .with_local_idp(
             move |token| {
                 inspections.fetch_add(1, Ordering::SeqCst);
-                async move { inspect_actor(&token, owner) }
+                async move {
+                    inspect_actor(
+                        &token,
+                        if token == "next-user" {
+                            next_owner
+                        } else {
+                            owner
+                        },
+                    )
+                }
             },
             move |id| {
                 lookups.fetch_add(1, Ordering::SeqCst);
@@ -279,6 +288,10 @@ impl Fixture {
     }
 
     async fn grant_in(&self, namespace: Id, action: IdentityAction) {
+        self.grant_to(namespace, action, &[self.owner]).await;
+    }
+
+    async fn grant_to(&self, namespace: Id, action: IdentityAction, subjects: &[Id]) {
         let service = self.management();
         let role = service
             .create_role(namespace, action.permission(), None)
@@ -292,10 +305,12 @@ impl Fixture {
             .add_permission_to_role(namespace, role.id, permission.id)
             .await
             .expect("role grant");
-        service
-            .add_role_to_user(namespace, self.owner, role.id)
-            .await
-            .expect("User grant");
+        for &subject in subjects {
+            service
+                .add_role_to_user(namespace, subject, role.id)
+                .await
+                .expect("User grant");
+        }
     }
 }
 
@@ -775,6 +790,76 @@ async fn device_discovery_denies_ambiguous_endpoint_bindings() {
 fn pairing_proof(key: &SecretKey, payload: &str) -> String {
     let signature = URL_SAFE_NO_PAD.encode(key.sign(payload.as_bytes()).to_bytes());
     serde_json::json!({"signature": signature}).to_string()
+}
+
+#[tokio::test]
+async fn exact_pairing_replay_requires_the_original_authorized_requester() {
+    let fixture = Fixture::new().await;
+    let accepting = fixture.approved().await;
+    let mut request = serde_json::json!({
+        "name": "Retry Device", "publicKey": SecretKey::generate().public().to_string(),
+        "acceptingPublicKey": accepting.public_key, "address": "127.0.0.1:23456",
+    });
+    fixture
+        .grant_to(
+            Id::nil(),
+            IdentityAction::DevicesEnroll,
+            &[fixture.owner, fixture.next_owner],
+        )
+        .await;
+    async fn call(fixture: &Fixture, token: &str, body: &str) -> Response {
+        fixture.call("PUT", "/devices/pairings", token, body).await
+    }
+    let body = request.to_string();
+    let (first, replay) =
+        tokio::join!(call(&fixture, "user", &body), call(&fixture, "user", &body));
+    let id = |response: Response| async {
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), 65536)
+            .await
+            .expect("pairing body");
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&bytes)
+        );
+        serde_json::from_slice::<serde_json::Value>(&bytes).expect("pairing JSON")["id"].clone()
+    };
+    let original = id(first).await;
+    assert_eq!(original, id(replay).await);
+    assert_eq!(
+        call(&fixture, "next-user", &body).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    request["address"] = serde_json::json!("127.0.0.1:23457");
+    assert_eq!(
+        call(&fixture, "user", &request.to_string()).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(original, id(call(&fixture, "user", &body).await).await);
+    fixture.grant(IdentityAction::DevicesRename).await;
+    let device_id = original.as_str().expect("Device record ID");
+    assert_eq!(
+        fixture
+            .call(
+                "PATCH",
+                &format!("/devices/{device_id}"),
+                "user",
+                r#"{"name":"Renamed Device"}"#
+            )
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    request["address"] = serde_json::json!("127.0.0.1:23456");
+    request["name"] = serde_json::json!("Renamed Device");
+    assert_eq!(
+        call(&fixture, "user", &request.to_string()).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    fixture.set_actor_status(Err("inactive User"));
+    assert!(!call(&fixture, "user", &body).await.status().is_success());
 }
 
 #[tokio::test]

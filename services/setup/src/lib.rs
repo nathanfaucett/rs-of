@@ -12,6 +12,8 @@ pub mod independent_operation;
 pub mod independent_reset;
 #[cfg(unix)]
 pub mod independent_setup;
+#[cfg(all(unix, feature = "join"))]
+pub mod join;
 pub mod local_tls;
 #[cfg(unix)]
 mod setup_admission;

@@ -8,7 +8,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let documents = canonical_documents();
     fs::create_dir_all(&out)?;
     for (name, mut document) in documents {
-        document.servers = Some(vec![Server::new(format!("https://localhost/{name}"))]);
+        document.servers = Some(vec![Server::new(if name == "node" {
+            "https://unified.localhost:1355".into()
+        } else {
+            format!("https://localhost/{name}")
+        })]);
         write(&out, name, document)?;
     }
     Ok(())
@@ -33,6 +37,8 @@ pub fn canonical_documents() -> BTreeMap<&'static str, OpenApi> {
             None,
         );
     }
+    #[cfg(all(unix, feature = "cli"))]
+    documents.insert("node", unified_server::node_setup_openapi());
     documents
 }
 fn write(

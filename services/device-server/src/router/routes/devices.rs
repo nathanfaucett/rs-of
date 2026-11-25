@@ -387,6 +387,25 @@ pub(crate) async fn request_pairing(
         .map(Json)
 }
 
+#[utoipa::path(put, path = "/devices/pairings",
+    description = "Create or replay one pending pairing in this Installation. The new endpoint public key is the retry key. Only the original authenticated User, still authorized to enroll Devices, can replay it with the exact same accepting key, name and address. The accepting endpoint must still be approved. A legacy or terminal enrollment is not replayable.", request_body = DevicePairingRequest,
+    responses((status = 200, description = "New or exact existing pending Device pairing", body = DeviceEnrollment),
+        (status = 400, description = "Input or retained enrollment does not match"),
+        (status = 401, description = "User authentication required"), (status = 403, description = "Enrollment not authorized"),
+        (status = 503, description = "Device owner unavailable")),
+    security(("authorization" = [])))]
+pub(crate) async fn request_pairing_once(
+    State(state): State<RouterState>,
+    actor: DeviceAuthorization,
+    Json(request): Json<DevicePairingRequest>,
+) -> Result<Json<DeviceEnrollment>, ErrorResponse> {
+    require_pairing_permission(&state, &actor, None).await?;
+    DeviceEnrollmentService::new(devices(&state)?)
+        .request_pairing_once(actor.subject.to_string(), request)
+        .await
+        .map(Json)
+}
+
 #[utoipa::path(get, path = "/devices/pairings/{device_id}/payload",
     description = "Use a Device-audience access token for an active User with the Installation permission management.devices.enroll. Give the exact payload to the new endpoint to sign.",
     params(("device_id" = String, Path, description = "Device record ID")),

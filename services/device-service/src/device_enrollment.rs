@@ -92,12 +92,7 @@ where
         &self,
         request: DevicePairingRequest,
     ) -> ErrorResponseResult<DeviceEnrollment> {
-        validate_enrollment(&DeviceEnrollmentRequest {
-            name: request.name.clone(),
-            public_key: request.public_key.clone(),
-            address: request.address.clone(),
-        })?;
-        validate_public_key(&request.accepting_public_key)?;
+        validate_pairing(&request)?;
         let device = self
             .repo
             .create_pairing(
@@ -108,6 +103,29 @@ where
             )
             .await
             .map_err(ErrorResponse::from)?;
+        Ok(DeviceEnrollment {
+            id: device.id,
+            state: device.state,
+            approval_code: None,
+        })
+    }
+
+    /// Request or replay one exact pending pairing for the authenticated requester.
+    ///
+    /// # Errors
+    /// Returns an error for invalid input, a different requester or request, or an unavailable pairing.
+    pub async fn request_pairing_once(
+        &self,
+        requester: String,
+        request: DevicePairingRequest,
+    ) -> ErrorResponseResult<DeviceEnrollment> {
+        validate_pairing(&request)?;
+        let device = self
+            .repo
+            .request_pairing_once(requester, request)
+            .await
+            .map_err(|_| ErrorResponse::new(ErrorCode::TemporarilyUnavailable))?
+            .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidRequest))?;
         Ok(DeviceEnrollment {
             id: device.id,
             state: device.state,
@@ -268,6 +286,15 @@ where
             approval_code: None,
         })
     }
+}
+
+fn validate_pairing(request: &DevicePairingRequest) -> ErrorResponseResult<()> {
+    validate_name(&request.name)?;
+    validate_public_key(&request.public_key)?;
+    validate_public_key(&request.accepting_public_key)?;
+    valid_value(&request.address)
+        .then_some(())
+        .ok_or_else(|| ErrorResponse::new(ErrorCode::InvalidRequest))
 }
 
 fn validate_enrollment(request: &DeviceEnrollmentRequest) -> ErrorResponseResult<()> {

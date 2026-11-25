@@ -83,7 +83,7 @@ export async function startBackend({
     command,
     args ?? [
       ...(binary ? [] : ["run", "--locked", "-p", "unified-server", "--"]),
-      "local",
+      "seeded",
       "--data-dir",
       dataDir,
       "--port",
