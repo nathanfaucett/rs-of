@@ -120,9 +120,6 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
 
 <svelte:head><title>{title}</title></svelte:head>
 
-<svelte:window onfocus={() => vaultStateModule.state.status === "unlocked" && vaultStateModule.vaultData?.inactivity.check()} onpageshow={() => vaultStateModule.state.status === "unlocked" && vaultStateModule.vaultData?.inactivity.check()} />
-<svelte:document onvisibilitychange={() => vaultStateModule.state.status === "unlocked" && vaultStateModule.vaultData?.inactivity.check()} />
-
 <div class="flex min-h-0 grow items-start justify-center overflow-auto p-6">
     {#if vaultStateModule.state.status === "loading"}
         <Page width="narrow">
