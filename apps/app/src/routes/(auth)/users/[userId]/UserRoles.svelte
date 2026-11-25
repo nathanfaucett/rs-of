@@ -54,10 +54,10 @@
                 <tbody>
                     {#each userRoles as userRole (`${userRole.applicationId}-${userRole.roleId}`)}
                         <tr>
-                            <td>{userRole.applicationId}</td>
-                            <td>{userRole.roleId}</td>
-                            <td>{userRole.roleName}</td>
-                            <td>{userRole.roleDescription ?? "-"}</td>
+                            <td data-label="Application">{userRole.applicationId}</td>
+                            <td data-label="Role ID">{userRole.roleId}</td>
+                            <td data-label="Name">{userRole.roleName}</td>
+                            <td data-label="Description">{userRole.roleDescription ?? "-"}</td>
                         </tr>
                     {/each}
                 </tbody>

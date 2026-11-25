@@ -337,7 +337,7 @@ test("OAuth Client creation keeps only session metadata and reopens the owner re
   await page.goto(`${appURL}/applications`);
   await signIn(page);
   const openApplication = async () => {
-    await page.getByRole("link", { name: `${appURL}/local-login`, exact: true }).click();
+    await page.getByRole("link", { name: "local-login", exact: true }).click();
     await expect(page).toHaveURL(/\/applications\/[^/]+$/);
     await expect(page.getByText(/Reloading clears this list/)).toBeVisible();
   };
@@ -422,3 +422,115 @@ test("OAuth Client creation keeps only session metadata and reopens the owner re
   await page.reload();
   await expect(clientName).toHaveValue(name);
 });
+
+test("management navigation works by keyboard and remembers both layouts", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 780 });
+  await page.goto(`${appURL}/`);
+  await signIn(page);
+
+  const menu = page.getByRole("button", { name: "Navigation", exact: true });
+  const navigation = page.getByRole("navigation", { name: "Management" });
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await expect(navigation).toBeHidden();
+  await menu.focus();
+  await menu.press("Enter");
+  await expect(menu).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Tab");
+  const dashboard = navigation.getByRole("link", { name: "Dashboard" });
+  await expect(dashboard).toBeFocused();
+  await expect(dashboard).toHaveCSS("outline-style", "solid");
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeFocused();
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+
+  await menu.press("Enter");
+  const applications = navigation.getByRole("link", { name: "Applications" });
+  await applications.press("Enter");
+  await expect(page).toHaveURL(`${appURL}/applications`);
+  await expect(page.getByRole("main")).toBeFocused();
+  await expect(applications).toHaveAttribute("aria-current", "page");
+  await page.reload();
+  await expect(menu).toHaveAttribute("aria-expanded", "true");
+
+  await page.setViewportSize({ width: 1440, height: 780 });
+  await page.getByRole("button", { name: "Collapse sidebar" }).press("Enter");
+  await navigation.getByRole("link", { name: "Users" }).click();
+  await expect(page).toHaveURL(`${appURL}/users`);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Users" })).toHaveAttribute(
+    "aria-current",
+    "page"
+  );
+});
+
+for (const width of [320, 390, 768, 1440]) {
+  test(`management forms and records fit at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 780 });
+    await page.goto(`${appURL}/applications`);
+    await signIn(page);
+    await expect(page).toHaveURL(`${appURL}/applications`);
+
+    const main = page.getByRole("main");
+    const configuration = page.getByRole("button", { name: "Configuration", exact: true });
+
+    async function expectRecordToFit() {
+      const record = main
+        .getByRole("row")
+        .filter({ has: page.getByRole("cell") })
+        .first();
+      await expect(record).toBeVisible();
+      const cells = await record.getByRole("cell").evaluateAll((elements) =>
+        elements.map((cell) => {
+          const { left, right } = cell.getBoundingClientRect();
+          return { left, right, scroll: cell.scrollWidth, width: cell.clientWidth };
+        })
+      );
+      expect(cells.length).toBeGreaterThan(0);
+      for (const cell of cells) {
+        expect(cell.left).toBeGreaterThanOrEqual(0);
+        expect(cell.right).toBeLessThanOrEqual(width);
+        expect(cell.scroll).toBeLessThanOrEqual(cell.width);
+      }
+    }
+
+    await main.getByRole("textbox", { name: "Name" }).fill("Responsive draft");
+    await main.getByRole("textbox", { name: "URI" }).fill("https://responsive.example.test");
+    await main.getByRole("button", { name: "Create application" }).click({ trial: true });
+    await expectRecordToFit();
+
+    await page.goto(`${appURL}/users`);
+    await expectRecordToFit();
+    await main.getByRole("button", { name: "Add user" }).click();
+    const createUser = page.getByRole("dialog");
+    await createUser.getByRole("textbox", { name: "Name" }).fill("Responsive draft");
+    await createUser.getByRole("button", { name: "Cancel" }).click();
+    await expect(createUser).toBeHidden();
+
+    await page.goto(`${appURL}/devices`);
+    const refreshed = page.waitForResponse(`${backendURL}/device/devices`);
+    await main.getByRole("button", { name: "Refresh", exact: true }).click();
+    expect((await refreshed).ok()).toBeTruthy();
+    await main.getByRole("button", { name: "Add device" }).click();
+    const enrollDevice = page.getByRole("dialog");
+    await enrollDevice.getByRole("textbox", { name: "Device name" }).fill("Responsive draft");
+    await enrollDevice.getByRole("button", { name: "Enroll device" }).click({ trial: true });
+    await enrollDevice.getByRole("button", { name: "Cancel" }).click();
+    await expect(enrollDevice).toBeHidden();
+
+    const mainBox = await main.boundingBox();
+    const configurationBox = await configuration.boundingBox();
+    if (!mainBox || !configurationBox) throw new Error("Management controls are not visible");
+    expect(
+      configurationBox.y >= mainBox.y + mainBox.height ||
+        configurationBox.y + configurationBox.height <= mainBox.y ||
+        configurationBox.x >= mainBox.x + mainBox.width ||
+        configurationBox.x + configurationBox.width <= mainBox.x
+    ).toBe(true);
+    expect(await main.evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(
+      await main.evaluate((element) => element.clientWidth)
+    );
+    await configuration.click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+  });
+}

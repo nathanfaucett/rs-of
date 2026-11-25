@@ -253,7 +253,7 @@
                 <tbody>
                     {#each devices as device (device.id)}
                         <tr>
-                            <td>
+                            <td data-label="Name">
                                 {#if editingId === device.id}
                                     <form
                                         class="flex gap-2"
@@ -276,16 +276,16 @@
                                     {device.name}
                                 {/if}
                             </td>
-                            <td>{device.state}</td>
-                            <td>
+                            <td data-label="State">{device.state}</td>
+                            <td data-label="Public key">
                                 <code title={device.publicKey}
                                     >{shortValue(device.publicKey)}</code
                                 >
                             </td>
-                            <td>{formatTimestamp(device.updatedAt)}</td>
-                            <td>
+                            <td data-label="Updated">{formatTimestamp(device.updatedAt)}</td>
+                            <td data-label="Actions">
                                 {#if device.state !== "revoked"}
-                                    <div class="flex gap-2">
+                                    <div class="flex flex-wrap gap-2">
                                         <button
                                             class="btn btn-secondary btn-md"
                                             type="button"
@@ -327,13 +327,13 @@
                     <tbody>
                         {#each pendingEnrollments as enrollment (enrollment.id)}
                             <tr>
-                                <td>
+                                <td data-label="Device ID">
                                     <code title={enrollment.id}
                                         >{shortValue(enrollment.id)}</code
                                     >
                                 </td>
-                                <td>{enrollment.state}</td>
-                                <td>
+                                <td data-label="State">{enrollment.state}</td>
+                                <td data-label="Actions">
                                     <button
                                         class="btn btn-primary btn-md"
                                         type="button"

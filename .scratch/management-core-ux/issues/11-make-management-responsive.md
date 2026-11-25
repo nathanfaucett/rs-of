@@ -11,3 +11,5 @@
 - [ ] Wide tables and the Configuration control do not obscure actions or records.
 - [ ] Keyboard focus remains visible and predictable when navigation opens, closes, or changes route.
 - [ ] Real-backend browser checks cover Application, User, and Device workflows at desktop and mobile sizes.
+
+The app stores separate desktop and small-screen navigation preferences. Existing data, APIs, and wire protocols do not change.

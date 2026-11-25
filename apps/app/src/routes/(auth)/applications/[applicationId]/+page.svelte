@@ -401,7 +401,7 @@
                         <tbody>
                             {#each applicationClients as client (client.clientId)}
                                 <tr>
-                                    <td>
+                                    <td data-label="Client ID">
                                         <a
                                             href={resolve(
                                                 `/clients/${encodeURIComponent(client.clientId)}?application=${applicationId}`,
@@ -410,9 +410,9 @@
                                             {client.clientId}
                                         </a>
                                     </td>
-                                    <td>{client.clientName}</td>
-                                    <td>{client.profile}</td>
-                                    <td>{client.tokenEndpointAuthMethod}</td>
+                                    <td data-label="Name">{client.clientName}</td>
+                                    <td data-label="Profile">{client.profile}</td>
+                                    <td data-label="Auth Method">{client.tokenEndpointAuthMethod}</td>
                                 </tr>
                             {/each}
                         </tbody>

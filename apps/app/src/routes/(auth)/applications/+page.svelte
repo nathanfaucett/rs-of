@@ -218,21 +218,21 @@
                 <tbody>
                     {#each applications as application (application.id)}
                         <tr>
-                            <td>
+                            <td data-label="ID">
                                 <a
                                     href={resolve(
                                         `/applications/${application.id}`,
                                     )}>{application.id}</a
                                 ></td
                             >
-                            <td>
+                            <td data-label="Name">
                                 <a href={resolve(`/applications/${application.id}`)}
                                     >{application.name}</a
                                 >
                             </td>
-                            <td>{application.uri}</td>
-                            <td>{application.description ?? "-"}</td>
-                            <td>{formatTimestamp(application.updated_at)}</td>
+                            <td data-label="URI">{application.uri}</td>
+                            <td data-label="Description">{application.description ?? "-"}</td>
+                            <td data-label="Updated">{formatTimestamp(application.updated_at)}</td>
                         </tr>
                     {/each}
                 </tbody>

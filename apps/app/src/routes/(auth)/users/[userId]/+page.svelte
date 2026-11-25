@@ -232,7 +232,7 @@
 <Page>
     <PageHeader title="User Detail">
         {#snippet actions()}
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 {#if user && !editing}
                     <button
                         class="btn btn-secondary btn-md"
@@ -401,12 +401,12 @@
                         <tbody>
                             {#each consents as consent (consent.id)}
                                 <tr>
-                                    <td>{consent.client_id}</td>
-                                    <td>{consent.scope}</td>
-                                    <td class="break-all"
+                                    <td data-label="Client ID">{consent.client_id}</td>
+                                    <td data-label="Scope">{consent.scope}</td>
+                                    <td data-label="Redirect URI" class="break-all"
                                         >{consent.redirect_uri}</td
                                     >
-                                    <td>
+                                    <td data-label="Actions">
                                         <button
                                             class="btn btn-danger btn-md"
                                             type="button"
