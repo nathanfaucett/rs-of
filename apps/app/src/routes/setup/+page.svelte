@@ -37,7 +37,7 @@
         {#if error}<Alert tone="danger">{error}</Alert>{/if}
         {#if data.state === "starting"}
             <p>Your choice was saved. Starting the selected setup.</p>
-        {:else if data.state === "unavailable"}
+        {:else if data.state === "unavailable" || data.state === "blocked"}
             <Alert tone="danger">Cannot verify Node setup. Check the server terminal and HTTPS trust.</Alert>
         {:else}
             <p>Use the protected Node setup code from the file shown in the server terminal.</p>

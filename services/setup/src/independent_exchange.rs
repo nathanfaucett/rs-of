@@ -89,7 +89,7 @@ impl IndependentCreateControl {
         )
     }
 
-    /// Worker-only initiation. The capability is delivered only to the exact HTTPS recipient,
+    /// Worker-only initiation. The capability is delivered only to the exact recipient,
     /// never returned through an app-facing challenge-initiation route.
     pub async fn register_recipient(
         &self,
@@ -114,6 +114,7 @@ impl IndependentCreateControl {
             registration: registration.clone(),
             challenge: random_capability()?,
         };
+        let local = self.local_peer(&bound.operation, &bound.recipient)?;
         {
             let mut state = self.0.lifecycle.lock().await;
             if state.intent.as_ref() != Some(&bound.operation)
@@ -136,27 +137,37 @@ impl IndependentCreateControl {
                 expires: Instant::now() + Duration::from_secs(30),
             });
         };
-        let configuration = of_idp_client::apis::configuration::Configuration {
-            base_path: bound.operation.base(&bound.recipient)?.to_owned(),
-            client: self.http_client(),
-            ..Default::default()
+        let (delivered, failure) = if let Some(peer) = local {
+            (
+                challenge(State(peer), Json(bound.clone())).await == StatusCode::NO_CONTENT,
+                "exact local recipient registration did not complete",
+            )
+        } else {
+            let configuration = of_idp_client::apis::configuration::Configuration {
+                base_path: bound.operation.base(&bound.recipient)?.to_owned(),
+                client: self.http_client(),
+                ..Default::default()
+            };
+            (
+                of_idp_client::apis::owner_setup_api::owner_setup_challenge(
+                    &configuration,
+                    of_idp_client::apis::owner_setup_api::OwnerSetupChallengeParams {
+                        challenge: serde_json::from_value(serde_json::to_value(&bound)?)?,
+                    },
+                )
+                .await
+                .is_ok(),
+                "exact HTTPS recipient registration did not complete",
+            )
         };
-        let result = of_idp_client::apis::owner_setup_api::owner_setup_challenge(
-            &configuration,
-            of_idp_client::apis::owner_setup_api::OwnerSetupChallengeParams {
-                challenge: serde_json::from_value(serde_json::to_value(&bound)?)?,
-            },
-        )
-        .await;
         let mut state = self.0.lifecycle.lock().await;
         state
             .challenges
             .retain(|entry| entry.bound.challenge != bound.challenge);
-        match result {
-            Ok(()) => Ok(()),
-            _ => Err(io::Error::other(
-                "exact HTTPS recipient registration did not complete",
-            )),
+        if delivered {
+            Ok(())
+        } else {
+            Err(io::Error::other(failure))
         }
     }
 }
@@ -227,21 +238,30 @@ pub async fn challenge(
         registration,
         challenge: bound.challenge,
     };
-    let client = control.http_client();
-    let configuration = of_idp_client::apis::configuration::Configuration {
-        base_path: bound.operation.idp.clone(),
-        client,
-        ..Default::default()
-    };
-    let registration = match serde_json::to_value(reply).and_then(serde_json::from_value) {
-        Ok(registration) => registration,
-        Err(_) => return StatusCode::SERVICE_UNAVAILABLE,
-    };
-    let response = tokio::select! {
-        biased;
-        () = active.cancelled() => return StatusCode::FORBIDDEN,
-        response = of_idp_client::apis::owner_setup_api::owner_setup_register(&configuration,
-            of_idp_client::apis::owner_setup_api::OwnerSetupRegisterParams { registration }) => response,
+    let registered = match control.local_peer(&bound.operation, "idp") {
+        Ok(Some(peer)) => tokio::select! {
+            biased;
+            () = active.cancelled() => return StatusCode::FORBIDDEN,
+            response = register(State(peer), Json(reply)) => response == StatusCode::NO_CONTENT,
+        },
+        Ok(None) => {
+            let configuration = of_idp_client::apis::configuration::Configuration {
+                base_path: bound.operation.idp.clone(),
+                client: control.http_client(),
+                ..Default::default()
+            };
+            let registration = match serde_json::to_value(reply).and_then(serde_json::from_value) {
+                Ok(registration) => registration,
+                Err(_) => return StatusCode::SERVICE_UNAVAILABLE,
+            };
+            tokio::select! {
+                biased;
+                () = active.cancelled() => return StatusCode::FORBIDDEN,
+                response = of_idp_client::apis::owner_setup_api::owner_setup_register(&configuration,
+                    of_idp_client::apis::owner_setup_api::OwnerSetupRegisterParams { registration }) => response.is_ok(),
+            }
+        }
+        Err(_) => return StatusCode::FORBIDDEN,
     };
     let mut state = control.0.lifecycle.lock().await;
     if active.is_cancelled()
@@ -259,25 +279,23 @@ pub async fn challenge(
     {
         return StatusCode::FORBIDDEN;
     }
-    match response {
-        Ok(()) => {
-            if control
-                .confirm_registration(&bound.operation, &public_registration)
-                .is_err()
-            {
-                return StatusCode::SERVICE_UNAVAILABLE;
-            }
-            let public = state
-                .public
-                .as_mut()
-                .expect("validated owner public evidence");
-            if !public.registered.contains(&id) {
-                public.registered.push(id);
-            }
-            StatusCode::NO_CONTENT
-        }
-        _ => StatusCode::FORBIDDEN,
+    if !registered {
+        return StatusCode::FORBIDDEN;
     }
+    if control
+        .confirm_registration(&bound.operation, &public_registration)
+        .is_err()
+    {
+        return StatusCode::SERVICE_UNAVAILABLE;
+    }
+    let public = state
+        .public
+        .as_mut()
+        .expect("validated owner public evidence");
+    if !public.registered.contains(&id) {
+        public.registered.push(id);
+    }
+    StatusCode::NO_CONTENT
 }
 
 #[utoipa::path(post, tag = "default", path = "/setup/owner/register", operation_id = "register", request_body = Registration, security(()), description = "Worker handoff over verified HTTPS. Requires an active exact Setup operation and operation-bound recipient challenge; discovery grants no authority. Never log capability or registration credentials.", responses((status = 204, description = "Exact handoff accepted"), (status = 400, description = "Invalid registration"), (status = 403, description = "Operation or challenge denied"), (status = 409, description = "Owner not ready"), (status = 503, description = "Owner unavailable")))]
@@ -405,8 +423,147 @@ mod tests {
 
     use super::Challenge;
     use super::OutstandingChallenge;
-    use crate::independent_operation::IndependentCreateIntent;
+    use crate::independent_create::IndependentCreateControl;
+    use crate::independent_operation::{IndependentCreateIntent, IndependentOwnerPublic};
     use crate::independent_setup::IndependentSetupHost;
+
+    #[tokio::test]
+    async fn local_exchange_uses_exact_live_peers_without_listeners() {
+        let root = tempfile::tempdir().expect("isolated owners");
+        let prepare = |owner, address: &str| {
+            IndependentSetupHost::prepare(
+                owner,
+                &root.path().join(owner),
+                address.parse().expect("address"),
+                "https://localhost:5173",
+                "",
+                false,
+            )
+            .expect("prepare")
+            .expect("fresh owner")
+            .into_create(CancellationToken::new())
+            .expect("host")
+            .0
+        };
+        let idp = prepare("idp", "127.0.0.1:3000");
+        let device = prepare("device", "127.0.0.1:3001");
+        let storage = prepare("storage", "127.0.0.1:3002");
+        let [idp_control, device_control, storage_control] =
+            [idp.control(), device.control(), storage.control()];
+        assert!(
+            IndependentCreateControl::connect_local(&[
+                idp_control.clone(),
+                device_control.clone(),
+                device_control.clone(),
+            ])
+            .is_err()
+        );
+        IndependentCreateControl::connect_local(&[
+            storage_control.clone(),
+            idp_control.clone(),
+            device_control.clone(),
+        ])
+        .expect("connect exact local owners");
+
+        let intent = IndependentCreateIntent {
+            purpose: "create".into(),
+            operation_nonce: "0123456789abcdef0123456789abcdef".into(),
+            administrator: "operator".into(),
+            node: "Local Node".into(),
+            idp: "https://127.0.0.1:3000".into(),
+            device: "https://127.0.0.1:3001".into(),
+            storage: "https://127.0.0.1:3002".into(),
+            issuer: "https://127.0.0.1:3000".into(),
+        };
+        for control in [&idp_control, &device_control, &storage_control] {
+            let mut lifecycle = control.0.lifecycle.lock().await;
+            lifecycle.intent = Some(intent.clone());
+            lifecycle.active = Some(control.shutdown_token().child_token());
+        }
+        let client_id = "00000000-0000-4000-8000-000000000001";
+        let registration = serde_json::json!({"client_id": client_id});
+        for control in [&device_control, &storage_control] {
+            control
+                .set_public(
+                    IndependentOwnerPublic {
+                        operation: intent.clone(),
+                        owner: control.owner().into(),
+                        clients: vec![registration.clone()],
+                        facts: serde_json::json!({}),
+                        registered: vec![],
+                    },
+                    Arc::new(move |id| {
+                        assert_eq!(id, client_id);
+                        Ok("b".repeat(64))
+                    }),
+                )
+                .await
+                .expect("publish metadata");
+        }
+        idp_control
+            .set_registrar(Arc::new(move |registration| {
+                assert_eq!(registration["client_id"], client_id);
+                assert_eq!(registration["client_secret"], "b".repeat(64));
+                Box::pin(async { Ok(()) })
+            }))
+            .await;
+
+        let mut wrong_base = intent.clone();
+        wrong_base.device = "https://127.0.0.1:3003".into();
+        assert_eq!(
+            idp_control
+                .peer(&wrong_base, "device")
+                .await
+                .err()
+                .expect("wrong base")
+                .kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        let discovery = idp_control
+            .peer(&intent, "device")
+            .await
+            .expect("local discovery");
+        assert_eq!(discovery.clients, [registration.clone()]);
+        idp_control
+            .register_recipient(&discovery, &registration)
+            .await
+            .expect("local handoff");
+        assert!(device_control.registered(client_id).await);
+        for control in [&idp_control, &device_control] {
+            assert!(
+                control
+                    .registration_confirmed(&intent, &registration)
+                    .expect("valid receipt")
+            );
+        }
+
+        let storage_public = idp_control
+            .peer(&intent, "storage")
+            .await
+            .expect("local discovery");
+        storage_control.unfinished().await;
+        assert!(
+            idp_control
+                .register_recipient(&storage_public, &registration)
+                .await
+                .is_err()
+        );
+        assert!(
+            !storage_control
+                .registration_confirmed(&intent, &registration)
+                .expect("no late receipt")
+        );
+        drop((device, device_control));
+        assert_eq!(
+            idp_control
+                .peer(&intent, "device")
+                .await
+                .err()
+                .expect("dropped local owner")
+                .kind(),
+            std::io::ErrorKind::NotConnected
+        );
+    }
 
     #[tokio::test]
     async fn registration_consumes_only_the_exact_outstanding_capability() {

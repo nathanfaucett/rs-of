@@ -1,9 +1,47 @@
 {
   "components": {
     "schemas": {
+      "CancelRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_nonce": {
+            "type": "string"
+          }
+        },
+        "required": ["operation_nonce"],
+        "type": "object"
+      },
       "Choice": {
         "enum": ["create", "join"],
         "type": "string"
+      },
+      "CreateRecovery": {
+        "properties": {
+          "administrator": {
+            "type": "string"
+          },
+          "operation_nonce": {
+            "type": "string"
+          },
+          "password_required": {
+            "type": "boolean"
+          }
+        },
+        "required": ["administrator", "password_required", "operation_nonce"],
+        "type": "object"
+      },
+      "CreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "administrator": {
+            "type": "string"
+          },
+          "password": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["administrator"],
+        "type": "object"
       },
       "Descriptor": {
         "oneOf": [
@@ -62,6 +100,16 @@
               "idp": {
                 "type": "string"
               },
+              "login_client": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LoginClient"
+                  }
+                ]
+              },
               "state": {
                 "enum": ["ready"],
                 "type": "string"
@@ -74,6 +122,21 @@
             "type": "object"
           }
         ]
+      },
+      "LoginClient": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["client_id", "scopes"],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -156,6 +219,123 @@
           }
         ],
         "tags": []
+      }
+    },
+    "/setup/node/create": {
+      "post": {
+        "operationId": "create_node_installation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Create accepted; check Node readiness"
+          },
+          "400": {
+            "description": "Invalid administrator details"
+          },
+          "401": {
+            "description": "Protected Node code missing or invalid"
+          },
+          "403": {
+            "description": "Browser origin not allowed"
+          },
+          "409": {
+            "description": "Create conflicts with retained setup"
+          },
+          "503": {
+            "description": "Setup unavailable"
+          }
+        },
+        "security": [
+          {
+            "node_setup_code": []
+          }
+        ],
+        "tags": ["node_create"]
+      }
+    },
+    "/setup/node/create/cancel": {
+      "post": {
+        "operationId": "cancel_node_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Cancellation signaled; retained state is not rolled back"
+          },
+          "401": {
+            "description": "Protected Node code missing or invalid"
+          },
+          "403": {
+            "description": "Browser origin not allowed"
+          },
+          "409": {
+            "description": "No matching incomplete Create operation"
+          },
+          "503": {
+            "description": "Setup unavailable"
+          }
+        },
+        "security": [
+          {
+            "node_setup_code": []
+          }
+        ],
+        "tags": ["node_create"]
+      }
+    },
+    "/setup/node/create/intent": {
+      "post": {
+        "operationId": "recover_node_create",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateRecovery"
+                }
+              }
+            },
+            "description": "Exact retained Create details, without credentials"
+          },
+          "204": {
+            "description": "No Create operation is retained"
+          },
+          "401": {
+            "description": "Protected Node code missing or invalid"
+          },
+          "403": {
+            "description": "Browser origin not allowed"
+          },
+          "409": {
+            "description": "Conflicting retained setup"
+          },
+          "503": {
+            "description": "Setup unavailable"
+          }
+        },
+        "security": [
+          {
+            "node_setup_code": []
+          }
+        ],
+        "tags": ["node_create"]
       }
     }
   },

@@ -140,15 +140,6 @@ async function code(path: string) {
   return value;
 }
 
-const ownerCode = (root: string, owner: string) =>
-  code(resolve(root, `${owner}.setup-host/setup-admission/state`));
-
-async function fillCodes(page: Page, root: string) {
-  for (const owner of owners) {
-    await page.getByLabel(`${owner} host setup code`).fill(await ownerCode(root, owner));
-  }
-}
-
 async function launchNode(root: string) {
   const tls = await tlsFixture(root);
   const ca = await readFile(tls.ca);
@@ -299,7 +290,7 @@ async function choose(
     });
   }
   const nodeCode = await code(resolve(node.data, "node-admission/state"));
-  await page.getByLabel("Node setup code").fill(nodeCode);
+  await page.getByLabel("Node setup code", { exact: true }).fill(nodeCode);
   await page
     .getByRole("button", {
       name: choice === "create" ? "Start a new Installation" : "Join an existing Installation",
@@ -311,10 +302,11 @@ async function choose(
   expect(await select(page, node.base, choice === "create" ? "join" : "create", nodeCode)).toBe(
     409
   );
+  return nodeCode;
 }
 
 nodeTest(
-  "default Create resumes after interruption and keeps the new identity after restart",
+  "default Create sets up an Installation and keeps the new identity after restart",
   async ({ node }) => {
     const { app, base, browser, ca, data, pm } = node;
     const idp = `${base}/idp`;
@@ -322,91 +314,74 @@ nodeTest(
     const page = await browser.newPage();
     const pmPage = await browser.newPage();
     await passwordManagerWhileWaiting(pmPage, pm, base);
-    await choose(page, node, "create");
-    await expect(
-      page.getByRole("heading", { name: "Create the first Installation" })
-    ).toBeVisible();
-    expect(await descriptor(page, base)).toEqual({ state: "creating" });
+    const nodeCode = await choose(page, node, "create");
+    await expect(page.getByLabel("Administrator username", { exact: true })).toBeVisible();
+    await expect(page.getByLabel(/setup code/i)).toHaveCount(0);
+    await expect.poll(() => descriptor(page, base)).toEqual({ state: "creating" });
     for (const owner of owners) {
       await expect(stat(resolve(data, owner))).rejects.toMatchObject({ code: "ENOENT" });
     }
-    const intent = {
-      purpose: "create",
-      operation_nonce: "1a1577e501624de183f6127df454d37c",
-      administrator: username,
-      node: "My Node",
-      idp,
-      issuer: idp,
-      device: `${base}/device`,
-      storage: `${base}/storage`,
-    };
-    const submitIdp = (ownerCode?: string) =>
-      page.evaluate(
-        async ({ idp, intent, password, ownerCode }) => {
-          const response = await fetch(`${idp}/setup/owner/create`, {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              ...(ownerCode && { authorization: `Setup ${ownerCode}` }),
-            },
-            credentials: "omit",
-            body: JSON.stringify({ ...intent, password }),
-          });
-          return response.status;
+
+    const endpoint = `${base}/setup/node/create`;
+    const submit = (origin: string, setupCode?: string) =>
+      api(endpoint, ca, {
+        method: "POST",
+        headers: {
+          Origin: origin,
+          "Content-Type": "application/json",
+          ...(setupCode && { Authorization: `Setup ${setupCode}` }),
         },
-        { idp, intent, password, ownerCode }
-      );
-    const denied = await api(`${idp}/setup/owner/create`, ca, {
-      method: "POST",
-      headers: {
-        Origin: pm,
-        "Content-Type": "application/json",
-        Authorization: `Setup ${await ownerCode(data, "idp")}`,
-      },
-      body: JSON.stringify({ ...intent, password }),
-    });
+        body: JSON.stringify({ administrator: username, password }),
+      });
+    expect((await submit(app)).status).toBe(401);
+    const denied = await submit(pm, nodeCode);
     expect(denied.status).toBe(403);
     expect(denied.origin).toBeUndefined();
-    expect(await submitIdp()).toBe(401);
-    expect(await submitIdp(await ownerCode(data, "idp"))).toBe(202);
-    await page.goto(`${app}/signin`);
-    await expect(page).toHaveURL(`${app}/setup/installation`);
-    await node.restart();
-    await page.reload();
-    expect(await descriptor(page, base)).toEqual({ state: "creating" });
-    await fillCodes(page, data);
-    await page.getByRole("button", { name: "Recover exact operation across owners" }).click();
-    await expect(page.getByLabel("Administrator username")).toHaveValue(username);
-    await fillCodes(page, data);
-    await page.getByLabel("IdP administrator password").fill(password);
-    await page.getByRole("button", { name: "Retry exact Create across owners" }).click();
-    await expect(
-      page.getByText("Accepted by each incomplete owner; not complete.", { exact: false })
-    ).toBeVisible();
-    const waitForReady = async () => {
+    const intent = await api(`${endpoint}/intent`, ca, {
+      method: "POST",
+      headers: { Origin: app, Authorization: `Setup ${nodeCode}` },
+    });
+    expect(intent.status).toBe(204);
+
+    const expectNoOwnerSetupRoutes = async () => {
       for (const owner of owners) {
-        await expect
-          .poll(
-            () =>
-              page.evaluate(
-                async ({ base, owner }) => {
-                  const res = await fetch(`${base}/${owner}/setup/owner/status`, {
-                    cache: "no-store",
-                  });
-                  return res.ok && (await res.json()).ready === true;
-                },
-                { base, owner }
-              ),
-            { timeout: 60_000 }
-          )
-          .toBe(true);
+        for (const [method, routes] of [
+          ["GET", ["status", "public"]],
+          ["POST", ["admission", "create", "intent", "cancel", "challenge", "register"]],
+        ] as const) {
+          for (const route of routes) {
+            const path = `/${owner}/setup/owner/${route}`;
+            const { status } = await api(`${base}${path}`, ca, {
+              method,
+              headers: { Origin: app },
+            });
+            expect(status, `${method} ${path}`).toBe(404);
+          }
+        }
       }
     };
-    await waitForReady();
-    expect(await descriptor(page, base)).toEqual({ state: "ready", idp, storage });
-    await page.getByRole("button", { name: "Observe all owners and verify readiness" }).click();
-    await page.getByRole("link", { name: "Continue to sign in" }).click();
-    await expect(page).toHaveURL(`${app}/signin`);
+    await expectNoOwnerSetupRoutes();
+
+    await page.getByLabel("Administrator username", { exact: true }).fill(username);
+    await page.getByLabel("Administrator password", { exact: true }).fill(password);
+    const [accepted] = await Promise.all([
+      page.waitForResponse((res) => res.url() === endpoint && res.request().method() === "POST"),
+      page.getByRole("button", { name: "Create", exact: true }).click(),
+    ]);
+    expect(accepted.status()).toBe(202);
+    await expect(page).toHaveURL(`${app}/signin`, { timeout: 35_000 });
+    await expect
+      .poll(() => descriptor(page, base), { timeout: 60_000 })
+      .toEqual({
+        state: "ready",
+        idp,
+        storage,
+        login_client: {
+          client_id: expect.stringMatching(/\S/),
+          scopes: expect.arrayContaining(["openid"]),
+        },
+      });
+    const ready = await descriptor(page, base);
     const signIn = async (name: string, credential: string) => {
       await page.getByLabel("Username", { exact: true }).fill(name);
       await page.getByLabel("Password", { exact: true }).fill(credential);
@@ -415,29 +390,22 @@ nodeTest(
           new URL(res.url()).pathname === "/idp/oauth2/token" && res.request().method() === "POST"
       );
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
-      return (await response).ok();
+      const token = await response;
+      expect(new URLSearchParams(token.request().postData() ?? "").get("client_id")).toBe(
+        ready.login_client.client_id
+      );
+      return token.ok();
     };
     expect(await signIn("admin@local.test", "password")).toBe(false);
     expect(await signIn(username, password)).toBe(true);
     await expect(page).not.toHaveURL(`${app}/signin`);
-    const evidence = () =>
-      page.evaluate(
-        async (idp) => (await fetch(`${idp}/setup/owner/public`, { cache: "no-store" })).json(),
-        idp
-      );
-    const ready = await evidence();
-    expect(ready.operation.operation_nonce).toBe(intent.operation_nonce);
-    const storageEvidence = await api(`${storage}/setup/owner/public`, ca);
-    expect(storageEvidence.status).toBe(200);
-    expect(JSON.parse(storageEvidence.body)).toMatchObject({
-      owner: "storage",
-      operation: ready.operation,
-    });
     await node.restart();
-    await waitForReady();
+    await expect
+      .poll(() => descriptor(page, base).catch(() => undefined), { timeout: 60_000 })
+      .toEqual(ready);
+    await expectNoOwnerSetupRoutes();
     await page.goto(app);
     await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
-    expect((await evidence()).facts).toEqual(ready.facts);
     await page.goto(`${app}/signin`);
     expect(await signIn(username, password)).toBe(true);
     expect(await status(`${idp}/.well-known/openid-configuration`, ca)).toBe(200);
@@ -451,7 +419,7 @@ nodeTest(
         (await api(endpoint, ca, { headers: { Origin: "https://other.localhost" } })).origin
       ).toBeUndefined();
     }
-    expect(await descriptor(pmPage, base)).toEqual({ state: "ready", idp, storage });
+    expect(await descriptor(pmPage, base)).toEqual(ready);
     await passwordManagerSignin(pmPage, { origin: pm, idp, storage, username, password }, true);
   }
 );
@@ -459,7 +427,11 @@ nodeTest(
 function api(
   url: string,
   ca: Buffer,
-  options: { method?: string; headers?: Record<string, string>; body?: string } = {}
+  options: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+  } = {}
 ): Promise<{ status: number; origin: string | undefined; body: string }> {
   return new Promise((resolve, reject) => {
     const req = request(
@@ -636,10 +608,10 @@ async function remoteInstallation(node: Awaited<ReturnType<typeof launchNode>>) 
 }
 
 nodeTest("Join refuses Storage outside the selected Installation", async ({ node }) => {
-  const { app, base, browser, ca, data } = node;
+  const { app, base, browser, ca } = node;
   const remote = await remoteInstallation(node);
   const page = await browser.newPage();
-  await choose(page, node, "join");
+  const nodeCode = await choose(page, node, "join");
   const endpoint = `${base}/setup/join`;
   const post = (body: object) =>
     api(endpoint, ca, {
@@ -647,11 +619,10 @@ nodeTest("Join refuses Storage outside the selected Installation", async ({ node
       headers: {
         Origin: app,
         "Content-Type": "application/json",
-        Authorization: `Setup ${joinCode}`,
+        Authorization: `Setup ${nodeCode}`,
       },
       body: JSON.stringify(body),
     });
-  const joinCode = await code(resolve(data, "join/admission/state"));
   const before = await remote.devices();
   expect(
     (
@@ -684,19 +655,20 @@ nodeTest(
     const page = await browser.newPage();
     const pmPage = await browser.newPage();
     await passwordManagerWhileWaiting(pmPage, pm, base);
-    await choose(page, node, "join");
+    const nodeCode = await choose(page, node, "join");
     await expect(page.getByLabel("Local join helper")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Prepare join" })).toBeVisible();
+    const nodeCodeField = page.getByLabel("Node setup code", { exact: true });
+    await expect(nodeCodeField).toHaveCount(0);
     expect(await descriptor(page, base)).toEqual({ state: "joining" });
     const endpoint = `${base}/setup/join`;
-    const joinCode = await code(resolve(data, "join/admission/state"));
     const unauthorized = await api(endpoint, ca, {
       method: "POST",
       headers: { Origin: app, "Content-Type": "application/json" },
       body: '{"action":"resume"}',
     });
     expect(unauthorized.status).toBe(401);
-    const joinCodeField = page.getByLabel("Local setup code");
-    await joinCodeField.fill(joinCode);
+
     const name = "Joined through unified";
     for (const [label, value] of [
       ["Installation issuer", remote.idp],
@@ -717,7 +689,8 @@ nodeTest(
     await page.getByRole("button", { name: "Allow", exact: true }).click();
     await expect(page.getByText("Signed in to the Installation.")).toBeVisible();
     expect((await remote.devices()).some((device) => device.name === name)).toBe(false);
-    await joinCodeField.fill(joinCode);
+    await expect(nodeCodeField).toHaveValue("");
+    await nodeCodeField.fill(nodeCode);
     await page.getByRole("button", { name: "Request pairing" }).click();
     await expect(page.getByText("Pairing is pending.")).toBeVisible();
     const pending = (await remote.devices()).find((device) => device.name === name);
@@ -727,7 +700,8 @@ nodeTest(
     await node.restart();
     await page.goto(app);
     await expect(page).toHaveURL(`${app}/setup/join`);
-    await joinCodeField.fill(joinCode);
+    await expect(nodeCodeField).toHaveValue("");
+    await nodeCodeField.fill(nodeCode);
     await page.getByRole("button", { name: "Resume join" }).click();
     await expect(page.getByText("Pairing is pending.")).toBeVisible();
     await page.getByRole("button", { name: "Approve this Device" }).click();

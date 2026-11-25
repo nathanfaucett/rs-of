@@ -6,6 +6,8 @@ mod config;
 #[cfg(all(unix, feature = "cli", feature = "independent-contracts"))]
 mod first_run;
 #[cfg(all(unix, feature = "cli", feature = "independent-contracts"))]
+mod node_create;
+#[cfg(all(unix, feature = "cli", feature = "independent-contracts"))]
 mod node_setup;
 mod runtime;
 

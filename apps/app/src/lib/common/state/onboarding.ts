@@ -3,6 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { env } from "$env/dynamic/public";
 import { getDeviceApiUrl } from "./deviceClient.svelte";
 import { getIdpApiUrl, usesRemoteApis } from "./idpClient.svelte";
+import { type NodeSetupStatus, nodeSetupStatus } from "./nodeSetup";
 import {
   fetchSetupHosts,
   requireCurrentSetupUiOrigin,
@@ -102,11 +103,41 @@ function blocked(
   };
 }
 
-export async function observeOnboarding(): Promise<OnboardingObservation> {
+export async function observeOnboarding(
+  nodeStatus?: NodeSetupStatus
+): Promise<OnboardingObservation> {
   const selected = selection();
   let target = publicTarget(selected);
   let hosts: SetupHost[];
   try {
+    const node = nodeStatus ?? (await nodeSetupStatus());
+    if (!sameSelection(selected)) return blocked(selection(), "retry");
+    if (node) {
+      requireCurrentSetupUiOrigin();
+      if (node.route === "/signin") {
+        const origin = new URL(node.idp).origin;
+        if (
+          target.idp !== node.idp ||
+          target.device !== `${origin}/device` ||
+          target.storage !== node.storage
+        )
+          return blocked(target, "prerequisite");
+        return {
+          target,
+          hosts: [],
+          state: "ready",
+          action: "sign_in",
+          loginClient: node.loginClient,
+        };
+      }
+      if (node.state === "starting")
+        return { target, hosts: [], state: "starting", action: "observe" };
+      if (node.state === "creating" || node.state === "joining")
+        return { target, hosts: [], state: "working", action: "observe" };
+      if (node.state === "awaiting_choice")
+        return { target, hosts: [], state: "needs_setup", action: "choose" };
+      return blocked(target, node.state === "blocked" ? "repair" : "retry");
+    }
     const clientId = configuredWebLoginClient(env, selected.idp, isTauri());
     if (clientId) {
       const { PUBLIC_REQUIRE_SEEDED_FIXTURE_HEADER: requireFixtureHeader } = env;

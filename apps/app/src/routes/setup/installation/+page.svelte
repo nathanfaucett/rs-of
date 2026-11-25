@@ -8,15 +8,22 @@
     } from "$lib/common/state/onboarding";
     import { Alert, Card, Page, PageHeader } from "$lib/ui";
 
-    let { data }: { data: { observation: OnboardingObservation } } = $props();
+    import type { PageProps } from "./$types";
+    import CreateNode from "./CreateNode.svelte";
+
+    let { data }: PageProps = $props();
     let refreshed = $state.raw<{
         source: typeof data;
         observation: OnboardingObservation;
     }>();
     const observation = $derived(
-        refreshed?.source === data ? refreshed.observation : data.observation,
+        data.unified
+            ? undefined
+            : refreshed?.source === data
+                ? refreshed.observation
+                : data.observation,
     );
-    const bundled = $derived(observation.target.kind === "bundled");
+    const bundled = $derived(observation?.target.kind === "bundled");
     let busy = $state(false);
     let error = $state("");
     async function refreshObservation() {
@@ -44,11 +51,14 @@
         await runtime("set_local_trust_consent", { consent: allow });
     }
     $effect(() => {
-        if (observation.state !== "starting") return;
+        if (observation?.state !== "starting") return;
         const interval = setInterval(() => void refreshObservation(), 500);
         return () => clearInterval(interval);
     });
 </script>
+{#if data.unified}
+    <CreateNode />
+{:else if observation}
 <Page width="narrow">
     <PageHeader title="Set up this Node" />
     <Card>
@@ -145,3 +155,4 @@
         {#if error}<Alert tone="danger">{error}</Alert>{/if}
     </Card>
 </Page>
+{/if}

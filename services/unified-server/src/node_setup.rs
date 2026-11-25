@@ -10,8 +10,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use server_common::{
-    IndependentCreateControl, SetupAdmission, SetupAdmissionError, setup_files, setup_origin,
-    setup_origin_guard,
+    SetupAdmission, SetupAdmissionError, setup_files, setup_origin, setup_origin_guard,
 };
 use setup::join::JoinHost;
 use tokio::sync::watch;
@@ -23,6 +22,8 @@ use utoipa::{
         security::{ApiKey, ApiKeyValue, SecurityScheme},
     },
 };
+
+use crate::node_create::{self, CancelRequest, CreateRecovery, CreateRequest, NodeCreate};
 
 pub const ADMISSION: &str = "node-admission";
 pub const OWNERS: [&str; 3] = ["idp", "device", "storage"];
@@ -41,14 +42,13 @@ pub struct NodeSetup {
     binding: String,
     ui: HeaderValue,
     pm: HeaderValue,
-    base: String,
 }
 
 #[derive(Clone)]
 pub enum Completion {
     Starting,
     Create {
-        owners: [IndependentCreateControl; 3],
+        create: NodeCreate,
         management: watch::Receiver<Option<Router>>,
     },
     Join(Arc<JoinHost>),
@@ -62,7 +62,18 @@ enum Descriptor {
     Creating,
     Joining,
     Blocked,
-    Ready { idp: String, storage: String },
+    Ready {
+        idp: String,
+        storage: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        login_client: Option<LoginClient>,
+    },
+}
+
+#[derive(Serialize, ToSchema)]
+struct LoginClient {
+    client_id: String,
+    scopes: Vec<&'static str>,
 }
 
 impl NodeSetup {
@@ -96,7 +107,7 @@ impl NodeSetup {
                 ));
             }
         };
-        if choice.is_none() {
+        if !admission.is_retired().map_err(io::Error::other)? {
             println!(
                 "Protected Node setup-code retrieval path: {}",
                 path.join("state").display()
@@ -108,7 +119,6 @@ impl NodeSetup {
             binding,
             ui: setup_origin(ui)?,
             pm: setup_origin(pm)?,
-            base: base.into(),
         })
     }
 
@@ -116,7 +126,15 @@ impl NodeSetup {
         self.choice.subscribe()
     }
 
+    pub fn admission(&self) -> Arc<SetupAdmission> {
+        Arc::clone(&self.admission)
+    }
+
     pub fn router(&self, completion: Completion) -> Router {
+        let create = match &completion {
+            Completion::Create { create, .. } => create.router(),
+            _ => Router::new(),
+        };
         let reads = Router::new()
             .route("/setup/node", get(describe))
             .with_state((self.clone(), completion))
@@ -127,6 +145,8 @@ impl NodeSetup {
             );
         let writes = Router::new()
             .route("/setup/node/choice", post(select))
+            .with_state(self.clone())
+            .merge(create)
             .layer(
                 CorsLayer::new()
                     .allow_origin(self.ui.clone())
@@ -136,8 +156,7 @@ impl NodeSetup {
             .layer(middleware::from_fn_with_state(
                 self.ui.clone(),
                 setup_origin_guard,
-            ))
-            .with_state(self.clone());
+            ));
         reads.merge(writes)
     }
 }
@@ -155,35 +174,48 @@ async fn describe(State((node, completion)): State<(NodeSetup, Completion)>) -> 
                 Descriptor::AwaitingChoice
             }
         }
-        Completion::Create {
-            owners: [idp, device, storage],
-            management,
-        } => {
+        Completion::Create { create, management } => {
             let management_ready = management.borrow().is_some();
-            let (idp, device, storage) = tokio::join!(
+            let [idp, device, storage] = create.owners();
+            let (idp_intent, device_intent, storage_intent) = tokio::join!(
                 idp.verified_intent(),
                 device.verified_intent(),
                 storage.verified_intent()
             );
-            match (idp, device, storage) {
-                (Some(idp), Some(device), Some(storage))
+            match (idp_intent, device_intent, storage_intent) {
+                (Some(intent), Some(device), Some(storage))
                     if management_ready
-                        && idp == device
-                        && idp == storage
-                        && idp.idp == format!("{}/idp", node.base)
-                        && idp.device == format!("{}/device", node.base)
-                        && idp.storage == format!("{}/storage", node.base) =>
+                        && intent == device
+                        && intent == storage
+                        && create.matches_bases(&intent) =>
                 {
-                    Descriptor::Ready {
-                        idp: idp.idp,
-                        storage: idp.storage,
+                    let login = idp.peer(&intent, "idp").await.ok().and_then(|public| {
+                        public.facts["login_client"]
+                            .as_str()
+                            .filter(|id| !id.is_empty())
+                            .map(str::to_owned)
+                    });
+                    match login {
+                        Some(client_id) => Descriptor::Ready {
+                            idp: intent.idp,
+                            storage: intent.storage,
+                            login_client: Some(LoginClient {
+                                client_id,
+                                scopes: vec!["openid"],
+                            }),
+                        },
+                        None => Descriptor::Blocked,
                     }
                 }
                 _ => Descriptor::Creating,
             }
         }
         Completion::Join(join) => match join.approved_bases().await {
-            Ok(Some((idp, storage))) => Descriptor::Ready { idp, storage },
+            Ok(Some((idp, storage))) => Descriptor::Ready {
+                idp,
+                storage,
+                login_client: None,
+            },
             Ok(None) => Descriptor::Joining,
             Err(_error) => Descriptor::Blocked,
         },
@@ -224,7 +256,23 @@ async fn select(
 #[must_use]
 pub fn node_setup_openapi() -> Document {
     #[derive(OpenApi)]
-    #[openapi(paths(describe, select), components(schemas(Choice, Descriptor)))]
+    #[openapi(
+        paths(
+            describe,
+            select,
+            node_create::create,
+            node_create::recover,
+            node_create::cancel
+        ),
+        components(schemas(
+            Choice,
+            Descriptor,
+            LoginClient,
+            CreateRequest,
+            CreateRecovery,
+            CancelRequest
+        ))
+    )]
     struct NodeOpenApi;
     let mut document = NodeOpenApi::openapi();
     document

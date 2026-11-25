@@ -6,7 +6,7 @@ import { afterSigninRedirect } from "$lib/common/state/afterSigninRedirect.svelt
 import { ensureTauriDeviceApiUrl } from "$lib/common/state/deviceClient.svelte";
 import { ensureTauriIdpApiUrl, getIdpApiUrl, idpApi } from "$lib/common/state/idpClient.svelte";
 import { ensureTauriManagementApiUrl } from "$lib/common/state/managementClient.svelte";
-import { nodeSetupRoute } from "$lib/common/state/nodeSetup";
+import { nodeSetupStatus } from "$lib/common/state/nodeSetup";
 import { clearOidcSession, ensureOidcClientId, getOidcClient } from "$lib/common/state/oidc.svelte";
 import { observeOnboarding } from "$lib/common/state/onboarding";
 import type { LayoutLoad } from "./$types";
@@ -17,9 +17,9 @@ export const load = (async (event) => {
   await event.parent();
 
   if (!isTauri() && !getIdpApiUrl()) redirect(302, resolve("/setup/installation"));
-  const route = await nodeSetupRoute();
-  if (route && route !== "/signin") redirect(302, route);
-  const observation = await observeOnboarding();
+  const node = await nodeSetupStatus();
+  if (node && node.route !== "/signin") redirect(302, node.route);
+  const observation = await observeOnboarding(node);
   if (observation.state !== "ready") redirect(302, resolve("/setup/installation"));
   if (isTauri()) {
     await ensureTauriIdpApiUrl();

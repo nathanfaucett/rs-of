@@ -16,8 +16,8 @@ use axum::{
 };
 use reqwest::{Client, Url};
 use server_common::{
-    IndependentCreateHost, IndependentSetupHost, LocalTls, ServerConfig, random_capability,
-    setup_files,
+    IndependentCreateControl, IndependentCreateHost, IndependentSetupHost, LocalTls, ServerConfig,
+    random_capability, setup_files,
 };
 use setup::join::JoinHost;
 use tokio::{
@@ -32,6 +32,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     compose_router,
+    node_create::NodeCreate,
     node_setup::{ADMISSION, Choice, Completion, NodeSetup, OWNERS},
 };
 
@@ -127,8 +128,7 @@ pub async fn serve(
                 )?),
                 Choice::Join => {
                     let path = root.join("join");
-                    let join = Arc::new(JoinHost::open_for_proxy(&path, &ui_origin)?);
-                    println!("Protected Join setup-code retrieval path: {}", path.join("admission/state").display());
+                    let join = Arc::new(JoinHost::open_for_proxy(&path, &ui_origin, node.admission())?);
                     published.send_replace(Some(join.router().merge(node.router(Completion::Join(join)))));
                 }
             }
@@ -165,14 +165,11 @@ fn run_owners(
         )
     });
     let (idp, device, storage) = (idp?, device?, storage?);
-    let paths = [
-        idp.admission_path(),
-        device.admission_path(),
-        storage.admission_path(),
-    ];
     let (idp, idp_commands) = idp.into_create(shutdown.clone())?;
     let (device, device_commands) = device.into_create(shutdown.clone())?;
     let (storage, storage_commands) = storage.into_create(shutdown.clone())?;
+    let controls = [idp.control(), device.control(), storage.control()];
+    IndependentCreateControl::connect_local(&controls)?;
     write_hosts_marker(root)?;
     let (idp_config, device_config, storage_config) =
         owner_configs(root, ui_origin, public_origin)?;
@@ -220,24 +217,18 @@ fn run_owners(
         server_common::setup_origin(pm_origin)?,
     ];
     let completion = Completion::Create {
-        owners: [idp.control(), device.control(), storage.control()],
+        create: NodeCreate::new(node.admission(), controls, public_origin.into()),
         management: management_router,
     };
     published.send_replace(Some(
         compose_router(
-            idp.router_with_api_origins(api_origins.clone()),
+            idp.api_router(api_origins.clone()),
             management,
-            device.router(),
-            storage.router_with_api_origins(api_origins),
+            device.api_router([api_origins[0].clone()]),
+            storage.api_router(api_origins),
         )
         .merge(node.router(completion)),
     ));
-    for (owner, path) in OWNERS.into_iter().zip(paths) {
-        println!(
-            "Protected {owner} setup-code retrieval path: {}",
-            path.display()
-        );
-    }
     Ok([idp, device, storage])
 }
 

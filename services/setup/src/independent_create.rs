@@ -2,7 +2,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     pin::Pin,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, Weak},
 };
 
 use crate::canonical_openapi_router;
@@ -15,6 +15,7 @@ use axum::{
     },
     middleware,
     response::{IntoResponse, Response},
+    routing::get,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::{Mutex, mpsc};
@@ -24,7 +25,7 @@ use tower_http::cors::CorsLayer;
 
 use crate::{
     IndependentCreateIntent, IndependentCreateRequest, IndependentOwnerPublic,
-    IndependentSetupHost, SetupAdmission,
+    IndependentSetupHost, SetupAdmission, independent_exchange,
     setup_files::{present, private_options, read_private, sync_ancestry},
     setup_origin, setup_origin_guard,
 };
@@ -56,6 +57,18 @@ pub(crate) struct CreateLifecycle {
     pub(crate) challenges: Vec<crate::independent_exchange::OutstandingChallenge>,
 }
 
+impl CreateLifecycle {
+    fn cancel_active(&mut self) -> bool {
+        let Some(active) = self.active.as_ref() else {
+            return false;
+        };
+        active.cancel();
+        self.challenges.clear();
+        self.view = "unfinished";
+        true
+    }
+}
+
 pub(crate) struct CreateShared {
     pub(crate) owner: String,
     pub(crate) base: String,
@@ -63,6 +76,7 @@ pub(crate) struct CreateShared {
     pub(crate) directory: PathBuf,
     pub(crate) admission: Arc<SetupAdmission>,
     pub(crate) lifecycle: Mutex<CreateLifecycle>,
+    local_peers: RwLock<Option<[Weak<Self>; 3]>>,
     normal: RwLock<Option<Router>>,
     readiness: RwLock<Option<IndependentReadiness>>,
     commands: mpsc::Sender<IndependentCreateCommand>,
@@ -142,6 +156,7 @@ impl IndependentSetupHost {
                 loader: None,
                 challenges: Vec::new(),
             }),
+            local_peers: RwLock::new(None),
             normal: RwLock::new(None),
             readiness: RwLock::new(None),
             commands,
@@ -203,16 +218,34 @@ impl IndependentCreateHost {
         } else {
             Router::new().nest(&self.host.settings.prefix, setup)
         };
-        setup.fallback_service(
-            Router::new()
-                .fallback(normal)
-                .with_state(self.control.clone())
-                .layer(
-                    CorsLayer::very_permissive()
-                        .allow_origin(origins.into_iter().collect::<Vec<_>>())
-                        .allow_private_network(true),
-                ),
-        )
+        setup.fallback_service(self.normal_router().layer(api_cors(origins)))
+    }
+
+    /// Mount only the normal APIs when the composing host owns setup.
+    ///
+    /// # Panics
+    /// Panics if the checked-in owner contract has no path table.
+    pub fn api_router(&self, origins: impl IntoIterator<Item = HeaderValue>) -> Router {
+        let mut document = crate::canonical_openapi(self.control.owner(), &self.control.0.base, "");
+        document["paths"]
+            .as_object_mut()
+            .expect("canonical paths")
+            .retain(|path, _| !path.starts_with("/setup/owner/"));
+        if let Some(schemes) = document["components"]["securitySchemes"].as_object_mut() {
+            schemes.remove("setup_code");
+        }
+        self.normal_router()
+            .route(
+                &format!("{}/openapi.json", self.host.settings.prefix),
+                get(move || async move { Json(document) }),
+            )
+            .layer(api_cors(origins))
+    }
+
+    fn normal_router(&self) -> Router {
+        Router::new()
+            .fallback(normal)
+            .with_state(self.control.clone())
     }
     pub async fn serve(self) -> io::Result<()> {
         let router = self.router();
@@ -223,6 +256,12 @@ impl IndependentCreateHost {
         crate::setup_server::serve_setup(self, tls, address, router, path, admission, shutdown)
             .await
     }
+}
+
+fn api_cors(origins: impl IntoIterator<Item = HeaderValue>) -> CorsLayer {
+    CorsLayer::very_permissive()
+        .allow_origin(origins.into_iter().collect::<Vec<_>>())
+        .allow_private_network(true)
 }
 
 impl IndependentCreateControl {
@@ -245,6 +284,56 @@ impl IndependentCreateControl {
     pub async fn intent(&self) -> Option<IndependentCreateIntent> {
         self.0.lifecycle.lock().await.intent.clone()
     }
+    /// Inspect durable setup without exposing an owner's private code.
+    ///
+    /// # Errors
+    /// Fails if the retained admission is unavailable or disagrees with the worker.
+    pub async fn local_setup_state(&self) -> io::Result<(Option<IndependentCreateIntent>, bool)> {
+        let state = self.0.lifecycle.lock().await;
+        let retained = self.0.admission.host_intent().map_err(io::Error::other)?;
+        let expected = state
+            .intent
+            .as_ref()
+            .map(IndependentCreateIntent::canonical)
+            .transpose()?;
+        if retained != expected {
+            return Err(io::Error::other("retained owner operation changed"));
+        }
+        Ok((
+            state.intent.clone(),
+            self.0.admission.is_retired().map_err(io::Error::other)?,
+        ))
+    }
+
+    /// Submit from an already authorized host-local coordinator, not from an HTTP route.
+    pub async fn submit_local(&self, request: IndependentCreateRequest) -> StatusCode {
+        let headers = match self.local_headers() {
+            Ok(Some(headers)) => headers,
+            Ok(None) => return StatusCode::CONFLICT,
+            Err(error) => return error.into_response().status(),
+        };
+        accept(self.clone(), headers, request).await.status()
+    }
+
+    /// Cancel active work for the exact operation, if any. This does not roll back state.
+    pub async fn cancel_local(&self, intent: &IndependentCreateIntent) {
+        let mut state = self.0.lifecycle.lock().await;
+        if state.intent.as_ref() == Some(intent) {
+            state.cancel_active();
+        }
+    }
+
+    fn local_headers(&self) -> Result<Option<HeaderMap>, crate::SetupAdmissionError> {
+        Ok(self.0.admission.current_code()?.map(|code| {
+            let mut value =
+                HeaderValue::from_str(&format!("Setup {code}")).expect("validated code");
+            value.set_sensitive(true);
+            let mut headers = HeaderMap::new();
+            headers.insert(AUTHORIZATION, value);
+            headers
+        }))
+    }
+
     pub fn read_record<T: DeserializeOwned>(&self) -> io::Result<Option<T>> {
         let path = self.directory().join("worker.json");
         if !present(&path)? {
@@ -456,25 +545,115 @@ impl IndependentCreateControl {
             tokio::select! { () = cancellation.cancelled() => return Err(io::Error::new(io::ErrorKind::Interrupted, "owner setup cancelled")), () = tokio::time::sleep(std::time::Duration::from_millis(50)) => () }
         }
     }
+    /// Connect the `IdP`, Device, and Storage controls in any order before starting their workers.
+    ///
+    /// # Errors
+    /// Returns an error if a role is missing, bases repeat, or a control cannot be attached.
+    pub fn connect_local(controls: &[Self; 3]) -> io::Result<()> {
+        let find = |owner| {
+            controls
+                .iter()
+                .find(|control| control.owner() == owner)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing local owner"))
+        };
+        let controls = [find("idp")?, find("device")?, find("storage")?];
+        let [idp, device, storage] = controls.map(|control| control.0.base.as_str());
+        if idp == device || idp == storage || device == storage {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "local owners require distinct bases",
+            ));
+        }
+        let [idp, device, storage] = controls.map(|control| {
+            control
+                .0
+                .local_peers
+                .write()
+                .map_err(|_| io::Error::other("local owner exchange lock unavailable"))
+        });
+        let mut connections = [idp?, device?, storage?];
+        if connections.iter().any(|connection| connection.is_some()) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "local owners already connected",
+            ));
+        }
+        let peers = controls.map(|control| Arc::downgrade(&control.0));
+        for connection in &mut connections {
+            **connection = Some(peers.clone());
+        }
+        Ok(())
+    }
+
+    /// Returns `None` for independent HTTPS mode, not for a missing local peer.
+    ///
+    /// # Errors
+    /// Returns an error if the requested local peer is not available or its base differs.
+    pub fn local_peer(
+        &self,
+        intent: &IndependentCreateIntent,
+        owner: &str,
+    ) -> io::Result<Option<Self>> {
+        let peers = self
+            .0
+            .local_peers
+            .read()
+            .map_err(|_| io::Error::other("local owner exchange lock unavailable"))?;
+        let Some([idp, device, storage]) = peers.as_ref() else {
+            return Ok(None);
+        };
+        let peer = match owner {
+            "idp" => idp,
+            "device" => device,
+            "storage" => storage,
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid local owner",
+                ));
+            }
+        }
+        .upgrade()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "local owner unavailable"))?;
+        drop(peers);
+        if intent.base(self.owner())? != self.0.base || intent.base(owner)? != peer.base {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "local owner base disagrees with exact operation",
+            ));
+        }
+        Ok(Some(Self(peer)))
+    }
+
     pub async fn peer(
         &self,
         intent: &IndependentCreateIntent,
         owner: &str,
     ) -> io::Result<IndependentOwnerPublic> {
-        let configuration = of_idp_client::apis::configuration::Configuration {
-            base_path: intent.base(owner)?.to_owned(),
-            client: self.http_client(),
-            response_limit: 65536,
-            ..Default::default()
-        };
-        let response =
-            of_idp_client::apis::owner_setup_api::owner_setup_owner_public(&configuration)
+        let public: IndependentOwnerPublic = if let Some(peer) = self.local_peer(intent, owner)? {
+            independent_exchange::public(State(peer))
                 .await
-                .map_err(|_| {
-                    io::Error::other("owner HTTPS discovery unavailable or operation not admitted")
-                })?;
-        let public: IndependentOwnerPublic =
-            serde_json::from_value(serde_json::to_value(response)?)?;
+                .map_err(|status| {
+                    io::Error::other(format!("local owner discovery failed: {status}"))
+                })?
+                .0
+        } else {
+            let configuration = of_idp_client::apis::configuration::Configuration {
+                base_path: intent.base(owner)?.to_owned(),
+                client: self.http_client(),
+                response_limit: 65536,
+                ..Default::default()
+            };
+            let response =
+                of_idp_client::apis::owner_setup_api::owner_setup_owner_public(&configuration)
+                    .await
+                    .map_err(|_| {
+                        io::Error::other(
+                            "owner HTTPS discovery unavailable or operation not admitted",
+                        )
+                    })?;
+            serde_json::from_value(serde_json::to_value(response)?)?
+        };
         if public.operation != *intent
             || public.owner != owner
             || public.clients.iter().any(|r| !r["client_secret"].is_null())
@@ -612,13 +791,11 @@ pub(crate) async fn cancel(
     if state.intent.as_ref() != Some(&intent) {
         return StatusCode::CONFLICT.into_response();
     }
-    let Some(active) = state.active.as_ref() else {
-        return StatusCode::CONFLICT.into_response();
-    };
-    active.cancel();
-    state.challenges.clear();
-    state.view = "unfinished";
-    StatusCode::NO_CONTENT.into_response()
+    if state.cancel_active() {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        StatusCode::CONFLICT.into_response()
+    }
 }
 pub struct RequestObservation<'a> {
     phase: &'static str,

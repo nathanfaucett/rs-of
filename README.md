@@ -10,7 +10,7 @@ The repository is migrating to the [accepted target architecture](docs/architect
 
 | Area                                   | Current state                                                                                                                                                                   |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Local unified backend                  | First-run setup over Portless HTTPS: create an Installation or join one as a Device                                                                                            |
+| Local unified backend                  | First-run setup over Portless HTTPS: create an Installation or join one as a Device                                                                                             |
 | OIDC and remote Storage SQL            | Discovery, consent/PKCE sign-in, session reload, and remote Storage SQL CRUD pass real-backend Playwright tests                                                                 |
 | Local encrypted password vault         | Development reference application, not a production password manager                                                                                                            |
 | Shared multi-User Installation Devices | Accepted target; migration is incomplete                                                                                                                                        |
@@ -20,8 +20,6 @@ The repository is migrating to the [accepted target architecture](docs/architect
 | Independent and desktop deployments    | Can create a first Installation. An existing Installation admits Devices, not additional server authorities.                                                                    |
 
 GitHub Actions records current and historical check results.
-
-Installation setup requires fresh owner stores. If you have an older setup, back up its data and redo setup in an empty root. This change provides no migration, old-format reader, or version bump.
 
 To add a Device to an existing Installation, use the [Device owner pairing contract](openapi/device.json). An authorized User creates a pending request against an approved Device. Use the exact retry operation when delivery is uncertain: it matches the original requester, endpoint key, and enrollment fields in the same Installation. The new Device signs the UTF-8 payload with its Ed25519 endpoint key and encodes the signature as base64url without padding. An authorized User submits that signature to approve the Device. No server setup or transport listener is required.
 
@@ -42,14 +40,14 @@ just unified
 pnpm apps:dev
 ```
 
-Open the [main app](https://of.localhost:1355). On a fresh Node, enter the protected setup code from the file printed by the server and choose **Start a new Installation** or **Join an existing Installation**. Portless can prefix these hostnames in a Git worktree; use the URLs it prints. You do not need to set environment variables.
+Open the [main app](https://of.localhost:1355). To select **Start a new Installation** or **Join an existing Installation**, enter the protected Node code from the private file whose path the server prints. The browser reuses that code in memory only. Reenter it if setup resumes after a reload or an OIDC sign-in redirect. Portless can prefix these hostnames in a Git worktree; use the URLs it prints. You do not need to set environment variables.
 
-- **Create** sets the first administrator and starts the local owner APIs. It does not seed any accounts. Wait for setup to verify readiness before signing in.
-- **Join** uses an existing Installation's Device pairing and approval. It does not start local owner APIs or create accounts.
+- **Create** sets the first administrator and runs the local owner setup workers automatically in the Node process. Unified Create does not expose public owner setup routes or seed accounts. Wait for setup to verify readiness before signing in.
+- **Join** uses the same Node code, but still requires pairing and approval from the existing Installation. It does not start local owner APIs or create accounts.
 
 The [Password Manager](https://password-manager.localhost:1355) can use local vaults immediately. For sign-in it reads the selected IdP and Storage from the [Node setup descriptor](openapi/node.json) after setup completes.
 
-Restart with the same data root and public URLs to continue or use the retained setup. The default root is `.data`. The server rejects seeded roots without changing them. Preserve an old root and run `just unified --data-dir <fresh-private-path>` to start setup. There is no migration from seeded state or the earlier opt-in Create root. See [local setup and recovery](services/unified-server/README.md).
+Restart with the same data root and public URLs to resume active setup or use completed setup. The default root is `.data`. Existing unified roots and their original codes need no migration. The operator uses only the Node code. The server still rejects seeded roots without changing them. See [local setup and recovery](services/unified-server/README.md) for unsupported roots and recovery steps.
 
 ## Repository map
 

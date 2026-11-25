@@ -6,6 +6,7 @@ export default defineConfig({
   test: {
     include: [
       "src/lib/common/state/webLoginClient.test.ts",
+      "src/lib/common/state/nodeSetup.test.ts",
       "src/lib/common/state/setupClient.test.ts",
       "src/lib/common/state/serviceApi.test.ts",
       "src/routes/(auth)/authorize/registration.test.ts",

@@ -41,7 +41,7 @@ use of_model::{device::contract::device_pairing::device_pairing_approval_payload
 use reqwest::{Client, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::{net::TcpListener, sync::Mutex, task::spawn_blocking};
 use tower_http::cors::CorsLayer;
 
 use crate::{
@@ -56,6 +56,7 @@ const STORE: &str = "join-v1.json";
 /// Protected local Device join, served over native or verified proxy HTTPS.
 pub struct JoinHost {
     listener: Option<(SocketAddr, LocalTls)>,
+    node_admission: Option<Arc<SetupAdmission>>,
     origin: HeaderValue,
     state: Arc<Host>,
 }
@@ -107,15 +108,20 @@ impl JoinHost {
         require_private(&root.join("admission"), true)?;
         let admission = Arc::new(SetupAdmission::open(&root.join("admission"))?);
         let tls = LocalTls::open(&TlsConfig(root.clone(), address))?;
-        Self::with_admission(root, origin, admission, Some((address, tls)))
+        Self::with_admission(root, origin, admission, Some((address, tls)), None)
     }
 
     /// Open the protected join flow for a caller-owned, verified HTTPS route.
+    /// POST uses Node admission while retaining the private Join admission state.
     /// The caller must lock the root and retain the exact public and browser origins.
     ///
     /// # Errors
     /// Fails when the origin or protected retained evidence is invalid.
-    pub fn open_for_proxy(root: &Path, origin: &str) -> io::Result<Self> {
+    pub fn open_for_proxy(
+        root: &Path,
+        origin: &str,
+        node_admission: Arc<SetupAdmission>,
+    ) -> io::Result<Self> {
         if !origin.starts_with("https://") {
             return Err(io::Error::other("join requires an HTTPS browser origin"));
         }
@@ -127,7 +133,7 @@ impl JoinHost {
             require_private(&path, true)?;
         }
         let admission = Arc::new(SetupAdmission::open(&path)?);
-        Self::with_admission(root, origin, admission, None)
+        Self::with_admission(root, origin, admission, None, Some(node_admission))
     }
 
     fn with_admission(
@@ -135,6 +141,7 @@ impl JoinHost {
         origin: &str,
         admission: Arc<SetupAdmission>,
         listener: Option<(SocketAddr, LocalTls)>,
+        node_admission: Option<Arc<SetupAdmission>>,
     ) -> io::Result<Self> {
         let state = Arc::new(Host {
             root,
@@ -146,6 +153,7 @@ impl JoinHost {
         })?;
         Ok(Self {
             listener,
+            node_admission,
             origin: setup_origin(origin)?,
             state,
         })
@@ -169,14 +177,20 @@ impl JoinHost {
             .allow_methods([Method::GET, Method::POST])
             .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
             .allow_private_network(true);
+        let writes = Router::new().route(PATH, post(action));
+        let writes = match &self.node_admission {
+            Some(node) => writes.route_layer(middleware::from_fn_with_state(
+                (Arc::clone(node), Arc::clone(&self.state.admission)),
+                proxy_admission,
+            )),
+            None => writes.route_layer(middleware::from_fn_with_state(
+                Arc::clone(&self.state.admission),
+                setup_admission_middleware,
+            )),
+        };
         Router::new()
             .route(PATH, get(status))
-            .merge(Router::new().route(PATH, post(action)).route_layer(
-                middleware::from_fn_with_state(
-                    Arc::clone(&self.state.admission),
-                    setup_admission_middleware,
-                ),
-            ))
+            .merge(writes)
             .with_state(Arc::clone(&self.state))
             .route_layer(middleware::from_fn_with_state(
                 self.origin.clone(),
@@ -239,6 +253,25 @@ async fn require_origin(
         return StatusCode::FORBIDDEN.into_response();
     }
     next.run(request).await
+}
+
+async fn proxy_admission(
+    State((node, join)): State<(Arc<SetupAdmission>, Arc<SetupAdmission>)>,
+    mut request: Request,
+    next: Next,
+) -> StdResult<Response, SetupAdmissionError> {
+    let headers = request.headers().clone();
+    let mut value = spawn_blocking(move || {
+        node.check(&headers)?;
+        let code = join.current_code()?.ok_or(SetupAdmissionError::Denied)?;
+        HeaderValue::try_from(format!("Setup {code}"))
+            .map_err(|_error| SetupAdmissionError::Unavailable)
+    })
+    .await
+    .map_err(|_error| SetupAdmissionError::Unavailable)??;
+    value.set_sensitive(true);
+    request.headers_mut().insert(header::AUTHORIZATION, value);
+    Ok(next.run(request).await)
 }
 
 async fn no_store(request: Request, next: Next) -> Response {

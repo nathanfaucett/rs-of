@@ -203,6 +203,21 @@ impl SetupAdmission {
         })
     }
 
+    /// Read the current code through the host-local handle, never through HTTP.
+    pub(crate) fn current_code(&self) -> Result<Option<String>> {
+        let mut local = self.inner.lock().map_err(unavailable)?;
+        if local.failed {
+            return Err(SetupAdmissionError::Unavailable);
+        }
+        match local.read().map_err(unavailable) {
+            Ok(retained) => Ok(retained.code),
+            Err(error) => {
+                local.failed = true;
+                Err(error)
+            }
+        }
+    }
+
     /// Validate private retained IO/state and sticky failure only. This is not
     /// admission proof: even valid retired state is healthy. Reveals no code or
     /// intent, and performs synchronous IO like the authorized operations.

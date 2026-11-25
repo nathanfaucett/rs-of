@@ -3,7 +3,7 @@
     import { onMount } from "svelte";
     import { replaceState } from "$app/navigation";
     import { resolve } from "$app/paths";
-    import { unifiedNode } from "$lib/common/state/nodeSetup";
+    import { clearNodeSetupCode, nodeSetupCode, unifiedNode } from "$lib/common/state/nodeSetup";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
     import { type JoinIntent, type JoinView, joinAction, joinClient, joinStatus } from "./joinApi";
 
@@ -25,6 +25,7 @@
     const node = unifiedNode();
     let helper = $state(node ?? "");
     let code = $state("");
+    let usingHandoff = $state(false);
     let view = $state.raw<JoinView>({ stage: "setup" });
     let ready = $state(false);
     let busy = $state(false);
@@ -49,6 +50,7 @@
         if (next.stage === "approved") {
             client?.clearStoredTokenResponse();
             signedIn = false;
+            clearNodeSetupCode("join", code);
             code = "";
         }
         if (next.stage !== "setup") sessionStorage.setItem(storageKey, JSON.stringify({ helper, view: next }));
@@ -81,6 +83,8 @@
             error = "Join requires an HTTPS app origin.";
             return;
         }
+        code = nodeSetupCode("join");
+        usingHandoff = Boolean(code);
         ready = true;
         void run(async () => {
             const raw = sessionStorage.getItem(storageKey);
@@ -116,7 +120,7 @@
         if (view.stage !== "prepared" && view.stage !== "pending") return;
         const { intent } = view;
         await run(async () => {
-            code = "";
+            if (!node) code = "";
             try {
                 client = await signInClient(intent);
                 await client.signin();
@@ -159,11 +163,19 @@
                         <input {id} type="url" bind:value={helper} disabled={busy || view.stage !== "setup"} class="input" />
                     {/snippet}
                 </Field>{/if}
-                <Field label="Local setup code">
-                    {#snippet children({ id })}
-                        <input {id} type="password" bind:value={code} disabled={busy} autocomplete="off" class="input" />
-                    {/snippet}
-                </Field>
+                {#if !usingHandoff}
+                    <Field label={node ? "Node setup code" : "Local setup code"}>
+                        {#snippet children({ id })}
+                            <input {id} type="password" bind:value={code} disabled={busy} autocomplete="off" class="input" />
+                        {/snippet}
+                    </Field>
+                {:else if error}
+                    <button type="button" class="btn btn-secondary btn-md" disabled={busy} onclick={() => {
+                        clearNodeSetupCode("join", code);
+                        code = "";
+                        usingHandoff = false;
+                    }}>Enter Node setup code</button>
+                {/if}
                 {#if view.stage === "setup"}
                     {#each fields as [key, label] (key)}
                         <Field {label}>
