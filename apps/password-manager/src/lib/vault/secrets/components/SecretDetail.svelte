@@ -16,7 +16,7 @@ let { record, canEdit, onedit, onclose, folderAssignment }: {
 </script>
 
 <Card title="Item details" description="Use Edit to change item fields.">
-    <div class="detail-fields flex min-w-0 flex-col gap-4 wrap-anywhere">
+    <div class="flex min-w-0 flex-col gap-4 wrap-anywhere">
         <h2 tabindex="-1" {@attach (element) => { element.focus(); }}>{record.name}</h2>
         <div class="flex flex-wrap gap-2">
             <button class="btn btn-primary btn-md" type="button" disabled={!canEdit} onclick={onedit}>Edit</button>
@@ -69,9 +69,3 @@ let { record, canEdit, onedit, onclose, folderAssignment }: {
         <p>Updated: <time datetime={record.updatedAt}>{record.updatedAt}</time></p>
     </div>
 </Card>
-
-<style>
-    .detail-fields :global(fieldset > div) {
-        flex-wrap: wrap;
-    }
-</style>

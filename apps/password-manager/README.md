@@ -10,8 +10,8 @@ This Svelte application demonstrates the platform's north-star workflow. It is i
 - The vault selector and the navigation sidebar for an unlocked local vault link to the OIDC sign-in route when you are signed out.
 - Vault records are encrypted with AES-256-GCM. The current key derivation uses PBKDF2-SHA-512 with 600,000 iterations.
 - Press Enter to create or unlock a vault. The create form shows the master-password rule before submission.
-- Protected values start masked. Use **Show** to reveal one field. Copy feedback does not include the value. The application does not clear the clipboard automatically.
-- A confirmed inactivity timeout save starts a new deadline for the unlocked vault. Unlock loads the saved setting from the encrypted vault.
+- Protected values start masked. Use **Show** to reveal one field. Changing a hidden custom field to another type clears its draft value; cancel the edit to keep the saved field. Copy feedback does not include the value. The application does not clear the clipboard automatically.
+- A confirmed inactivity timeout save starts a new deadline for the unlocked vault. Unlock loads the saved setting from the encrypted vault. Returning to the vault selector with the browser Back button ends the unlocked session.
 - Leaving a dirty item draft asks for confirmation. Locking does not ask: it clears the decrypted view and discards unsaved edits. A save already written to local storage can still be present after unlock.
 - Browser local storage is not an encrypted backup.
 - The application includes local backup/recovery and offline-shell support; platform, eviction, update, and recovery limits still apply.

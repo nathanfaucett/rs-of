@@ -4,6 +4,16 @@ import { passwordManagerURL } from "./backend.mjs";
 const name = "Lock settings test vault";
 const password = "synthetic-lock-settings-password";
 
+async function createVault(page: Page) {
+  await page.goto(passwordManagerURL);
+  await page.getByRole("button", { name: "Create new vault", exact: true }).click();
+  await page.getByLabel(/^Vault name/).fill(name);
+  await page.getByLabel(/^Master password/).fill(password);
+  await page.getByLabel(/^Confirm password/).fill(password);
+  await page.getByRole("button", { name: "Create vault", exact: true }).click();
+  await expect(page).toHaveURL(`${passwordManagerURL}/vault`);
+}
+
 async function unlock(page: Page) {
   await page.getByRole("button", { name: new RegExp(`^${name}`) }).click();
   await page.getByLabel(/^Master password/).fill(password);
@@ -15,13 +25,7 @@ test("saved inactivity timeout applies now and survives navigation, unlock, and 
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto(passwordManagerURL);
-  await page.getByRole("button", { name: "Create new vault", exact: true }).click();
-  await page.getByLabel(/^Vault name/).fill(name);
-  await page.getByLabel(/^Master password/).fill(password);
-  await page.getByLabel(/^Confirm password/).fill(password);
-  await page.getByRole("button", { name: "Create vault", exact: true }).click();
-  await expect(page).toHaveURL(`${passwordManagerURL}/vault`);
+  await createVault(page);
 
   const navigation = page.getByRole("navigation", { name: "Main navigation" });
   const settings = navigation.getByRole("button", {
@@ -63,5 +67,21 @@ test("saved inactivity timeout applies now and survives navigation, unlock, and 
   await page.clock.runFor(59_999);
   await expect(timeout).toBeVisible();
   await page.clock.runFor(1);
+  await expect(page).toHaveURL(`${passwordManagerURL}/`);
+});
+
+test("browser back retires the old deadline without locking a new session", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-01-01T00:00:10Z"));
+  await createVault(page);
+
+  await page.clock.runFor(30_000);
+  await page.goBack();
+  await unlock(page);
+  await page.clock.runFor(270_001);
+  await expect(page.getByRole("heading", { name: "Items", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(`${passwordManagerURL}/vault`);
+
+  await page.clock.runFor(29_999);
   await expect(page).toHaveURL(`${passwordManagerURL}/`);
 });

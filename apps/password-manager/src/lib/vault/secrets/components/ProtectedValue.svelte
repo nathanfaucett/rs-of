@@ -27,14 +27,14 @@ async function copy() {
 </script>
 
 <fieldset class="flex min-w-0 flex-col gap-2">
-    <legend class="mb-0 text-sm font-medium">{label}</legend>
+    <legend class="mb-0 max-w-full wrap-anywhere text-sm font-medium">{label}</legend>
     <p class="mb-0 whitespace-pre-wrap break-all">{value == null ? "Not set" : protectedValue && !revealed ? "••••••••" : value === "" ? "Empty value" : value}</p>
-    <div class="flex gap-2">
+    <div class="flex flex-wrap gap-2">
         {#if protectedValue && value != null}
-            <button class="btn btn-secondary btn-md" type="button" aria-pressed={revealed}
+            <button class="btn btn-secondary btn-md h-auto min-h-9 max-w-full py-1.5 text-center wrap-anywhere whitespace-normal" type="button" aria-pressed={revealed}
                 onclick={() => revealed = !revealed}>{revealed ? "Hide" : "Show"} {label}</button>
         {/if}
-        <button class="btn btn-secondary btn-md" type="button" disabled={copying || value == null}
+        <button class="btn btn-secondary btn-md h-auto min-h-9 max-w-full py-1.5 text-center wrap-anywhere whitespace-normal" type="button" disabled={copying || value == null}
             onclick={() => void copy()}>Copy {label}</button>
     </div>
     {#if copied !== null}<p role={copied ? "status" : "alert"}>{clipboardFeedback(copied)}</p>{/if}

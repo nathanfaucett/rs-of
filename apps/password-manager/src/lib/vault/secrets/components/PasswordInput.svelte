@@ -40,7 +40,7 @@ async function copy() {
             <input {...control} type={revealed ? "text" : "password"} bind:value
                 {autocomplete} {disabled} spellcheck="false" autocapitalize="off" class="w-full pr-20" />
         {:else if revealed}
-            <textarea {...control} bind:value {rows} {autocomplete} {disabled}
+            <textarea {...control} {@attach (element) => element.focus()} bind:value {rows} {autocomplete} {disabled}
                 spellcheck="false" autocapitalize="off" class="w-full"></textarea>
         {:else}
             <p class="mb-0">{value ? "••••••••" : "Not set"}</p>

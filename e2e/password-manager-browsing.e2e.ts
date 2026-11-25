@@ -150,9 +150,14 @@ test("items and details fit narrow viewports with one search and one filter pres
   await page.getByRole("link", { name: "New login", exact: true }).click();
   const name = `Synthetic-${"longname".repeat(14)}`;
   const website = `https://example.invalid/${"longpath".repeat(20)}`;
+  const fieldName = `Synthetic-${"longfield".repeat(14)}`;
   await page.getByRole("textbox", { name: "Name", exact: true }).fill(name);
   await page.getByRole("button", { name: "Add website" }).click();
   await page.getByRole("textbox", { name: "Website 1" }).fill(website);
+  await page.getByRole("button", { name: "Add custom field" }).click();
+  await page.getByLabel("Field name 1").fill(fieldName);
+  await page.getByLabel("Field type 1").selectOption({ label: "Hidden" });
+  await page.getByLabel("Field value 1", { exact: true }).fill("SYNTHETIC-LAYOUT-SECRET");
   await page.getByRole("button", { name: "Create item", exact: true }).click();
   await expect(page).toHaveURL(`${passwordManagerURL}/vault`);
 
@@ -184,7 +189,7 @@ test("items and details fit narrow viewports with one search and one filter pres
     await checkLayout(width);
   }
 
-  // 1280 physical pixels at 200% zoom leave a 640 CSS-pixel layout viewport.
+  // Emulate the layout viewport and pixel ratio at 200%, not native browser zoom.
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Emulation.setDeviceMetricsOverride", {
     width: 640,
@@ -202,6 +207,23 @@ test("items and details fit narrow viewports with one search and one filter pres
   const details = page.getByRole("region", { name: "Item details" });
   await expect(details.getByRole("heading", { name })).toBeFocused();
   await expect(details.getByText(website, { exact: true })).toBeVisible();
+  for (const action of ["Show", "Copy"]) {
+    const button = details.getByRole("button", {
+      name: `${action} Custom field 1: ${fieldName}`,
+      exact: true,
+    });
+    await expect(button).toBeVisible();
+    await expect
+      .poll(() =>
+        button.evaluate((element) =>
+          Math.max(
+            element.scrollWidth - element.clientWidth,
+            element.scrollHeight - element.clientHeight
+          )
+        )
+      )
+      .toBe(0);
+  }
   await expect
     .poll(() => details.evaluate((element) => element.scrollWidth - element.clientWidth))
     .toBe(0);

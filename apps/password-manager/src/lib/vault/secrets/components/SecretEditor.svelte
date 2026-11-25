@@ -162,7 +162,10 @@ async function handleSave() {
                         </Field>
                         <Field id={`field-type-${i}`} label={`Field type ${i + 1}`}>
                             {#snippet children(control: FieldControl)}
-                                <select {...control} bind:value={field.type}>
+                                <select {...control} bind:value={() => field.type, (type) => {
+                                    if (field.type === "hidden" && type !== "hidden") field.value = "";
+                                    field.type = type;
+                                }}>
                                     <option value="text">Text</option>
                                     <option value="hidden">Hidden</option>
                                     <option value="boolean">Boolean</option>
@@ -174,7 +177,7 @@ async function handleSave() {
                                 {#if field.type === "boolean"}
                                     <select {...control} bind:value={field.value}>
                                         {#if field.value !== "true" && field.value !== "false"}
-                                            <option value={field.value} disabled>{field.value}</option>
+                                            <option value={field.value} disabled>{field.value || "Select True or False"}</option>
                                         {/if}
                                         <option value="true">True</option>
                                         <option value="false">False</option>

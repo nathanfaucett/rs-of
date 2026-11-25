@@ -71,8 +71,9 @@ async function showSyncedVaults() {
 
 function activateVault(vault: VaultHandleLike, lockSettings: LockSettings, isSynced: boolean) {
   if (vaultState.status === "unlocked") vaultState.inactivity.stop();
+  const owner = ++session;
   const inactivity = createInactivityLock(() => {
-    void lockVault();
+    if (session === owner && vaultState.status === "unlocked") void lockVault();
   });
   vaultState = { status: "unlocked", vault, lockSettings, inactivity, isSynced };
   inactivity.start(lockSettings);
@@ -145,22 +146,27 @@ async function saveLockSettings(settings: LockSettings): Promise<boolean> {
   return true;
 }
 
-async function lockVault() {
+async function retireVault(status: "locked" | "loading") {
   const previous = vaultState;
-  const request = ++session;
-  vaultState = { status: "locked" };
+  vaultState = { status };
   if (previous.status === "unlocked") {
     previous.inactivity.stop();
     await previous.vault.close();
   }
+}
+
+async function lockVault() {
+  const request = ++session;
+  await retireVault("locked");
   if (request === session && vaultState.status === "locked") await goto("/");
 }
 
 async function showVaultSelector() {
   if (selector !== null) return selector;
+  ++session;
   selector = (async () => {
-    vaultState = { status: "loading" };
     try {
+      await retireVault("loading");
       const vaults = await listVaults();
       vaultState = { status: "select-vault", vaults };
     } catch (cause) {

@@ -249,10 +249,10 @@ for (const lock of ["manual", "inactivity"] as const) {
       if (lock === "manual") {
         await page.getByRole("button", { name: "Lock vault" }).click();
       } else {
-        await page.clock.setSystemTime((await page.evaluate(() => Date.now())) + 6 * 60_000);
-        paused.release();
+        await page.clock.fastForward(6 * 60_000);
       }
       await expect(page).toHaveURL(`${passwordManagerURL}/`);
+      await expect(page.getByRole("button", { name: "Create new vault" })).toBeVisible();
       await expect(name).toHaveCount(0);
       expect(prompts).toEqual([]);
 
@@ -269,6 +269,8 @@ for (const lock of ["manual", "inactivity"] as const) {
           page.getByRole("button", { name: "Save in progress", exact: true })
         ).toHaveCount(0);
         await page.getByRole("button", { name: "Lock vault" }).click();
+      } else {
+        paused.release();
       }
       const unlock = await selectVault(page);
       await unlock.fill(masterPassword);
@@ -333,13 +335,47 @@ test("card, identity, note, SSH, and hidden custom fields open masked", async ({
     await expect(details).not.toContainText(value);
     await details.getByRole("button", { name: "Edit", exact: true }).click();
     const input = page.getByLabel(editorLabel, { exact: true });
-    if (editorLabel === "Private key" || editorLabel === "Notes")
+    const show = page.getByRole("button", { name: `Show ${editorLabel}`, exact: true });
+    if (editorLabel === "Private key" || editorLabel === "Notes") {
       await expect(input).toHaveCount(0);
-    else await expect(input).toHaveAttribute("type", "password");
-    await page.getByRole("button", { name: `Show ${editorLabel}`, exact: true }).click();
+      await show.press("Enter");
+      await expect(input).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(
+        page.getByRole("button", { name: `Copy ${editorLabel}`, exact: true })
+      ).toBeFocused();
+    } else {
+      await expect(input).toHaveAttribute("type", "password");
+      await show.click();
+    }
     await expect(input).toHaveValue(value);
     await expect(input).toHaveAccessibleName(editorLabel);
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(page).toHaveURL(`${passwordManagerURL}/vault`);
   }
+});
+
+test("changing a hidden custom field to Boolean does not reveal its old value", async ({
+  page,
+}) => {
+  const secret = "SYNTHETIC-HIDDEN-CUSTOM-VALUE";
+  await createVault(page);
+  await openNew(page);
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill(item);
+  await page.getByRole("button", { name: "Add custom field" }).click();
+  await page.getByLabel("Field name 1", { exact: true }).fill("Example flag");
+  const type = page.getByLabel("Field type 1", { exact: true });
+  const value = page.getByLabel("Field value 1", { exact: true });
+  await type.selectOption({ label: "Hidden" });
+  await value.fill(secret);
+
+  await type.selectOption({ label: "Boolean" });
+  await expect(value.locator("option")).toHaveText(["Select True or False", "True", "False"]);
+  await expect(value).toHaveValue("");
+  await value.selectOption({ label: "False" });
+  await page.getByRole("button", { name: "Create item" }).click();
+  await page.getByRole("button", { name: item, exact: true }).click();
+  const details = page.getByRole("region", { name: "Item details" });
+  await expect(details.getByText("false", { exact: true })).toBeVisible();
+  await expect(details).not.toContainText(secret);
 });

@@ -120,3 +120,15 @@ test("a save from a closed session cannot apply after unlocking again", async ()
   vi.setSystemTime(60_000);
   expect(unlockedVault().inactivity.check()).toBe(false);
 });
+
+test("returning to the selector closes the vault and stops its deadline", async () => {
+  const { vault, inactivity } = unlockedVault();
+  const close = vi.spyOn(vault, "close");
+
+  await vaultStateModule.showVaultSelector();
+
+  expect(vaultStateModule.state.status).toBe("select-vault");
+  expect(close).toHaveBeenCalledOnce();
+  vi.setSystemTime(300_001);
+  expect(inactivity.check()).toBe(false);
+});
