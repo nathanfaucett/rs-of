@@ -10,6 +10,7 @@ This Svelte application demonstrates the platform's north-star workflow. It is i
 - Vault records are encrypted with AES-256-GCM. The current key derivation uses PBKDF2-SHA-512 with 600,000 iterations.
 - Locking clears the decrypted application view. Browser local storage is not an encrypted backup.
 - The application includes local backup/recovery and offline-shell support; platform, eviction, update, and recovery limits still apply.
+- Items stay in Trash until you restore them or confirm permanent deletion. There is no automatic deletion. Permanent deletion does not change existing backups.
 
 Use test secrets only. Do not infer production cryptographic, browser, or remote synchronization qualification from local CRUD tests.
 

@@ -22,7 +22,10 @@ export default defineConfig({
       name: "app",
       testMatch: ["app.e2e.ts", "owners.e2e.ts"],
     },
-    { name: "password-manager", testMatch: "password-manager.e2e.ts" },
+    {
+      name: "password-manager",
+      testMatch: ["password-manager.e2e.ts", "password-manager-*.e2e.ts"],
+    },
   ],
   webServer: [
     {
