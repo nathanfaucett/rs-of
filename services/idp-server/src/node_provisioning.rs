@@ -1383,6 +1383,16 @@ fn delete_verified<P: PrivateKeyRepo>(
     Ok(())
 }
 
+const LOGIN_SCOPES: [&str; 3] = ["openid", "profile", "email"];
+const POLICY_SCOPE: &str =
+    of_model::idp::contract::permission_evaluation::MANAGEMENT_POLICY_ADMINISTRATION_SCOPE;
+const OPERATOR_SCOPES: [&str; 4] = [
+    LOGIN_SCOPES[0],
+    LOGIN_SCOPES[1],
+    LOGIN_SCOPES[2],
+    POLICY_SCOPE,
+];
+
 fn validate_public_login_client(request: &ClientRegistration) -> io::Result<()> {
     let id = request
         .client_id
@@ -1401,7 +1411,7 @@ fn validate_public_login_client(request: &ClientRegistration) -> io::Result<()> 
                 GrantType::RefreshToken,
                 GrantType::TokenExchange,
             ]
-        || request.allowed_scopes != ["openid", "profile", "email"]
+        || (request.allowed_scopes != LOGIN_SCOPES && request.allowed_scopes != OPERATOR_SCOPES)
         || !request.redirect_uris.is_empty()
         || !request.response_types.is_empty()
     {
@@ -1421,7 +1431,9 @@ fn verify_public_login_registration(
         || existing.profile != expected.profile
         || existing.token_endpoint_auth_method != expected.token_endpoint_auth_method
         || existing.allowed_grant_types != expected.allowed_grant_types
-        || existing.allowed_scopes != expected.allowed_scopes
+        // Retained login Clients keep their original scopes; only fresh setup grants the new scope.
+        || (existing.allowed_scopes != expected.allowed_scopes
+            && !(existing.allowed_scopes == LOGIN_SCOPES && expected.allowed_scopes == OPERATOR_SCOPES))
         || existing.allowed_audiences != expected.allowed_audiences
         || existing.redirect_uris != expected.redirect_uris
         || !existing.response_types.is_empty()

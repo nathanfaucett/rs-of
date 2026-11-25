@@ -4,6 +4,7 @@ use of_model::contract::standard_claims::StandardClaims;
 use of_model::id::Id;
 use of_model::idp::contract::error_code::ErrorCode;
 use of_model::idp::contract::error_response::ErrorResponse;
+use of_model::idp::contract::permission_evaluation::MANAGEMENT_POLICY_ADMINISTRATION_SCOPE;
 
 use crate::router::state::RouterState;
 
@@ -12,6 +13,7 @@ pub const AUTHORIZATION_BEARER_PREFIX: &str = "Bearer ";
 pub struct ManagementAuthorization {
     pub subject: Id,
     pub(crate) application_id: Id,
+    pub(crate) installation_policy_scope: bool,
 }
 
 impl ManagementAuthorization {
@@ -19,6 +21,7 @@ impl ManagementAuthorization {
         Self {
             subject,
             application_id,
+            installation_policy_scope: false,
         }
     }
 }
@@ -52,7 +55,12 @@ where
                 .sub
                 .parse::<Id>()
                 .map_err(|_| ErrorResponse::new(ErrorCode::NotAuthorized))?;
-            return Ok(Self::new(subject, application_id));
+            let mut authorization = Self::new(subject, application_id);
+            authorization.installation_policy_scope = claims
+                .scope
+                .iter()
+                .any(|scope| scope == MANAGEMENT_POLICY_ADMINISTRATION_SCOPE);
+            return Ok(authorization);
         }
 
         Err(ErrorResponse::new(ErrorCode::NotAuthorized)

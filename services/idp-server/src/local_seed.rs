@@ -9,6 +9,7 @@ use of_model::idp::contract::client_registration::ClientRegistration;
 use of_model::idp::contract::client_type::ClientType;
 use of_model::idp::contract::entity_type::EntityType;
 use of_model::idp::contract::grant_type::GrantType;
+use of_model::idp::contract::permission_evaluation::MANAGEMENT_POLICY_ADMINISTRATION_SCOPE;
 use of_model::idp::contract::response_type::ResponseType;
 use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
@@ -133,7 +134,7 @@ pub async fn seed(
             continue;
         }
         let public = redirect.is_some();
-        let registration = ClientRegistration {
+        let mut registration = ClientRegistration {
             application: ApplicationRegistration {
                 name: Some(id.into()),
                 uri: if public {
@@ -206,6 +207,11 @@ pub async fn seed(
             software_version: None,
         };
 
+        if id == "local-login" {
+            registration
+                .allowed_scopes
+                .push(MANAGEMENT_POLICY_ADMINISTRATION_SCOPE.into());
+        }
         oauth
             .client_repo
             .create_client(registration)

@@ -27,6 +27,7 @@ export default defineConfig({
         "app.e2e.ts",
         "applications.e2e.ts",
         "management-modals.e2e.ts",
+        "management-policy.e2e.ts",
         "owners.e2e.ts",
       ],
     },

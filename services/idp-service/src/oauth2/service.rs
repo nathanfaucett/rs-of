@@ -28,6 +28,9 @@ use std::{
 
 use chrono::{DateTime, Duration, Utc};
 use of_model::id::Id;
+use of_model::idp::contract::permission_evaluation::{
+    MANAGEMENT_APPLICATION_URI, MANAGEMENT_POLICY_ADMINISTRATION_SCOPE,
+};
 use of_model::idp::model::application::Application;
 use of_model::idp::model::client::Client;
 use of_model::idp::model::key::Key;
@@ -224,7 +227,7 @@ where
         &self,
         request: ClientRegistration,
     ) -> ErrorResponseResult<ClientRegistration> {
-        validate_dynamic_client_grants(&request.allowed_grant_types)?;
+        Self::validate_dynamic_client_registration(&request)?;
         self.register_owned_client(request, true).await
     }
 
@@ -246,7 +249,7 @@ where
         {
             return Err(ErrorResponse::new(ErrorCode::InvalidRequest));
         }
-        validate_dynamic_client_grants(&request.allowed_grant_types)?;
+        Self::validate_dynamic_client_registration(&request)?;
         self.register_owned_client(request, allow_application_creation)
             .await
     }
@@ -362,6 +365,20 @@ where
         registration.application = request.application;
         registration.client_secret = Some(client_secret);
         Ok(registration)
+    }
+
+    fn validate_dynamic_client_registration(
+        request: &ClientRegistration,
+    ) -> ErrorResponseResult<()> {
+        if request
+            .allowed_scopes
+            .iter()
+            .any(|scope| scope == MANAGEMENT_POLICY_ADMINISTRATION_SCOPE)
+        {
+            return Err(ErrorResponse::new(ErrorCode::InvalidScope)
+                .with_description("this scope requires trusted operator provisioning"));
+        }
+        validate_dynamic_client_grants(&request.allowed_grant_types)
     }
 
     async fn register_owned_client(
@@ -595,7 +612,7 @@ where
         client_id: &str,
         request: ClientRegistration,
     ) -> ErrorResponseResult<ClientRegistration> {
-        validate_dynamic_client_grants(&request.allowed_grant_types)?;
+        Self::validate_dynamic_client_registration(&request)?;
         self.update_owned_client(client_id, request).await
     }
 
@@ -1245,7 +1262,7 @@ where
         Self::authenticate_client_for_token_endpoint(&client, client_auth)?;
 
         let requested_scopes = request.scope.as_deref().map_or_default(parse_scopes);
-        let scopes = if requested_scopes.is_empty() {
+        let mut scopes = if requested_scopes.is_empty() {
             subject_token.scope.clone()
         } else {
             intersect_scopes(&requested_scopes, &subject_token.scope)
@@ -1259,6 +1276,19 @@ where
             .resource
             .as_deref()
             .or(subject_token.resource.as_deref());
+
+        if requested_scopes.is_empty()
+            && resource == Some(MANAGEMENT_APPLICATION_URI)
+            && client
+                .allowed_scopes
+                .iter()
+                .any(|scope| scope == MANAGEMENT_POLICY_ADMINISTRATION_SCOPE)
+            && !scopes
+                .iter()
+                .any(|scope| scope == MANAGEMENT_POLICY_ADMINISTRATION_SCOPE)
+        {
+            scopes.push(MANAGEMENT_POLICY_ADMINISTRATION_SCOPE.into());
+        }
 
         self.issue_tokens_for_client(
             &client,

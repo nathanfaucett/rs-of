@@ -632,7 +632,13 @@ fn login(intent: &IndependentCreateIntent, id: Id) -> ClientRegistration {
             GrantType::TokenExchange,
         ],
         response_types: Vec::new(),
-        allowed_scopes: vec!["openid".into(), "profile".into(), "email".into()],
+        allowed_scopes: vec![
+            "openid".into(),
+            "profile".into(),
+            "email".into(),
+            of_model::idp::contract::permission_evaluation::MANAGEMENT_POLICY_ADMINISTRATION_SCOPE
+                .into(),
+        ],
         allowed_audiences: vec![
             intent.idp.clone(),
             "idp-management".into(),

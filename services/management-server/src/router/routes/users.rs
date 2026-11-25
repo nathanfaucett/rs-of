@@ -2,6 +2,7 @@ use axum::{
     Json,
     extract::{Path, State},
 };
+use management_service::service::ROLES_READ_PERMISSION;
 use of_model::idp::contract::error_response::ErrorResponse;
 use of_model::server::management::users::UserApplicationRoleResponse;
 
@@ -19,7 +20,7 @@ const USERS_READ_PERMISSION: &str = "users.read";
     params(
         ("user_id" = String, Path, description = "User ID")
     ),
-    responses((status = 200, description = "List user roles within the authorized application", body = [UserApplicationRoleResponse])),
+    responses((status = 200, description = "List assigned Application roles visible to the caller", body = [UserApplicationRoleResponse])),
     security(
         ("authorization" = [])
     )
@@ -29,6 +30,27 @@ pub(crate) async fn list_user_roles_across_applications(
     Path(user_id): Path<of_model::id::Id>,
     authorization: ManagementAuthorization,
 ) -> Result<Json<Vec<UserApplicationRoleResponse>>, ErrorResponse> {
+    if authorization.installation_policy_scope
+        && state
+            .management_service
+            .has_installation_policy_permission(authorization.subject, ROLES_READ_PERMISSION)
+            .await
+            .map_err(ErrorResponse::from)?
+    {
+        let roles = state
+            .management_service
+            .list_user_roles_across_applications(user_id)
+            .await
+            .map_err(ErrorResponse::from)?;
+        return Ok(Json(
+            roles
+                .into_iter()
+                .filter(|role| !role.application_id.is_nil())
+                .map(Into::into)
+                .collect(),
+        ));
+    }
+
     require_application_permission(
         state.management_service.as_ref(),
         &authorization,

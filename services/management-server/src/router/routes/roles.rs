@@ -2,6 +2,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
+use management_service::service::{ROLES_READ_PERMISSION, ROLES_WRITE_PERMISSION};
 use of_model::idp::contract::{error_code::ErrorCode, error_response::ErrorResponse};
 use of_model::server::management::roles::{CreateRoleRequest, ListRolesQuery, RoleResponse};
 
@@ -9,9 +10,6 @@ use crate::router::{
     middleware::management_authorization::ManagementAuthorization,
     state::{ManagementRouterService, RouterState},
 };
-
-const ROLES_READ_PERMISSION: &str = "roles.read";
-const ROLES_WRITE_PERMISSION: &str = "roles.write";
 
 #[cfg(test)]
 #[path = "permission_boundary_tests.rs"]
@@ -253,21 +251,26 @@ pub(crate) async fn require_application_permission(
     application_id: of_model::id::Id,
     permission: &str,
 ) -> Result<(), ErrorResponse> {
-    if application_id.is_nil() || authorization.application_id != application_id {
-        return Err(ErrorResponse::new(ErrorCode::AccessDenied)
-            .with_description("application permission does not authorize another application"));
+    if !application_id.is_nil() {
+        if authorization.application_id == application_id
+            && management_service
+                .has_user_application_permission(authorization.subject, application_id, permission)
+                .await
+                .map_err(ErrorResponse::from)?
+        {
+            return Ok(());
+        }
+        if authorization.installation_policy_scope
+            && management_service
+                .has_installation_policy_permission(authorization.subject, permission)
+                .await
+                .map_err(ErrorResponse::from)?
+        {
+            return Ok(());
+        }
     }
-    let has_permission = management_service
-        .has_user_application_permission(authorization.subject, application_id, permission)
-        .await
-        .map_err(ErrorResponse::from)?;
-
-    if has_permission {
-        return Ok(());
-    }
-
     Err(ErrorResponse::new(ErrorCode::AccessDenied)
-        .with_description("missing required application permission"))
+        .with_description("missing required policy permission"))
 }
 
 fn normalize_limit(limit: u32) -> u32 {

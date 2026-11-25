@@ -11,3 +11,7 @@
 - [ ] Unauthorized access has a clear read-only or recovery state without raw `ResponseError` text or repeated failing requests.
 - [ ] Valid drafts remain after failed submissions, and unrelated successful saves do not emit role-load error notifications.
 - [ ] The authorization root cause is covered by real-owner tests, and the complete path is covered by real-backend browser tests.
+
+## Comments
+
+Fresh setup provisions the operator Client scope and explicit Installation policy grants. Existing policy and Client registrations are not migrated. Application-delegated grants retain their original scope.

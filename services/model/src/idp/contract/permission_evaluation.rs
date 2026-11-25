@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::id::Id;
 
+pub const MANAGEMENT_APPLICATION_URI: &str = "idp-management";
+pub const MANAGEMENT_POLICY_ADMINISTRATION_SCOPE: &str = "management.policy.administer";
 pub const MANAGEMENT_PERMISSION_EVALUATE_SCOPE: &str = "management.permission.evaluate";
 // Reserved policy namespace, never an IdP Application. Application APIs must reject it.
 pub const INSTALLATION_POLICY_ID: Id = Id::nil();

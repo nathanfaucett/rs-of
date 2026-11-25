@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use of_model::id::Id;
 
 use of_model::idp::model::permission::Permission;
