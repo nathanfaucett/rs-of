@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work status: resolved
+
 - [x] With a fresh data root and no environment overrides, the default Portless URL shows **Start a new Installation** and **Join an existing Installation**, not sign-in.
 - [x] After either choice completes, restart retains setup and does not show the first-run choices again. Incomplete setup remains resumable.
 - [x] The default startup does not silently adopt, overwrite, or reset existing seeded data. Tests cover the chosen compatibility behavior.
