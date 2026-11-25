@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use of_model::idp::contract::permission_evaluation::{INSTALLATION_POLICY_ID, IdentityAction};
 
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
