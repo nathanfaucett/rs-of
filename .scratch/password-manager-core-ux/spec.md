@@ -1,7 +1,7 @@
 # Password Manager core vault UX repair
 
 Status: ready-for-agent
-Work status: open
+Work status: resolved
 Milestone: M2 — local encrypted CRUD and lock/unlock
 
 ## Problem Statement
@@ -197,3 +197,9 @@ Do not duplicate every browser workflow in component tests. External behavior, n
 - Bitwarden documentation supplied a comparison baseline only. No authenticated Bitwarden UI session was used.
 - Cross-restart lock-setting persistence was not qualified during the review and is therefore an explicit acceptance check here.
 - This work advances the local encrypted CRUD and lock/unlock portions of M2. It does not qualify M2 synchronization or broader milestones.
+
+## Comments
+
+- Implemented all four tickets on `password-manager-core-ux`. The final package tests, type check, lint, build, E2E type check, and all 17 Password Manager Playwright tests passed. Chromium used the existing WASM and a prebuilt real local backend.
+- Responsive coverage used the specified CSS widths and emulated 200% reflow, not native browser zoom. Lock-setting persistence was verified across reload and unlock, not across a browser-process restart. Other browsers, real devices, screen readers, and vault synchronization were not qualified.
+- The separate offline smoke check timed out waiting for `Offline ready` both before and after the review fixes. Offline-shell behavior is not qualified by this change.

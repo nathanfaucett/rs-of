@@ -6,19 +6,23 @@
 
 **Status:** ready-for-agent
 
-**Work status:** open
+**Work status:** resolved
 
 **Scope:** Item list, details, folder movement, responsive vault layout, New item menu, empty states, and user-facing Item terminology. Preserve current item types and literal folder semantics.
 
 **Non-goals:** Nested folders, synchronization, backend changes, editor-safety repairs, and Trash lifecycle changes.
 
-- [ ] Desktop shows one visible search input; search combines with the existing filters and Clear restores the full list.
+- [x] Desktop shows one visible search input; search combines with the existing filters and Clear restores the full list.
 - [ ] At 320, 390, 768, and 1024 pixels and 200% zoom, the item list remains reachable without horizontal page overflow, with one search input and one filter presentation.
-- [ ] Item-name activation opens read-only details; explicit Edit opens the editor; Close returns focus to a sensible location.
-- [ ] Existing TOTP codes and password history are reachable from Login details.
-- [ ] Folder movement uses existing folder identities, preserves duplicate/literal-name behavior, and survives reload.
-- [ ] The New item menu supports pointer use, arrow keys, Escape, outside dismissal, and focus return.
-- [ ] Empty states offer clear New login and Import actions, and user-facing copy uses Item terminology consistently.
-- [ ] The public Playwright workflow covers search, responsive layout, details, and folder movement using synthetic data and real browser persistence.
+- [x] Item-name activation opens read-only details; explicit Edit opens the editor; Close returns focus to a sensible location.
+- [x] Existing TOTP codes and password history are reachable from Login details.
+- [x] Folder movement uses existing folder identities, preserves duplicate/literal-name behavior, and survives reload.
+- [x] The New item menu supports pointer use, arrow keys, Escape, outside dismissal, and focus return.
+- [x] Empty states offer clear New login and Import actions, and user-facing copy uses Item terminology consistently.
+- [x] The public Playwright workflow covers search, responsive layout, details, and folder movement using synthetic data and real browser persistence.
 
 **Validation:** Run focused browser tests, then the Password Manager package test, type-check, lint, and build scripts. Run the Password Manager Playwright project before completion.
+
+## Comments
+
+- Implemented in `63132abf`, with narrow-screen action labels fixed in `33a3c3b0`. Focused browsing scenarios and the full Password Manager Chromium project passed. The four CSS widths and emulated 200% reflow passed; native browser zoom was not tested.

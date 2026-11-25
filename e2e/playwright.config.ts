@@ -15,10 +15,7 @@ export default defineConfig({
   forbidOnly: Boolean(CI),
   retries: 0,
   outputDir: `${root}.tmp/e2e-results`,
-  reporter: [
-    ["list"],
-    ["html", { outputFolder: `${root}.tmp/e2e-report`, open: "never" }],
-  ],
+  reporter: [["list"], ["html", { outputFolder: `${root}.tmp/e2e-report`, open: "never" }]],
   use: { ...devices["Desktop Chrome"], trace: "retain-on-failure" },
   projects: [
     {
