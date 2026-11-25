@@ -8,6 +8,8 @@
     import { isTauri } from "@tauri-apps/api/core";
     import { onMount } from "svelte";
     import { resolve } from "$app/paths";
+    import { page } from "$app/state";
+    import type { RouteId } from "$app/types";
     import favicon from "$lib/assets/favicon.svg";
     import ConfigForm from "$lib/common/components/ConfigForm.svelte";
     import Modal from "$lib/common/components/Modal.svelte";
@@ -16,6 +18,29 @@
     import { handleDeepLink } from "$lib/common/util/handleDeepLink";
     import { m } from "$lib/paraglide/messages";
     import type { LayoutProps } from "./$types";
+
+    const routeTitles: Partial<Record<RouteId, string>> = {
+        "/(auth)": "Dashboard",
+        "/(auth)/applications": "Applications",
+        "/(auth)/authorize": "Authorize",
+        "/(auth)/clients": "Clients",
+        "/(auth)/devices": "Devices",
+        "/(auth)/register": "Register Client",
+        "/(auth)/roles": "Roles",
+        "/(auth)/users": "Users",
+        "/callback": "Complete sign-in",
+        "/config": "Configuration",
+        "/logout": "Sign out",
+        "/maintenance": "Local Node maintenance",
+        "/native-callback": "Complete native sign-in",
+        "/policy": "Privacy policy",
+        "/setup": "Node setup",
+        "/setup/installation": "Installation setup",
+        "/setup/join": "Join Installation",
+        "/signin": "Sign in",
+        "/terms": "Terms of service",
+    };
+    const title = $derived(page.route.id && routeTitles[page.route.id]);
 
     let { children }: LayoutProps = $props();
     let configForm = $state<ConfigForm>();
@@ -67,6 +92,9 @@
 <svelte:window onstorage={onSessionStorage} />
 
 <svelte:head>
+    {#if title && !page.error}
+        <title>{title} — of</title>
+    {/if}
     <link rel="icon" href={favicon} />
     <link
         rel="manifest"

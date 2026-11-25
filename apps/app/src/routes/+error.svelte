@@ -51,4 +51,5 @@
             <Alert tone="danger">{retryError}</Alert>
         {/if}
     {/if}
+    <a class="btn btn-secondary btn-md" href={resolve("/")}>Dashboard</a>
 </Page>

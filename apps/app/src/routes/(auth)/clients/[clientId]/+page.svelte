@@ -241,6 +241,13 @@
     });
 </script>
 
+<svelte:head>
+    <title>{
+        (client?.clientId === page.params.clientId && client?.clientName) ||
+        page.params.clientId
+    } — Client — of</title>
+</svelte:head>
+
 <Page>
     <PageHeader title="Client Detail" />
     <a href={backHref}>

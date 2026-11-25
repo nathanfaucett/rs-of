@@ -229,6 +229,13 @@
     });
 </script>
 
+<svelte:head>
+    <title>{
+        (user?.sub === page.params.userId && (user?.name || user?.email || user?.preferredUsername)) ||
+        page.params.userId
+    } — User — of</title>
+</svelte:head>
+
 <Page>
     <PageHeader title="User Detail">
         {#snippet actions()}

@@ -66,8 +66,11 @@ const setupInit: RequestInit = {
   cache: "no-store",
 };
 
-export async function fetchSetupStatus(base: string): Promise<SetupStatus> {
-  const api = new OwnerSetupApi(new Configuration({ basePath: setupBase(base), fetchApi: fetch }));
+export async function fetchSetupStatus(
+  base: string,
+  fetchApi: typeof fetch = fetch
+): Promise<SetupStatus> {
+  const api = new OwnerSetupApi(new Configuration({ basePath: setupBase(base), fetchApi }));
   try {
     const response = await api.ownerSetupStatusRaw(setupInit);
     if (response.raw.status !== 200) throw new SetupEvidenceError("Invalid owner status");
@@ -119,9 +122,12 @@ export function readSetupStatus(
     owners: value.owners as [SetupOwner],
   };
 }
-export async function fetchSetupHosts(bases: SetupBases): Promise<SetupHost[]> {
+export async function fetchSetupHosts(
+  bases: SetupBases,
+  fetchApi: typeof fetch = fetch
+): Promise<SetupHost[]> {
   const base = setupBase(bases.idp);
-  const status = await fetchSetupStatus(base);
+  const status = await fetchSetupStatus(base, fetchApi);
   if (status.owners[0] !== "idp") throw new Error("Primary setup scope must include IdP");
   if (!bases.device || !bases.storage)
     throw new SetupPrerequisiteError(
@@ -136,7 +142,7 @@ export async function fetchSetupHosts(bases: SetupBases): Promise<SetupHost[]> {
     ["device", device],
     ["storage", storage],
   ] as const) {
-    const targetStatus = await fetchSetupStatus(target);
+    const targetStatus = await fetchSetupStatus(target, fetchApi);
     if (targetStatus.owners.length !== 1 || targetStatus.owners[0] !== owner)
       throw new SetupEvidenceError(`Setup scope does not match the configured ${owner} service`);
     hosts.push({ base: target, status: targetStatus });
@@ -145,7 +151,7 @@ export async function fetchSetupHosts(bases: SetupBases): Promise<SetupHost[]> {
     const { verifyIndependentReadiness, independentLoginClient } = await import(
       "./independentSetupApi.ts"
     );
-    const evidence = await verifyIndependentReadiness(hosts);
+    const evidence = await verifyIndependentReadiness(hosts, fetchApi);
     const primary = hosts[0];
     const first = evidence[0];
     if (!primary || !first) throw new SetupEvidenceError("Ready owner evidence is invalid");

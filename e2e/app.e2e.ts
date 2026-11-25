@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { type ConsoleMessage, expect, type Page, test } from "@playwright/test";
 import { appURL, backendURL } from "./backend.mjs";
 import { json, signIn, storageClient } from "./session";
 
@@ -137,6 +137,64 @@ test.describe("session renewal", () => {
     await expect(page.getByText("Enter your password.", { exact: true })).toHaveCount(1);
     await expect(page.getByText(/password must have/)).toHaveCount(0);
   });
+});
+
+test("management routes identify their page and recover from a missing route", async ({ page }) => {
+  const errors: string[] = [];
+  const fetchWarnings: string[] = [];
+  const recordConsoleErrors = (message: ConsoleMessage) => {
+    if (message.type() === "error") errors.push(message.text());
+  };
+  page.on("console", recordConsoleErrors);
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "warning" && message.text().includes("`window.fetch`"))
+      fetchWarnings.push(message.text());
+  });
+
+  await page.goto(`${appURL}/signin`);
+  await expect(page).toHaveTitle("Sign in — of");
+  await signIn(page);
+  await expect(page).toHaveTitle("Dashboard — of");
+
+  // Other tickets own the known backend errors on list and detail routes.
+  page.off("console", recordConsoleErrors);
+  await page.getByRole("link", { name: "Applications", exact: true }).click();
+  await expect(page).toHaveTitle("Applications — of");
+  await page
+    .getByRole("row", { name: /local-login/ })
+    .getByRole("link", { name: /[0-9a-f-]{36}/ })
+    .click();
+  await expect(page).toHaveTitle("local-login — Application — of");
+  await page.goBack();
+  await expect(page).toHaveTitle("Applications — of");
+
+  await page.goto(`${appURL}/clients`);
+  await expect(page).toHaveTitle("Clients — of");
+  await page.goto(`${appURL}/clients/local-login`);
+  await expect(page).toHaveTitle("local-login — Client — of");
+
+  await page.getByRole("link", { name: "Users", exact: true }).click();
+  await expect(page).toHaveTitle("Users — of");
+  await page
+    .getByRole("row", { name: /admin@local[.]test/ })
+    .getByRole("link", { name: /[0-9a-f-]{36}/ })
+    .click();
+  await expect(page).toHaveTitle("admin@local.test — User — of");
+
+  await page.getByRole("link", { name: "Devices", exact: true }).click();
+  await expect(page).toHaveTitle("Devices — of");
+  await page.goto(`${appURL}/roles`);
+  await expect(page).toHaveTitle("Roles — of");
+
+  await page.goto(`${appURL}/missing-management-page`);
+  await expect(page).toHaveTitle(/^404 —/);
+  page.on("console", recordConsoleErrors);
+  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  await expect(page).toHaveURL(`${appURL}/`);
+  await expect(page).toHaveTitle("Dashboard — of");
+  expect(fetchWarnings).toEqual([]);
+  expect(errors).toEqual([]);
 });
 
 test("authorization errors give safe, actionable guidance without client registration", async ({

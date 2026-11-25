@@ -27,14 +27,14 @@ export const load = (async (event) => {
   await event.parent();
 
   if (!isTauri() && !getIdpApiUrl()) redirect(302, resolve("/setup/installation"));
-  const node = await nodeSetupStatus();
+  const node = await nodeSetupStatus(event.fetch);
   if (node && node.route !== "/signin") redirect(302, node.route);
-  const observation = await observeOnboarding(node);
+  const observation = await observeOnboarding(node, event.fetch);
   if (observation.state !== "ready") redirect(302, resolve("/setup/installation"));
   if (isTauri()) {
-    await ensureTauriIdpApiUrl();
-    await ensureTauriManagementApiUrl();
-    await ensureTauriDeviceApiUrl();
+    await ensureTauriIdpApiUrl(event.fetch);
+    await ensureTauriManagementApiUrl(event.fetch);
+    await ensureTauriDeviceApiUrl(event.fetch);
   }
   await ensureOidcClientId(observation).catch(() =>
     error(503, "Verified public login Client is unavailable. Retry observation.")

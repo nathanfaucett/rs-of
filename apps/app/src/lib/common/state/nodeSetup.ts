@@ -50,10 +50,12 @@ export function clearNodeSetupCode(choice: Choice, code: string): void {
   if (code && nodeSetupCode(choice) === code) handoff = undefined;
 }
 
-export async function nodeSetupStatus(): Promise<NodeSetupStatus | undefined> {
+export async function nodeSetupStatus(
+  fetchApi: typeof fetch = fetch
+): Promise<NodeSetupStatus | undefined> {
   const node = unifiedNode();
   if (!node) return;
-  const response = await fetch(`${node}/setup/node`, {
+  const response = await fetchApi(`${node}/setup/node`, {
     ...setupInit,
     signal: AbortSignal.timeout(5000),
   }).catch(() => undefined);

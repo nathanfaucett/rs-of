@@ -88,11 +88,15 @@ const requestInit: RequestInit = {
   redirect: "error",
   cache: "no-store",
 };
-function independentClient(base: string, code?: string): DefaultApi {
+function independentClient(
+  base: string,
+  code?: string,
+  fetchApi: typeof fetch = fetch
+): DefaultApi {
   return new DefaultApi(
     new Configuration({
       basePath: setupBase(base),
-      fetchApi: fetch,
+      fetchApi,
       headers: code === undefined ? {} : codeHeader(code),
     })
   );
@@ -159,26 +163,32 @@ export async function cancelIndependentSetup(
 export function fetchIndependentPublic(
   base: string,
   owner: SetupOwner,
-  required?: true
+  required?: true,
+  fetchApi?: typeof fetch
 ): Promise<IndependentPublic>;
 export function fetchIndependentPublic(
   base: string,
   owner: SetupOwner,
-  required: false
+  required: false,
+  fetchApi?: typeof fetch
 ): Promise<IndependentPublic | null>;
 export function fetchIndependentPublic(
   base: string,
   owner: SetupOwner,
-  required: boolean
+  required: boolean,
+  fetchApi?: typeof fetch
 ): Promise<IndependentPublic | null>;
 export async function fetchIndependentPublic(
   base: string,
   owner: SetupOwner,
-  required = true
+  required = true,
+  fetchApi: typeof fetch = fetch
 ): Promise<IndependentPublic | null> {
   let response: Awaited<ReturnType<DefaultApi["ownerSetupOwnerPublicRaw"]>>;
   try {
-    response = await independentClient(base).ownerSetupOwnerPublicRaw(requestInit);
+    response = await independentClient(base, undefined, fetchApi).ownerSetupOwnerPublicRaw(
+      requestInit
+    );
   } catch (error) {
     if (error instanceof ResponseError && error.response.status === 409 && !required) return null;
     throw new Error("Owner public operation is unavailable", {
@@ -215,12 +225,15 @@ export async function observeIndependentHosts(hosts: SetupHost[]): Promise<Setup
     if (host.status.stage === "unavailable") throw new Error("Independent owner is unavailable");
   return current;
 }
-export async function verifyIndependentReadiness(hosts: SetupHost[]): Promise<IndependentPublic[]> {
+export async function verifyIndependentReadiness(
+  hosts: SetupHost[],
+  fetchApi: typeof fetch = fetch
+): Promise<IndependentPublic[]> {
   const bases = independentBases(hosts);
   if (!hosts.every((host) => host.status.ready))
     throw new Error("Every intended owner must be ready");
   const evidence = await Promise.all(
-    independentOwners.map((owner) => fetchIndependentPublic(bases[owner], owner))
+    independentOwners.map((owner) => fetchIndependentPublic(bases[owner], owner, true, fetchApi))
   );
   const first = evidence[0];
   if (!first) throw new Error("Ready owner evidence is unavailable");

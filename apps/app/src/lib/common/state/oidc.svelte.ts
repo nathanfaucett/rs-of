@@ -76,7 +76,10 @@ export function oidcSessionAccessToken(client: OidcClient): Promise<string> {
   return requireSessionAccessToken(
     client,
     () => isCurrentOidcClient(client),
-    () => client.clearStoredTokenResponse()
+    () => {
+      createdClients.clear();
+      client.clearStoredTokenResponse();
+    }
   );
 }
 
