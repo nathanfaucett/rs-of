@@ -30,6 +30,8 @@ export type OidcClientEvents = {
 
 export type OidcClientOptions = {
   projectOwned?: boolean;
+  /** The project owner has provisioned this fixed public Client for password sign-in. */
+  projectOwnedPasswordLogin?: boolean;
   clientConfig: OidcClientConfig;
   disableNativeRequests?: boolean;
   storage?: "local" | "memory";
@@ -110,6 +112,7 @@ export class OidcClient<
 > extends EventEmitter<OidcClientEvents> {
   private readonly config: OidcClientConfig;
   private readonly projectOwned: boolean;
+  private readonly projectOwnedPasswordLogin: boolean;
   private readonly disableNativeRequests: boolean;
   private readonly nativeFetch: NativeFetch;
   private readonly fetch: Fetch;
@@ -132,6 +135,17 @@ export class OidcClient<
     super();
     this.config = OidcClient.validateConfig(options.clientConfig);
     this.projectOwned = options.projectOwned ?? false;
+    this.projectOwnedPasswordLogin = options.projectOwnedPasswordLogin ?? false;
+    if (
+      this.projectOwnedPasswordLogin &&
+      (!this.projectOwned ||
+        !options.clientConfig.clientId ||
+        options.clientConfig.clientId.includes(":") ||
+        options.clientConfig.clientSecret ||
+        options.clientConfig.registration.tokenEndpointAuthMethod !== "none")
+    ) {
+      throw new Error("Password login requires a fixed public Project Client");
+    }
     const namespace = encodeURIComponent(
       JSON.stringify([
         this.config.authority,
@@ -772,17 +786,30 @@ export class OidcClient<
 
     const config = await this.getOidcConfiguration();
     const clientId = await this.getClientId(config);
+    const { iss: storedIssuer } = storedToken;
+    if (this.projectOwnedPasswordLogin && storedIssuer && storedIssuer !== config.issuer)
+      throw new OidcClientError("INVALID_STATE", "Stored session issuer does not match");
     const body = new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: storedToken.refresh_token,
     });
-    const headers = this.addClientAuthentication(clientId, body);
+    // The owner binds the grant to the claimed Client through Basic, not the refresh form.
+    const headers = this.projectOwnedPasswordLogin
+      ? { Authorization: `Basic ${this.encodeBasicAuth(clientId, "")}` }
+      : this.addClientAuthentication(clientId, body);
+    const response = await this.requestToken(config.token_endpoint, headers, body);
+    const { iss: renewedIssuer } = response;
+    if (
+      this.projectOwnedPasswordLogin &&
+      (renewedIssuer !== config.issuer || !response.access_token)
+    )
+      throw new OidcClientError("INVALID_STATE", "Renewed login session could not be verified");
     const refreshed = this.normalizeTokenResponse({
       ...storedToken,
       access_token: undefined,
       expires_in: undefined,
       access_token_expires_at: undefined,
-      ...(await this.requestToken(config.token_endpoint, headers, body)),
+      ...response,
     });
     if (
       generation !== this.sessionGeneration ||
@@ -790,7 +817,8 @@ export class OidcClient<
     ) {
       throw new OidcClientError("NO_ACCESS_TOKEN", "Session changed during token refresh");
     }
-    await this.verifyProjectClient(clientId, refreshed.access_token);
+    if (!this.projectOwnedPasswordLogin)
+      await this.verifyProjectClient(clientId, refreshed.access_token);
     if (
       generation !== this.sessionGeneration ||
       snapshot !== JSON.stringify(this.getStoredTokenResponse())

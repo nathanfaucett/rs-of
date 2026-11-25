@@ -5,6 +5,7 @@ import {
   SubjectTokenType,
   TokenGrantTypeEnum,
 } from "@ofsdk/idp-client";
+import type { OidcClient } from "@ofsdk/oidc-client";
 import { createStorage } from "@ofsdk/svelte-headless";
 import { isTauri } from "@tauri-apps/api/core";
 import { goto } from "$app/navigation";
@@ -14,18 +15,11 @@ import { env } from "$env/dynamic/public";
 import { afterSigninRedirect } from "./afterSigninRedirect.svelte";
 import { getDeviceApiUrl } from "./deviceClient.svelte";
 import { ensureLocalhostBaseUrl, getLocalhostBaseUrlCached } from "./localhostBaseUrl.svelte";
-import { getOidcClient } from "./oidc.svelte";
+import { getOidcClient, isCurrentOidcClient, oidcSessionAccessToken } from "./oidc.svelte";
 import { validateServiceApiUrl } from "./serviceApi";
+import { SessionExpiredError } from "./sessionAccess";
 
 const idpApiUrl = createStorage<string | null>("idp-api-url", env.PUBLIC_IDP_BASE_URL ?? null);
-
-function readAccessToken(): string {
-  const oidcClient = getOidcClient();
-  if (!oidcClient) {
-    return "";
-  }
-  return oidcClient.getStoredTokenResponse()?.access_token ?? "";
-}
 
 function readBasePath(): string | undefined {
   const basePath = idpApiUrl.item;
@@ -90,29 +84,98 @@ export async function passwordToken(clientId: string, username: string, password
   );
 }
 
+const ownerExchanges = new WeakMap<OidcClient, { session: string; done: Promise<void> }>();
+
+async function exchangeOwnerAccessToken(
+  base: string,
+  resource: string,
+  fetchApi: typeof fetch,
+  client: OidcClient
+) {
+  const allowed = () =>
+    base === getIdpApiUrl() &&
+    (resource === base || resource === "idp-management" || resource === getDeviceApiUrl());
+  if (!allowed()) throw new Error("A current IdP, Device or Management owner audience is required");
+
+  const subjectToken = await oidcSessionAccessToken(client);
+  const session = client.getStoredTokenResponse();
+  const checkSession = () => {
+    const current = client.getStoredTokenResponse();
+    if (
+      !allowed() ||
+      !isCurrentOidcClient(client) ||
+      current?.access_token !== subjectToken ||
+      current.refresh_token !== session?.refresh_token
+    )
+      throw new Error("Sign-in session changed");
+  };
+  const key = JSON.stringify(session);
+  const pending = ownerExchanges.get(client);
+  // Each exchange issues a grant. Order the writes without sharing tokens across audiences.
+  const exchange = (pending?.session === key ? pending.done : Promise.resolve()).then(async () => {
+    checkSession();
+    const owner = new DefaultApi(new Configuration({ basePath: base, fetchApi }));
+    const token = await owner.token(
+      {
+        grantType: TokenGrantTypeEnum.UrnIetfParamsOauthGrantTypeTokenExchange,
+        subjectToken,
+        subjectTokenType: SubjectTokenType.UrnIetfParamsOauthTokenTypeAccessToken,
+        resource,
+      },
+      { redirect: "error" }
+    );
+    checkSession();
+    return token.accessToken;
+  });
+  const done = exchange.then(
+    () => {},
+    () => {}
+  );
+  ownerExchanges.set(client, { session: key, done });
+  try {
+    return await exchange;
+  } finally {
+    if (ownerExchanges.get(client)?.done === done) ownerExchanges.delete(client);
+  }
+}
+
 export async function ownerAccessToken(resource: string): Promise<string> {
   const base = await ensureTauriIdpApiUrl();
-  const subjectToken = readAccessToken();
-  if (!subjectToken) return "";
-  if (
-    !base ||
-    (resource !== base && resource !== "idp-management" && resource !== getDeviceApiUrl())
-  )
-    throw new Error("A current IdP, Device or Management owner audience is required");
-  const owner = new DefaultApi(new Configuration({ basePath: base, fetchApi: fetch }));
-  const token = await owner.token({
-    grantType: TokenGrantTypeEnum.UrnIetfParamsOauthGrantTypeTokenExchange,
-    subjectToken,
-    subjectTokenType: SubjectTokenType.UrnIetfParamsOauthTokenTypeAccessToken,
-    resource,
-  });
-  return token.accessToken;
+  if (!base) throw new Error("An IdP endpoint is required");
+  const client = getOidcClient();
+  try {
+    return await exchangeOwnerAccessToken(base, resource, fetch, client);
+  } catch (cause) {
+    if (
+      cause instanceof SessionExpiredError &&
+      isCurrentOidcClient(client) &&
+      !client.getStoredTokenResponse()
+    ) {
+      afterSigninRedirect.setURL(page.url);
+      await goto(resolve("/signin"), { replaceState: true });
+    }
+    throw cause;
+  }
 }
 
 export async function idpOwnerAccessToken(): Promise<string> {
   const base = await ensureTauriIdpApiUrl();
   if (!base) throw new Error("An IdP endpoint is required");
   return ownerAccessToken(base);
+}
+
+export function idpApiForLoad(
+  base: string,
+  fetchApi: typeof fetch,
+  client: OidcClient
+): DefaultApi {
+  return new DefaultApi(
+    new Configuration({
+      basePath: base,
+      fetchApi,
+      accessToken: () => exchangeOwnerAccessToken(base, base, fetchApi, client),
+    })
+  );
 }
 
 export function setIdpApiUrl(newIdpApiUrl: string) {

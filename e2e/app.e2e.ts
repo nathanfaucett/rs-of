@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { appURL, backendURL } from "./backend.mjs";
 import { json, signIn, storageClient } from "./session";
 
@@ -45,6 +45,98 @@ test("browser sign-in bypasses installation setup and retains its protected sess
   await page.reload();
   await expect(page).toHaveURL(`${appURL}/devices`);
   await expect(page.getByRole("heading", { name: /devices/i }).first()).toBeVisible();
+});
+
+test.describe("session renewal", () => {
+  async function expireAccessToken(page: Page, keepRefresh = true) {
+    return page.evaluate((keepRefresh) => {
+      const key = Object.keys(localStorage).find((key) => key.startsWith("oidc.token:"));
+      if (!key) throw new Error("Sign-in did not store a session");
+      const token = JSON.parse(localStorage.getItem(key) ?? "null");
+      if (!token?.refresh_token) throw new Error("Sign-in did not issue a refresh token");
+      token.access_token_expires_at = 1;
+      if (!keepRefresh) token.refresh_token = undefined;
+      localStorage.setItem(key, JSON.stringify(token));
+      return keepRefresh ? String(token.refresh_token) : undefined;
+    }, keepRefresh);
+  }
+
+  test("renews once before concurrent Dashboard requests", async ({ page }) => {
+    await page.goto(`${appURL}/users`);
+    await signIn(page);
+    await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "admin@local.test", exact: true }).first()
+    ).toBeVisible();
+    await expireAccessToken(page);
+
+    const grants: string[] = [];
+    page.on("request", (request) => {
+      if (request.url() !== `${backendURL}/idp/oauth2/token` || request.method() !== "POST") return;
+      const grant = new URLSearchParams(request.postData() ?? "").get("grant_type");
+      if (grant) grants.push(grant);
+    });
+    await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+    await expect(page.getByText("Loading dashboard...", { exact: true })).toHaveCount(0);
+    await expect(page.locator("p").and(page.getByText("Users", { exact: true }))).toBeVisible();
+    await expect(page).toHaveURL(`${appURL}/`);
+    expect(grants[0]).toBe("refresh_token");
+    expect(grants.filter((grant) => grant === "refresh_token")).toHaveLength(1);
+    expect(grants.filter((grant) => grant.endsWith(":token-exchange"))).toHaveLength(2);
+  });
+
+  for (const reload of [false, true]) {
+    test(`clears a nonrenewable session and returns to the protected route (${reload ? "reload" : "navigation"})`, async ({
+      page,
+      request,
+    }) => {
+      const users = "/users?from=renewal#records";
+      await page.goto(`${appURL}${users}`);
+      await signIn(page);
+      await expect(
+        page.getByRole("cell", { name: "admin@local.test", exact: true }).first()
+      ).toBeVisible();
+      const refresh = await expireAccessToken(page, reload);
+      if (refresh) {
+        const revoked = await request.post(`${backendURL}/idp/oauth2/revoke`, {
+          form: { token: refresh, token_type_hint: "refresh_token" },
+        });
+        expect(revoked.ok()).toBe(true);
+      }
+
+      const exchanges: string[] = [];
+      page.on("request", (request) => {
+        if (request.url() === `${backendURL}/idp/oauth2/token` && request.method() === "POST")
+          exchanges.push(new URLSearchParams(request.postData() ?? "").get("grant_type") ?? "");
+      });
+      const path = reload ? users : "/";
+      if (reload) await page.reload();
+      else await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+      await expect(page).toHaveURL(`${appURL}/signin`);
+      await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
+      expect(exchanges).toEqual(reload ? ["refresh_token"] : []);
+      expect(
+        await page.evaluate(() =>
+          Object.keys(localStorage).some((key) => key.startsWith("oidc.token:"))
+        )
+      ).toBe(false);
+
+      await signIn(page);
+      await expect(page).toHaveURL(`${appURL}${path}`);
+      await expect(
+        page.getByRole("heading", { name: reload ? "Users" : "Dashboard", exact: true })
+      ).toBeVisible();
+    });
+  }
+
+  test("shows one validation message for each empty sign-in field", async ({ page }) => {
+    await page.goto(`${appURL}/signin`);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page.getByText("Enter your username.", { exact: true })).toHaveCount(1);
+    await expect(page.getByText("Enter your password.", { exact: true })).toHaveCount(1);
+    await expect(page.getByText(/password must have/)).toHaveCount(0);
+  });
 });
 
 test("authorization errors give safe, actionable guidance without client registration", async ({

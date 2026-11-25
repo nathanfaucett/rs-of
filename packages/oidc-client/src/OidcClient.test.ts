@@ -274,6 +274,51 @@ test("getAccessToken refreshes an expired access token", async () => {
   expect(requestBody?.get("client_id")).toBe("client-id");
 });
 
+test("concurrent password-login renewal uses the fixed Client without reading consent metadata", async () => {
+  const issuer = "https://issuer.example/idp";
+  const fetch = vi.fn(async (url: URL | RequestInfo, init?: RequestInit) => {
+    if (String(url) === `${issuer}/.well-known/openid-configuration`) {
+      return Response.json(
+        createOidcConfiguration({ issuer, token_endpoint: `${issuer}/oauth2/token` })
+      );
+    }
+    if (String(url) !== `${issuer}/oauth2/token`) return new Response(null, { status: 404 });
+    expect(init?.redirect).toBe("error");
+    const body = new URLSearchParams(init?.body as URLSearchParams);
+    expect(new Headers(init?.headers).get("Authorization")).toBe(`Basic ${btoa("login:")}`);
+    expect(body.get("grant_type")).toBe("refresh_token");
+    return Response.json({ access_token: "renewed", expires_in: 3600, iss: issuer });
+  });
+  const client = new OidcClient({
+    projectOwned: true,
+    projectOwnedPasswordLogin: true,
+    storage: "memory",
+    fetch,
+    clientConfig: {
+      authority: issuer,
+      clientId: "login",
+      registration: {
+        redirectUris: ["https://app.example/callback"],
+        tokenEndpointAuthMethod: "none",
+      },
+    },
+  });
+  client.setToken({
+    access_token: "expired",
+    access_token_expires_at: 1,
+    refresh_token: "refresh",
+    iss: issuer,
+  });
+  await expect(Promise.all([client.getAccessToken(), client.getAccessToken()])).resolves.toEqual([
+    "renewed",
+    "renewed",
+  ]);
+  expect(fetch.mock.calls.filter(([url]) => String(url) === `${issuer}/oauth2/token`)).toHaveLength(
+    1
+  );
+  expect(client.getStoredTokenResponse()?.access_token).toBe("renewed");
+});
+
 test("project-owned discovery cannot redirect refresh credentials to a foreign token endpoint", async () => {
   const fetch = vi
     .fn()

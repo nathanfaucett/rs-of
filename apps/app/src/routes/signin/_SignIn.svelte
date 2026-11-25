@@ -11,10 +11,6 @@
             password: v.pipe(
                 v.string(),
                 v.nonEmpty(m.errors_message_password_required()),
-                v.minLength(
-                    1,
-                    m.errors_message_password_min_length({ characters: 1 }),
-                ),
             ),
         });
 </script>
