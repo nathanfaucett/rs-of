@@ -132,15 +132,15 @@
                 <tbody>
                     {#each users as user (user.sub)}
                         <tr>
-                            <td>
+                            <td data-label="User ID">
                                 <a href={resolve(`/users/${user.sub}`)}
                                     >{user.sub}</a
                                 >
                             </td>
-                            <td>{user.name ?? "-"}</td>
-                            <td>{user.preferredUsername ?? "-"}</td>
-                            <td>{user.email ?? "-"}</td>
-                            <td>{user.updatedAt.toLocaleString()}</td>
+                            <td data-label="Name">{user.name ?? "-"}</td>
+                            <td data-label="Username">{user.preferredUsername ?? "-"}</td>
+                            <td data-label="Email">{user.email ?? "-"}</td>
+                            <td data-label="Updated">{user.updatedAt.toLocaleString()}</td>
                         </tr>
                     {/each}
                 </tbody>

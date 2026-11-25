@@ -645,11 +645,11 @@
                         <tbody>
                             {#each roles as role (role.id)}
                                 <tr>
-                                    <td>{role.id}</td>
-                                    <td>{role.name}</td>
-                                    <td>{role.description ?? "-"}</td>
-                                    <td>{formatTimestamp(role.updatedAt)}</td>
-                                    <td>
+                                    <td data-label="ID">{role.id}</td>
+                                    <td data-label="Name">{role.name}</td>
+                                    <td data-label="Description">{role.description ?? "-"}</td>
+                                    <td data-label="Updated">{formatTimestamp(role.updatedAt)}</td>
+                                    <td data-label="Actions">
                                         <button
                                             class="btn btn-danger btn-md"
                                             type="button"
@@ -738,13 +738,13 @@
                         <tbody>
                             {#each permissions as permission (permission.id)}
                                 <tr>
-                                    <td>{permission.id}</td>
-                                    <td>{permission.name}</td>
-                                    <td>{permission.description ?? "-"}</td>
-                                    <td>
+                                    <td data-label="ID">{permission.id}</td>
+                                    <td data-label="Name">{permission.name}</td>
+                                    <td data-label="Description">{permission.description ?? "-"}</td>
+                                    <td data-label="Updated">
                                         {formatTimestamp(permission.updatedAt)}
                                     </td>
-                                    <td>
+                                    <td data-label="Actions">
                                         <button
                                             class="btn btn-danger btn-md"
                                             type="button"
@@ -861,10 +861,10 @@
                         <tbody>
                             {#each rolePermissions as permission (permission.id)}
                                 <tr>
-                                    <td>{permission.id}</td>
-                                    <td>{permission.name}</td>
-                                    <td>{permission.description ?? "-"}</td>
-                                    <td>
+                                    <td data-label="Permission ID">{permission.id}</td>
+                                    <td data-label="Name">{permission.name}</td>
+                                    <td data-label="Description">{permission.description ?? "-"}</td>
+                                    <td data-label="Actions">
                                         <button
                                             class="btn btn-danger btn-md"
                                             type="button"
@@ -1053,7 +1053,7 @@
                         <tbody>
                             {#each applicationClients as client (client.clientId ?? `${client.clientName}-${client.application.uri}`)}
                                 <tr>
-                                    <td>
+                                    <td data-label="Client ID">
                                         {#if client.clientId}
                                             <a
                                                 href={resolve(
@@ -1064,9 +1064,9 @@
                                             <span class="disabled">-</span>
                                         {/if}
                                     </td>
-                                    <td>{client.clientName}</td>
-                                    <td>{client.profile}</td>
-                                    <td>{client.tokenEndpointAuthMethod}</td>
+                                    <td data-label="Name">{client.clientName}</td>
+                                    <td data-label="Profile">{client.profile}</td>
+                                    <td data-label="Auth Method">{client.tokenEndpointAuthMethod}</td>
                                 </tr>
                             {/each}
                         </tbody>

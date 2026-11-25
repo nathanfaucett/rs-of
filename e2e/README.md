@@ -64,6 +64,7 @@ Password-manager uses the SDK's existing local storage mode so the PKCE verifier
 ## Test boundaries
 
 - Playwright: owner health/discovery, failed sign-in, consent plus PKCE exchanges for both registered clients, Storage SQL CRUD, first-Device enrollment and signed second-Device approval through the Device owner, app session access, and the password-manager sign-in link, redirect, consent, callback, and session-reload flow.
+- Management layout checks use the seeded Application and User records and the real Device list. They check form access and record reflow at 320, 390, 768, and 1440 CSS pixels, plus keyboard navigation and retained preferences. They do not save form drafts.
 - Vitest with Chromium: real browser CORS, sign-in/User info, Device access, Storage writes, and encrypted password-manager vault CRUD through the real sync SDK. The vault test reads remote ciphertext through the public Storage API; it cannot pass with a local-only write.
 - Node lifecycle tests: a small child-process fixture checks supervision only. It is not an identity, Device, or Storage substitute. No domain test intercepts HTTP or supplies fake owner clients.
 

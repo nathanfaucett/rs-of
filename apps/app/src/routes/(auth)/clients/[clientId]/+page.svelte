@@ -375,21 +375,21 @@
                         <tbody>
                             {#each keys as key (key.id)}
                                 <tr>
-                                    <td>{key.id}</td>
-                                    <td>{key.name}</td>
-                                    <td>{key.derivation_path}</td>
-                                    <td>{key.hardened ? "Yes" : "No"}</td>
-                                    <td>
+                                    <td data-label="ID">{key.id}</td>
+                                    <td data-label="Name">{key.name}</td>
+                                    <td data-label="Derivation path">{key.derivation_path}</td>
+                                    <td data-label="Hardened">{key.hardened ? "Yes" : "No"}</td>
+                                    <td data-label="Revoked">
                                         {key.revoked_at
                                             ? formatTimestamp(key.revoked_at)
                                             : "Active"}
                                     </td>
-                                    <td>
+                                    <td data-label="Expires">
                                         {key.expires_at
                                             ? formatTimestamp(key.expires_at)
                                             : "No expiry"}
                                     </td>
-                                    <td>
+                                    <td data-label="Actions">
                                         <button
                                             class="btn btn-secondary btn-md"
                                             type="button"

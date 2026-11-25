@@ -64,15 +64,17 @@
 
 {@render children()}
 
-<button
-    type="button"
-    class="btn btn-secondary btn-icon fixed right-4 bottom-4 z-10 rounded-full shadow-lg"
-    aria-label={m.env_config()}
-    title={m.env_config()}
-    onclick={showConfig}
->
-    <Settings aria-hidden="true" />
-</button>
+<div class="flex shrink-0 justify-end border-t border-line bg-surface px-3 py-1">
+    <button
+        type="button"
+        class="btn btn-secondary btn-icon"
+        aria-label={m.env_config()}
+        title={m.env_config()}
+        onclick={showConfig}
+    >
+        <Settings aria-hidden="true" />
+    </button>
+</div>
 
 <Modal bind:this={configModal} title={m.env_config()}>
     <ConfigForm bind:this={configForm} onSaved={() => configModal?.close()} />
