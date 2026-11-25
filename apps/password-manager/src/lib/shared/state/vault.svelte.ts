@@ -69,6 +69,15 @@ async function showSyncedVaults() {
   return synced.length;
 }
 
+function activateVault(vault: VaultHandleLike, lockSettings: LockSettings, isSynced: boolean) {
+  if (vaultState.status === "unlocked") vaultState.inactivity.stop();
+  const inactivity = createInactivityLock(() => {
+    void lockVault();
+  });
+  vaultState = { status: "unlocked", vault, lockSettings, inactivity, isSynced };
+  inactivity.start(lockSettings);
+}
+
 async function createVault(password: string, name: string, synced = false) {
   if (synced) {
     const handle =
@@ -76,31 +85,23 @@ async function createVault(password: string, name: string, synced = false) {
     const vault = await createSyncVault(password, name.trim(), handle);
     const request = session;
     const settings = await vault.loadLockSettings();
-    const inactivity = createInactivityLock(() => {
-      void lockVault();
-    });
-    inactivity.start(settings);
     if (request !== session) {
       await vault.close();
       return;
     }
     await handle.sync({ direction: "bidirectional" });
-    vaultState = { status: "unlocked", vault, lockSettings: settings, inactivity, isSynced: true };
+    activateVault(vault, settings, true);
     await goto("/vault");
     return;
   }
   const vault = await createVaultHandle(password, name.trim());
   const request = session;
   const settings = await vault.loadLockSettings();
-  const inactivity = createInactivityLock(() => {
-    void lockVault();
-  });
-  inactivity.start(settings);
   if (request !== session) {
     await vault.close();
     return;
   }
-  vaultState = { status: "unlocked", vault, lockSettings: settings, inactivity, isSynced: false };
+  activateVault(vault, settings, false);
   await goto("/vault");
 }
 
@@ -112,42 +113,47 @@ async function unlockExistingVault(password: string, { id, synced }: VaultChoice
     if (!vault) throw new Error("Wrong password or synced vault unavailable.");
     const request = session;
     const settings = await vault.loadLockSettings();
-    const inactivity = createInactivityLock(() => {
-      void lockVault();
-    });
-    inactivity.start(settings);
     if (request !== session) {
       await vault.close();
       return;
     }
     await handle.sync({ direction: "bidirectional" });
-    vaultState = { status: "unlocked", vault, lockSettings: settings, inactivity, isSynced: true };
+    activateVault(vault, settings, true);
     await goto("/vault");
     return;
   }
   const vault = await unlockVault(password, id);
   const request = session;
   const settings = await vault.loadLockSettings();
-  const inactivity = createInactivityLock(() => {
-    void lockVault();
-  });
-  inactivity.start(settings);
   if (request !== session) {
     await vault.close();
     return;
   }
-  vaultState = { status: "unlocked", vault, lockSettings: settings, inactivity, isSynced: false };
+  activateVault(vault, settings, false);
   await goto("/vault");
 }
 
+async function saveLockSettings(settings: LockSettings): Promise<boolean> {
+  const current = vaultState;
+  if (current.status !== "unlocked" || current.inactivity.check()) return false;
+
+  const confirmed = await current.vault.saveLockSettings(settings);
+  if (vaultState !== current || current.inactivity.check()) return false;
+
+  current.inactivity.start(confirmed);
+  current.lockSettings = confirmed;
+  return true;
+}
+
 async function lockVault() {
-  if (vaultState.status === "unlocked") {
-    vaultState.inactivity.stop();
-    await vaultState.vault.close();
-  }
+  const previous = vaultState;
+  const request = ++session;
   vaultState = { status: "locked" };
-  session++;
-  await goto("/");
+  if (previous.status === "unlocked") {
+    previous.inactivity.stop();
+    await previous.vault.close();
+  }
+  if (request === session && vaultState.status === "locked") await goto("/");
 }
 
 async function showVaultSelector() {
@@ -185,6 +191,7 @@ export const vaultStateModule = {
   },
   createVault,
   unlockExistingVault,
+  saveLockSettings,
   lockVault,
   showVaultSelector,
   showSyncedVaults,

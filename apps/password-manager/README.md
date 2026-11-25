@@ -8,6 +8,7 @@ This Svelte application demonstrates the platform's north-star workflow. It is i
 - Core local vault operations do not require an IdP account or Storage service.
 - The vault selector and the navigation sidebar for an unlocked local vault link to the OIDC sign-in route when you are signed out.
 - Vault records are encrypted with AES-256-GCM. The current key derivation uses PBKDF2-SHA-512 with 600,000 iterations.
+- A confirmed inactivity timeout save starts a new deadline for the unlocked vault. Unlock loads the saved setting from the encrypted vault.
 - Locking clears the decrypted application view. Browser local storage is not an encrypted backup.
 - The application includes local backup/recovery and offline-shell support; platform, eviction, update, and recovery limits still apply.
 

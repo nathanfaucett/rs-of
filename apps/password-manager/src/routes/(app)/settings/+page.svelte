@@ -5,7 +5,7 @@ import { Alert } from "$lib/ui";
 import JsonExport from "$lib/vault/export/JsonExport.svelte";
 import ImportJson from "$lib/vault/import/ImportJson.svelte";
 import LockSettingsControl from "$lib/vault/LockSettings.svelte";
-import type { LockSettings } from "$lib/vault/lock";
+
 
 let error = $state("");
 let notice = $state("");
@@ -15,10 +15,6 @@ let session = 0;
 
 let vaultData = $derived(vaultStateModule.vaultData);
 
-function settingsSaved(settings: LockSettings) {
-	if (!vaultData || vaultData.inactivity.check()) return;
-	vaultData.lockSettings = settings;
-}
 
 async function downloadBackup(recovery = false) {
 	if (!vaultData || busy || importing) return;
@@ -64,7 +60,7 @@ function finishImport(success = false) {
 		{#if error}<Alert tone="danger">{error}</Alert>{/if}
 		{#if notice}<p role="status">{notice}</p>{/if}
 		{#if vaultData}
-		            <LockSettingsControl vault={vaultData.vault} settings={vaultData.lockSettings} onsaved={settingsSaved} />
+		            <LockSettingsControl settings={vaultData.lockSettings} onsave={vaultStateModule.saveLockSettings} />
 		            <JsonExport vault={vaultData.vault} isActive={() => !vaultData.inactivity.check()} />
 		            <ImportJson vault={vaultData.vault} active={() => !vaultData.inactivity.check()} oncancel={() => finishImport()} onimported={() => finishImport(true)} />
 		            <div class="flex gap-2">

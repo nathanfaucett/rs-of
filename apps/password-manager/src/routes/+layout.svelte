@@ -7,9 +7,18 @@ import { authState } from "$lib/auth/auth.svelte";
 import Notifications from "$lib/shared/components/Notifications.svelte";
 import OfflineStatus from "$lib/shared/offline/OfflineStatus.svelte";
 import { syncStateModule } from "$lib/shared/state/sync.svelte";
+import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 import type { LayoutProps } from "./$types";
 
 let { children }: LayoutProps = $props();
+
+function checkInactivity() {
+    vaultStateModule.vaultData?.inactivity.check();
+}
+
+function recordActivity() {
+    vaultStateModule.vaultData?.inactivity.activity();
+}
 
 $effect(() => {
     if (!authState.isAuthenticated) void syncStateModule.closeSync();
@@ -27,6 +36,9 @@ $effect(() => {
 <svelte:head>
 	<link rel="icon" href={favicon} />
 </svelte:head>
+
+<svelte:window onfocus={checkInactivity} onpageshow={checkInactivity} />
+<svelte:document onvisibilitychange={checkInactivity} onpointerdown={recordActivity} onkeydown={recordActivity} oninput={recordActivity} />
 
 <OfflineStatus />
 {@render children()}
