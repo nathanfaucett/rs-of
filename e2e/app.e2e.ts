@@ -137,3 +137,71 @@ test("app signs in and uses its session for Device and Storage access", async ({
   await page.reload();
   await expect(page.getByRole("heading", { name: /devices/i }).first()).toBeVisible();
 });
+
+test("Devices keeps administration without using legacy sync preferences", async ({ page }) => {
+  const legacyEntries = {
+    "sync-target-url": JSON.stringify("https://old-storage.example/storage"),
+    "sync-preferences:legacy": JSON.stringify({ direction: "Pull", deviceIds: [], results: {} }),
+  };
+  await page.addInitScript(
+    ({ origin, entries }) => {
+      if (location.origin !== origin) return;
+      for (const [key, value] of Object.entries(entries)) {
+        if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+      }
+      for (const method of ["getItem", "setItem", "removeItem"] as const) {
+        const original = Storage.prototype[method];
+        Storage.prototype[method] = function (this: Storage, key: string, ...args: string[]) {
+          if (key === "sync-target-url" || key.startsWith("sync-preferences:")) {
+            performance.mark(`legacy-sync-storage:${method}:${key}`);
+          }
+          return Reflect.apply(original, this, [key, ...args]);
+        };
+      }
+    },
+    { origin: new URL(appURL).origin, entries: legacyEntries }
+  );
+
+  await page.goto(`${appURL}/devices`);
+  await expect(page).toHaveURL(/\/signin/);
+  await signIn(page);
+  await expect(page).toHaveURL(`${appURL}/devices`);
+
+  await expect(page.getByRole("heading", { name: "Sync", exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: /^(Sync|Configure sync|Check selected targets)$/ })
+  ).toHaveCount(0);
+  await expect(
+    page.getByText(/Sign in before checking sync|Blocked — no data transferred/)
+  ).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Direction", exact: true })).toHaveCount(0);
+
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
+  const records = page.waitForResponse(`${backendURL}/device/devices`);
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  const response = await records;
+  expect(response.ok()).toBeTruthy();
+  expect(await response.json()).toEqual(expect.any(Array));
+  await page.getByRole("button", { name: "Add device", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Enroll New Device" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Read current restriction" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Select authorized resource" })).toBeVisible();
+  await page.getByRole("combobox", { name: "Resource kind" }).selectOption({ label: "Filesystem" });
+  await expect(page.getByRole("group", { name: "Local whole-filesystem Residency" })).toBeVisible();
+
+  expect(
+    await page.evaluate(() =>
+      performance
+        .getEntriesByType("mark")
+        .map(({ name }) => name)
+        .filter((name) => name.startsWith("legacy-sync-storage:"))
+    )
+  ).toEqual([]);
+  expect(
+    await page.evaluate(
+      (keys) => Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)])),
+      Object.keys(legacyEntries)
+    )
+  ).toEqual(legacyEntries);
+});

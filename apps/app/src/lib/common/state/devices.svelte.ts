@@ -3,9 +3,8 @@ import { deviceApi } from "./deviceClient.svelte";
 
 export type { DeviceEnrollment, DeviceInfo, DeviceState };
 
-export function listDevices(signal?: AbortSignal): Promise<DeviceInfo[]> {
-  signal?.throwIfAborted();
-  return deviceApi.listDevices(signal ? { signal } : undefined);
+export function listDevices(): Promise<DeviceInfo[]> {
+  return deviceApi.listDevices();
 }
 
 export function renameDevice(id: string, name: string): Promise<DeviceInfo> {

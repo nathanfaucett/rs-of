@@ -3,7 +3,6 @@
     import { onMount } from "svelte";
     import DevicePolicy from "$lib/common/components/DevicePolicy.svelte";
     import Modal from "$lib/common/components/Modal.svelte";
-    import SyncPanel from "$lib/common/components/SyncPanel.svelte";
     import {
         deviceApi,
         getDeviceApiUrl,
@@ -211,7 +210,6 @@
             <button
                 class="btn btn-primary btn-md"
                 type="button"
-                id="device-pairing"
                 onclick={openEnrollmentForm}
             >
                 Add device
@@ -224,8 +222,6 @@
             >
         {/snippet}
     </PageHeader>
-
-    <SyncPanel />
 
     <DevicePolicy {devices} />
 

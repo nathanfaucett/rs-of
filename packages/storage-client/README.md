@@ -42,4 +42,4 @@ Database synchronization (SQL mesh sync) uses a **separate WebSocket protocol** 
 - `@ofsdk/sql` WASM — the owner sync engine (`Database::synchronize_checked`)
 - A `SyncTransport` adapter bridging the two (not yet implemented)
 
-See [Storage Sync Architecture](../../services/storage-service/docs/sync-architecture.md) for the complete integration picture. The `@ofsdk/app` SyncPanel provides capability probing and device selection only; it does not perform data transfer.
+See [Storage Sync Architecture](../../services/storage-service/docs/sync-architecture.md) for the complete integration picture.
