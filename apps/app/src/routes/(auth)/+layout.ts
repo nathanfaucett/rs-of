@@ -4,7 +4,11 @@ import { isTauri } from "@tauri-apps/api/core";
 import { resolve } from "$app/paths";
 import { afterSigninRedirect } from "$lib/common/state/afterSigninRedirect.svelte";
 import { ensureTauriDeviceApiUrl } from "$lib/common/state/deviceClient.svelte";
-import { ensureTauriIdpApiUrl, getIdpApiUrl, idpApi } from "$lib/common/state/idpClient.svelte";
+import {
+  ensureTauriIdpApiUrl,
+  getIdpApiUrl,
+  idpApiForFetch,
+} from "$lib/common/state/idpClient.svelte";
 import { ensureTauriManagementApiUrl } from "$lib/common/state/managementClient.svelte";
 import { nodeSetupStatus } from "$lib/common/state/nodeSetup";
 import { clearOidcSession, ensureOidcClientId, getOidcClient } from "$lib/common/state/oidc.svelte";
@@ -17,14 +21,14 @@ export const load = (async (event) => {
   await event.parent();
 
   if (!isTauri() && !getIdpApiUrl()) redirect(302, resolve("/setup/installation"));
-  const node = await nodeSetupStatus();
+  const node = await nodeSetupStatus(event.fetch);
   if (node && node.route !== "/signin") redirect(302, node.route);
-  const observation = await observeOnboarding(node);
+  const observation = await observeOnboarding(node, event.fetch);
   if (observation.state !== "ready") redirect(302, resolve("/setup/installation"));
   if (isTauri()) {
-    await ensureTauriIdpApiUrl();
-    await ensureTauriManagementApiUrl();
-    await ensureTauriDeviceApiUrl();
+    await ensureTauriIdpApiUrl(event.fetch);
+    await ensureTauriManagementApiUrl(event.fetch);
+    await ensureTauriDeviceApiUrl(event.fetch);
   }
   await ensureOidcClientId(observation).catch(() =>
     error(503, "Verified public login Client is unavailable. Retry observation.")
@@ -35,6 +39,7 @@ export const load = (async (event) => {
     redirect(302, resolve("/signin"));
   }
 
+  const idpApi = idpApiForFetch(event.fetch);
   const oidcClient = getOidcClient();
   const token = oidcClient.getStoredTokenResponse();
   const { iss: tokenIssuer } = token ?? {};

@@ -498,6 +498,13 @@
     });
 </script>
 
+<svelte:head>
+    <title>{
+        (application?.id === page.params.applicationId && application?.name) ||
+        page.params.applicationId
+    } — Application — of</title>
+</svelte:head>
+
 <Page>
     <PageHeader title="Application Detail" />
 

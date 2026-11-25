@@ -65,9 +65,9 @@ export function setManagementApiUrl(newManagementApiUrl: string) {
   managementApiUrl.item = newManagementApiUrl;
 }
 
-export async function ensureTauriManagementApiUrl(): Promise<void> {
+export async function ensureTauriManagementApiUrl(fetchApi: typeof fetch = fetch): Promise<void> {
   if (isTauri() && !usesRemoteApis())
-    managementApiUrl.item = `${await ensureLocalhostBaseUrl()}/management`;
+    managementApiUrl.item = `${await ensureLocalhostBaseUrl(fetchApi)}/management`;
 }
 
 export function getManagementApiUrl(): string | null {

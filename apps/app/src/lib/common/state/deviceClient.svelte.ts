@@ -68,9 +68,9 @@ export function setDeviceApiUrl(newDeviceApiUrl: string) {
   deviceApiUrl.item = newDeviceApiUrl;
 }
 
-export async function ensureTauriDeviceApiUrl(): Promise<void> {
+export async function ensureTauriDeviceApiUrl(fetchApi: typeof fetch = fetch): Promise<void> {
   if (isTauri() && !usesRemoteApis())
-    deviceApiUrl.item = `${await ensureLocalhostBaseUrl()}/device`;
+    deviceApiUrl.item = `${await ensureLocalhostBaseUrl(fetchApi)}/device`;
 }
 
 export function getDeviceApiUrl(): string | null {

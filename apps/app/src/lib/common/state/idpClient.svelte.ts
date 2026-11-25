@@ -69,6 +69,19 @@ export const lidpConfiguration = new Configuration(defaultConfigurationParameter
 
 export const idpApi = new DefaultApi(lidpConfiguration);
 
+export function idpApiForFetch(fetchApi: typeof fetch): DefaultApi {
+  return new DefaultApi(
+    new Configuration({
+      ...defaultConfigurationParameters,
+      get basePath() {
+        return readBasePath();
+      },
+      fetchApi,
+      accessToken: () => idpOwnerAccessToken(fetchApi),
+    })
+  );
+}
+
 export async function passwordToken(clientId: string, username: string, password: string) {
   const base = await ensureTauriIdpApiUrl();
   if (!base) throw new Error("An IdP endpoint is required");
@@ -90,8 +103,11 @@ export async function passwordToken(clientId: string, username: string, password
   );
 }
 
-export async function ownerAccessToken(resource: string): Promise<string> {
-  const base = await ensureTauriIdpApiUrl();
+export async function ownerAccessToken(
+  resource: string,
+  fetchApi: typeof fetch = fetch
+): Promise<string> {
+  const base = await ensureTauriIdpApiUrl(fetchApi);
   const subjectToken = readAccessToken();
   if (!subjectToken) return "";
   if (
@@ -99,7 +115,7 @@ export async function ownerAccessToken(resource: string): Promise<string> {
     (resource !== base && resource !== "idp-management" && resource !== getDeviceApiUrl())
   )
     throw new Error("A current IdP, Device or Management owner audience is required");
-  const owner = new DefaultApi(new Configuration({ basePath: base, fetchApi: fetch }));
+  const owner = new DefaultApi(new Configuration({ basePath: base, fetchApi }));
   const token = await owner.token({
     grantType: TokenGrantTypeEnum.UrnIetfParamsOauthGrantTypeTokenExchange,
     subjectToken,
@@ -109,10 +125,10 @@ export async function ownerAccessToken(resource: string): Promise<string> {
   return token.accessToken;
 }
 
-export async function idpOwnerAccessToken(): Promise<string> {
-  const base = await ensureTauriIdpApiUrl();
+export async function idpOwnerAccessToken(fetchApi: typeof fetch = fetch): Promise<string> {
+  const base = await ensureTauriIdpApiUrl(fetchApi);
   if (!base) throw new Error("An IdP endpoint is required");
-  return ownerAccessToken(base);
+  return ownerAccessToken(base, fetchApi);
 }
 
 export function setIdpApiUrl(newIdpApiUrl: string) {
@@ -129,12 +145,12 @@ export function getIdpApiUrl(): string | null {
   return idpApiUrl.item;
 }
 
-export async function ensureTauriIdpApiUrl(): Promise<string | null> {
+export async function ensureTauriIdpApiUrl(fetchApi: typeof fetch = fetch): Promise<string | null> {
   if (usesRemoteApis()) {
     return idpApiUrl.item;
   }
 
-  const baseUrl = await ensureLocalhostBaseUrl();
+  const baseUrl = await ensureLocalhostBaseUrl(fetchApi);
   idpApiUrl.item = `${baseUrl}/idp`;
   return idpApiUrl.item;
 }

@@ -104,13 +104,14 @@ function blocked(
 }
 
 export async function observeOnboarding(
-  nodeStatus?: NodeSetupStatus
+  nodeStatus?: NodeSetupStatus,
+  fetchApi: typeof fetch = fetch
 ): Promise<OnboardingObservation> {
   const selected = selection();
   let target = publicTarget(selected);
   let hosts: SetupHost[];
   try {
-    const node = nodeStatus ?? (await nodeSetupStatus());
+    const node = nodeStatus ?? (await nodeSetupStatus(fetchApi));
     if (!sameSelection(selected)) return blocked(selection(), "retry");
     if (node) {
       requireCurrentSetupUiOrigin();
@@ -145,7 +146,7 @@ export async function observeOnboarding(
       const response = await new DefaultApi(
         new Configuration({
           basePath: selected.idp,
-          fetchApi: fetch,
+          fetchApi,
         })
       )
         .openidConfigurationRaw({ cache: "no-store", redirect: "error" })
@@ -200,11 +201,11 @@ export async function observeOnboarding(
         device: `${base}/device`,
         storage: `${base}/storage`,
       };
-      hosts = await fetchSetupHosts(target);
+      hosts = await fetchSetupHosts(target, fetchApi);
     } else {
       requireCurrentSetupUiOrigin();
       if (!selected.idp) return blocked(target, "prerequisite");
-      hosts = await fetchSetupHosts(selected);
+      hosts = await fetchSetupHosts(selected, fetchApi);
       if (!sameSelection(selected)) return blocked(selection(), "retry");
     }
   } catch (cause) {

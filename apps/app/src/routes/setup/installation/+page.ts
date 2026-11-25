@@ -3,13 +3,14 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getIdpApiUrl } from "$lib/common/state/idpClient.svelte";
 import { nodeSetupStatus } from "$lib/common/state/nodeSetup";
 import { observeOnboarding } from "$lib/common/state/onboarding";
+import type { PageLoad } from "./$types";
 
-export async function load() {
+export const load: PageLoad = async ({ fetch }) => {
   if (!isTauri() && !getIdpApiUrl()) throw redirect(302, "/config");
-  const node = await nodeSetupStatus();
+  const node = await nodeSetupStatus(fetch);
   if (node?.route === "/setup/installation") return { unified: true } as const;
   if (node && node.route !== "/signin") redirect(302, node.route);
-  const observation = await observeOnboarding(node);
+  const observation = await observeOnboarding(node, fetch);
   if (node && observation.state === "ready") redirect(302, "/signin");
   if (
     observation.target.kind === "remote" &&
@@ -18,4 +19,4 @@ export async function load() {
   )
     throw redirect(302, "/config");
   return { unified: false, observation } as const;
-}
+};

@@ -17,18 +17,19 @@ function wait(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-async function isLocalhostListenerAvailable(baseUrl: string): Promise<boolean> {
+async function isLocalhostListenerAvailable(
+  baseUrl: string,
+  fetchApi: typeof fetch
+): Promise<boolean> {
   try {
-    await new DefaultApi(
-      new Configuration({ basePath: `${baseUrl}/idp`, fetchApi: fetch })
-    ).healthRaw();
+    await new DefaultApi(new Configuration({ basePath: `${baseUrl}/idp`, fetchApi })).healthRaw();
     return true;
   } catch {}
   try {
     const status = await new OwnerSetupApi(
       new SetupConfiguration({
         basePath: `${baseUrl}/idp`,
-        fetchApi: fetch,
+        fetchApi,
       })
     ).ownerSetupStatus();
     return status?.stage === "installation";
@@ -41,7 +42,7 @@ export function getLocalhostBaseUrlCached(): string | null {
   return localhostBaseUrl.item;
 }
 
-export async function loadLocalhostBaseUrl(): Promise<string | null> {
+export async function loadLocalhostBaseUrl(fetchApi: typeof fetch = fetch): Promise<string | null> {
   if (!isTauri()) {
     return null;
   }
@@ -55,7 +56,7 @@ export async function loadLocalhostBaseUrl(): Promise<string | null> {
       try {
         const baseUrl = await invoke<string>("get_localhost_server_base_url");
         const normalized = baseUrl?.trim() ?? "";
-        if (normalized && (await isLocalhostListenerAvailable(normalized))) {
+        if (normalized && (await isLocalhostListenerAvailable(normalized, fetchApi))) {
           localhostBaseUrl.item = normalized;
           return normalized;
         }
@@ -74,8 +75,8 @@ export async function loadLocalhostBaseUrl(): Promise<string | null> {
   return baseUrlLoadPromise;
 }
 
-export async function ensureLocalhostBaseUrl(): Promise<string> {
-  const baseUrl = await loadLocalhostBaseUrl();
+export async function ensureLocalhostBaseUrl(fetchApi: typeof fetch = fetch): Promise<string> {
+  const baseUrl = await loadLocalhostBaseUrl(fetchApi);
   if (!baseUrl) {
     throw new Error("Localhost server URL is not available yet");
   }
