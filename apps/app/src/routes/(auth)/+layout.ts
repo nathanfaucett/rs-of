@@ -4,11 +4,21 @@ import { isTauri } from "@tauri-apps/api/core";
 import { resolve } from "$app/paths";
 import { afterSigninRedirect } from "$lib/common/state/afterSigninRedirect.svelte";
 import { ensureTauriDeviceApiUrl } from "$lib/common/state/deviceClient.svelte";
-import { ensureTauriIdpApiUrl, getIdpApiUrl, idpApi } from "$lib/common/state/idpClient.svelte";
+import {
+  ensureTauriIdpApiUrl,
+  getIdpApiUrl,
+  idpApiForLoad,
+} from "$lib/common/state/idpClient.svelte";
 import { ensureTauriManagementApiUrl } from "$lib/common/state/managementClient.svelte";
 import { nodeSetupStatus } from "$lib/common/state/nodeSetup";
-import { clearOidcSession, ensureOidcClientId, getOidcClient } from "$lib/common/state/oidc.svelte";
+import {
+  clearOidcSession,
+  ensureOidcClientId,
+  getOidcClient,
+  isCurrentOidcClient,
+} from "$lib/common/state/oidc.svelte";
 import { observeOnboarding } from "$lib/common/state/onboarding";
+import { SessionExpiredError } from "$lib/common/state/sessionAccess";
 import type { LayoutLoad } from "./$types";
 
 export const prerender = false;
@@ -30,17 +40,18 @@ export const load = (async (event) => {
     error(503, "Verified public login Client is unavailable. Retry observation.")
   );
 
-  if (!getIdpApiUrl()) {
+  const base = getIdpApiUrl();
+  if (!base) {
     afterSigninRedirect.setURL(event.url);
     redirect(302, resolve("/signin"));
   }
 
   const oidcClient = getOidcClient();
+  const idpApi = idpApiForLoad(base, event.fetch, oidcClient);
   const token = oidcClient.getStoredTokenResponse();
   const { iss: tokenIssuer } = token ?? {};
   let issuer: string | undefined;
   if (isTauri() && token?.access_token && tokenIssuer) {
-    const base = getIdpApiUrl();
     const metadata = await idpApi
       .openidConfiguration()
       .catch(() =>
@@ -66,6 +77,14 @@ export const load = (async (event) => {
   try {
     userInfo = await idpApi.userinfo();
   } catch (cause) {
+    if (
+      cause instanceof SessionExpiredError &&
+      isCurrentOidcClient(oidcClient) &&
+      !oidcClient.getStoredTokenResponse()
+    ) {
+      afterSigninRedirect.setURL(event.url);
+      redirect(302, resolve("/signin"));
+    }
     if (cause instanceof ResponseError) {
       const status = cause.response.status;
       const body =

@@ -4,6 +4,7 @@ import { env } from "$env/dynamic/public";
 import icon256x256Png from "$lib/assets/icon256x256.png";
 import { getIdpApiUrl } from "./idpClient.svelte";
 import { type OnboardingObservation, observeOnboarding } from "./onboarding";
+import { requireSessionAccessToken } from "./sessionAccess";
 
 let storedClient: OidcClient | undefined;
 let webLogin = $state.raw<{ base: string; clientId: string }>();
@@ -12,13 +13,13 @@ const CLIENT_ID = $derived(
 );
 
 export async function ensureOidcClientId(observation?: OnboardingObservation): Promise<string> {
-  webLogin = undefined;
   const snapshot = observation ?? (await observeOnboarding());
   const base = getIdpApiUrl()?.replace(/\/$/, "");
   if (snapshot.state !== "ready" || snapshot.target.idp !== base)
     throw new Error("Verified public login Client is unavailable");
-  webLogin = { base, clientId: snapshot.loginClient.client_id };
-  return webLogin.clientId;
+  const clientId = snapshot.loginClient.client_id;
+  if (webLogin?.base !== base || webLogin.clientId !== clientId) webLogin = { base, clientId };
+  return clientId;
 }
 
 const oidcClient = $derived.by(() => {
@@ -27,6 +28,7 @@ const oidcClient = $derived.by(() => {
   if (!authority) throw new Error("An IdP endpoint is required");
   return new OidcClient({
     projectOwned: true,
+    projectOwnedPasswordLogin: CLIENT_ID !== undefined,
     clientConfig: {
       authority,
       redirectUri: `${env.PUBLIC_URL}/callback`,
@@ -63,6 +65,18 @@ const oidcClient = $derived.by(() => {
 export function getOidcClient() {
   storedClient = oidcClient;
   return storedClient;
+}
+
+export function isCurrentOidcClient(client: OidcClient): boolean {
+  return Boolean(getIdpApiUrl()) && client === oidcClient;
+}
+
+export function oidcSessionAccessToken(client: OidcClient): Promise<string> {
+  return requireSessionAccessToken(
+    client,
+    () => isCurrentOidcClient(client),
+    () => client.clearStoredTokenResponse()
+  );
 }
 
 export function clearOidcSession(): void {
