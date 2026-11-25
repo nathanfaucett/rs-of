@@ -13,11 +13,8 @@ let { draft = $bindable(), disabled }: { draft: IdentityDraft; disabled: boolean
     {#each identityFields as [key, label] (key)}
         <Field id={`identity-${key}`} {label}>
             {#snippet children(control: FieldControl)}
-                {#if key === "ssn" || key === "passportNumber" || key === "licenseNumber"}
-                    <PasswordInput {...control} bind:value={draft[key]} autocomplete="off" spellcheck="false" />
-                {:else}
-                    <textarea {...control} bind:value={draft[key]} rows={key.startsWith("address") ? 2 : 1} autocomplete="off" spellcheck="false"></textarea>
-                {/if}
+                <PasswordInput {...control} {label} bind:value={draft[key]}
+                    rows={key === "ssn" || key === "passportNumber" || key === "licenseNumber" ? undefined : key.startsWith("address") ? 2 : 1} />
             {/snippet}
         </Field>
     {/each}

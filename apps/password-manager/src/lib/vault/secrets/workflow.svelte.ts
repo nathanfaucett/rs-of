@@ -34,7 +34,6 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandleLike })
     record: EditableSecret | null;
     draft: SecretDraft;
     confirmPassword: string;
-    showPassword: boolean;
   } | null>(null);
   let selectedId = $state<string | null>(null);
 
@@ -42,7 +41,7 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandleLike })
     !!editor &&
       (JSON.stringify(editor.draft) !==
         JSON.stringify(createSecretDraft(editor.record, editor.draft.kind)) ||
-        editor.confirmPassword !== "")
+        editor.confirmPassword !== initialConfirmation(editor.record))
   );
   let loadError = $state<string | null>(null);
   let error = $state<string | null>(null);
@@ -83,6 +82,9 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandleLike })
   void collection.preload().catch((cause: unknown) => {
     if (active) loadError = message(cause);
   });
+  function initialConfirmation(record: EditableSecret | null) {
+    return record?.kind === "login" ? (record.secret ?? "") : "";
+  }
   function edit(value: Secret | null = null, kind: EditableKind = "login") {
     if (!canEdit()) return;
     if (value?.deletedAt) return;
@@ -100,12 +102,10 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandleLike })
     selectedId = record?.id ?? null;
     const draft = createSecretDraft(record, kind);
     // Pre-fill confirm password when editing an existing login
-    const confirmPassword = record?.kind === "login" ? (record.secret ?? "") : "";
     editor = {
       record,
       draft,
-      confirmPassword,
-      showPassword: false,
+      confirmPassword: initialConfirmation(record),
     };
     error = null;
     notice = "";

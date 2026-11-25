@@ -10,6 +10,8 @@ import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
 import type { VaultIdentity } from "$lib/vault/vault";
 
+const minimumPasswordLength = 8;
+
 let password = $state("");
 let confirmPassword = $state("");
 let showPassword = $state(false);
@@ -23,6 +25,7 @@ onMount(() => {
 });
 
 async function createVault() {
+    if (busy) return;
     error = "";
     if (!vaultName.trim()) {
         error = "Vault name is required.";
@@ -36,11 +39,10 @@ async function createVault() {
         error = "Passwords do not match.";
         return;
     }
-    if (password.length < 8) {
-        error = "Password must be at least 8 characters.";
+    if (password.length < minimumPasswordLength) {
+        error = `Password must be at least ${minimumPasswordLength} characters.`;
         return;
     }
-    if (busy) return;
     busy = true;
     const pwd = password;
     try {
@@ -77,6 +79,7 @@ async function unlockVault() {
 }
 
 function selectVault(identity: VaultIdentity & { synced?: boolean }) {
+    showPassword = false;
     notice = "";
     error = "";
     password = "";
@@ -109,7 +112,13 @@ async function restored(identity: { id: string; name: string }) {
     await vaultStateModule.showVaultSelector();
     notice = `Restore verified: ${identity.name}. ID: ${identity.id}. Unlock it and check the data before discarding the backup.`;
 }
+const title = $derived(vaultStateModule.state.status === "create-vault" ? "Create vault | Password Manager"
+    : vaultStateModule.state.status === "unlock-vault" ? "Unlock vault | Password Manager"
+    : vaultStateModule.state.status === "restore-vault" ? "Restore vault | Password Manager"
+    : "Password Manager");
 </script>
+
+<svelte:head><title>{title}</title></svelte:head>
 
 <svelte:window onfocus={() => vaultStateModule.state.status === "unlocked" && vaultStateModule.vaultData?.inactivity.check()} onpageshow={() => vaultStateModule.state.status === "unlocked" && vaultStateModule.vaultData?.inactivity.check()} />
 <svelte:document onvisibilitychange={() => vaultStateModule.state.status === "unlocked" && vaultStateModule.vaultData?.inactivity.check()} />
@@ -175,7 +184,7 @@ async function restored(identity: { id: string; name: string }) {
                 description={vaultStateModule.state.synced ? "Your vault is encrypted with your master password before sync." : "Your passwords are stored locally, encrypted with your master password. No account or server needed."}
             />
             <Card>
-                <div class="flex flex-col gap-4">
+                <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void createVault(); }}>
                     {#if error}
                         <Alert tone="danger">{error}</Alert>
                     {/if}
@@ -191,13 +200,13 @@ async function restored(identity: { id: string; name: string }) {
                             />
                         {/snippet}
                     </Field>
-                    <Field id="password" label="Master password" required>
+                    <Field id="password" label="Master password" description={`Use at least ${minimumPasswordLength} characters.`} required>
                         {#snippet children(control)}
                             <input
                                 {...control}
                                 bind:value={password}
                                 type="password"
-                                placeholder="At least 8 characters"
+                                autocomplete="new-password"
                                 disabled={busy}
                             />
                         {/snippet}
@@ -208,6 +217,7 @@ async function restored(identity: { id: string; name: string }) {
                                 {...control}
                                 bind:value={confirmPassword}
                                 type="password"
+                                autocomplete="new-password"
                                 disabled={busy}
                             />
                         {/snippet}
@@ -223,14 +233,13 @@ async function restored(identity: { id: string; name: string }) {
                         </button>
                         <button
                             class="btn btn-primary btn-md"
-                            type="button"
+                            type="submit"
                             disabled={busy}
-                            onclick={() => void createVault()}
                         >
                             {busy ? "Creating…" : "Create vault"}
                         </button>
                     </div>
-                </div>
+                </form>
             </Card>
         </Page>
     {:else if vaultStateModule.state.status === "unlock-vault"}
@@ -240,7 +249,7 @@ async function restored(identity: { id: string; name: string }) {
                 description="Vault ID: {vaultStateModule.state.identity.id}. Enter your master password to access your passwords."
             />
             <Card>
-                <div class="flex flex-col gap-4">
+                <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void unlockVault(); }}>
                     {#if error}
                         <Alert tone="danger">{error}</Alert>
                     {/if}
@@ -253,14 +262,16 @@ async function restored(identity: { id: string; name: string }) {
                                     bind:value={password}
                                     type={showPassword ? "text" : "password"}
                                     disabled={busy}
-                                    onkeydown={(e) => e.key === "Enter" && void unlockVault()}
+                                    autocomplete="current-password"
                                     class="flex-1"
                                 />
                                 <button
                                     type="button"
                                     class="btn btn-ghost btn-md self-end"
                                     onclick={() => showPassword = !showPassword}
-                                    aria-label={showPassword ? "Hide password" : "Show password"}
+                                    aria-label={showPassword ? "Hide master password" : "Show master password"}
+                                    aria-pressed={showPassword}
+                                    disabled={busy}
                                 >
                                     {#if showPassword}
                                         <EyeOff class="w-5 h-5" />
@@ -282,14 +293,13 @@ async function restored(identity: { id: string; name: string }) {
                         </button>
                         <button
                             class="btn btn-primary btn-md"
-                            type="button"
+                            type="submit"
                             disabled={busy}
-                            onclick={() => void unlockVault()}
                         >
                             {busy ? "Unlocking…" : "Unlock"}
                         </button>
                     </div>
-                </div>
+                </form>
             </Card>
         </Page>
     {:else if vaultStateModule.state.status === "error"}

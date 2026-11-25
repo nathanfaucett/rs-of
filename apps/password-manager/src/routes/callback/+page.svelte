@@ -28,6 +28,8 @@ async function completeSignin() {
 onMount(() => { void completeSignin(); });
 </script>
 
+<svelte:head><title>Completing sign in | Password Manager</title></svelte:head>
+
 <div class="flex min-h-screen items-center justify-center p-6 bg-background">
   <Page width="narrow">
     <PageHeader title="Password Manager" description="Completing sign in…" />

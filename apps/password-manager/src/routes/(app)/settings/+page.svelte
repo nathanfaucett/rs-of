@@ -59,6 +59,8 @@ function finishImport(success = false) {
 
 </script>
 
+<svelte:head><title>Settings | Password Manager</title></svelte:head>
+
 <div class="flex min-h-0 grow items-start justify-center overflow-auto p-6">
 	<div class="space-y-6 max-w-3xl">
 		{#if error}<Alert tone="danger">{error}</Alert>{/if}

@@ -1,9 +1,11 @@
 <script lang="ts">
 import { onDestroy, untrack } from "svelte";
+import { beforeNavigate } from "$app/navigation";
+import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 import { Alert, Card, Field, type FieldControl } from "$lib/ui";
 import type { VaultHandleLike } from "$lib/vault/types";
 import GeneratorDialog from "../generator/GeneratorDialog.svelte";
-import type { EditableKind, EditableSecret } from "../secret-draft";
+import type { EditableKind } from "../secret-draft";
 import { createLocalSecretWorkflow } from "../workflow.svelte";
 import CardFields from "./CardFields.svelte";
 import IdentityFields from "./IdentityFields.svelte";
@@ -13,15 +15,27 @@ import SshKeyFields from "./SshKeyFields.svelte";
 interface Props {
     vault: VaultHandleLike;
     kind?: EditableKind;
-    record?: EditableSecret | null;
     recordId?: string | null;
-    onSave: () => void;
-    onCancel: () => void;
+    onExit: () => void;
 }
 
-let { vault, kind = "login", record, recordId, onSave, onCancel }: Props = $props();
+let { vault, kind = "login", recordId, onExit }: Props = $props();
 
-const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
+const sessionVault = untrack(() => vault);
+const workflow = createLocalSecretWorkflow({ vault: sessionVault });
+
+function isCurrentSession() {
+    return active && vaultStateModule.vaultData?.vault === sessionVault;
+}
+
+beforeNavigate((navigation) => {
+    if (!isCurrentSession()) return;
+    if (navigation.willUnload) {
+        if (workflow.dirty) navigation.cancel();
+    } else if (workflow.busy || (workflow.dirty && !window.confirm("Discard unsaved changes?"))) {
+        navigation.cancel();
+    }
+});
 let active = true;
 onDestroy(() => {
     active = false;
@@ -29,71 +43,32 @@ onDestroy(() => {
 });
 
 let error = $state("");
-
-let loading = $state(false);
-
-async function loadRecord() {
-    if (!recordId) return;
-    loading = true;
-    try {
-        // Wait for workflow to be ready
-        await new Promise<void>((resolve) => {
-            const checkReady = () => {
-                if (!workflow.loading || workflow.loadError) {
-                    resolve();
-                } else {
-                    setTimeout(checkReady, 50);
-                }
-            };
-            checkReady();
-        });
-
-        if (!active) return;
-
-        // Get the record from the collection via workflow
-        const records = workflow.records;
-        const found = records.find((r) => r.id === recordId);
-        if (found && !found.deletedAt) {
-            workflow.edit(found);
-        } else {
-            error = "Record not found";
-        }
-    } catch (e) {
-        error = e instanceof Error ? e.message : "Failed to load record";
-    } finally {
-        if (active) loading = false;
-    }
-}
+let initialized = false;
 
 $effect(() => {
-    if (record) {
-        workflow.edit(record);
-    } else if (recordId) {
-        void loadRecord();
-    } else {
-        workflow.edit(null, kind);
-    }
+    if (initialized || workflow.loading || workflow.loadError) return;
+    initialized = true;
+    // Load from the ready collection once so later reads cannot replace a draft.
+    untrack(() => {
+        const item = recordId ? workflow.records.find((value) => value.id === recordId) : null;
+        if (recordId && !item) error = "Item not found.";
+        else workflow.edit(item ?? null, kind);
+    });
 });
 
 async function handleSave() {
-    if (!workflow.editor) return;
+    if (!isCurrentSession() || !workflow.editor || vaultStateModule.vaultData?.inactivity.check()) return;
     const saved = await workflow.save(workflow.editor.draft);
-    if (saved) {
-        onSave();
+    if (saved && isCurrentSession() && !vaultStateModule.vaultData?.inactivity.check()) {
+        onExit();
     }
-}
-
-function handleCancel() {
-    workflow.cancel();
-    onCancel();
 }
 
 </script>
 
-{#if error}
-    <Alert tone="danger">{error}</Alert>
-{/if}
-{#if loading}
+{#if error || workflow.loadError}
+    <Alert tone="danger">{error || workflow.loadError}</Alert>
+{:else if workflow.loading}
     <div class="flex items-center justify-center h-64">
         <p class="text-muted-foreground">Loading item...</p>
     </div>
@@ -101,8 +76,9 @@ function handleCancel() {
     {#if workflow.editor}
         {@const editor = workflow.editor}
         {@const draft = editor.draft}
-        <Card title={editor.record ? "Edit item" : "New item"} description="Changes are encrypted and stored when you save.">
-            <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void handleSave(); }}>                <Field id="name" label="Name" required>
+        <Card>
+            <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void handleSave(); }}>
+                <Field id="name" label="Name" required>
                     {#snippet children(control: FieldControl)}
                         <input {...control} {@attach (element) => element?.focus()} bind:value={draft.name} autocomplete="off" disabled={!workflow.canEdit} />
                     {/snippet}
@@ -116,22 +92,22 @@ function handleCancel() {
                     </Field>
                     <Field id="secret" label="Password">
                         {#snippet children(control: FieldControl)}
-                            <div class="flex gap-2">
-                                <PasswordInput {...control} bind:value={loginDraft.secret} autocomplete="new-password" disabled={!workflow.canEdit} />
-                                <GeneratorDialog onuse={(value) => { if (editor && editor.draft.kind === "login") { editor.draft.secret = value; editor.confirmPassword = value; } }} />
+                            <div class="flex flex-wrap gap-2">
+                                <PasswordInput {...control} label="Password" bind:value={loginDraft.secret} autocomplete="new-password" disabled={!workflow.canEdit} />
+                                <GeneratorDialog onuse={(value) => { if (workflow.canEdit && editor.draft.kind === "login") { editor.draft.secret = value; editor.confirmPassword = value; } }} />
                             </div>
                         {/snippet}
                     </Field>
                     {#if loginDraft.secret}
                         <Field id="confirm-secret" label="Confirm password" required>
                             {#snippet children(control: FieldControl)}
-                                <PasswordInput {...control} bind:value={editor.confirmPassword} autocomplete="new-password" disabled={!workflow.canEdit} />
+                                <PasswordInput {...control} label="Confirm password" bind:value={editor.confirmPassword} autocomplete="new-password" disabled={!workflow.canEdit} />
                             {/snippet}
                         </Field>
                     {/if}
                     <Field id="totp" label="Authenticator key (TOTP)" description="Store a Base32 key or otpauth TOTP URI. View local codes in item details.">
                         {#snippet children(control: FieldControl)}
-                            <PasswordInput {...control} bind:value={draft.totp} autocomplete="off" disabled={!workflow.canEdit} />
+                            <PasswordInput {...control} label="Authenticator key (TOTP)" bind:value={draft.totp} disabled={!workflow.canEdit} />
                         {/snippet}
                     </Field>
                     <fieldset class="flex min-w-0 flex-col gap-3" disabled={!workflow.canEdit}>
@@ -204,7 +180,7 @@ function handleCancel() {
                                         <option value="false">False</option>
                                     </select>
                                 {:else if field.type === "hidden"}
-                                    <PasswordInput {...control} bind:value={field.value} autocomplete="off" />
+                                    <PasswordInput {...control} label={`Field value ${i + 1}`} bind:value={field.value} />
                                 {:else}
                                     <input {...control} bind:value={field.value} type="text" autocomplete="off" />
                                 {/if}
@@ -221,7 +197,11 @@ function handleCancel() {
             </fieldset>
             <Field id="notes" label="Notes">
                 {#snippet children(control: FieldControl)}
-                    <textarea {...control} bind:value={draft.notes} rows="3" disabled={!workflow.canEdit}></textarea>
+                    {#if draft.kind === "secureNote" || draft.kind === "identity"}
+                        <PasswordInput {...control} label="Notes" bind:value={draft.notes} rows={3} disabled={!workflow.canEdit} />
+                    {:else}
+                        <textarea {...control} bind:value={draft.notes} rows="3" disabled={!workflow.canEdit}></textarea>
+                    {/if}
                 {/snippet}
             </Field>
             <label class="flex items-center gap-2 text-sm text-ink" for="favorite">
@@ -238,7 +218,7 @@ function handleCancel() {
                 <button class="btn btn-primary btn-md" type="submit" disabled={!workflow.canEdit || workflow.busy}>
                     {workflow.busy ? "Saving..." : (editor.record ? "Save changes" : "Create item")}
                 </button>
-                <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit} onclick={handleCancel}>
+                <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit} onclick={onExit}>
                     Cancel
                 </button>
             </div>

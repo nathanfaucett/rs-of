@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onDestroy } from "svelte";
+import { clipboardFeedback, copyValue } from "../clipboard";
 
 let { label, value, protected: protectedValue = true }: {
     label: string;
@@ -9,23 +10,18 @@ let { label, value, protected: protectedValue = true }: {
 
 let revealed = $state(false);
 let copying = $state(false);
-let feedback = $state("");
-let failed = $state(false);
+let copied = $state<boolean | null>(null);
 let active = true;
 onDestroy(() => { active = false; });
 
 async function copy() {
     if (copying || value == null) return;
     copying = true;
-    feedback = "";
-    try {
-        if (!navigator.clipboard?.writeText) throw new Error();
-        await navigator.clipboard.writeText(value);
-        if (active) { failed = false; feedback = "Copied. Clipboard is not cleared automatically."; }
-    } catch {
-        if (active) { failed = true; feedback = "Copy failed. Clipboard access is unavailable or denied. Reveal the value and copy it manually."; }
-    } finally {
-        if (active) copying = false;
+    copied = null;
+    const result = await copyValue(value);
+    if (active) {
+        copied = result;
+        copying = false;
     }
 }
 </script>
@@ -41,5 +37,5 @@ async function copy() {
         <button class="btn btn-secondary btn-md" type="button" disabled={copying || value == null}
             onclick={() => void copy()}>Copy {label}</button>
     </div>
-    {#if feedback}<p role={failed ? "alert" : "status"}>{feedback}</p>{/if}
+    {#if copied !== null}<p role={copied ? "status" : "alert"}>{clipboardFeedback(copied)}</p>{/if}
 </fieldset>

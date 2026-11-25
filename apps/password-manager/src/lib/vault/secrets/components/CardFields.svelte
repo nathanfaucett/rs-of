@@ -21,7 +21,7 @@ let { draft, disabled }: { draft: CardDraft; disabled: boolean } = $props();
     </Field>
     <Field id="number" label="Card number">
         {#snippet children(control: FieldControl)}
-            <PasswordInput {...control} bind:value={draft.number} autocomplete="off" spellcheck="false" />
+            <PasswordInput {...control} label="Card number" bind:value={draft.number} />
         {/snippet}
     </Field>
     <Field id="expMonth" label="Expiration month">
@@ -36,7 +36,7 @@ let { draft, disabled }: { draft: CardDraft; disabled: boolean } = $props();
     </Field>
     <Field id="code" label="Security code">
         {#snippet children(control: FieldControl)}
-            <PasswordInput {...control} bind:value={draft.code} autocomplete="off" spellcheck="false" />
+            <PasswordInput {...control} label="Security code" bind:value={draft.code} />
         {/snippet}
     </Field>
 </fieldset>

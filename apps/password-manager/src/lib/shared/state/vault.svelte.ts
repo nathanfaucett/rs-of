@@ -141,13 +141,14 @@ async function unlockExistingVault(password: string, { id, synced }: VaultChoice
 }
 
 async function lockVault() {
-  if (vaultState.status === "unlocked") {
-    vaultState.inactivity.stop();
-    await vaultState.vault.close();
-  }
+  const previous = vaultState;
+  const request = ++session;
   vaultState = { status: "locked" };
-  session++;
-  await goto("/");
+  if (previous.status === "unlocked") {
+    previous.inactivity.stop();
+    await previous.vault.close();
+  }
+  if (request === session && vaultState.status === "locked") await goto("/");
 }
 
 async function showVaultSelector() {

@@ -33,10 +33,10 @@ export interface FieldProps {
     const generatedId = $props.id();
     const fieldId = $derived(id ?? generatedId);
     const descriptionId = $derived(
-        description ? `${fieldId}-description` : undefined,
+        description ? `${generatedId}-description` : undefined,
     );
     const issuesId = $derived(
-        issues.length > 0 ? `${fieldId}-issues` : undefined,
+        issues.length > 0 ? `${generatedId}-issues` : undefined,
     );
     const describedby = $derived(
         [descriptionId, issuesId].filter(Boolean).join(" ") || undefined,
@@ -51,15 +51,11 @@ export interface FieldProps {
 </script>
 
 <div class="field">
-    <label class="field-label" for={fieldId}>
-        <span class="field-label-text">
-            <span>{label}</span>
-            {#if required}<span class="field-required" aria-hidden="true"
-                    >*</span
-                >{/if}
-        </span>
-        {@render children(control)}
-    </label>
+    <div class="field-label field-label-text">
+        <label for={fieldId}>{label}</label>
+        {#if required}<span class="field-required" aria-hidden="true">*</span>{/if}
+    </div>
+    {@render children(control)}
     {#if description}
         <p class="field-description" id={descriptionId}>{description}</p>
     {/if}

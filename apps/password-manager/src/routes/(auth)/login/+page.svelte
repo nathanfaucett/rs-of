@@ -24,6 +24,8 @@ onMount(() => {
 });
 </script>
 
+<svelte:head><title>Sign in | Password Manager</title></svelte:head>
+
 <div class="flex min-h-screen items-center justify-center p-6 bg-background">
   <Page width="narrow">
     <PageHeader title="Password Manager" description="Sign in to access your vaults across devices." />
