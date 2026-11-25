@@ -54,6 +54,7 @@ export async function startBackend({
   binary = process.env.E2E_BACKEND_BIN,
   command = binary ?? "cargo",
   args,
+  seed,
   env = {},
 } = {}) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -92,6 +93,7 @@ export async function startBackend({
       appURL,
       "--password-manager-origin",
       passwordManagerURL,
+      ...(seed ? ["--seed", seed] : []),
     ],
     {
       cwd: root,
@@ -186,6 +188,9 @@ export async function startBackend({
 }
 
 export default async function globalSetup() {
-  const backend = await startBackend({ port: backendPort });
+  const backend = await startBackend({
+    port: backendPort,
+    seed: fileURLToPath(new URL("./account-security.seed.json", import.meta.url)),
+  });
   return backend.stop;
 }

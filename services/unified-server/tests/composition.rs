@@ -747,6 +747,7 @@ async fn assert_saved_resource(client: &reqwest::Client, url: &str, read: &str) 
 }
 
 #[path = "composition/device_lifecycle.rs"]
+mod account_security;
 mod device_lifecycle;
 
 struct OwnerFixture {

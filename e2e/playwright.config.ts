@@ -24,6 +24,7 @@ export default defineConfig({
     {
       name: "app",
       testMatch: [
+        "account-security.e2e.ts",
         "app.e2e.ts",
         "applications.e2e.ts",
         "management-modals.e2e.ts",

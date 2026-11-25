@@ -12,8 +12,8 @@
     import { idpApi } from "$lib/common/state/idpClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
-
     import UserRoles from "./UserRoles.svelte";
+    import UserSecurity from "./UserSecurity.svelte";
 
     const parsedUserId = page.params.userId;
 
@@ -43,11 +43,6 @@
     // Reset password
     let resetPasswordModalRef: Modal;
     let resettingPassword = $state(false);
-
-    // Security: MFA and block
-    let mfaTotpEnabled = $state(false);
-    let mfaLoading = $state(false);
-    let blockLoading = $state(false);
 
     async function loadConsents() {
         if (!parsedUserId) {
@@ -93,7 +88,6 @@
                 editEmail = user.email ?? "";
                 editPhoneNumber = user.phoneNumber ?? "";
                 editLocale = user.locale ?? "";
-                mfaTotpEnabled = user.mfaTotpEnabled ?? false;
             }
             void loadConsents();
         } catch (cause) {
@@ -229,54 +223,6 @@
             revokingConsentId = null;
         }
     }
-
-    async function onToggleMfa() {
-        if (!parsedUserId) return;
-        mfaLoading = true;
-        try {
-            await idpApi.setUserMfa({
-                userId: parsedUserId,
-                setUserMfaRequest: {
-                    method: "totp",
-                    enable: !mfaTotpEnabled,
-                },
-            });
-            mfaTotpEnabled = !mfaTotpEnabled;
-            notifications.add(
-                mfaTotpEnabled ? "TOTP MFA enabled" : "TOTP MFA disabled",
-                "success",
-            );
-        } catch (cause) {
-            console.error(cause);
-            notifications.add("Failed to update MFA", "error");
-        } finally {
-            mfaLoading = false;
-        }
-    }
-
-    async function onToggleBlock() {
-        if (!parsedUserId || !user) return;
-        blockLoading = true;
-        try {
-            const blocked = !isBlocked;
-            await idpApi.setUserBlocked({
-                userId: parsedUserId,
-                setUserBlockedRequest: { blocked },
-            });
-            notifications.add(
-                blocked ? "User blocked" : "User unblocked",
-                "success",
-            );
-            await loadUser();
-        } catch (cause) {
-            console.error(cause);
-            notifications.add("Failed to update block status", "error");
-        } finally {
-            blockLoading = false;
-        }
-    }
-
-    const isBlocked = $derived(user?.blocked ?? false);
 
     onMount(() => {
         void loadUser();
@@ -426,54 +372,7 @@
             {/if}
         </Card>
 
-        <Card title="Security">
-            <div class="flex flex-col gap-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="mb-0 font-medium">TOTP Multi-factor Auth</p>
-                        <p class="mb-0 text-sm text-ink-muted">
-                            {mfaTotpEnabled ? "Enabled" : "Disabled"}
-                        </p>
-                    </div>
-                    <button
-                        class="btn {mfaTotpEnabled
-                            ? 'btn-secondary'
-                            : 'btn-primary'} btn-md"
-                        type="button"
-                        onclick={onToggleMfa}
-                        disabled={mfaLoading}
-                    >
-                        {mfaLoading
-                            ? "Updating..."
-                            : mfaTotpEnabled
-                              ? "Disable"
-                              : "Enable"}
-                    </button>
-                </div>
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="mb-0 font-medium">Account Status</p>
-                        <p class="mb-0 text-sm text-ink-muted">
-                            {isBlocked ? "Blocked" : "Active"}
-                        </p>
-                    </div>
-                    <button
-                        class="btn {isBlocked
-                            ? 'btn-primary'
-                            : 'btn-danger'} btn-md"
-                        type="button"
-                        onclick={onToggleBlock}
-                        disabled={blockLoading}
-                    >
-                        {blockLoading
-                            ? "Updating..."
-                            : isBlocked
-                              ? "Unblock"
-                              : "Block"}
-                    </button>
-                </div>
-            </div>
-        </Card>
+        <UserSecurity {user} />
 
         {#key user.sub}
             <UserRoles userId={user.sub} />
