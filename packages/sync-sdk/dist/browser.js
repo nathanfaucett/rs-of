@@ -20,11 +20,14 @@ export class BrowserSyncSDK {
     state$ = this._globalState$.asObservable();
     constructor(config) {
         this.config = config;
+        const idp = new URL(config.apiUrl);
+        idp.pathname = idp.pathname.replace(/\/storage\/?$/, "/idp");
         this.storageClient = new StorageClient({
-            idpBaseUrl: config.apiUrl.replace("/storage", "/idp"),
+            idpBaseUrl: idp,
             storageBaseUrl: config.apiUrl,
             clientId: config.appId,
             bearerToken: config.getToken,
+            fetch: (input, init) => fetch(input, { ...init, credentials: "omit", redirect: "error" }),
         });
         // Provide Storage capability token exchange using the StorageClient
         const storageClient = this.storageClient;
@@ -34,7 +37,7 @@ export class BrowserSyncSDK {
     sql = {
         open: async (databaseId) => {
             const existing = this.databases.get(databaseId);
-            if (existing)
+            if (existing && !existing.isClosed)
                 return existing;
             const handle = await this.storageClient.openSqlDatabase(databaseId);
             // Open local WASM database with the resourceId as name
@@ -156,8 +159,11 @@ class BrowserDatabaseHandle {
     get id() {
         return this.handle.resourceId;
     }
+    get isClosed() {
+        return this.closed;
+    }
     async execute(sql, params) {
-        if (!this.sqlDatabase)
+        if (!this.sqlDatabase || this.closed)
             throw new Error("Database closed");
         return execute(this.sqlDatabase, sql, params);
     }
@@ -188,8 +194,12 @@ class BrowserDatabaseHandle {
         return this.getSyncLifecycle().sync();
     }
     async close() {
+        if (this.closed)
+            return;
         this.closed = true;
         await this.lifecycle?.close();
+        this.sqlDatabase?.close();
+        this.sqlDatabase = null;
         this._changes$.complete();
         this._state$.complete();
     }

@@ -19,10 +19,19 @@ function storageAccess() {
   return { session, client, getToken };
 }
 
+function supportsReplication(session = authState.session): boolean {
+  // The legacy SDK derives its IdP from the Storage URL. Never use a guessed authority.
+  if (!session) return false;
+  const { origin, pathname } = new URL(session.storage);
+  return (
+    pathname.endsWith("/storage") &&
+    `${origin}${pathname.replace(/\/storage$/, "/idp")}` === session.idp
+  );
+}
+
 function getSync() {
   const { session, client, getToken } = storageAccess();
-  // The legacy replication SDK derives its IdP from the Storage URL. Do not send credentials to that guess.
-  if (session.storage.replace("/storage", "/idp") !== session.idp) {
+  if (!supportsReplication(session)) {
     throw new Error("Vault replication is not available with separate IdP and Storage bases.");
   }
   sdk ??= new BrowserSyncSDK({
@@ -42,9 +51,12 @@ async function closeSync(): Promise<void> {
 }
 
 export const syncStateModule = {
+  supportsReplication,
   closeSync,
   async createDatabase(name: string) {
-    return getSync().sql.create(name);
+    const legacy = getSync();
+    const database = await storageAccess().client.ensureDatabase({ creationKey: name, name });
+    return legacy.sql.open(database.id);
   },
   async openDatabase(id: string) {
     return getSync().sql.open(id);

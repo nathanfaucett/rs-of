@@ -36,6 +36,9 @@ enum Command {
         origin: Option<String>,
         #[arg(long)]
         password_manager_origin: Option<String>,
+        /// Also allow this exact browser origin to run the seeded Join flow.
+        #[arg(long)]
+        join_origin: Option<String>,
         #[arg(
             long,
             help = "JSON file with additional users: {\"users\":[{\"username\":\"test\",\"password\":\"secret\"}]}"
@@ -62,14 +65,22 @@ enum Command {
 /// Returns an error for seed input, configuration, startup, or serving failure.
 pub async fn run() -> io::Result<()> {
     let args = Args::parse();
-    let (data_dir, port, origin, password_manager_origin, seed) = match args.command {
+    let (data_dir, port, origin, password_manager_origin, join_origin, seed) = match args.command {
         Command::Seeded {
             data_dir,
             port,
             origin,
             password_manager_origin,
+            join_origin,
             seed,
-        } => (data_dir, port, origin, password_manager_origin, seed),
+        } => (
+            data_dir,
+            port,
+            origin,
+            password_manager_origin,
+            join_origin,
+            seed,
+        ),
         #[cfg(all(unix, feature = "independent-contracts"))]
         Command::Setup {
             data_dir,
@@ -138,6 +149,7 @@ pub async fn run() -> io::Result<()> {
         data_dir,
         origin,
         password_manager_origin,
+        join_origin,
         seed,
     };
     with_shutdown(|shutdown| serve(config, shutdown)).await

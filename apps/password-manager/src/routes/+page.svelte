@@ -4,6 +4,7 @@ import { isRedirect } from "@sveltejs/kit";
 import { onMount } from "svelte";
 import { resolve } from "$app/paths";
 import { authState } from "$lib/auth/auth.svelte";
+import { syncStateModule } from "$lib/shared/state/sync.svelte";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
@@ -130,9 +131,11 @@ async function restored(identity: { id: string; name: string }) {
                 <div class="flex flex-col gap-4">
                     {#if !authState.isAuthenticated}
                         <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
-                    {:else}
+                    {:else if syncStateModule.supportsReplication()}
                         <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showSyncedVaults}>Show synced vaults</button>
                         <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => showCreateVault(true)}>Create synced vault</button>
+                    {:else}
+                        <p>Vault replication is not available with separate IdP and Storage bases. You can still use local vaults.</p>
                     {/if}
                     <button class="btn btn-secondary btn-md" type="button" onclick={() => { notice = ""; vaultStateModule.state = { status: "restore-vault" }; }}>Restore encrypted backup</button>
                     {#if vaultStateModule.state.vaults.length > 0}
@@ -180,6 +183,7 @@ async function restored(identity: { id: string; name: string }) {
                         {#snippet children(control)}
                             <input
                                 {...control}
+                                {@attach (element) => element.focus()}
                                 bind:value={vaultName}
                                 type="text"
                                 placeholder="e.g., Personal, Work, Family"
@@ -245,6 +249,7 @@ async function restored(identity: { id: string; name: string }) {
                             <div class="flex gap-2">
                                 <input
                                     {...control}
+                                    {@attach (element) => element.focus()}
                                     bind:value={password}
                                     type={showPassword ? "text" : "password"}
                                     disabled={busy}

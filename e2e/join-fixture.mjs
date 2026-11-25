@@ -10,8 +10,6 @@ import { join, resolve } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import { passwordManagerIngress } from "./password-manager-ingress.mjs";
-
 const root = fileURLToPath(new URL("../", import.meta.url));
 const helper = resolve(root, process.env.E2E_JOIN_HELPER_BIN ?? "target/debug/join-node");
 const unified = resolve(root, process.env.E2E_BACKEND_BIN ?? "target/debug/unified-server");
@@ -92,11 +90,9 @@ async function ready(url, ca) {
 
 async function main() {
   scratch = await mkdtemp(join(tmpdir(), "of-join-"));
-  const [remotePort, appPort, helperPort, backendPort, vitePort, pmPort, pmVitePort] =
-    await ports(7);
+  const [remotePort, appPort, helperPort, backendPort, vitePort] = await ports(5);
   const remote = `https://${hostname}:${remotePort}`;
   const app = `https://${hostname}:${appPort}`;
-  const pm = `https://${hostname}:${pmPort}`;
   const issuer = `${remote}/idp`;
   const device = `${remote}/device`;
   const storage = `${remote}/storage`;
@@ -177,53 +173,47 @@ async function main() {
     join(joinRoot, "tls/ca.pem"),
   ]);
 
-  // Route to the real owners. Lose exactly one successful pairing response after the owner commits.
-  let dropPairing = true;
-  for (const port of [remotePort, appPort, pmPort]) {
-    const server = createServer({ cert, key }, async (req, res) => {
-      const isRemote = port === remotePort;
-      if (
-        port === appPort &&
-        req.headers.origin === pm &&
-        req.method === "GET" &&
-        req.url === "/setup/node"
-      ) {
-        const state = await call(`https://${hostname}:${helperPort}/setup/join`, trusted, {
-          origin: app,
-        })
-          .then((value) => JSON.parse(value).stage)
-          .catch(() => undefined);
-        if (
-          passwordManagerIngress(
-            req,
-            res,
-            pm,
-            state === "approved"
-              ? { state: "ready", idp: issuer, storage }
-              : { state: "awaiting_choice" }
-          )
-        )
-          return;
+  // Lose one request before the owner sees it, then one response after owner commit.
+  let interruptedBeforeOwner = false;
+  let lostResponse = false;
+  let redirected = false;
+  let redirectHits = 0;
+  for (const port of [remotePort, appPort]) {
+    const server = createServer({ cert, key }, (req, res) => {
+      const owner = port === remotePort && /^\/(idp|device|management|storage)\//.test(req.url);
+      if (owner && req.url === "/device/redirect-target") {
+        redirectHits++;
+        res.writeHead(404).end();
+        return;
       }
-      if (isRemote && passwordManagerIngress(req, res, pm)) return;
-      const owner = isRemote && /^\/(idp|device|management|storage)\//.test(req.url);
+      if (owner && req.url === "/device/redirect-hits") {
+        res
+          .writeHead(200, { "content-type": "application/json" })
+          .end(JSON.stringify(redirectHits));
+        return;
+      }
+      if (owner && req.method === "GET" && req.url === "/device/devices" && !redirected) {
+        redirected = true;
+        res.writeHead(307, { location: "/device/redirect-target" }).end();
+        return;
+      }
+      const pairing = owner && req.method === "PUT" && req.url === "/device/devices/pairings";
+      if (pairing && !interruptedBeforeOwner) {
+        interruptedBeforeOwner = true;
+        res.destroy();
+        return;
+      }
       const upstream = httpRequest(
         {
           hostname,
-          port: owner ? backendPort : port === pmPort ? pmVitePort : vitePort,
+          port: owner ? backendPort : vitePort,
           path: req.url,
           method: req.method,
           headers: req.headers,
         },
         (response) => {
-          if (
-            dropPairing &&
-            owner &&
-            req.method === "POST" &&
-            req.url === "/device/devices/pairings" &&
-            response.statusCode === 200
-          ) {
-            dropPairing = false;
+          if (pairing && !lostResponse && response.statusCode === 200) {
+            lostResponse = true;
             response.resume();
             response.once("end", () => res.destroy());
             return;
@@ -251,7 +241,7 @@ async function main() {
       join(scratch, "installation"),
       "--origin",
       remote,
-      "--password-manager-origin",
+      "--join-origin",
       app,
     ],
     {
@@ -276,13 +266,6 @@ async function main() {
     },
     join(root, "apps/app")
   );
-  start(
-    process.execPath,
-    ["node_modules/vite/bin/vite.js", "dev", "--host", hostname, "--strictPort"],
-    { PORT: String(pmVitePort), PUBLIC_UNIFIED_ORIGIN: app },
-    join(root, "apps/password-manager")
-  );
-  await ready(pm, ca);
   await ready(`${issuer}/health`, ca);
   const username = "admin@local.test";
   const password = "password";
@@ -354,7 +337,6 @@ async function main() {
       JOIN_TEST_PORT: String(helperPort),
       JOIN_TEST_BIN: helper,
       JOIN_TEST_APP_ORIGIN: app,
-      JOIN_TEST_PASSWORD_MANAGER: pm,
       JOIN_TEST_DEVICE: device,
       JOIN_TEST_ISSUER: issuer,
       JOIN_TEST_STORAGE: storage,
@@ -365,7 +347,7 @@ async function main() {
       JOIN_TEST_ACCEPTING_KEY: acceptingKey,
       JOIN_TEST_USERNAME: username,
       JOIN_TEST_PASSWORD: password,
-      JOIN_TEST_LOSES_RESPONSE: "1",
+      JOIN_TEST_INJECTS_FAULTS: "1",
     }
   );
   return status ?? 1;

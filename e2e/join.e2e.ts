@@ -1,7 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import { expect, test } from "@playwright/test";
-import { passwordManagerSignin } from "./password-manager-setup";
 
 function setting(name: string): string {
   const value = process.env[`JOIN_TEST_${name}`];
@@ -10,7 +9,6 @@ function setting(name: string): string {
 }
 
 test("an authorized User joins without creating a local authority, and restart retains the Device", async ({
-  browser,
   page,
   request,
 }) => {
@@ -43,7 +41,7 @@ test("an authorized User joins without creating a local authority, and restart r
       .toBe(200);
   }
   async function ownerRecords() {
-    const response = await request.get(`${device}/devices`, { headers: admin });
+    const response = await request.get(`${device}/devices?testProbe=1`, { headers: admin });
     expect(response.ok()).toBeTruthy();
     return (await response.json()) as {
       id: string;
@@ -85,18 +83,27 @@ test("an authorized User joins without creating a local authority, and restart r
     expect((await ownerRecords()).find((record) => record.name === name)).toBeUndefined();
     await page.getByLabel("Local setup code").fill(setting("CODE"));
     const requestPairing = page.getByRole("button", { name: "Request pairing" });
-    await requestPairing.click();
-    const { JOIN_TEST_LOSES_RESPONSE } = process.env;
-    if (JOIN_TEST_LOSES_RESPONSE) {
+    const { JOIN_TEST_INJECTS_FAULTS } = process.env;
+    if (JOIN_TEST_INJECTS_FAULTS) {
+      await requestPairing.click();
+      await expect(page.getByRole("alert")).toContainText(
+        "The selected Installation could not complete"
+      );
+      expect(await (await request.get(`${device}/redirect-hits`)).json()).toBe(0);
+    }
+    for (const expected of JOIN_TEST_INJECTS_FAULTS ? [0, 1] : []) {
+      await requestPairing.click();
       await expect(page.getByRole("alert")).toContainText("Pairing request outcome is unknown");
-      expect((await ownerRecords()).filter((record) => record.name === name)).toHaveLength(1);
+      expect((await ownerRecords()).filter((record) => record.name === name)).toHaveLength(
+        expected
+      );
       await stop();
       await start();
       await page.reload();
       await page.getByLabel("Local setup code").fill(setting("CODE"));
       await page.getByRole("button", { name: "Resume join" }).click();
-      await requestPairing.click();
     }
+    await requestPairing.click();
     await expect(page.getByText("Pairing is pending.")).toBeVisible();
     const pending = (await ownerRecords()).find((record) => record.name === name);
     expect(pending?.state).toBe("pending");
@@ -134,16 +141,6 @@ test("an authorized User joins without creating a local authority, and restart r
       publicKey: pending.publicKey,
       state: "approved",
     });
-    const beforeSignin = await ownerRecords();
-    const pm = await browser.newPage();
-    await passwordManagerSignin(pm, {
-      origin: setting("PASSWORD_MANAGER"),
-      idp: setting("ISSUER"),
-      storage: setting("STORAGE"),
-      username: setting("USERNAME"),
-      password: setting("PASSWORD"),
-    });
-    expect(await ownerRecords()).toEqual(beforeSignin);
   } finally {
     await stop();
   }

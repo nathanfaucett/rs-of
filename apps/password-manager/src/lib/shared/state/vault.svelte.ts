@@ -46,8 +46,10 @@ function getVaultData() {
 
 async function openMainDatabase() {
   const databases = await syncStateModule.listDatabases();
-  const database = databases.find((entry) => entry.name === "password-manager-main");
-  return database ? syncStateModule.openDatabase(database.id) : null;
+  const matching = databases.filter((entry) => entry.name === "password-manager-main");
+  if (matching.length > 1)
+    throw new Error("More than one Password Manager Resource exists. No vault data was changed.");
+  return matching[0] ? syncStateModule.openDatabase(matching[0].id) : null;
 }
 
 async function showSyncedVaults() {
@@ -69,7 +71,8 @@ async function showSyncedVaults() {
 
 async function createVault(password: string, name: string, synced = false) {
   if (synced) {
-    const handle = await syncStateModule.createDatabase("password-manager-main");
+    const handle =
+      (await openMainDatabase()) ?? (await syncStateModule.createDatabase("password-manager-main"));
     const vault = await createSyncVault(password, name.trim(), handle);
     const request = session;
     const settings = await vault.loadLockSettings();

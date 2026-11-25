@@ -96,6 +96,12 @@ pub struct RequestPairingParams {
     pub device_pairing_request: models::DevicePairingRequest,
 }
 
+/// struct for passing parameters to the method [`request_pairing_once`]
+#[derive(Clone, Debug)]
+pub struct RequestPairingOnceParams {
+    pub device_pairing_request: models::DevicePairingRequest,
+}
+
 /// struct for passing parameters to the method [`revoke_device`]
 #[derive(Clone, Debug)]
 pub struct RevokeDeviceParams {
@@ -252,6 +258,17 @@ pub enum PutDeviceSelectionError {
 pub enum RequestPairingError {
     Status401(),
     Status403(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`request_pairing_once`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RequestPairingOnceError {
+    Status400(),
+    Status401(),
+    Status403(),
+    Status503(),
     UnknownValue(serde_json::Value),
 }
 
@@ -1149,6 +1166,60 @@ pub async fn request_pairing(
         }
     } else {
         let entity: Option<RequestPairingError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// Create or replay one pending pairing in this Installation. The new endpoint public key is the retry key. Only the original authenticated User, still authorized to enroll Devices, can replay it with the exact same accepting key, name and address. The accepting endpoint must still be approved. A legacy or terminal enrollment is not replayable.
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
+pub async fn request_pairing_once(
+    configuration: &configuration::Configuration,
+    params: RequestPairingOnceParams,
+) -> Result<models::DeviceEnrollment, Error<RequestPairingOnceError>> {
+    let uri_str = format!("{}/devices/pairings", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::PUT, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    }
+    req_builder = req_builder.json(&params.device_pairing_request);
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DeviceEnrollment`",
+            ))),
+            ContentType::Unsupported(unknown_type) => {
+                Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::DeviceEnrollment`"
+                ))))
+            }
+        }
+    } else {
+        let entity: Option<RequestPairingOnceError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

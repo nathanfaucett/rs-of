@@ -175,13 +175,39 @@ pub async fn compose_local_router(config: &UnifiedConfig) -> io::Result<Router> 
             }
         }
     }));
+    let mut browser_origins = vec![app_origin, password_manager_origin];
+    if let Some(join_origin) = &config.join_origin {
+        browser_origins.push(
+            frontend_origin(join_origin)?
+                .origin()
+                .ascii_serialization()
+                .parse()
+                .map_err(io::Error::other)?,
+        );
+    }
     let cors = CorsLayer::new()
-        .allow_origin(vec![app_origin, password_manager_origin])
+        .allow_origin(browser_origins)
         .allow_methods(Any)
         .allow_headers(Any)
         .expose_headers([fixture])
         .allow_private_network(true);
-    Ok(compose_router(idp, management, device, storage.router()).layer(cors))
+    // The seeded composition has no Create journals. Publish only its configured owner bases.
+    let bases =
+        serde_json::json!({"issuer": idp_base, "device": device_base, "storage": storage_base});
+    let evidence = axum::routing::get(move || {
+        let bases = bases.clone();
+        async move {
+            (
+                [(axum::http::header::CACHE_CONTROL, "no-store")],
+                axum::Json(bases),
+            )
+        }
+    });
+    let idp = idp.route("/idp/setup/seeded-installation", evidence.clone());
+    let storage = storage
+        .router()
+        .route("/storage/setup/seeded-installation", evidence);
+    Ok(compose_router(idp, management, device, storage).layer(cors))
 }
 
 /// Serves local composition until cancellation.
@@ -208,6 +234,7 @@ mod tests {
             data_dir: ".data".into(),
             origin: "http://localhost:5173".into(),
             password_manager_origin: None,
+            join_origin: None,
             seed: None,
         };
         assert_eq!(base_url(&config), "https://unified.localhost:1355");

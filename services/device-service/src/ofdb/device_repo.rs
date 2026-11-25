@@ -1,7 +1,7 @@
 use core::fmt;
 
 use chrono::{DateTime, Timelike, Utc};
-use of_model::id::Id;
+use of_model::{device::contract::device_pairing::DevicePairingRequest, id::Id};
 use ofdb_sql::Client;
 use ofdb_sql::FromRow;
 use ofdb_sql::FromRowError;
@@ -342,6 +342,93 @@ impl DeviceRepo for DbDeviceRepo {
             updated_at: now.timestamp(),
         };
         self.insert_device(row).await
+    }
+
+    #[allow(
+        clippy::significant_drop_tightening,
+        reason = "commit consumes the transaction"
+    )]
+    async fn request_pairing_once(
+        &self,
+        requester: String,
+        request: DevicePairingRequest,
+    ) -> DeviceResult<Option<Device>> {
+        if requester.trim().is_empty() || request.public_key == request.accepting_public_key {
+            return Ok(None);
+        }
+        let fields = [
+            Value::Text(requester),
+            Value::Text(request.public_key.clone()),
+            Value::Text(request.name.clone()),
+            Value::Text(request.address.clone()),
+            Value::Text(request.accepting_public_key.clone()),
+        ];
+        let mut transaction = self.engine.transaction().await.map_err(db_error)?;
+        let Some(accepting) = pairing_endpoint(&mut transaction, &request.accepting_public_key)
+            .await?
+            .filter(|row| row.state == DeviceState::Approved && row.revoked_at.is_none())
+        else {
+            return Ok(None);
+        };
+        if let Some(row) = pairing_endpoint(&mut transaction, &request.public_key).await? {
+            if row.state != DeviceState::Pending
+                || row.revoked_at.is_some()
+                || row.owner_subject != accepting.owner_subject
+                || row.name != request.name
+                || row.address != request.address
+            {
+                return Ok(None);
+            }
+            if !matches_pairing_receipt(
+                &mut transaction,
+                row.id,
+                &fields,
+                &request.accepting_public_key,
+            )
+            .await?
+            {
+                return Ok(None);
+            }
+            transaction.rollback().await.map_err(db_error)?;
+            return row.try_into().map(Some);
+        }
+        let now = now().timestamp();
+        let row = Self::insert_generated_device(
+            &mut transaction,
+            DeviceRow {
+                id: Id::nil(),
+                owner_subject: accepting.owner_subject,
+                name: request.name,
+                public_key: request.public_key,
+                address: request.address,
+                enrollment_code_hash: None,
+                enrollment_expires_at: None,
+                pairing_accepting_public_key: Some(request.accepting_public_key),
+                state: DeviceState::Pending,
+                approved_at: None,
+                revoked_at: None,
+                created_at: now,
+                updated_at: now,
+            },
+        )
+        .await?;
+        transaction
+            .execute(vec![
+                Statement::Query(local_enrollment_insert(&row)),
+                Statement::Query(Query::Insert(QueryInsert {
+                    table: "local_device_pairing_requests".into(),
+                    row: Row::new(
+                        core::iter::once(Value::Text(row.id.to_string()))
+                            .chain(fields)
+                            .collect(),
+                    ),
+                    returning: None,
+                })),
+            ])
+            .await
+            .map_err(db_error)?;
+        transaction.commit().await.map_err(db_error)?;
+        row.try_into().map(Some)
     }
 
     async fn pending_pairing(&self, device_id: Id) -> DeviceResult<Option<(Device, String)>> {
@@ -772,6 +859,96 @@ pub fn device_key(table: &str, id: Id) -> Row {
     } else {
         Value::Text(id.to_string())
     }])
+}
+
+async fn matches_pairing_receipt(
+    transaction: &mut ofdb_sql::Transaction,
+    id: Id,
+    fields: &[Value],
+    accepting: &str,
+) -> DeviceResult<bool> {
+    for (table, key) in [
+        (
+            "local_device_pairing_requests",
+            Row::new(vec![Value::Text(id.to_string())]),
+        ),
+        (
+            "local_device_enrollments",
+            device_key("local_device_enrollments", id),
+        ),
+    ] {
+        if !transaction
+            .row_conflicts(table, &key)
+            .await
+            .map_err(db_error)?
+            .is_empty()
+        {
+            return Ok(false);
+        }
+    }
+    let results = transaction
+        .translate_and_execute_with_params(
+            "SELECT requester, public_key, name, address, accepting_public_key FROM local_device_pairing_requests WHERE device_id = ?",
+            Some(&QueryParams::Positional(vec![Value::Text(
+                id.to_string(),
+            )])),
+            &SqlTranslator,
+        )
+        .await
+        .map_err(db_error)?;
+    let [receipt] = results[0].rows.as_slice() else {
+        return Ok(false);
+    };
+    if receipt.values != fields {
+        return Ok(false);
+    }
+    let results = transaction
+        .translate_and_execute_with_params(
+            "SELECT pairing_accepting_public_key FROM local_device_enrollments WHERE device_id = ?",
+            Some(&QueryParams::Positional(vec![Value::Text(id.to_string())])),
+            &SqlTranslator,
+        )
+        .await
+        .map_err(db_error)?;
+    let [enrollment] = results[0].rows.as_slice() else {
+        return Ok(false);
+    };
+    if enrollment.values != [Value::Text(accepting.to_owned())] {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+async fn pairing_endpoint(
+    transaction: &mut ofdb_sql::Transaction,
+    key: &str,
+) -> DeviceResult<Option<DeviceRow>> {
+    let Query::Select(mut query) = select() else {
+        unreachable!("Device query is a Select")
+    };
+    query.predicate = Some(equals("public_key", Value::Text(key.to_owned())));
+    let result = transaction
+        .execute(vec![Statement::Query(Query::Select(query))])
+        .await
+        .map_err(db_error)?;
+    let mut devices = result[0].rows_as::<DeviceRow>().map_err(row_error)?;
+    let row = devices.pop();
+    if !devices.is_empty() {
+        return Err(DeviceError::InvalidInput(
+            "ambiguous Device endpoint".into(),
+        ));
+    }
+    if let Some(row) = &row {
+        if !transaction
+            .row_conflicts(TABLE, &device_key(TABLE, row.id))
+            .await
+            .map_err(db_error)?
+            .is_empty()
+        {
+            return Err(DeviceError::InvalidInput("conflicted device".into()));
+        }
+    }
+    Ok(row)
 }
 
 fn local_enrollment_insert(row: &DeviceRow) -> Query {

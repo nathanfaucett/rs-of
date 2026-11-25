@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   Configuration,
+  DefaultApi,
   instanceOfOwnerCopyCleanup,
   OwnerCopyCleanupFromJSON,
   OwnerCopyCleanupToJSON,
@@ -21,13 +22,13 @@ const cleanup = {
 const fields = ["cleanupId", "deviceId", "endpointId", "newOwnerSubject", "oldOwnerSubject"];
 const options = { credentials: "omit", redirect: "error", cache: "no-store" };
 
-test("current composed Device schema has 34 operations and the exact service cleanup contract", () => {
+test("current composed Device schema has 35 operations and the exact service cleanup contract", () => {
   const document = JSON.parse(readFileSync(new URL("../openapi/device.json", import.meta.url)));
   const operations = Object.values(document.paths).flatMap((item) =>
     Object.values(item).filter((operation) => operation?.operationId)
   );
-  assert.equal(operations.length, 34);
-  assert.equal(new Set(operations.map((operation) => operation.operationId)).size, 34);
+  assert.equal(operations.length, 35);
+  assert.equal(new Set(operations.map((operation) => operation.operationId)).size, 35);
   assert.equal(document.servers[0].url, "https://localhost/device");
   assert.ok(
     Object.keys(document.paths).every(
@@ -53,6 +54,32 @@ test("current composed Device schema has 34 operations and the exact service cle
     { type: "null" },
     { $ref: "#/components/schemas/OwnerCopyCleanup" },
   ]);
+});
+
+test("built exact pairing request uses PUT and preserves the full enrollment tuple", async () => {
+  const pairing = {
+    acceptingPublicKey: cleanup.endpointId,
+    publicKey: "b".repeat(64),
+    address: "127.0.0.1:23456",
+    name: "Joining Device",
+  };
+  const api = new DefaultApi(
+    new Configuration({
+      basePath: "https://policy.example/device",
+      accessToken: "synthetic-user-token",
+      fetchApi: async (url, init) => {
+        assert.equal(url, "https://policy.example/device/devices/pairings");
+        assert.equal(init.method, "PUT");
+        assert.equal(init.redirect, "error");
+        assert.deepEqual(JSON.parse(init.body), pairing);
+        return Response.json({ id: cleanup.deviceId, state: "pending" });
+      },
+    })
+  );
+  assert.equal(
+    (await api.requestPairingOnce({ devicePairingRequest: pairing }, options)).id,
+    cleanup.deviceId
+  );
 });
 
 test("built cleanup model preserves every exact binding and requires all five fields", () => {

@@ -1,5 +1,5 @@
 use std::{
-    fs::{File, TryLockError},
+    fs::{self, File, TryLockError},
     io::{self, Write},
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -189,7 +189,25 @@ impl IndependentSetupHost {
             prefix: prefix.into(),
             shared_tls,
         };
-        let operation = retain_settings(&settings, &directory, retained)?;
+        let operation = if retained {
+            reopen_settings(&settings, &directory)?
+        } else {
+            let (staging, operation) = stage_settings(&settings, &directory)?;
+            require_absent(&settings.domain)?;
+            require_absent(&directory)?;
+            #[cfg(any(target_os = "linux", target_vendor = "apple", target_os = "redox"))]
+            rustix::fs::renameat_with(
+                rustix::fs::CWD,
+                staging.path(),
+                rustix::fs::CWD,
+                &directory,
+                rustix::fs::RenameFlags::NOREPLACE,
+            )?;
+            #[cfg(not(any(target_os = "linux", target_vendor = "apple", target_os = "redox")))]
+            fs::rename(staging.path(), &directory)?;
+            sync_ancestry(&directory)?;
+            operation
+        };
         let admission = Arc::new(SetupAdmission::open(&directory.join("setup-admission"))?);
         if domain_exists && admission.host_intent().map_err(io::Error::other)?.is_none() {
             return Err(io::Error::other(
@@ -200,8 +218,7 @@ impl IndependentSetupHost {
             Transport::Proxy(_, client) => Serving::Proxy(client),
             Transport::Native(_, tls) => Serving::Native(match tls {
                 Some(tls) => tls,
-                None if retained => LocalTls::open(&settings)?,
-                None => LocalTls::create(&settings)?,
+                None => LocalTls::open(&settings)?,
             }),
         };
         Ok(Some(Self {
@@ -309,40 +326,110 @@ impl IndependentSetupHost {
     }
 }
 
-fn retain_settings(settings: &HostSettings, directory: &Path, retained: bool) -> io::Result<File> {
-    if !retained {
-        require_absent(directory)?;
-        create_private_directory(directory, true)?;
-    }
-    require_private(directory, true)?;
-    let operation_path = directory.join("operation.lock");
-    if retained {
-        require_private(&operation_path, false)?;
-    }
-    let operation = private_options(!retained).open(&operation_path)?;
+fn lock_operation(operation: &File) -> io::Result<()> {
     operation.try_lock().map_err(|error| match error {
         TryLockError::WouldBlock => io::Error::new(
             io::ErrorKind::WouldBlock,
             "owner setup is already running; stop it before retrying",
         ),
         TryLockError::Error(error) => error,
-    })?;
-    if retained {
-        let retained: HostSettings =
-            serde_json::from_slice(&read_private(&directory.join("host.json"))?)?;
-        if &retained != settings {
-            return Err(io::Error::other(
-                "retained owner setup settings disagree; exact continuation required",
-            ));
-        }
-        require_private(&directory.join("setup-admission"), true)?;
-    } else {
-        operation.sync_all()?;
-        sync_ancestry(directory)?;
-        let mut file = private_options(true).open(directory.join("host.json"))?;
-        file.write_all(&serde_json::to_vec(settings)?)?;
-        file.sync_all()?;
-        sync_ancestry(directory)?;
+    })
+}
+
+fn reopen_settings(settings: &HostSettings, directory: &Path) -> io::Result<File> {
+    require_private(directory, true)?;
+    let path = directory.join("operation.lock");
+    require_private(&path, false)?;
+    let operation = private_options(false).open(path)?;
+    lock_operation(&operation)?;
+    let retained: HostSettings =
+        serde_json::from_slice(&read_private(&directory.join("host.json"))?)?;
+    if &retained != settings {
+        return Err(io::Error::other(
+            "retained owner setup settings disagree; exact continuation required",
+        ));
     }
+    require_private(&directory.join("setup-admission"), true)?;
     Ok(operation)
+}
+
+struct StagedTls<'a>(&'a Path, SocketAddr);
+
+impl LocalTlsConfig for StagedTls<'_> {
+    fn tls_directory(&self) -> PathBuf {
+        self.0.join("tls")
+    }
+
+    fn tls_address(&self) -> SocketAddr {
+        self.1
+    }
+}
+
+fn stage_settings(
+    settings: &HostSettings,
+    directory: &Path,
+) -> io::Result<(tempfile::TempDir, File)> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let parent = directory
+        .parent()
+        .expect("absolute owner setup directory has a parent");
+    if !present(parent)? {
+        create_private_directory(parent, true)?;
+    }
+    let staging = tempfile::Builder::new()
+        .prefix(".owner-setup-")
+        .permissions(fs::Permissions::from_mode(0o700))
+        .tempdir_in(parent)?;
+    let path = staging.path();
+    let operation = private_options(true).open(path.join("operation.lock"))?;
+    lock_operation(&operation)?;
+    operation.sync_all()?;
+    let mut file = private_options(true).open(path.join("host.json"))?;
+    file.write_all(&serde_json::to_vec(settings)?)?;
+    file.sync_all()?;
+    SetupAdmission::open(&path.join("setup-admission"))?;
+    if settings.is_native() && !settings.shared_tls {
+        LocalTls::create(&StagedTls(path, settings.tls_address()))?;
+    }
+    sync_ancestry(path)?;
+    Ok((staging, operation))
+}
+
+#[cfg(test)]
+#[test]
+fn restart_ignores_unpublished_host_but_never_replaces_retained_admission() {
+    let root = tempfile::tempdir().expect("test root");
+    let domain = root.path().join("idp");
+    let address = "127.0.0.1:3000".parse().expect("loopback address");
+    let origin = "https://localhost:5173";
+    let directory = domain.with_extension("setup-host");
+    let settings = HostSettings {
+        version: 1,
+        owner: "idp".into(),
+        domain: domain.clone(),
+        address: Some(address),
+        proxy_origin: None,
+        origin: origin.into(),
+        prefix: String::new(),
+        shared_tls: false,
+    };
+    let (staging, operation) = stage_settings(&settings, &directory).expect("stage host");
+    let abandoned = staging.keep();
+    drop(operation);
+    assert!(!directory.exists());
+    let prepare = || IndependentSetupHost::prepare("idp", &domain, address, origin, "", false);
+    let host = prepare().expect("restart").expect("published host");
+    let admission = host.admission_path();
+    let code = read_private(&admission).expect("published admission");
+    assert_ne!(
+        code,
+        read_private(&abandoned.join("setup-admission/state")).expect("abandoned admission")
+    );
+    drop(host);
+    drop(prepare().expect("reopen"));
+    assert_eq!(read_private(&admission).expect("retained admission"), code);
+    fs::remove_file(&admission).expect("simulate loss of retained evidence");
+    assert!(prepare().is_err());
+    assert!(!admission.exists());
 }

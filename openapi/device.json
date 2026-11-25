@@ -837,6 +837,49 @@
             "authorization": []
           }
         ]
+      },
+      "put": {
+        "description": "Create or replay one pending pairing in this Installation. The new endpoint public key is the retry key. Only the original authenticated User, still authorized to enroll Devices, can replay it with the exact same accepting key, name and address. The accepting endpoint must still be approved. A legacy or terminal enrollment is not replayable.",
+        "operationId": "request_pairing_once",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevicePairingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceEnrollment"
+                }
+              }
+            },
+            "description": "New or exact existing pending Device pairing"
+          },
+          "400": {
+            "description": "Input or retained enrollment does not match"
+          },
+          "401": {
+            "description": "User authentication required"
+          },
+          "403": {
+            "description": "Enrollment not authorized"
+          },
+          "503": {
+            "description": "Device owner unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ]
       }
     },
     "/devices/pairings/{device_id}/approve": {

@@ -163,6 +163,13 @@ export interface RequestPairingRequest {
   devicePairingRequest: DevicePairingRequest;
 }
 
+export interface RequestPairingOnceRequest {
+  /**
+   *
+   */
+  devicePairingRequest: DevicePairingRequest;
+}
+
 export interface RevokeDeviceRequest {
   /**
    * Device record ID
@@ -664,6 +671,36 @@ export interface DefaultApiInterface {
    */
   requestPairing(
     requestParameters: RequestPairingRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<DeviceEnrollment>;
+
+  /**
+   * Creates request options for requestPairingOnce without sending the request
+   * @param {DevicePairingRequest} devicePairingRequest
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  requestPairingOnceRequestOpts(
+    requestParameters: RequestPairingOnceRequest
+  ): Promise<runtime.RequestOpts>;
+
+  /**
+   * Create or replay one pending pairing in this Installation. The new endpoint public key is the retry key. Only the original authenticated User, still authorized to enroll Devices, can replay it with the exact same accepting key, name and address. The accepting endpoint must still be approved. A legacy or terminal enrollment is not replayable.
+   * @param {DevicePairingRequest} devicePairingRequest
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof DefaultApiInterface
+   */
+  requestPairingOnceRaw(
+    requestParameters: RequestPairingOnceRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<DeviceEnrollment>>;
+
+  /**
+   * Create or replay one pending pairing in this Installation. The new endpoint public key is the retry key. Only the original authenticated User, still authorized to enroll Devices, can replay it with the exact same accepting key, name and address. The accepting endpoint must still be approved. A legacy or terminal enrollment is not replayable.
+   */
+  requestPairingOnce(
+    requestParameters: RequestPairingOnceRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<DeviceEnrollment>;
 
@@ -1844,6 +1881,71 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<DeviceEnrollment> {
     const response = await this.requestPairingRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for requestPairingOnce without sending the request
+   */
+  async requestPairingOnceRequestOpts(
+    requestParameters: RequestPairingOnceRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["devicePairingRequest"] == null) {
+      throw new runtime.RequiredError(
+        "devicePairingRequest",
+        'Required parameter "devicePairingRequest" was null or undefined when calling requestPairingOnce().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters["Content-Type"] = "application/json";
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/devices/pairings`;
+
+    return {
+      path: urlPath,
+      method: "PUT",
+      headers: headerParameters,
+      query: queryParameters,
+      body: DevicePairingRequestToJSON(requestParameters["devicePairingRequest"]),
+    };
+  }
+
+  /**
+   * Create or replay one pending pairing in this Installation. The new endpoint public key is the retry key. Only the original authenticated User, still authorized to enroll Devices, can replay it with the exact same accepting key, name and address. The accepting endpoint must still be approved. A legacy or terminal enrollment is not replayable.
+   */
+  async requestPairingOnceRaw(
+    requestParameters: RequestPairingOnceRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<DeviceEnrollment>> {
+    const requestOptions = await this.requestPairingOnceRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      DeviceEnrollmentFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   * Create or replay one pending pairing in this Installation. The new endpoint public key is the retry key. Only the original authenticated User, still authorized to enroll Devices, can replay it with the exact same accepting key, name and address. The accepting endpoint must still be approved. A legacy or terminal enrollment is not replayable.
+   */
+  async requestPairingOnce(
+    requestParameters: RequestPairingOnceRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<DeviceEnrollment> {
+    const response = await this.requestPairingOnceRaw(requestParameters, initOverrides);
     return await response.value();
   }
 

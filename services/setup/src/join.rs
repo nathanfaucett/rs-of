@@ -6,6 +6,7 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use axum::{
@@ -23,8 +24,8 @@ use of_device_client::{
         Error as DeviceError,
         configuration::Configuration as DeviceConfiguration,
         default_api::{
-            ApprovePairingParams, PairingApprovalPayloadParams, RequestPairingParams,
-            approve_pairing, list_devices, pairing_approval_payload, request_pairing,
+            ApprovePairingParams, PairingApprovalPayloadParams, RequestPairingOnceParams,
+            approve_pairing, list_devices, pairing_approval_payload, request_pairing_once,
         },
     },
     models::{DeviceInfo, DevicePairingApprovalRequest, DevicePairingRequest, DeviceState},
@@ -37,15 +38,15 @@ use of_idp_client::{
     models::SubjectTokenType,
 };
 use of_model::{device::contract::device_pairing::device_pairing_approval_payload, id::Id};
-use reqwest::Url;
+use reqwest::{Client, Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::{net::TcpListener, sync::Mutex};
 use tower_http::cors::CorsLayer;
 
 use crate::{
-    LocalTls, LocalTlsConfig, SetupAdmission, SetupAdmissionError, absolute,
-    create_private_directory, present, private_options, random_capability, read_private,
+    IndependentOwnerPublic, LocalTls, LocalTlsConfig, SetupAdmission, SetupAdmissionError,
+    absolute, create_private_directory, present, private_options, random_capability, read_private,
     require_private, setup_admission_middleware, setup_origin, sync_ancestry,
 };
 
@@ -197,9 +198,26 @@ impl JoinHost {
             if !self.state.admission.is_retired()? {
                 return Ok(None);
             }
-            Ok(journal.map(|value| (value.intent.issuer, value.intent.storage)))
+            Ok(journal)
         };
-        read().map_err(|_error| io::Error::other("retained join evidence unavailable"))
+        let Some(mut journal) =
+            read().map_err(|_error| io::Error::other("retained join evidence unavailable"))?
+        else {
+            return Ok(None);
+        };
+        if !journal.storage_verified {
+            verify_installation(
+                &remote_client().map_err(|_| io::Error::other("cannot open Join client"))?,
+                &journal.intent,
+            )
+            .await
+            .map_err(|_| io::Error::other("retained Join Installation evidence unavailable"))?;
+            journal.storage_verified = true;
+            self.state
+                .save(&journal)
+                .map_err(|_| io::Error::other("cannot save Join Installation evidence"))?;
+        }
+        Ok(Some((journal.intent.issuer, journal.intent.storage)))
     }
 }
 
@@ -305,6 +323,8 @@ struct Journal {
     key: [u8; 32],
     public_key: String,
     phase: Phase,
+    #[serde(default)]
+    storage_verified: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -312,6 +332,7 @@ struct Journal {
 enum Phase {
     Prepared,
     Requesting,
+    Dispatching,
     Pending(String),
     Approving(String),
     Approved(String),
@@ -334,6 +355,7 @@ impl Journal {
             key: key.to_bytes(),
             public_key: key.public().to_string(),
             phase: Phase::Prepared,
+            storage_verified: false,
         }
     }
 
@@ -396,7 +418,7 @@ impl IntoResponse for Failure {
             ),
             Self::Uncertain => (
                 StatusCode::CONFLICT,
-                "Pairing request outcome is unknown. Request pairing again to check the owner. This does not send a duplicate request.",
+                "Pairing request outcome is unknown. Request pairing again to retry the same enrollment.",
             ),
         };
         (status, message).into_response()
@@ -432,7 +454,7 @@ struct View<'a> {
 fn view(journal: Option<&Journal>) -> Response {
     let stage = match journal.map(|value| &value.phase) {
         None => "setup",
-        Some(Phase::Prepared | Phase::Requesting) => "prepared",
+        Some(Phase::Prepared | Phase::Requesting | Phase::Dispatching) => "prepared",
         Some(Phase::Pending(_) | Phase::Approving(_)) => "pending",
         Some(Phase::Approved(_)) => "approved",
     };
@@ -531,7 +553,8 @@ async fn action(
         Action::Prepare { intent } => {
             let journal = host.prepare(&headers, retained, intent)?;
             if matches!(journal.phase, Phase::Approved(_)) {
-                host.admission.retire(&headers, &journal.binding()?)?;
+                host.finish(&headers, journal).await?;
+                return Ok(view(host.load()?.as_ref()));
             }
             return Ok(view(Some(&journal)));
         }
@@ -540,8 +563,8 @@ async fn action(
     let mut journal = retained.ok_or(Failure::Conflict)?;
     host.admission.bind(&headers, &journal.binding()?)?;
     if let Phase::Approved(_) = journal.phase {
-        host.admission.retire(&headers, &journal.binding()?)?;
-        return Ok(view(Some(&journal)));
+        host.finish(&headers, journal).await?;
+        return Ok(view(host.load()?.as_ref()));
     }
     match action {
         Action::Resume => (),
@@ -559,11 +582,86 @@ async fn action(
     Ok(view(Some(&journal)))
 }
 
+#[derive(Deserialize, PartialEq, Eq)]
+struct InstallationBases {
+    issuer: String,
+    device: String,
+    storage: String,
+}
+
+fn remote_client() -> Result<Client> {
+    Client::builder()
+        .https_only(true)
+        .no_proxy()
+        .redirect(Policy::none())
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|_| Failure::Remote)
+}
+
+async fn public_evidence(client: &Client, base: &str, path: &str) -> Result<reqwest::Response> {
+    client
+        .get(format!("{base}{path}"))
+        .send()
+        .await
+        .map_err(|_| Failure::Remote)
+}
+
+async fn verify_installation(client: &Client, intent: &Intent) -> Result<()> {
+    const OWNER: &str = "/setup/owner/public";
+    const FIXTURE: &str = "/setup/seeded-installation";
+    let public = public_evidence(client, &intent.issuer, OWNER).await?;
+    if public.status() == StatusCode::NOT_FOUND {
+        let expected = InstallationBases {
+            issuer: intent.issuer.clone(),
+            device: intent.device.clone(),
+            storage: intent.storage.clone(),
+        };
+        for base in [&intent.issuer, &intent.storage] {
+            let response = public_evidence(client, base, FIXTURE).await?;
+            if response.status() != StatusCode::OK
+                || response
+                    .json::<InstallationBases>()
+                    .await
+                    .map_err(|_| Failure::Remote)?
+                    != expected
+            {
+                return Err(Failure::Conflict);
+            }
+        }
+        return Ok(());
+    }
+    async fn owner(response: reqwest::Response) -> Result<IndependentOwnerPublic> {
+        if response.status() != StatusCode::OK {
+            return Err(Failure::Remote);
+        }
+        response.json().await.map_err(|_| Failure::Remote)
+    }
+    let idp = owner(public).await?;
+    let exact = &idp.operation;
+    if idp.owner != "idp"
+        || exact.canonical().is_err()
+        || exact.issuer != intent.issuer
+        || exact.device != intent.device
+        || exact.storage != intent.storage
+    {
+        return Err(Failure::Conflict);
+    }
+    let storage = owner(public_evidence(client, &intent.storage, OWNER).await?).await?;
+    if storage.owner != "storage" || storage.operation != *exact {
+        return Err(Failure::Conflict);
+    }
+    Ok(())
+}
+
 async fn device_client(intent: &Intent, access_token: String) -> Result<DeviceConfiguration> {
     if access_token.is_empty() || access_token.len() > 16_384 {
         return Err(Failure::Unauthorized);
     }
+    let client = remote_client()?;
+    verify_installation(&client, intent).await?;
     let idp = Configuration {
+        client: client.clone(),
         base_path: intent.issuer.clone(),
         ..Configuration::default()
     };
@@ -586,6 +684,7 @@ async fn device_client(intent: &Intent, access_token: String) -> Result<DeviceCo
         return Err(Failure::Unauthorized);
     }
     Ok(DeviceConfiguration {
+        client,
         base_path: intent.device.clone(),
         bearer_access_token: Some(result.access_token),
         ..DeviceConfiguration::default()
@@ -618,21 +717,40 @@ async fn observe(api: &DeviceConfiguration, journal: &Journal) -> Result<Option<
 }
 
 impl Host {
+    async fn finish(&self, headers: &HeaderMap, mut journal: Journal) -> Result<()> {
+        if !journal.storage_verified {
+            verify_installation(&remote_client()?, &journal.intent).await?;
+            journal.storage_verified = true;
+            self.save(&journal)?;
+        }
+        self.admission.retire(headers, &journal.binding()?)?;
+        Ok(())
+    }
+
     async fn request(&self, api: &DeviceConfiguration, journal: &mut Journal) -> Result<()> {
-        if !matches!(journal.phase, Phase::Prepared | Phase::Requesting) {
+        if !matches!(
+            journal.phase,
+            Phase::Prepared | Phase::Requesting | Phase::Dispatching
+        ) {
             return Err(Failure::Conflict);
         }
         let record = observe(api, journal).await?;
-        let id = if matches!(journal.phase, Phase::Prepared) {
-            if record.is_some() {
+        let id = if matches!(journal.phase, Phase::Requesting) && record.is_some() {
+            // Journals from the legacy POST flow have no requester receipt. Recover by owner read only.
+            let record = record.ok_or(Failure::Conflict)?;
+            if record.state != DeviceState::Pending {
                 return Err(Failure::Conflict);
             }
-            // Commit before dispatch. After a lost response, only the owner read may recover it.
-            journal.phase = Phase::Requesting;
+            record.id
+        } else {
+            if matches!(journal.phase, Phase::Prepared) && record.is_some() {
+                return Err(Failure::Conflict);
+            }
+            journal.phase = Phase::Dispatching;
             self.save(journal)?;
-            let result = request_pairing(
+            let result = request_pairing_once(
                 api,
-                RequestPairingParams {
+                RequestPairingOnceParams {
                     device_pairing_request: DevicePairingRequest {
                         name: journal.intent.name.clone(),
                         address: journal.intent.address.clone(),
@@ -644,25 +762,21 @@ impl Host {
             .await;
             let result = match result {
                 Ok(result) => result,
-                Err(DeviceError::ResponseError(response))
-                    if matches!(response.status.as_u16(), 401 | 403) =>
-                {
-                    journal.phase = Phase::Prepared;
-                    self.save(journal)?;
-                    return Err(Failure::Unauthorized);
-                }
+                Err(DeviceError::ResponseError(response)) => match response.status.as_u16() {
+                    400 | 409 => return Err(Failure::Conflict),
+                    401 | 403 => return Err(Failure::Unauthorized),
+                    404 | 405 => return Err(Failure::Remote),
+                    _ => return Err(Failure::Uncertain),
+                },
                 Err(_) => return Err(Failure::Uncertain),
             };
-            if result.state != DeviceState::Pending || !record_id(&result.id) {
+            if result.state != DeviceState::Pending
+                || !record_id(&result.id)
+                || record.is_some_and(|row| row.id != result.id)
+            {
                 return Err(Failure::Conflict);
             }
             result.id
-        } else {
-            let record = record.ok_or(Failure::Uncertain)?;
-            if record.state != DeviceState::Pending {
-                return Err(Failure::Conflict);
-            }
-            record.id
         };
         journal.phase = Phase::Pending(id);
         self.save(journal)
@@ -715,6 +829,7 @@ impl Host {
             }
         }
         journal.phase = Phase::Approved(id);
+        journal.storage_verified = true;
         self.save(journal)
     }
 }

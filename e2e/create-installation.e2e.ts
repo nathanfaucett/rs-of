@@ -10,7 +10,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium, expect, type Page, test } from "@playwright/test";
 
-import { passwordManagerSignin, passwordManagerWhileWaiting } from "./password-manager-setup";
+import {
+  passwordManagerSignin,
+  passwordManagerSyncedVaults,
+  passwordManagerWhileWaiting,
+} from "./password-manager-setup";
 
 const owners = ["idp", "device", "storage"] as const;
 const cwd = fileURLToPath(new URL("../", import.meta.url));
@@ -423,6 +427,12 @@ nodeTest(
       );
     const ready = await evidence();
     expect(ready.operation.operation_nonce).toBe(intent.operation_nonce);
+    const storageEvidence = await api(`${storage}/setup/owner/public`, ca);
+    expect(storageEvidence.status).toBe(200);
+    expect(JSON.parse(storageEvidence.body)).toMatchObject({
+      owner: "storage",
+      operation: ready.operation,
+    });
     await node.restart();
     await waitForReady();
     await page.goto(app);
@@ -478,7 +488,7 @@ function api(
 }
 
 async function remoteInstallation(node: Awaited<ReturnType<typeof launchNode>>) {
-  const { url, data, app, ca } = node;
+  const { url, data, app, ca, pm } = node;
   const remote = url("remote");
   const ui = url("remote-ui");
   const idp = `${remote}/idp`;
@@ -487,26 +497,32 @@ async function remoteInstallation(node: Awaited<ReturnType<typeof launchNode>>) 
   const application = `${app}/join-fixture`;
   const username = "admin@local.test";
   const password = "password";
-  node.launch("pnpm", [
-    "exec",
-    "portless",
-    "run",
-    "--name",
-    "remote",
-    "cargo",
-    "run",
-    "--locked",
-    "-p",
-    "unified-server",
-    "--",
-    "seeded",
-    "--data-dir",
-    resolve(data, "../remote"),
-    "--origin",
-    ui,
-    "--password-manager-origin",
-    app,
-  ]);
+  node.launch(
+    "pnpm",
+    [
+      "exec",
+      "portless",
+      "run",
+      "--name",
+      "remote",
+      "cargo",
+      "run",
+      "--locked",
+      "-p",
+      "unified-server",
+      "--",
+      "seeded",
+      "--data-dir",
+      resolve(data, "../remote"),
+      "--origin",
+      ui,
+      "--password-manager-origin",
+      pm,
+      "--join-origin",
+      app,
+    ],
+    { RUST_MIN_STACK: "67108864" }
+  );
   node.launch(
     "pnpm",
     [
@@ -619,12 +635,55 @@ async function remoteInstallation(node: Awaited<ReturnType<typeof launchNode>>) 
   };
 }
 
+nodeTest("Join refuses Storage outside the selected Installation", async ({ node }) => {
+  const { app, base, browser, ca, data } = node;
+  const remote = await remoteInstallation(node);
+  const page = await browser.newPage();
+  await choose(page, node, "join");
+  const endpoint = `${base}/setup/join`;
+  const post = (body: object) =>
+    api(endpoint, ca, {
+      method: "POST",
+      headers: {
+        Origin: app,
+        "Content-Type": "application/json",
+        Authorization: `Setup ${joinCode}`,
+      },
+      body: JSON.stringify(body),
+    });
+  const joinCode = await code(resolve(data, "join/admission/state"));
+  const before = await remote.devices();
+  expect(
+    (
+      await post({
+        action: "prepare",
+        intent: {
+          issuer: remote.idp,
+          device: remote.device,
+          storage: `${base}/storage`,
+          clientId: remote.client,
+          application: remote.application,
+          acceptingPublicKey: remote.publicKey,
+          name: "Wrong Installation",
+          address: "127.0.0.1:23457",
+        },
+      })
+    ).status
+  ).toBe(200);
+  const refused = await post({ action: "request", accessToken: "must-not-be-forwarded" });
+  expect(refused.status).toBe(409);
+  expect(await descriptor(page, base)).toEqual({ state: "joining" });
+  expect(await remote.devices()).toEqual(before);
+});
+
 nodeTest(
   "default Join resumes pending Device approval and retains it without a local authority",
   async ({ node }) => {
     const { app, base, browser, ca, data, pm } = node;
     const remote = await remoteInstallation(node);
     const page = await browser.newPage();
+    const pmPage = await browser.newPage();
+    await passwordManagerWhileWaiting(pmPage, pm, base);
     await choose(page, node, "join");
     await expect(page.getByLabel("Local join helper")).toHaveCount(0);
     expect(await descriptor(page, base)).toEqual({ state: "joining" });
@@ -699,17 +758,18 @@ nodeTest(
         code: "ENOENT",
       });
     }
-    const pmPage = await browser.newPage();
-    await pmPage.goto(pm);
-    await pmPage.getByRole("link", { name: "Sign in to sync" }).click();
-    const [pmDescriptor] = await Promise.all([
-      pmPage.waitForResponse(`${base}/setup/node`),
-      pmPage.getByRole("button", { name: "Sign in with IdP" }).click(),
-    ]);
-    expect(await pmDescriptor.json()).toEqual({
-      state: "ready",
-      idp: remote.idp,
-      storage: remote.storage,
-    });
+    await passwordManagerSignin(
+      pmPage,
+      {
+        origin: pm,
+        idp: remote.idp,
+        storage: remote.storage,
+        username: remote.username,
+        password: remote.password,
+      },
+      true
+    );
+    await pmPage.getByRole("button", { name: "Lock vault" }).click();
+    await passwordManagerSyncedVaults(pmPage, pm, remote.storage);
   }
 );

@@ -38,11 +38,14 @@ export class BrowserSyncSDK implements SyncSDK {
 
   constructor(config: SyncConfig) {
     this.config = config;
+    const idp = new URL(config.apiUrl);
+    idp.pathname = idp.pathname.replace(/\/storage\/?$/, "/idp");
     this.storageClient = new StorageClient({
-      idpBaseUrl: config.apiUrl.replace("/storage", "/idp"),
+      idpBaseUrl: idp,
       storageBaseUrl: config.apiUrl,
       clientId: config.appId,
       bearerToken: config.getToken,
+      fetch: (input, init) => fetch(input, { ...init, credentials: "omit", redirect: "error" }),
     });
     // Provide Storage capability token exchange using the StorageClient
     const storageClient = this.storageClient;
@@ -54,7 +57,7 @@ export class BrowserSyncSDK implements SyncSDK {
   sql = {
     open: async (databaseId: string): Promise<DatabaseHandle> => {
       const existing = this.databases.get(databaseId);
-      if (existing) return existing;
+      if (existing && !existing.isClosed) return existing;
 
       const handle = await this.storageClient.openSqlDatabase(databaseId);
       // Open local WASM database with the resourceId as name
@@ -181,7 +184,7 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
   private sqlDatabase: Database | null = null;
   private syncClient: SyncClient | null = null;
   private lifecycle: SqlSyncLifecycle | null = null;
-  private closed = false;
+  private closed: boolean = false;
   private handle: {
     sqlDatabase: Database;
     resourceId: string;
@@ -206,8 +209,12 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
     return this.handle.resourceId;
   }
 
+  get isClosed(): boolean {
+    return this.closed;
+  }
+
   async execute(sql: string, params?: unknown[]): Promise<QueryResult> {
-    if (!this.sqlDatabase) throw new Error("Database closed");
+    if (!this.sqlDatabase || this.closed) throw new Error("Database closed");
     return execute(this.sqlDatabase, sql, params);
   }
 
@@ -242,8 +249,11 @@ class BrowserDatabaseHandle<T = unknown> implements DatabaseHandle<T> {
   }
 
   async close(): Promise<void> {
+    if (this.closed) return;
     this.closed = true;
     await this.lifecycle?.close();
+    this.sqlDatabase?.close();
+    this.sqlDatabase = null;
     this._changes$.complete();
     this._state$.complete();
   }

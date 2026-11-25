@@ -91,8 +91,9 @@ rustix = { version = "1.1", default-features = false, features = [
     "std",
 ] }
 
-[dev-dependencies]
 tempfile = { version = "3.27", default-features = false }
+
+[dev-dependencies]
 tokio = { version = "1.52", default-features = false, features = [
     "rt-multi-thread",
 ] }

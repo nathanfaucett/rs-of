@@ -21,10 +21,11 @@ use super::routes::devices::{
     __path_approve_enrollment, __path_approve_pairing, __path_enroll_device,
     __path_list_approved_device_endpoints, __path_list_devices, __path_list_pending_enrollments,
     __path_lookup_device_endpoint, __path_lookup_device_identity, __path_pairing_approval_payload,
-    __path_request_pairing, __path_revoke_device, __path_transfer_device, __path_trusted_devices,
-    __path_update_device, approve_enrollment, approve_pairing, enroll_device,
-    list_approved_device_endpoints, list_devices, list_pending_enrollments, lookup_device_endpoint,
-    lookup_device_identity, pairing_approval_payload, request_pairing, revoke_device,
+    __path_request_pairing, __path_request_pairing_once, __path_revoke_device,
+    __path_transfer_device, __path_trusted_devices, __path_update_device, approve_enrollment,
+    approve_pairing, enroll_device, list_approved_device_endpoints, list_devices,
+    list_pending_enrollments, lookup_device_endpoint, lookup_device_identity,
+    pairing_approval_payload, request_pairing, request_pairing_once, revoke_device,
     transfer_device, trusted_devices, update_device,
 };
 use super::routes::health::{__path_health, health};
@@ -60,6 +61,7 @@ fn routes() -> OpenApiRouter<RouterState> {
         .routes(routes!(list_pending_enrollments))
         .routes(routes!(approve_enrollment))
         .routes(routes!(request_pairing))
+        .routes(routes!(request_pairing_once))
         .routes(routes!(pairing_approval_payload))
         .routes(routes!(approve_pairing))
         .routes(routes!(list_devices))
@@ -145,8 +147,8 @@ mod tests {
                 .flat_map(|item| item.as_object().expect("path item").values())
                 .filter_map(|operation| operation["operationId"].as_str())
                 .collect::<Vec<_>>();
-            assert_eq!(operations.len(), 26, "complete Device operation inventory");
-            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 26);
+            assert_eq!(operations.len(), 27, "complete Device operation inventory");
+            assert_eq!(operations.iter().collect::<BTreeSet<_>>().len(), 27);
             assert!(document["paths"]["/openapi.json"]["get"]["operationId"].is_string());
             let mut registered_paths = paths.clone();
             registered_paths.remove("/openapi.json");

@@ -23,7 +23,7 @@ GitHub Actions records current and historical check results.
 
 Installation setup requires fresh owner stores. If you have an older setup, back up its data and redo setup in an empty root. This change provides no migration, old-format reader, or version bump.
 
-To add a Device to an existing Installation, use the [Device owner pairing contract](openapi/device.json). An authorized User creates a pending request against an approved Device. The new Device signs the UTF-8 payload with its Ed25519 endpoint key and encodes the signature as base64url without padding. An authorized User submits that signature to approve the Device. No server setup or transport listener is required.
+To add a Device to an existing Installation, use the [Device owner pairing contract](openapi/device.json). An authorized User creates a pending request against an approved Device. Use the exact retry operation when delivery is uncertain: it matches the original requester, endpoint key, and enrollment fields in the same Installation. The new Device signs the UTF-8 payload with its Ed25519 endpoint key and encodes the signature as base64url without padding. An authorized User submits that signature to approve the Device. No server setup or transport listener is required.
 
 ## Local backend
 

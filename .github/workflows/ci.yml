@@ -298,6 +298,14 @@ jobs:
           E2E_BACKEND_BIN: ./target/debug/unified-server
         run: pnpm test:e2e
 
+      - name: Join over HTTPS with request and response loss
+        if: ${{ !cancelled() && steps.backend-build.outcome == 'success' }}
+        env:
+          E2E_BACKEND_BIN: ./target/debug/unified-server
+        run: |
+          cargo build --locked -p setup --features join --bin join-node
+          node e2e/join-fixture.mjs
+
       - name: Retain failure reports
         if: failure()
         uses: actions/upload-artifact@v4
