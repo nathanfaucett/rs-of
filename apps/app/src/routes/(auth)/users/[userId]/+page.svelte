@@ -600,7 +600,7 @@
                 <button
                     class="btn btn-secondary btn-md"
                     type="button"
-                    formmethod="dialog"
+                    onclick={() => deleteModalRef?.close()}
                 >
                     Cancel
                 </button>
@@ -627,7 +627,7 @@
                 <button
                     class="btn btn-secondary btn-md"
                     type="button"
-                    formmethod="dialog"
+                    onclick={() => resetPasswordModalRef?.close()}
                 >
                     Cancel
                 </button>
