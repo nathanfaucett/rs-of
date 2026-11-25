@@ -2,6 +2,7 @@ import { OidcClient } from "@ofsdk/oidc-client";
 import { isTauri } from "@tauri-apps/api/core";
 import { env } from "$env/dynamic/public";
 import icon256x256Png from "$lib/assets/icon256x256.png";
+import { createdClients } from "./createdClients.svelte";
 import { getIdpApiUrl } from "./idpClient.svelte";
 import { type OnboardingObservation, observeOnboarding } from "./onboarding";
 import { requireSessionAccessToken } from "./sessionAccess";
@@ -80,6 +81,7 @@ export function oidcSessionAccessToken(client: OidcClient): Promise<string> {
 }
 
 export function clearOidcSession(): void {
+  createdClients.clear();
   storedClient?.clearStoredTokenResponse();
   webLogin = undefined;
   if (isTauri()) {

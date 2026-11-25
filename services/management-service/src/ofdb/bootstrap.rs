@@ -4,9 +4,11 @@ use of_model::idp::contract::permission_evaluation::{INSTALLATION_POLICY_ID, Ide
 use of_model::management_error::{ManagementError, ManagementResult};
 use ofdb_sql::{Client, QueryParams, QueryResult, Transaction, Value};
 
+use crate::ManagementService;
 use crate::service::{APPLICATION_POLICY_ADMINISTRATION, INITIAL_ADMINISTRATOR_ACTIONS};
 
 use super::insert::{db_error, policy_insert, returned_id};
+use super::{DbPermissionRepo, DbRoleRepo};
 
 const ADMINISTRATOR: &str = "installation-administrator";
 
@@ -46,6 +48,33 @@ pub async fn provision_initial_administrator(
         return Err(error);
     }
     tx.commit().await.map_err(db_error)
+}
+
+/// Grant Client read access in the seeded login Application on a new dev fixture.
+///
+/// # Errors
+/// Returns an error if the fixture policy cannot be created.
+pub async fn provision_seeded_client_reader(
+    client: &Client,
+    application: Id,
+    user: Id,
+) -> ManagementResult<()> {
+    let management = ManagementService::new(
+        DbPermissionRepo::new(client.clone()),
+        DbRoleRepo::new(client.clone()),
+    );
+    let role = management
+        .create_role(application, "local-client-reader", None)
+        .await?;
+    let permission = management
+        .create_permission(application, IdentityAction::ClientsRead.permission(), None)
+        .await?;
+    management
+        .add_permission_to_role(application, role.id, permission.id)
+        .await?;
+    management
+        .add_role_to_user(application, user, role.id)
+        .await
 }
 
 async fn provision(tx: &mut Transaction, user: Id, names: &[&str]) -> ManagementResult<()> {

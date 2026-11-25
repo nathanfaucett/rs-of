@@ -3,6 +3,7 @@
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
     import { page } from "$app/state";
+    import { createdClients } from "$lib/common/state/createdClients.svelte";
     import { getOidcClient } from "$lib/common/state/oidc.svelte";
     import { Alert, Card, Page, PageHeader } from "$lib/ui";
 
@@ -29,6 +30,7 @@
 
         try {
             await getOidcClient().handleSigninCallback();
+            createdClients.clear();
             popupCallback = window.opener != null && window.opener !== window;
             if (popupCallback) {
                 callbackComplete = true;

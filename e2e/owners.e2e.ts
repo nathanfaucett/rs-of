@@ -9,7 +9,7 @@ import {
 } from "../packages/device-client/src/index";
 import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
 import { checkedFetch } from "./http";
-import { frontendSession, json, storageClient } from "./session";
+import { frontendSession, json, passwordSession, storageClient } from "./session";
 
 test("fresh backend exposes four healthy owners and real OIDC metadata", async ({ request }) => {
   for (const owner of ["idp", "device", "storage", "management"]) {
@@ -225,4 +225,26 @@ test("Device owner requires authorized approval and proof of a second Device key
   expect((await device.listDevices()).find(({ id }) => id === pending.id)).toEqual(approved);
   const denied = await request.get(`${backendURL}/device/devices`);
   expect(denied.ok()).toBeFalsy();
+});
+
+test("IdP Client read requires a token from the granted Application", async ({ request }) => {
+  const sessions = [await passwordSession(request), await frontendSession(request, "app", appURL)];
+  const statuses = [];
+  for (const session of sessions) {
+    const token = await json<{ access_token: string }>(
+      await request.post(`${backendURL}/idp/oauth2/token`, {
+        form: {
+          grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+          subject_token: session.access_token,
+          subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
+          resource: `${backendURL}/idp`,
+        },
+      })
+    );
+    const response = await request.get(`${backendURL}/idp/oauth2/register/local-login`, {
+      headers: { Authorization: `Bearer ${token.access_token}` },
+    });
+    statuses.push(response.status());
+  }
+  expect(statuses).toEqual([200, 403]);
 });

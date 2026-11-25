@@ -1,6 +1,7 @@
 use std::io;
 
 use idp_service::repo::{ClientRepo, KeyRepo, UserRepo};
+use management_service::ofdb::provision_seeded_client_reader;
 use management_service::{INITIAL_ADMINISTRATOR_ACTIONS, provision_initial_administrator};
 use of_model::id::Id;
 use of_model::idp::contract::application_registration::ApplicationRegistration;
@@ -212,11 +213,16 @@ pub async fn seed(
                 .allowed_scopes
                 .push(MANAGEMENT_POLICY_ADMINISTRATION_SCOPE.into());
         }
-        oauth
+        let client = oauth
             .client_repo
             .create_client(registration)
             .await
             .map_err(io::Error::other)?;
+        if id == "local-login" {
+            provision_seeded_client_reader(&state.engine, client.application_id, user)
+                .await
+                .map_err(io::Error::other)?;
+        }
     }
     Ok(())
 }

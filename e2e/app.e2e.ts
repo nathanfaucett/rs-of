@@ -297,3 +297,128 @@ test("Devices keeps administration without using legacy sync preferences", async
     )
   ).toEqual(legacyEntries);
 });
+
+test("OAuth Client lookup explains a cross-Application denial", async ({ page }) => {
+  await page.goto(`${appURL}/clients`);
+  await signIn(page);
+  await page.getByRole("textbox", { name: "Client ID", exact: true }).fill("password-manager");
+  const lookup = page.waitForResponse(`${backendURL}/idp/oauth2/register/password-manager`);
+  await page.getByRole("button", { name: "Open client", exact: true }).click();
+  expect((await lookup).status()).toBe(403);
+  await expect(page.getByRole("alert")).toContainText(
+    "You do not have permission to view this client."
+  );
+  await page.getByRole("link", { name: "Back to client lookup" }).click();
+  await expect(page).toHaveURL(`${appURL}/clients`);
+});
+
+test("OAuth Client lookup distinguishes an unknown ID from a service failure", async ({ page }) => {
+  await page.goto(`${appURL}/clients/unknown-client`);
+  const missing = page.waitForResponse(`${backendURL}/idp/oauth2/register/unknown-client`);
+  await signIn(page);
+  expect((await missing).status()).toBe(400);
+  await expect(page.getByRole("alert")).toContainText("Client not found.");
+
+  // Fail only the transport. The retry loads a real registration from the IdP.
+  await page.route(`${backendURL}/idp/oauth2/register/local-management`, (route) => route.abort(), {
+    times: 1,
+  });
+  await page.goto(`${appURL}/clients/local-management`);
+  await expect(page.getByRole("alert")).toContainText("Could not load the client.");
+  await page.getByRole("button", { name: "Retry lookup" }).click();
+  await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue(
+    "local-management"
+  );
+});
+
+test("OAuth Client creation keeps only session metadata and reopens the owner registration", async ({
+  page,
+}) => {
+  await page.goto(`${appURL}/applications`);
+  await signIn(page);
+  const openApplication = async () => {
+    await page.getByRole("link", { name: `${appURL}/local-login`, exact: true }).click();
+    await expect(page).toHaveURL(/\/applications\/[^/]+$/);
+    await expect(page.getByText(/Reloading clears this list/)).toBeVisible();
+  };
+  await openApplication();
+  const applicationURL = page.url();
+
+  // The isolated backend removes the synthetic registrations at teardown.
+  const createClient = async (name: string) => {
+    await page.getByRole("textbox", { name: "Client name", exact: true }).fill(name);
+    await page
+      .getByRole("textbox", { name: "Redirect URIs", exact: true })
+      .fill(`${appURL}/callback`);
+    const registered = page.waitForResponse(
+      (response) =>
+        response.url() === `${backendURL}/idp/oauth2/register` &&
+        response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Create client", exact: true }).click();
+    const response = await registered;
+    expect(response.status()).toBe(200);
+    const {
+      client_id,
+      client_type,
+      client_secret,
+    }: { client_id: string; client_type: string; client_secret?: string } = await response.json();
+    expect(client_type).toBe("public");
+    expect(client_secret).toBeUndefined();
+    const link = page
+      .getByRole("row")
+      .filter({ hasText: name })
+      .getByRole("link", { name: client_id, exact: true });
+    await expect(link).toBeVisible();
+    return { id: client_id, link };
+  };
+
+  const name = "E2E OAuth Client";
+  const { id, link } = await createClient(name);
+  expect(
+    await page.evaluate(
+      (id) =>
+        [localStorage, sessionStorage].some((storage) =>
+          Object.values(storage).some((value) => String(value).includes(id))
+        ),
+      id
+    )
+  ).toBe(false);
+  const lookup = page.waitForResponse(`${backendURL}/idp/oauth2/register/${id}`);
+  await link.click();
+  expect((await lookup).status()).toBe(200);
+  const clientName = page.getByRole("textbox", { name: "Name", exact: true });
+  await expect(clientName).toHaveValue(name);
+  await page.goBack();
+  await expect(link).toBeVisible();
+  await link.click();
+  await page.getByRole("link", { name: "Back to application" }).click();
+  await expect(link).toBeVisible();
+
+  const freshPage = await page.context().newPage();
+  await freshPage.goto(applicationURL);
+  await expect(freshPage.getByText(/Reloading clears this list/)).toBeVisible();
+  await expect(freshPage.getByRole("link", { name: id, exact: true })).toHaveCount(0);
+  await freshPage.close();
+
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await signIn(page);
+  await page.getByRole("link", { name: "Applications", exact: true }).click();
+  await openApplication();
+  await expect(link).toHaveCount(0);
+
+  const replacement = await createClient("E2E Client before session replacement");
+  const otherTab = await page.context().newPage();
+  await otherTab.goto(`${appURL}/signin`);
+  await signIn(otherTab);
+  await expect(otherTab).not.toHaveURL(/\/signin/);
+  await expect(replacement.link).toHaveCount(0);
+  await otherTab.close();
+
+  await page.getByRole("link", { name: /look up a client by ID/i }).click();
+  await page.getByRole("textbox", { name: "Client ID", exact: true }).fill(id);
+  await page.getByRole("button", { name: "Open client", exact: true }).click();
+  await expect(clientName).toHaveValue(name);
+  await page.reload();
+  await expect(clientName).toHaveValue(name);
+});
