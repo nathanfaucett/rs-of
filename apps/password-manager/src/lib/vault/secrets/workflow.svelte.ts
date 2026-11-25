@@ -245,6 +245,9 @@ export function createLocalSecretWorkflow({ vault }: { vault: VaultHandleLike })
     get loading() {
       return active && !loadError && !query.isReady && !query.isError;
     },
+    get hasItems() {
+      return query.isReady && query.data.some((record) => !record.deletedAt);
+    },
     get records() {
       return active && !loadError && query.isReady && !query.isError
         ? query.data.filter(

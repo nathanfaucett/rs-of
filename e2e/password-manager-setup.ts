@@ -27,11 +27,11 @@ export async function passwordManagerWhileWaiting(page: Page, origin: string, no
   await page.getByLabel("Confirm password").fill(masterPassword);
   await page.getByRole("button", { name: "Create vault", exact: true }).click();
   await expect(page).toHaveURL(`${origin}/vault`);
-  await page.getByRole("button", { name: "New secret", exact: true }).click();
+  await page.getByRole("button", { name: "New item", exact: true }).click();
   await page.getByRole("menuitem", { name: "New secure note" }).click();
   await page.getByRole("textbox", { name: "Name", exact: true }).fill(localRecord);
   await page.getByLabel("Notes", { exact: true }).fill("A local record must survive setup.");
-  await page.getByRole("button", { name: "Create secret" }).click();
+  await page.getByRole("button", { name: "Create item" }).click();
   await expect(page).toHaveURL(`${origin}/vault`);
   await expect(page.getByText(localRecord, { exact: true })).toBeVisible();
 }

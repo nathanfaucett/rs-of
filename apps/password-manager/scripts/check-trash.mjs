@@ -46,7 +46,7 @@ export async function checkTrash(page, { vaultName, vaultId, password }) {
   await action("Synthetic offline Login").click();
   await page.getByText("Password history (1)", { exact: true }).waitFor();
   await action("Close details").click();
-  await action("New secret").click();
+  await action("New item").click();
   await page.getByLabel(/^Name/).fill("Synthetic purge item");
   await action("Save").click();
   await page.getByText("Saved.", { exact: true }).waitFor();

@@ -120,7 +120,7 @@ try {
   await page.getByLabel(/^Confirm password/).fill("synthetic-master-19");
   await page.getByRole("button", { name: "Create vault", exact: true }).click();
   const generated = await checkGenerator(page);
-  await page.getByRole("button", { name: "New secret", exact: true }).click();
+  await page.getByRole("button", { name: "New item", exact: true }).click();
   await page.getByLabel(/^Name/).fill("Synthetic offline Login");
   await page.getByLabel("Username", { exact: true }).fill("synthetic-user-19");
   await page.getByLabel(/^Password/).fill("synthetic-secret-19");
@@ -169,7 +169,7 @@ try {
   await createIdentity(page, "Synthetic offline Identity");
   await page.getByRole("button", { name: "Lock vault", exact: true }).click();
   assert.equal(await page.getByRole("searchbox", { name: "Search items" }).count(), 0);
-  assert.equal(await page.getByRole("list", { name: "Search results" }).count(), 0);
+  assert.equal(await page.getByRole("list", { name: "Items", exact: true }).count(), 0);
   const vaultId = await page
     .getByRole("button", { name: /^offline-test ID: / })
     .locator("span")

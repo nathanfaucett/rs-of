@@ -81,7 +81,7 @@ async function commit() {
 
 {#if !retired}
 <Card>
-    <h2 tabindex="-1" {@attach (element) => { element.focus(); }}>Import Bitwarden JSON</h2>
+    <h2 id="import-json" tabindex="-1" {@attach (element) => { element.focus(); }}>Import Bitwarden JSON</h2>
     <p>Destination vault: <span class="break-all">{vault.id}</span></p>
     <p>Plaintext files expose credentials. Use a trusted personal JSON file and protect or remove it after migration. Nothing is sent to a server. This is not an encrypted backup.</p>
     <p>Supported subset: Login, Secure Note, Card, Identity, SSH Key, folders, custom fields and history. Attachments, organizations, collections, Trash, archive, linked fields, CSV, encrypted exports and unknown fields block the whole import. Passkeys are not supported: they are skipped and listed as warnings. Limit: 16 MiB, 10,000 items and 10,000 folders.</p>

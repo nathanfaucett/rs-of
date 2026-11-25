@@ -25,7 +25,7 @@ function handleCancel() {
 <div class="flex min-h-0 grow overflow-auto p-6">
     {#if vaultData}
         <div class="w-full max-w-3xl mx-auto">
-            <PageHeader title="New secret" description="Create a new secret in your vault.">
+            <PageHeader title="New item" description="Create a new item in your vault.">
                 {#snippet actions()}
                     <button class="btn btn-ghost btn-md" type="button" onclick={handleCancel} aria-label="Back to vault">
                         <ArrowLeft class="w-4 h-4 mr-1" /> Back

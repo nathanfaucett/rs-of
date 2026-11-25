@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 export async function checkSearch(page) {
-  const results = page.getByRole("list", { name: "Search results" });
+  const results = page.getByRole("list", { name: "Items", exact: true });
   const search = page.getByRole("searchbox", { name: "Search items" });
   const before = await page.evaluate(async () => ({
     local: JSON.stringify(localStorage),

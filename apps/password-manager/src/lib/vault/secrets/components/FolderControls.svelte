@@ -4,10 +4,9 @@ import type { createLocalSecretWorkflow } from "../workflow.svelte";
 
 let { workflow, navigate }: { workflow: ReturnType<typeof createLocalSecretWorkflow>; navigate: (action: () => void) => void } = $props();
 let form = $state<{ action: "create" | "rename" | "delete"; id: string; name: string } | null>(null);
-let destination = $state("");
 const selected = $derived(workflow.folders.find((folder) => folder.id === workflow.folderFilter));
 export function dirty() { return form !== null; }
-export function retire() { form = null; destination = ""; }
+export function retire() { form = null; }
 function openForm(value: NonNullable<typeof form>) {
     navigate(() => { workflow.cancel(); form = value; });
 }
@@ -50,21 +49,5 @@ async function closeForm() {
                 <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit} onclick={() => { void closeForm(); }}>Cancel folder</button>
             </div>
         </form>
-    {/if}
-    {#if workflow.detail && !workflow.editor}
-        {#key workflow.detail}
-            <div class="flex flex-wrap items-end gap-2">
-                <label class="flex flex-col gap-1">Move to folder
-                    <select aria-label="Move to folder" bind:value={destination} disabled={!workflow.canEdit}>
-                        <option value="">Unfiled</option>
-                        {#each workflow.folders as folder (folder.id)}
-                            <option value={folder.id}>{folder.name} — {folder.id}</option>
-                        {/each}
-                    </select>
-                </label>
-                <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit}
-                    onclick={() => { const id = workflow.detail?.id; const folderId = destination || null; if (id) navigate(() => { void workflow.moveItem(id, folderId); }); }}>Move item</button>
-            </div>
-        {/key}
     {/if}
 </section>

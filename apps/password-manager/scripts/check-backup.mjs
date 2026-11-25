@@ -121,7 +121,7 @@ export async function checkBackupRestore(browser, origin) {
         .click();
       await page.getByText("Lock settings saved.", { exact: true }).waitFor();
       if (populated) {
-        await page.getByRole("button", { name: "New secret", exact: true }).click();
+        await page.getByRole("button", { name: "New item", exact: true }).click();
         await page.getByLabel(/^Name/).fill("Synthetic recovery Login");
         await page.getByLabel("Username", { exact: true }).fill("synthetic-recovery-user-04");
         await page.getByLabel(/^Password/).fill(itemPassword);

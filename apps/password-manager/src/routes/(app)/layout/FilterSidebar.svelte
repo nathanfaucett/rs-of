@@ -1,10 +1,9 @@
 <script lang="ts">
 import { CreditCard, FolderKanban, Funnel, Grid, HardDrive, IdCard, Key, Star, X } from "@lucide/svelte";
-import type { Folder } from "$lib/vault/folder";
 import type { ItemSort, ItemTypeFilter } from "$lib/vault/secrets/search";
 
 interface Props {
-	folders: Folder[];
+	folders: { id: string; label: string }[];
 	folderFilter: string;
 	searchText: string;
 	itemType: ItemTypeFilter;
@@ -48,18 +47,18 @@ const sortOptions = $derived([
 	{ value: "createdDesc", label: "Recently created" }
 ]);
 
-const hasActiveFilters = $derived(searchText || itemType !== "all" || favoritesOnly);
+const hasActiveFilters = $derived(searchText || folderFilter !== "all" || itemType !== "all" || favoritesOnly || sort !== "favorites");
 
 </script>
 
-<nav class="flex flex-col h-full bg-surface border-r border-line">
+<nav aria-label="Filters" class="hidden flex-col lg:flex bg-surface border-r border-line">
 	<div class="flex h-14 items-center px-3 border-b border-line shrink-0">
 		<div class="flex items-center gap-2">
 			<Funnel class="w-5 h-5 text-muted-foreground" />
 			<h2 class="text-base font-semibold text-ink truncate">Filters</h2>
 		</div>
 		{#if hasActiveFilters}
-			<button class="btn btn-ghost btn-sm" type="button" onclick={onClearFilters}>
+			<button class="btn btn-ghost btn-sm" type="button" aria-label="Clear filters" onclick={onClearFilters}>
 				<X class="w-3 h-3 mr-1" />Clear
 			</button>
 		{/if}
@@ -80,7 +79,7 @@ const hasActiveFilters = $derived(searchText || itemType !== "all" || favoritesO
 					</span>
 					<span class="truncate">All items</span>
 					{#if folderFilter === "all"}
-						<span class="ml-auto w-4 h-4 text-primary">✓</span>
+						<span class="ml-auto w-4 h-4 text-primary" aria-hidden="true">✓</span>
 					{/if}
 				</button>
 				<button
@@ -97,7 +96,7 @@ const hasActiveFilters = $derived(searchText || itemType !== "all" || favoritesO
 					</span>
 					<span class="truncate">Unfiled</span>
 					{#if folderFilter === "unfiled"}
-						<span class="ml-auto w-4 h-4 text-primary">✓</span>
+						<span class="ml-auto w-4 h-4 text-primary" aria-hidden="true">✓</span>
 					{/if}
 				</button>
 				{#each folders as folder (folder.id)}
@@ -110,9 +109,9 @@ const hasActiveFilters = $derived(searchText || itemType !== "all" || favoritesO
 						<span class="flex w-5 h-5 items-center justify-center">
 							<FolderKanban class="w-4 h-4" />
 						</span>
-						<span class="truncate">{folder.name}</span>
+						<span class="min-w-0 wrap-anywhere text-left">{folder.label}</span>
 						{#if folderFilter === folder.id}
-							<span class="ml-auto w-4 h-4 text-primary">✓</span>
+							<span class="ml-auto w-4 h-4 text-primary" aria-hidden="true">✓</span>
 						{/if}
 					</button>
 				{/each}
@@ -134,7 +133,7 @@ const hasActiveFilters = $derived(searchText || itemType !== "all" || favoritesO
 							value={filter.value}
 							checked={itemType === filter.value}
 							onchange={() => onItemTypeChange(filter.value)}
-							class="sr-only"
+							class="shrink-0"
 						/>
 						<span class="flex w-5 h-5 items-center justify-center">
 							<filter.icon class="w-4 h-4" />
@@ -153,7 +152,7 @@ const hasActiveFilters = $derived(searchText || itemType !== "all" || favoritesO
 						type="checkbox"
 						checked={favoritesOnly}
 						onchange={(e) => onFavoritesOnlyChange(e.currentTarget.checked)}
-						class="sr-only peer"
+						class="shrink-0"
 					/>
 					<span class={["w-4 h-4 flex-shrink-0", { "fill-primary": favoritesOnly, "text-primary": favoritesOnly }]}><Star class="w-4 h-4" /></span>
 					<span class="truncate">Favorites only</span>

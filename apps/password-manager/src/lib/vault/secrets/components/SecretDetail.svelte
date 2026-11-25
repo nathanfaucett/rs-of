@@ -1,25 +1,28 @@
 <script lang="ts">
+import type { Snippet } from "svelte";
 import { Card } from "$lib/ui";
 import { identityFields } from "../identity-fields";
 import type { Secret } from "../secret";
 import ProtectedValue from "./ProtectedValue.svelte";
 import TotpCode from "./TotpCode.svelte";
 
-let { record, canEdit, onedit, onclose }: {
+let { record, canEdit, onedit, onclose, folderAssignment }: {
     record: Secret;
     canEdit: boolean;
     onedit: () => void;
     onclose: () => void;
+    folderAssignment: Snippet;
 } = $props();
 </script>
 
-<Card title="Item details" description="Read-only. Use Edit to change this item.">
-    {#snippet actions()}
-        <button class="btn btn-primary btn-md" type="button" disabled={!canEdit} onclick={onedit}>Edit</button>
-        <button class="btn btn-secondary btn-md" type="button" disabled={!canEdit} onclick={onclose}>Close details</button>
-    {/snippet}
-    <div class="flex flex-col gap-4">
-        <h2 tabindex="-1" data-detail-heading {@attach (element) => { element.focus(); }}>{record.name}</h2>
+<Card title="Item details" description="Use Edit to change item fields.">
+    <div class="detail-fields flex min-w-0 flex-col gap-4 wrap-anywhere">
+        <h2 tabindex="-1" {@attach (element) => { element.focus(); }}>{record.name}</h2>
+        <div class="flex flex-wrap gap-2">
+            <button class="btn btn-primary btn-md" type="button" disabled={!canEdit} onclick={onedit}>Edit</button>
+            <button class="btn btn-secondary btn-md" type="button" disabled={!canEdit} onclick={onclose}>Close details</button>
+        </div>
+        {@render folderAssignment()}
         <p>Type: {record.kind}</p>
         <p>Favorite: {record.favorite ? "Yes" : "No"}</p>
         {#if record.kind === "login"}
@@ -66,3 +69,9 @@ let { record, canEdit, onedit, onclose }: {
         <p>Updated: <time datetime={record.updatedAt}>{record.updatedAt}</time></p>
     </div>
 </Card>
+
+<style>
+    .detail-fields :global(fieldset > div) {
+        flex-wrap: wrap;
+    }
+</style>

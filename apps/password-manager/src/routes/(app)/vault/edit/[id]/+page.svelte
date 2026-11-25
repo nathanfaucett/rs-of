@@ -22,7 +22,7 @@ function handleCancel() {
 <div class="flex min-h-0 grow overflow-auto p-6">
     {#if vaultData}
         <div class="w-full max-w-3xl mx-auto">
-            <PageHeader title="Edit secret" description="Changes are encrypted and stored when you save.">
+            <PageHeader title="Edit item" description="Changes are encrypted and stored when you save.">
                 {#snippet actions()}
                     <button class="btn btn-ghost btn-md" type="button" onclick={handleCancel} aria-label="Back to vault">
                         <ArrowLeft class="w-4 h-4 mr-1" /> Back
@@ -38,7 +38,7 @@ function handleCancel() {
                 />
             {:else}
                 <div class="flex items-center justify-center h-64">
-                    <p class="text-muted-foreground">Loading secret...</p>
+                    <p class="text-muted-foreground">Loading item...</p>
                 </div>
             {/if}
         </div>

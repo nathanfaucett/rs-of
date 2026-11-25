@@ -59,6 +59,7 @@ export interface CardProps {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
+        flex-wrap: wrap;
         gap: 1rem;
         padding: 1rem 1.25rem;
         border-bottom: 1px solid var(--border);
@@ -90,7 +91,7 @@ export interface CardProps {
 
     .card-actions {
         display: flex;
-        flex-shrink: 0;
+        flex-wrap: wrap;
         align-items: center;
         gap: 0.5rem;
     }

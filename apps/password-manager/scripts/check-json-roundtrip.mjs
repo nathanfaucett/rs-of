@@ -14,7 +14,7 @@ async function create(page, name) {
   await page.getByLabel(/^Master password/).fill(password);
   await page.getByLabel(/^Confirm password/).fill(password);
   await button(page, "Create vault").press("Enter");
-  await button(page, "New secret").waitFor();
+  await button(page, "New item").waitFor();
 }
 
 async function preview(page, text) {
@@ -32,7 +32,7 @@ async function preview(page, text) {
 async function commit(page) {
   await button(page, "Import all as new").press("Enter");
   await page.getByText(/Import verified/).waitFor();
-  await button(page, "New secret").waitFor();
+  await button(page, "New item").waitFor();
 }
 
 async function wire(page) {

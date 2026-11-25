@@ -61,7 +61,7 @@ try {
     "Synthetic SSH",
   ];
   for (const [index, action] of [
-    "New secret",
+    "New item",
     "New secure note",
     "New card",
     "New identity",

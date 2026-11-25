@@ -15,7 +15,7 @@ export async function checkGenerator(page) {
   assert.match(await output().innerText(), /^[a-z]+(?:-[a-z]+){3}$/);
   await page.getByText("Word list source and license", { exact: true }).click();
   await page.getByText("Copyright (c) 2013-2016 Pavol Rusnak", { exact: false }).waitFor();
-  await click("New secret");
+  await click("New item");
   await page.getByLabel(/^Name/).fill("Synthetic generator Login");
   await click("Password generator");
   await page.getByLabel("Generate type").selectOption("passphrase");

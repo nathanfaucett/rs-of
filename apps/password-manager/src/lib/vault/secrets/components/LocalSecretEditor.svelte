@@ -10,6 +10,7 @@ import { type ItemSort, type ItemTypeFilter, searchItems } from "../search";
 import type { Secret } from "../secret";
 import { createLocalSecretWorkflow } from "../workflow.svelte";
 import FolderControls from "./FolderControls.svelte";
+import NewItemMenu from "./NewItemMenu.svelte";
 import SecretDetail from "./SecretDetail.svelte";
 
 interface Props {
@@ -24,7 +25,6 @@ interface Props {
     onItemTypeChange?: (value: ItemTypeFilter) => void;
     onFavoritesOnlyChange?: (value: boolean) => void;
     onSortChange?: (value: ItemSort) => void;
-    onFolderFilterChange?: (value: string) => void;
     onClearFilters?: () => void;
 }
 
@@ -39,8 +39,7 @@ let {
     onItemTypeChange,
     onFavoritesOnlyChange,
     onSortChange,
-    onClearFilters,
-    onFolderFilterChange
+    onClearFilters
 }: Props = $props();
 
 const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
@@ -50,19 +49,12 @@ onDestroy(retire);
 
 let retired = $state(false);
 
-function clearFilters() {
-    searchText = "";
-    itemType = "all";
-    favoritesOnly = false;
-    sort = "favorites";
-    onSearchTextChange?.("");
-    onItemTypeChange?.("all");
-    onFavoritesOnlyChange?.(false);
-    onSortChange?.("favorites");
+export function clearFilters() {
+    setFolderFilter("all");
     onClearFilters?.();
 }
 
-let results = $derived(retired ? [] : searchItems(workflow.records, {
+const results = $derived(retired ? [] : searchItems(workflow.records, {
     text: searchText, kind: itemType, favoritesOnly, sort,
 }));
 
@@ -79,26 +71,46 @@ async function cancelDelete() {
     await tick();
     trigger?.focus();
 }
-let showNewSecretMenu = $state(false);
-const newSecretId = `${uid}-new`;
 const records = $derived(workflow.trash ? workflow.trashRecords : results);
-const searchId = `${newSecretId}-search`;
+const searchId = `${uid}-search`;
+let detailTrigger: HTMLButtonElement | undefined;
+const folderChoices = $derived.by(() => {
+    const folders = workflow.folders;
+    const totals = new Map<string, number>();
+    const indices = new Map<string, number>();
+    for (const { name } of folders) totals.set(name, (totals.get(name) ?? 0) + 1);
+    return folders.map((folder) => {
+        const { name } = folder;
+        const index = (indices.get(name) ?? 0) + 1;
+        indices.set(name, index);
+        const label = (totals.get(name) ?? 0) > 1 ? `${name} (${index})` : name === "Unfiled" ? "Unfiled (folder)" : name;
+        return { ...folder, label };
+    });
+});
 let folderControls = $state<ReturnType<typeof FolderControls>>();
 
 export function hasUnsavedChanges() { return workflow.dirty || workflow.busy || !!folderControls?.dirty(); }
-export function folders() { return workflow.folders; }
+export function folders() { return folderChoices; }
 export function folderFilter() { return workflow.folderFilter; }
-export function setFolderFilter(id: string) { workflow.setFolderFilter(id); }
+export function setFolderFilter(id: string) {
+    if (id !== workflow.folderFilter) workflow.setFolderFilter(id);
+}
 export function retire() {
     retired = true;
     clearFilters();
-    sort = "favorites";
-    results = [];
     pendingDelete = null;
     deleteTrigger = null;
     workflow.setTrashMode(false);
     folderControls?.retire();
     workflow.dispose();
+}
+
+async function closeDetails() {
+    const trigger = detailTrigger;
+    detailTrigger = undefined;
+    workflow.open(null);
+    await tick();
+    (trigger?.isConnected ? trigger : document.getElementById(`${searchId}-text`))?.focus();
 }
 
 function navigate(action: () => void) {
@@ -115,47 +127,39 @@ function navigate(action: () => void) {
 }} />
 
 <div class="flex flex-col gap-4">
-    <Card title={workflow.trash ? "Trash" : "Secrets"} description={workflow.trash ? "Items stay here until you restore or permanently delete them. No automatic deletion." : "Stored locally in your encrypted vault."}>
+    <Card title={workflow.trash ? "Trash" : "Items"} description={workflow.trash ? "Items stay here until you restore or permanently delete them. No automatic deletion." : "Stored locally in your encrypted vault."}>
         {#snippet actions()}
             <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canRefresh}
                 onclick={() => navigate(() => void workflow.refresh())}>Refresh</button>
-            <div class="relative" aria-haspopup="menu">
-                <button id={newSecretId} class="btn btn-primary btn-md" type="button" disabled={!workflow.canEdit}
-                    onclick={() => { showNewSecretMenu = !showNewSecretMenu; }} aria-expanded={showNewSecretMenu}>New secret</button>
-                {#if showNewSecretMenu}
-                <div class="absolute top-full left-0 mt-1 z-10 min-w-[160px] bg-surface border border-line rounded-lg shadow-lg py-1" role="menu" aria-labelledby={newSecretId}>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto(resolve("/vault/new?kind=login")))}>New login</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto(resolve("/vault/new?kind=secureNote")))}>New secure note</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto(resolve("/vault/new?kind=card")))}>New card</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto(resolve("/vault/new?kind=identity")))}>New identity</button>
-                    <button class="flex w-full items-center gap-2 px-3 py-2 text-sm text-ink hover:bg-surface-hover" role="menuitem" type="button" onclick={() => navigate(() => goto(resolve("/vault/new?kind=sshKey")))}>New SSH key</button>
-                </div>
-                {/if}
-            </div>
+            <NewItemMenu disabled={!workflow.canEdit} onselect={(kind) => navigate(() => goto(resolve(`/vault/new?kind=${kind}`)))} />
             {/snippet}
         {#if !retired && !workflow.trash}
-            <fieldset class="mb-4 flex flex-wrap items-end gap-3 lg:hidden" disabled={workflow.loading || !!workflow.loadError}>
-                <legend class="text-sm font-medium">Find items</legend>
+            <div class="mb-4">
                 <Field id={`${searchId}-text`} label="Search items" description="Search names, usernames, websites, notes, and custom-field names.">
                     {#snippet children(control: FieldControl)}
                         <input {...control} type="search" autocomplete="off" spellcheck="false"
-                            value={searchText}
-                            oninput={(e) => { if (!retired) { searchText = e.currentTarget.value; onSearchTextChange?.(searchText); } }} />
+                            value={searchText} disabled={workflow.loading || !!workflow.loadError}
+                            oninput={(e) => onSearchTextChange?.(e.currentTarget.value)} />
                     {/snippet}
                 </Field>
+            </div>
+            <fieldset class="mb-4 flex min-w-0 flex-wrap items-end gap-3 [&>.field]:min-w-0 [&>.field]:max-w-full lg:hidden" disabled={workflow.loading || !!workflow.loadError}>
+                <legend class="text-sm font-medium">Filters</legend>
                 <Field id={`${searchId}-folder`} label="Folder">
                     {#snippet children(control: FieldControl)}
-                        <select {...control} value={workflow.folderFilter} onchange={(e) => { const value = e.currentTarget.value; onFolderFilterChange?.(value); }}>                            <option value="all">All folders</option>
+                        <select {...control} class="max-w-full" value={workflow.folderFilter} onchange={(e) => setFolderFilter(e.currentTarget.value)}>
+                            <option value="all">All folders</option>
                             <option value="unfiled">Unfiled</option>
-                            {#each workflow.folders as folder (folder.id)}
-                                <option value={folder.id}>{folder.name}</option>
+                            {#each folderChoices as folder (folder.id)}
+                                <option value={folder.id}>{folder.label}</option>
                             {/each}
                         </select>
                     {/snippet}
                 </Field>
                 <Field id={`${searchId}-type`} label="Item type">
                     {#snippet children(control: FieldControl)}
-                        <select {...control} value={itemType} onchange={(e) => { itemType = e.currentTarget.value as ItemTypeFilter; onItemTypeChange?.(itemType); }}>                            <option value="all">All types</option>
+                        <select {...control} value={itemType} onchange={(e) => onItemTypeChange?.(e.currentTarget.value as ItemTypeFilter)}>
+                            <option value="all">All types</option>
                             <option value="login">Login</option>
                             <option value="secureNote">Secure Note</option>
                             <option value="card">Card</option>
@@ -165,11 +169,12 @@ function navigate(action: () => void) {
                     {/snippet}
                 </Field>
                 <label class="flex items-center gap-2 text-sm text-ink">
-                    <input type="checkbox" checked={favoritesOnly} onchange={(e) => { favoritesOnly = e.currentTarget.checked; onFavoritesOnlyChange?.(favoritesOnly); }} /> Favorites only
+                    <input type="checkbox" checked={favoritesOnly} onchange={(e) => onFavoritesOnlyChange?.(e.currentTarget.checked)} /> Favorites only
                 </label>
                 <Field id={`${searchId}-sort`} label="Sort items">
                     {#snippet children(control: FieldControl)}
-                        <select {...control} value={sort} onchange={(e) => { sort = e.currentTarget.value as ItemSort; onSortChange?.(sort); }}>                            <option value="favorites">Favorites first, then name</option>
+                        <select {...control} value={sort} onchange={(e) => onSortChange?.(e.currentTarget.value as ItemSort)}>
+                            <option value="favorites">Favorites first, then name</option>
                             <option value="nameAsc">Name (A–Z)</option>
                             <option value="nameDesc">Name (Z–A)</option>
                             <option value="updatedDesc">Recently updated</option>
@@ -181,12 +186,12 @@ function navigate(action: () => void) {
             </fieldset>
         {/if}
         {#if workflow.refreshing}
-            <p role="status">Refreshing secrets…</p>
+            <p role="status">Refreshing items…</p>
         {/if}
         {#if workflow.loadError}
             <Alert tone="danger" title="Vault unavailable">{workflow.loadError}</Alert>
         {:else if workflow.loading}
-            <p role="status">Loading secrets…</p>
+            <p role="status">Loading items…</p>
         {:else}
             {#if workflow.error}
                 <Alert tone="danger" title="Action failed">{workflow.error}</Alert>
@@ -218,10 +223,16 @@ function navigate(action: () => void) {
                 </Dialog>
             {/if}
             {#if records.length === 0}
-                <p class="mb-0" role="status">{workflow.trash ? "Trash is empty." : searchText.trim() || itemType !== "all" || favoritesOnly ? "No items match. Clear filters to show all items." : workflow.folderFilter === "all" ? "No secrets yet." : "No items in this folder view."}</p>
+                <p class="mb-0" role="status">{workflow.trash ? "Trash is empty." : !workflow.hasItems ? "No items yet." : searchText.trim() || itemType !== "all" || favoritesOnly ? "No items match. Clear filters to show all items." : "No items in this folder view."}</p>
+                {#if !workflow.trash && !workflow.hasItems}
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        <a class="btn btn-primary btn-md" href={resolve("/vault/new?kind=login")}>New login</a>
+                        <a class="btn btn-secondary btn-md" href={`${resolve("/settings")}#import-json`}>Import items</a>
+                    </div>
+                {/if}
             {:else}
                 <p aria-live="polite" aria-atomic="true">{records.length} {records.length === 1 ? "item" : "items"} found.</p>
-                <ul aria-label="Search results" class="flex list-none flex-col gap-2 p-0">
+                <ul aria-label={workflow.trash ? "Search results" : "Items"} class="flex list-none flex-col gap-2 p-0">
                     {#each records as value (value.id)}
                         <li class="item-row rounded-control border border-line bg-surface-muted/40 px-3 py-2">
                             <div class="item-content">
@@ -229,13 +240,16 @@ function navigate(action: () => void) {
                                     <span class="font-medium">{value.name}</span>
                                     <span class="text-sm text-ink-subtle">Deleted: <time datetime={value.deletedAt}>{value.deletedAt}</time></span>
                                 {:else}
-                                <button class="btn btn-ghost btn-md w-full justify-start truncate px-0 text-left font-medium"
-                                    type="button" disabled={!workflow.canEdit} onclick={() => navigate(() => goto(resolve(`/vault/edit/${value.id}`)))}>
-                                    {value.favorite ? "★ " : ""}{value.name}
+                                <button class="btn btn-ghost btn-md h-auto min-h-9 w-full justify-start whitespace-normal px-0 text-left font-medium"
+                                    type="button" disabled={!workflow.canEdit} onclick={(event) => navigate(() => {
+                                        detailTrigger = event.currentTarget;
+                                        workflow.open(value.id);
+                                    })}>
+                                    <span class="min-w-0 wrap-anywhere">{#if value.favorite}<span aria-hidden="true">★ </span>{/if}{value.name}</span>
                                 </button>
-                                {#if (value.kind === "login" || value.kind === "identity") && value.username}<p class="truncate text-sm text-ink-subtle">{value.username}</p>{/if}
+                                {#if (value.kind === "login" || value.kind === "identity") && value.username}<p class="wrap-anywhere text-sm text-ink-subtle">{value.username}</p>{/if}
                                 {#each value.kind === "login" ? value.uris : [] as uri (uri)}
-                                    <p class="truncate text-xs text-ink-subtle">{uri.uri}</p>
+                                    <p class="wrap-anywhere text-xs text-ink-subtle">{uri.uri}</p>
                                 {/each}
                                 {/if}
                             </div>
@@ -265,10 +279,27 @@ function navigate(action: () => void) {
 
     {#if workflow.detail && !workflow.editor}
         {@const detail = workflow.detail}
-        {#key detail}
+        {#key detail.id}
             <SecretDetail record={detail} canEdit={workflow.canEdit}
-                onedit={() => navigate(() => goto(resolve(`/vault/edit/${detail.id}`)))}
-                onclose={() => navigate(() => { workflow.open(null); document.getElementById(newSecretId)?.focus(); })} />
+                onedit={() => navigate(() => goto(resolve(`/vault/edit/${detail.id}`)))} onclose={closeDetails}>
+                {#snippet folderAssignment()}
+                    <form class="flex flex-wrap items-end gap-2" onsubmit={(event) => {
+                        event.preventDefault();
+                        const destination = new FormData(event.currentTarget).get("destination");
+                        if (typeof destination === "string") navigate(() => { void workflow.moveItem(detail.id, destination || null); });
+                    }}>
+                        <label class="flex min-w-0 flex-col gap-1">Move to folder
+                            <select name="destination" class="w-full" value={detail.folderId ?? ""} disabled={!workflow.canEdit}>
+                                <option value="">Unfiled</option>
+                                {#each folderChoices as folder (folder.id)}
+                                    <option value={folder.id}>{folder.label}</option>
+                                {/each}
+                            </select>
+                        </label>
+                        <button class="btn btn-secondary btn-md" type="submit" disabled={!workflow.canEdit}>Move item</button>
+                    </form>
+                {/snippet}
+            </SecretDetail>
         {/key}
     {/if}
 

@@ -95,13 +95,13 @@ function handleCancel() {
 {/if}
 {#if loading}
     <div class="flex items-center justify-center h-64">
-        <p class="text-muted-foreground">Loading secret...</p>
+        <p class="text-muted-foreground">Loading item...</p>
     </div>
 {:else}
     {#if workflow.editor}
         {@const editor = workflow.editor}
         {@const draft = editor.draft}
-        <Card title={editor.record ? "Edit secret" : "New secret"} description="Changes are encrypted and stored when you save.">
+        <Card title={editor.record ? "Edit item" : "New item"} description="Changes are encrypted and stored when you save.">
             <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void handleSave(); }}>                <Field id="name" label="Name" required>
                     {#snippet children(control: FieldControl)}
                         <input {...control} {@attach (element) => element?.focus()} bind:value={draft.name} autocomplete="off" disabled={!workflow.canEdit} />
@@ -236,7 +236,7 @@ function handleCancel() {
             {/if}
             <div class="flex gap-2">
                 <button class="btn btn-primary btn-md" type="submit" disabled={!workflow.canEdit || workflow.busy}>
-                    {workflow.busy ? "Saving..." : (editor.record ? "Save changes" : "Create secret")}
+                    {workflow.busy ? "Saving..." : (editor.record ? "Save changes" : "Create item")}
                 </button>
                 <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canEdit} onclick={handleCancel}>
                     Cancel
