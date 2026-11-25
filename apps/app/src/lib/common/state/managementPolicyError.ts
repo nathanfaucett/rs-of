@@ -1,8 +1,11 @@
+import { ResponseError as DeviceResponseError } from "@ofsdk/device-client";
 import { ResponseError as IdpResponseError } from "@ofsdk/idp-client";
 import { ResponseError } from "@ofsdk/management-client";
 
 export function managementPolicyStatus(cause: unknown) {
-  return cause instanceof ResponseError || cause instanceof IdpResponseError
+  return cause instanceof ResponseError ||
+    cause instanceof IdpResponseError ||
+    cause instanceof DeviceResponseError
     ? cause.response.status
     : undefined;
 }

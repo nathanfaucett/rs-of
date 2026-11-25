@@ -9,7 +9,7 @@ import {
 } from "../packages/device-client/src/index";
 import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
 import { checkedFetch } from "./http";
-import { frontendSession, json, passwordSession, storageClient } from "./session";
+import { frontendSession, json, passwordSession, signIn, storageClient } from "./session";
 
 test("fresh backend exposes four healthy owners and real OIDC metadata", async ({ request }) => {
   for (const owner of ["idp", "device", "storage", "management"]) {
@@ -124,7 +124,8 @@ for (const [clientId, origin] of [
   });
 }
 
-test("Device owner requires authorized approval and proof of a second Device key", async ({
+test("Device administration and signed second-Device approval use the Device owner", async ({
+  page,
   request,
 }) => {
   const session = await frontendSession(request, "app", appURL);
@@ -152,13 +153,86 @@ test("Device owner requires authorized approval and proof of a second Device key
   });
   if (!key.x) throw new Error("Ed25519 public key is missing its x coordinate");
   const publicKey = Buffer.from(key.x, "base64url").toString("hex");
-  const enrollment = await device.enrollDevice({
-    deviceEnrollmentRequest: {
-      name: "E2E browser device",
-      publicKey,
-      address: "127.0.0.1:23456",
-    },
+  await page.goto(`${appURL}/devices`);
+  await signIn(page);
+  await expect(page.getByRole("heading", { name: "Sync", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add device", exact: true }).click();
+  const form = page.getByRole("dialog", { name: "Enroll New Device" });
+  const name = form.getByRole("textbox", { name: "Device name" });
+  const address = form.getByRole("textbox", { name: "Device address" });
+  const submit = form.getByRole("button", { name: "Enroll device" });
+  let attempts = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/devices/enrollments")) attempts++;
   });
+  await name.fill("E2E browser device");
+  await form.getByRole("textbox", { name: "Endpoint public key" }).fill(publicKey);
+  await address.fill("é".repeat(257));
+  await submit.click();
+  await expect(form.getByRole("alert")).toHaveText(/Device address.*512 bytes/);
+  await expect(name).toHaveValue("E2E browser device");
+  await expect(address).toHaveValue("é".repeat(257));
+  expect(attempts).toBe(0);
+  await address.fill("127.0.0.1:23456");
+  const enrollmentResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && response.url().endsWith("/devices/enrollments")
+  );
+  await submit.click();
+  const response = await enrollmentResponse;
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const enrollment: DeviceEnrollment = await response.json();
+  await expect(form).not.toBeVisible();
+  const row = page.getByRole("row").filter({ has: page.getByTitle(publicKey) });
+  await expect(row).toBeVisible();
+  await expect(row.getByRole("cell", { name: "Unknown", exact: true })).toHaveCount(0);
+  await row.getByRole("button", { name: "Rename", exact: true }).click();
+  const draft = row.getByRole("textbox", { name: "Device name" });
+  await draft.fill("Unsaved name");
+  const renameDenied = page.waitForResponse((res) => res.request().method() === "PATCH");
+  await row.getByRole("button", { name: "Save", exact: true }).click();
+  expect((await renameDenied).status()).toBe(403);
+  await expect(row.getByRole("alert")).toContainText("Ask an administrator");
+  await expect(draft).toHaveValue("Unsaved name");
+
+  await page.getByRole("combobox", { name: "Device", exact: true }).selectOption(enrollment.id);
+  const readDenied = page.waitForResponse(
+    (res) => res.request().method() === "GET" && res.url().endsWith("/restriction")
+  );
+  await page.getByRole("button", { name: "Read current restriction" }).click();
+  expect((await readDenied).status()).toBe(403);
+  const policy = page.getByRole("region", { name: "Device selections and restrictions" });
+  await expect(policy.getByRole("alert")).toContainText("Ask an administrator");
+  const restrict = page.getByRole("button", { name: "Restrict replication" });
+  let updates = 0;
+  page.on("request", (request) => {
+    if (request.method() === "PUT" && request.url().endsWith("/restriction")) updates++;
+  });
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await restrict.click();
+  expect(updates).toBe(0);
+  page.once("dialog", (dialog) => dialog.accept());
+  const policyDenied = page.waitForResponse(
+    (res) => res.request().method() === "PUT" && res.url().endsWith("/restriction")
+  );
+  await restrict.click();
+  expect((await policyDenied).status()).toBe(403);
+  await expect(policy.getByRole("alert")).toContainText("Ask an administrator");
+  await expect(policy.getByText("Current administrative replication permission:")).toHaveCount(0);
+
+  // Use the real Device list and inject only the legacy timestamp marker.
+  await page.route(`${backendURL}/device/devices`, async (route) => {
+    const response = await route.fetch();
+    const records: DeviceInfo[] = await response.json();
+    await route.fulfill({
+      response,
+      json: records.map((record) =>
+        record.id === enrollment.id ? { ...record, updatedAt: 1 } : record
+      ),
+    });
+  });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(row.getByRole("cell", { name: "Unknown", exact: true })).toBeVisible();
   expect(enrollment.id).toEqual(expect.any(String));
   expect(enrollment.state).toBe("approved");
   expect(await device.listDevices()).toEqual(
@@ -173,6 +247,21 @@ test("Device owner requires authorized approval and proof of a second Device key
   const secondJwk = second.publicKey.export({ format: "jwk" });
   if (!secondJwk.x) throw new Error("Second Ed25519 public key is missing its x coordinate");
   const secondKey = Buffer.from(secondJwk.x, "base64url").toString("hex");
+  await page.getByRole("button", { name: "Add device", exact: true }).click();
+  await name.fill("Second Device draft");
+  await address.fill("127.0.0.1:23457");
+  const keyInput = form.getByRole("textbox", { name: "Endpoint public key" });
+  await keyInput.fill(secondKey);
+  const secondEnrollment = page.waitForResponse(
+    (res) => res.request().method() === "POST" && res.url().endsWith("/devices/enrollments")
+  );
+  await submit.click();
+  expect((await secondEnrollment).status()).toBe(403);
+  await expect(form.getByRole("alert")).toContainText("use pairing");
+  await expect(name).toHaveValue("Second Device draft");
+  await expect(address).toHaveValue("127.0.0.1:23457");
+  await expect(keyInput).toHaveValue(secondKey);
+  await form.getByRole("button", { name: "Cancel", exact: true }).click();
   const headers = { Authorization: `Bearer ${token.access_token}` };
   const pairings = `${backendURL}/device/devices/pairings`;
   const pending = await json<DeviceEnrollment>(
