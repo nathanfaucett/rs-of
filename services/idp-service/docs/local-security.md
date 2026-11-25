@@ -32,6 +32,8 @@ Unresolved security-record conflicts deny authentication, authorization, or issu
 
 Each User has at most one local password verifier. User creation also creates the User root metadata that sign-in requires, without creating private User key material. Reset replaces that verifier in the current row. It does not erase the local database history. User identity sync does not include password verifier data.
 
+The management app requires a valid email address on the User record before it can request a password reset. This address identifies the User for manual handoff only. An authorized administrator sets the new password through the IdP and shares it securely with the User. The IdP does not send email or generate a reset link.
+
 Only confidential OAuth Clients that use `client_secret_basic` or `client_secret_post` have a local secret verifier. Public registration shares a non-secret revision for shared-secret Clients. The local verifier must match that revision. A peer that learns of a rotation cannot authenticate with its old verifier.
 
 ## Public synchronization projections

@@ -3,10 +3,11 @@
 
     interface Props {
         title: string;
+        onclose?: () => void;
         children: Snippet;
     }
 
-    let { title, children }: Props = $props();
+    let { title, children, onclose }: Props = $props();
     const titleId = $props.id();
     let dialog = $state<HTMLDialogElement>();
 
@@ -21,6 +22,7 @@
 
 <dialog
     bind:this={dialog}
+    {onclose}
     class="m-auto w-full max-w-lg rounded-card border border-line bg-surface p-5 text-ink shadow-lg backdrop:bg-surface-inverse/60"
     aria-labelledby={titleId}
 >

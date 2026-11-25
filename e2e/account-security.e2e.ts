@@ -73,3 +73,23 @@ test("account security: MFA denial and connection failure keep TOTP disabled", a
   await expect(page.getByText("Disabled", { exact: true })).toBeVisible();
   await expect(enable).toBeEnabled();
 });
+
+test("password reset has no submission without a destination and Cancel returns focus", async ({
+  page,
+}) => {
+  const mutations: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "PUT" && request.url().endsWith("/password")) {
+      mutations.push(request.url());
+    }
+  });
+  const open = page.getByRole("button", { name: "Reset password", exact: true });
+  await open.click();
+  const dialog = page.getByRole("dialog", { name: "Reset Password", exact: true });
+  await expect(dialog).toContainText("This User has no valid email address for password handoff.");
+  await expect(dialog.getByRole("button", { name: "Reset password", exact: true })).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(open).toBeFocused();
+  expect(mutations).toEqual([]);
+});
