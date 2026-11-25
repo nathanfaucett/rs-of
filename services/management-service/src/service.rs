@@ -1,4 +1,4 @@
-use of_model::idp::contract::permission_evaluation::IdentityAction;
+use of_model::idp::contract::permission_evaluation::{INSTALLATION_POLICY_ID, IdentityAction};
 
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
 
@@ -16,7 +16,18 @@ use crate::PermissionRepo;
 
 use crate::RoleRepo;
 
-pub const MANAGEMENT_APPLICATION_URI: &str = "idp-management";
+pub use of_model::idp::contract::permission_evaluation::MANAGEMENT_APPLICATION_URI;
+
+pub const ROLES_READ_PERMISSION: &str = "roles.read";
+pub const ROLES_WRITE_PERMISSION: &str = "roles.write";
+pub const PERMISSIONS_READ_PERMISSION: &str = "permissions.read";
+pub const PERMISSIONS_WRITE_PERMISSION: &str = "permissions.write";
+pub const APPLICATION_POLICY_ADMINISTRATION: [&str; 4] = [
+    ROLES_READ_PERMISSION,
+    ROLES_WRITE_PERMISSION,
+    PERMISSIONS_READ_PERMISSION,
+    PERMISSIONS_WRITE_PERMISSION,
+];
 
 pub const INITIAL_ADMINISTRATOR_ACTIONS: [IdentityAction; 24] = [
     IdentityAction::InfrastructureClientsRead,
@@ -82,6 +93,24 @@ where
         self.role_repo
             .has_user_application_permission(user_id, application_id, permission_name)
             .await
+    }
+
+    /// # Errors
+    ///
+    /// Returns [`ManagementError`] when the role repository fails.
+    pub async fn has_installation_policy_permission(
+        &self,
+        user_id: Id,
+        permission: &str,
+    ) -> Result<bool, ManagementError> {
+        if user_id.is_nil() || !APPLICATION_POLICY_ADMINISTRATION.contains(&permission) {
+            return Ok(false);
+        }
+        let grants = self
+            .role_repo
+            .list_user_permissions(INSTALLATION_POLICY_ID, user_id)
+            .await?;
+        Ok(grants.iter().any(|grant| grant.name == permission))
     }
 
     /// # Errors

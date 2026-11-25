@@ -1051,7 +1051,7 @@
                 }
               }
             },
-            "description": "List user roles within the authorized application"
+            "description": "List assigned Application roles visible to the caller"
           }
         },
         "security": [

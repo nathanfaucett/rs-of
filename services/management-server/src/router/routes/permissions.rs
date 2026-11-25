@@ -2,6 +2,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
+use management_service::service::{PERMISSIONS_READ_PERMISSION, PERMISSIONS_WRITE_PERMISSION};
 use of_model::idp::contract::{error_code::ErrorCode, error_response::ErrorResponse};
 use of_model::server::management::permissions::{
     CreatePermissionRequest, ListPermissionsQuery, PermissionResponse,
@@ -12,9 +13,6 @@ use crate::router::{
 };
 
 use super::roles::require_application_permission;
-
-const PERMISSIONS_READ_PERMISSION: &str = "permissions.read";
-const PERMISSIONS_WRITE_PERMISSION: &str = "permissions.write";
 
 #[utoipa::path(
     get,

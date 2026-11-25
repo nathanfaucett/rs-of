@@ -17,6 +17,7 @@ export const frontendEnv = {
 export const appEnv = {
   ...frontendEnv,
   PUBLIC_OIDC_CLIENT_ID: "local-login",
+  PUBLIC_MANAGEMENT_BASE_URL: `${backendURL}/management`,
   PUBLIC_OIDC_APPLICATION_URI: `${appURL}/local-login`,
   PUBLIC_OIDC_SCOPES: "openid profile email",
   PUBLIC_OIDC_REDIRECT_URI: `${appURL}/callback`,

@@ -4,6 +4,8 @@ use of_model::idp::contract::permission_evaluation::{INSTALLATION_POLICY_ID, Ide
 use of_model::management_error::{ManagementError, ManagementResult};
 use ofdb_sql::{Client, QueryParams, QueryResult, Transaction, Value};
 
+use crate::service::{APPLICATION_POLICY_ADMINISTRATION, INITIAL_ADMINISTRATOR_ACTIONS};
+
 use super::insert::{db_error, policy_insert, returned_id};
 
 const ADMINISTRATOR: &str = "installation-administrator";
@@ -69,7 +71,16 @@ async fn provision(tx: &mut Transaction, user: Id, names: &[&str]) -> Management
     let now = Utc::now().timestamp();
     let (sql, params) = policy_insert("roles", INSTALLATION_POLICY_ID, ADMINISTRATOR, None, now);
     let role = returned_id(&execute(tx, &sql, params).await?)?;
-    for name in names {
+    // Only the default administrator recipe includes explicit Application policy grants.
+    // An existing receipt returns above, so this never changes retained policy on retry.
+    let role_admin = names.len() == INITIAL_ADMINISTRATOR_ACTIONS.len()
+        && INITIAL_ADMINISTRATOR_ACTIONS
+            .iter()
+            .all(|action| names.contains(&action.permission()));
+    let policy_grants = APPLICATION_POLICY_ADMINISTRATION
+        .into_iter()
+        .filter(|_| role_admin);
+    for name in names.iter().copied().chain(policy_grants) {
         let (sql, params) = policy_insert("permissions", INSTALLATION_POLICY_ID, name, None, now);
         let permission = returned_id(&execute(tx, &sql, params).await?)?;
         execute(tx,

@@ -174,12 +174,15 @@ fn state(engine: Arc<ofdb_sql::Database>) -> RouterState {
 }
 
 #[tokio::test]
-async fn all_rbac_routes_reject_cross_application_before_repository_access() {
+async fn all_rbac_routes_reject_cross_application_without_installation_grants() {
     let root = std::env::temp_dir().join(format!("management-scope-{}", Id::now_v7()));
     std::fs::create_dir_all(&root).expect("create isolated test directory");
     let engine = Arc::new(
-        ofdb_sql::Database::open(root.join("management.redb")).expect("open empty engine"),
+        ofdb_sql::Database::open(root.join("management.redb")).expect("open policy engine"),
     );
+    up(&engine.client())
+        .await
+        .expect("initialize policy schema");
     let state = state(Arc::clone(&engine));
     let caller_app = Id::now_v7();
     let target_app = Id::now_v7();
@@ -368,4 +371,156 @@ async fn application_permission_requires_live_assignment_and_does_not_expose_oth
     drop(state);
     drop(engine);
     std::fs::remove_dir_all(root).expect("remove isolated test database");
+}
+
+#[tokio::test]
+async fn initial_administrator_manages_policy_outside_the_sign_in_application() {
+    use of_model::server::management::roles::{CreateRoleRequest, ListRolesQuery};
+
+    let engine = Arc::new(ofdb_sql::Database::in_memory());
+    up(&engine.client())
+        .await
+        .expect("initialize policy schema");
+    let state = state(Arc::clone(&engine));
+    let administrator = Id::now_v7();
+    let sign_in_app = Id::now_v7();
+    let target_app = Id::now_v7();
+    let user = Id::now_v7();
+    let actor = || {
+        let mut actor = ManagementAuthorization::new(administrator, sign_in_app);
+        actor.installation_policy_scope = true;
+        actor
+    };
+    management_service::provision_initial_administrator(
+        &engine.client(),
+        administrator,
+        &management_service::INITIAL_ADMINISTRATOR_ACTIONS,
+    )
+    .await
+    .expect("provision administrator");
+
+    let denied = roles::list_roles(
+        State(state.clone()),
+        Path(target_app),
+        Query(ListRolesQuery {
+            offset: 0,
+            limit: 100,
+        }),
+        ManagementAuthorization::new(administrator, sign_in_app),
+    )
+    .await;
+    assert!(matches!(denied, Err(error) if error.error == ErrorCode::AccessDenied));
+
+    let Json(role) = roles::create_role(
+        State(state.clone()),
+        Path(target_app),
+        actor(),
+        Json(CreateRoleRequest {
+            name: "vault reader".into(),
+            description: None,
+        }),
+    )
+    .await
+    .expect("create Role in another Application");
+    let Json(roles) = roles::list_roles(
+        State(state.clone()),
+        Path(target_app),
+        Query(ListRolesQuery {
+            offset: 0,
+            limit: 100,
+        }),
+        actor(),
+    )
+    .await
+    .expect("list Roles");
+    assert_eq!(roles[0].id, role.id);
+    let Json(permission) = permissions::create_permission(
+        State(state.clone()),
+        Path(target_app),
+        actor(),
+        Json(CreatePermissionRequest {
+            name: "vault.read".into(),
+            description: None,
+        }),
+    )
+    .await
+    .expect("create Permission");
+    permissions::assign_permission_to_role(
+        State(state.clone()),
+        Path((target_app, role.id, permission.id)),
+        actor(),
+    )
+    .await
+    .expect("assign Permission");
+    let Json(granted) = permissions::list_role_permissions(
+        State(state.clone()),
+        Path((target_app, role.id)),
+        actor(),
+    )
+    .await
+    .expect("read assigned Permissions");
+    assert_eq!(granted[0].id, permission.id);
+    roles::assign_role_to_user(
+        State(state.clone()),
+        Path((target_app, user, role.id)),
+        actor(),
+    )
+    .await
+    .expect("assign Role to User");
+    let Json(assigned) =
+        users::list_user_roles_across_applications(State(state.clone()), Path(user), actor())
+            .await
+            .expect("inspect assigned Roles");
+    assert_eq!(assigned.len(), 1);
+    assert_eq!(assigned[0].application_id, target_app);
+    assert_eq!(assigned[0].role_id, role.id);
+
+    let denied = roles::list_roles(
+        State(state.clone()),
+        Path(target_app),
+        Query(ListRolesQuery {
+            offset: 0,
+            limit: 100,
+        }),
+        ManagementAuthorization {
+            subject: user,
+            ..actor()
+        },
+    )
+    .await;
+    assert!(matches!(denied, Err(error) if error.error == ErrorCode::AccessDenied));
+    let denied = roles::list_roles(
+        State(state.clone()),
+        Path(INSTALLATION_POLICY_ID),
+        Query(ListRolesQuery {
+            offset: 0,
+            limit: 100,
+        }),
+        actor(),
+    )
+    .await;
+    assert!(matches!(denied, Err(error) if error.error == ErrorCode::AccessDenied));
+
+    let service = state.management_service.as_ref();
+    let permission = service
+        .list_permissions(INSTALLATION_POLICY_ID, 0, 100)
+        .await
+        .expect("list Installation grants")
+        .into_iter()
+        .find(|grant| grant.name == "roles.write")
+        .expect("find explicit write grant");
+    service
+        .delete_permission_by_id(INSTALLATION_POLICY_ID, permission.id)
+        .await
+        .expect("remove write grant");
+    management_service::provision_initial_administrator(
+        &engine.client(),
+        administrator,
+        &management_service::INITIAL_ADMINISTRATOR_ACTIONS,
+    )
+    .await
+    .expect("retry does not restore removed policy");
+    let denied =
+        roles::assign_role_to_user(State(state), Path((target_app, user, role.id)), actor()).await;
+    assert!(matches!(denied, Err(error) if error.error == ErrorCode::AccessDenied));
 }

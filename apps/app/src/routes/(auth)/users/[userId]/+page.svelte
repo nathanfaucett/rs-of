@@ -1,6 +1,5 @@
 <script lang="ts">
     import type { UpdateUserInfoRequest, UserInfo } from "@ofsdk/idp-client";
-    import type { UserApplicationRoleResponse } from "@ofsdk/management-client";
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
@@ -11,18 +10,16 @@
         idpAdministration,
     } from "$lib/common/state/idpAdministration";
     import { idpApi } from "$lib/common/state/idpClient.svelte";
-    import { managementApi } from "$lib/common/state/managementClient.svelte";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
+
+    import UserRoles from "./UserRoles.svelte";
 
     const parsedUserId = page.params.userId;
 
     let loading = $state(false);
     let error = $state<string | null>(null);
     let user = $state<UserInfo | null>(null);
-    let userRolesLoading = $state(false);
-    let userRolesError = $state<string | null>(null);
-    let userRoles = $state<UserApplicationRoleResponse[]>([]);
     let consentsLoading = $state(false);
     let consentsError = $state<string | null>(null);
     let consents = $state<Consent[]>([]);
@@ -52,29 +49,6 @@
     let mfaLoading = $state(false);
     let blockLoading = $state(false);
 
-    async function loadUserRoles() {
-        if (!parsedUserId) {
-            return;
-        }
-
-        userRolesLoading = true;
-        userRolesError = null;
-        try {
-            userRoles = await managementApi.listUserRolesAcrossApplications({
-                userId: parsedUserId,
-            });
-        } catch (cause) {
-            console.error(cause);
-            userRolesError =
-                cause instanceof Error
-                    ? cause.message
-                    : "Failed to load assigned roles";
-            notifications.add("Failed to load assigned roles", "error");
-        } finally {
-            userRolesLoading = false;
-        }
-    }
-
     async function loadConsents() {
         if (!parsedUserId) {
             return;
@@ -100,10 +74,6 @@
         }
     }
 
-    async function loadRelatedData() {
-        await Promise.all([loadUserRoles(), loadConsents()]);
-    }
-
     async function loadUser() {
         if (!parsedUserId) {
             error = "Invalid user ID";
@@ -125,7 +95,7 @@
                 editLocale = user.locale ?? "";
                 mfaTotpEnabled = user.mfaTotpEnabled ?? false;
             }
-            void loadRelatedData();
+            void loadConsents();
         } catch (cause) {
             console.error(cause);
             error =
@@ -346,7 +316,7 @@
 
     {#if error}
         <Alert tone="danger">{error}</Alert>
-    {:else if loading}
+    {:else if loading && !user}
         <Card tone="subtle">Loading user...</Card>
     {:else if user}
         <Card title="Profile">
@@ -505,40 +475,9 @@
             </div>
         </Card>
 
-        <Card title="Roles across applications">
-            {#if userRolesError}
-                <Alert tone="danger">{userRolesError}</Alert>
-            {:else if userRolesLoading}
-                <Card tone="subtle">Loading roles...</Card>
-            {:else if userRoles.length === 0}
-                <Card tone="subtle">No roles assigned.</Card>
-            {:else}
-                <div
-                    class="overflow-x-auto rounded-card border border-line bg-surface"
-                >
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Application</th>
-                                <th>Role ID</th>
-                                <th>Name</th>
-                                <th>Description</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {#each userRoles as userRole (`${userRole.applicationId}-${userRole.roleId}`)}
-                                <tr>
-                                    <td>{userRole.applicationId}</td>
-                                    <td>{userRole.roleId}</td>
-                                    <td>{userRole.roleName}</td>
-                                    <td>{userRole.roleDescription ?? "-"}</td>
-                                </tr>
-                            {/each}
-                        </tbody>
-                    </table>
-                </div>
-            {/if}
-        </Card>
+        {#key user.sub}
+            <UserRoles userId={user.sub} />
+        {/key}
 
         <Card title="Consents">
             {#if consentsError}
