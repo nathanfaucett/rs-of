@@ -9,7 +9,7 @@ import {
 } from "../packages/device-client/src/index";
 import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
 import { checkedFetch } from "./http";
-import { frontendSession, json, passwordSession, storageClient } from "./session";
+import { frontendSession, json, passwordSession, signIn, storageClient } from "./session";
 
 test("fresh backend exposes four healthy owners and real OIDC metadata", async ({ request }) => {
   for (const owner of ["idp", "device", "storage", "management"]) {
@@ -124,7 +124,8 @@ for (const [clientId, origin] of [
   });
 }
 
-test("Device owner requires authorized approval and proof of a second Device key", async ({
+test("Device owner requires signed approval and the app can find and sort the approved Devices", async ({
+  page,
   request,
 }) => {
   const session = await frontendSession(request, "app", appURL);
@@ -225,6 +226,24 @@ test("Device owner requires authorized approval and proof of a second Device key
   expect((await device.listDevices()).find(({ id }) => id === pending.id)).toEqual(approved);
   const denied = await request.get(`${backendURL}/device/devices`);
   expect(denied.ok()).toBeFalsy();
+
+  // Use the two real Device records from this scenario, without adding another enrollment.
+  await page.goto(`${appURL}/devices`);
+  await signIn(page);
+  const search = page.getByRole("searchbox", { name: "Search loaded devices" });
+  const sort = page.getByRole("combobox", { name: "Sort loaded devices" });
+  const records = page.locator("tbody tr").filter({ hasText: /E2E browser device|Second Device/ });
+  await expect(records).toHaveCount(2);
+  await search.fill(secondKey.toUpperCase());
+  await expect(records).toHaveCount(1);
+  await expect(records.first()).toContainText("Second Device");
+  await search.fill("no matching device");
+  await expect(page.getByText("No matching devices.")).toBeVisible();
+  await search.fill("");
+  await sort.selectOption("name-desc");
+  await expect(records.first()).toContainText("Second Device");
+  await sort.selectOption("name-asc");
+  await expect(records.first()).toContainText("E2E browser device");
 });
 
 test("IdP Client read requires a token from the granted Application", async ({ request }) => {

@@ -86,6 +86,15 @@ test("Create User submits once on Enter, and the new User can sign in but cannot
     await expect(page.getByRole("cell", { name: email, exact: true })).toBeVisible();
     expect(submissions).toHaveLength(1);
 
+    const search = page.getByRole("searchbox", { name: "Search current page" });
+    await search.fill("no matching user");
+    await expect(page.getByText("No matches on this page.")).toBeVisible();
+    await search.fill(email.toUpperCase());
+    const user = page.getByRole("link", { name: "User creation fixture", exact: true });
+    await expect(user).toHaveAttribute("href", `/users/${created[0]}`);
+    await user.press("Enter");
+    await expect(page).toHaveURL(`${appURL}/users/${created[0]}`);
+
     const restrictedPage = await restricted.newPage();
     await restrictedPage.goto(`${appURL}/users`);
     await signIn(restrictedPage, email, password);

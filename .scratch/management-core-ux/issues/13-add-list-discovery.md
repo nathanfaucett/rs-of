@@ -6,8 +6,12 @@
 
 **Status:** ready-for-agent
 
-- [ ] Application, User, and Device lists provide keyboard-accessible search or filtering appropriate to their existing API capabilities.
-- [ ] Current-page controls are labelled as such and never imply server-wide search; server-wide controls are used only where the existing contract supports them.
-- [ ] Sorting and filtering have clear empty states and compose correctly with Application pagination and navigation.
-- [ ] Names remain linked, controls have accessible labels, and the workflows remain usable on small screens.
-- [ ] Focused state and real-backend browser tests cover filtering, sorting, empty results, pagination, and route navigation.
+- [x] Application, User, and Device lists provide keyboard-accessible search or filtering appropriate to their existing API capabilities.
+- [x] Current-page controls are labelled as such and never imply server-wide search; server-wide controls are used only where the existing contract supports them.
+- [x] Sorting and filtering have clear empty states and compose correctly with Application pagination and navigation.
+- [x] Names remain linked, controls have accessible labels, and the workflows remain usable on small screens.
+- [x] Focused state and real-backend browser tests cover filtering, sorting, empty results, pagination, and route navigation.
+
+## Compatibility
+
+Applications and Users filter and sort the current page. Devices filter and sort loaded Device records, not pending enrollments. Existing pagination, owner APIs, and stored data are unchanged. No migration is required.

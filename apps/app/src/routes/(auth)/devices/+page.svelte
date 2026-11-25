@@ -2,6 +2,7 @@
     import { toDataURL } from "qrcode";
     import { onMount } from "svelte";
     import DevicePolicy from "$lib/common/components/DevicePolicy.svelte";
+    import ListDiscovery from "$lib/common/components/ListDiscovery.svelte";
     import Modal from "$lib/common/components/Modal.svelte";
     import {
         deviceApi,
@@ -17,6 +18,7 @@
         renameDevice,
         revokeDevice,
     } from "$lib/common/state/devices.svelte";
+    import { discoverRows, type ListOrder } from "$lib/common/state/listDiscovery";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
@@ -44,6 +46,12 @@
     const initialLoading = $derived(!error && loading && devices.length === 0);
     const empty = $derived(!error && !loading && devices.length === 0);
     const hasDevices = $derived(!error && devices.length > 0);
+    let search = $state("");
+    let order = $state<ListOrder>("default");
+    const visibleRows = $derived(
+        discoverRows(devices, search, order, (row) => [row.id, row.state, row.publicKey]),
+    );
+
     function formatTimestamp(value: number): string {
         return new Date(value * 1000).toLocaleString();
     }
@@ -232,13 +240,24 @@
         <Card tone="subtle">Loading devices...</Card>
     {/if}
 
+    <ListDiscovery
+        listScope="loaded devices"
+        fields="Name, ID, state, or public key. Does not include pending enrollments."
+        bind:search
+        bind:order
+    />
+
     {#if empty}
         <Card tone="subtle">
             <h2 class="mb-0 text-base">No devices yet</h2>
         </Card>
     {/if}
 
-    {#if hasDevices}
+    {#if hasDevices && visibleRows.length === 0}
+        <Card tone="subtle">
+            <p class="mb-0" role="status">No matching devices.</p>
+        </Card>
+    {:else if hasDevices}
         <div class="overflow-x-auto rounded-card border border-line bg-surface">
             <table class="table">
                 <thead>
@@ -251,7 +270,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {#each devices as device (device.id)}
+                    {#each visibleRows as device (device.id)}
                         <tr>
                             <td data-label="Name">
                                 {#if editingId === device.id}
