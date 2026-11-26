@@ -2,6 +2,8 @@
 
 **Status:** ready-for-agent
 
+**Work status:** resolved
+
 **Milestone:** M2 — Single-Node encrypted synchronization
 
 ## Problem Statement
@@ -146,3 +148,9 @@ The source evidence is a Playwriter walkthrough on 2026-11-25 against the local 
 The audit confirmed working core CRUD and found no HTTP failures in the stable session. Vite/HMR and audit-tool errors were excluded. The six synthetic audit items and synthetic folder were removed, and the isolated browser sessions were deleted.
 
 The accepted scope is a focused interaction repair. Broader Bitwarden capability gaps remain recorded in the temporary audit evidence and are not requirements for this specification.
+
+## Comments
+
+All four tickets were integrated and reviewed. The final Password Manager Playwright project passed 26 Chromium tests against a fresh fixture started from the existing local unified-server build. Package Vitest passed 183 tests with 5 skipped. Package type check, lint, build, and E2E TypeScript check passed. Earlier full runs exposed timing races in the lock and SSH keyboard tests; both tests wait for the relevant UI state before advancing the clock or sending Enter.
+
+No migration or service change. Firefox, WebKit, physical mobile devices, screen readers, external autofill, the separate first-run suite, and vault synchronization were not qualified by this change.

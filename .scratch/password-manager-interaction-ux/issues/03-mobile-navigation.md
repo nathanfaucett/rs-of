@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Work status:** resolved
+
 ## Scope
 
 - Treat the open small-screen drawer as a modal navigation surface with inert background content.
@@ -20,14 +22,18 @@
 
 ## Acceptance checks
 
-- [ ] Opening the drawer moves focus to a useful navigation control and keeps keyboard navigation within visible drawer controls.
-- [ ] Main content is inert and absent from the active accessibility interaction while the drawer is open.
-- [ ] Escape and the internal Close control close the drawer and restore opener focus.
-- [ ] Backdrop dismissal, route selection, and transition to desktop layout close the drawer correctly.
-- [ ] At 320, 390, and 768 CSS pixels, the opener does not intersect item counts, records, filters, forms, or primary actions at representative scroll positions.
-- [ ] Existing desktop collapse and navigation behavior remain unchanged.
-- [ ] Focused public Playwright keyboard, pointer, accessibility, and responsive checks pass.
+- [x] Opening the drawer moves focus to a useful navigation control and keeps keyboard navigation within visible drawer controls.
+- [x] Main content is inert and absent from the active accessibility interaction while the drawer is open.
+- [x] Escape and the internal Close control close the drawer and restore opener focus.
+- [x] Backdrop dismissal, route selection, and transition to desktop layout close the drawer correctly.
+- [x] At 320, 390, and 768 CSS pixels, the opener does not intersect item counts, records, filters, forms, or primary actions at representative scroll positions.
+- [x] Existing desktop collapse and navigation behavior remain unchanged.
+- [x] Focused public Playwright keyboard, pointer, accessibility, and responsive checks pass.
 
 ## Dependencies and evidence
 
 No ticket dependencies or backend changes. The audit confirmed that Escape did not close the drawer from the opener context, background content remained exposed, and the fixed opener covered content at 320 and 390 pixels. Full screen-reader qualification is not claimed from DOM checks alone.
+
+## Comments
+
+Chromium verified modal focus, keyboard and pointer dismissal, route and resize closure, desktop collapse persistence, and reflow at 320, 390, and 768 CSS pixels.

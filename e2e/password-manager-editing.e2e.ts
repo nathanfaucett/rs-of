@@ -169,7 +169,9 @@ test("details and editor mask secrets independently", async ({ page, context }) 
     .click();
   await expect(page).toHaveTitle("Edit item | Password Manager");
   const passwordInput = page.getByLabel("Password", { exact: true });
-  const totpInput = page.getByLabel("Authenticator key (TOTP)", { exact: true });
+  const totpInput = page.getByLabel("Authenticator key (TOTP)", {
+    exact: true,
+  });
   const confirmation = page.getByLabel("Confirm password", { exact: true });
   for (const input of [passwordInput, totpInput, confirmation]) {
     await expect(input).toHaveAttribute("type", "password");
@@ -334,10 +336,16 @@ test("card, identity, SSH, and hidden custom secrets open masked", async ({ page
     await expect(details).not.toContainText(value);
     await details.getByRole("button", { name: "Edit", exact: true }).click();
     const input = page.getByLabel(editorLabel, { exact: true });
-    const show = page.getByRole("button", { name: `Show ${editorLabel}`, exact: true });
+    const show = page.getByRole("button", {
+      name: `Show ${editorLabel}`,
+      exact: true,
+    });
     if (editorLabel === "Private key") {
+      await expect(page).toHaveTitle("Edit item | Password Manager");
       await expect(input).toHaveCount(0);
-      await show.press("Enter");
+      await show.focus();
+      await expect(show).toBeFocused();
+      await page.keyboard.press("Enter");
       await expect(input).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(

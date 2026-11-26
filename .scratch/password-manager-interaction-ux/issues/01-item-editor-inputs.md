@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+**Work status:** resolved
+
 ## Scope
 
 - Make ordinary Identity fields and Secure Note or Identity notes visible during data entry.
@@ -20,13 +22,17 @@
 
 ## Acceptance checks
 
-- [ ] Ordinary Identity fields are editable without a prior Show action in new and edited records.
-- [ ] Secure Note and Identity note editors are visible immediately and their content saves and reopens correctly.
-- [ ] Passwords, authenticator keys, private keys, payment secrets, government identifiers, and hidden custom fields retain their protected behavior.
-- [ ] Every Card and Identity field accepts and persists edits without `ownership_invalid_mutation` or new browser console errors.
-- [ ] Existing masked-editor tests distinguish ordinary editor inputs from protected secrets; they do not retain the outdated hidden-note expectation.
-- [ ] Focused public Playwright workflows and relevant protected-field Vitest tests pass.
+- [x] Ordinary Identity fields are editable without a prior Show action in new and edited records.
+- [x] Secure Note and Identity note editors are visible immediately and their content saves and reopens correctly.
+- [x] Passwords, authenticator keys, private keys, payment secrets, government identifiers, and hidden custom fields retain their protected behavior.
+- [x] Every Card and Identity field accepts and persists edits without `ownership_invalid_mutation` or new browser console errors.
+- [x] Existing masked-editor tests distinguish ordinary editor inputs from protected secrets; they do not retain the outdated hidden-note expectation.
+- [x] Focused public Playwright workflows and relevant protected-field Vitest tests pass.
 
 ## Dependencies and evidence
 
 No ticket dependencies, backend changes, schema changes, or data migration. The browser audit confirmed the hidden ordinary fields and runtime prop-ownership warnings. Chromium qualification is required; other engines remain a qualification limit unless run.
+
+## Comments
+
+Chromium Create and Edit tests verified ordinary notes, protected fields, and persistence of every Card and Identity field without ownership warnings. The SSH reveal regression test still checks keyboard focus.

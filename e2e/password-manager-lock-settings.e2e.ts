@@ -4,6 +4,10 @@ import { passwordManagerURL } from "./backend.mjs";
 const name = "Lock settings test vault";
 const password = "synthetic-lock-settings-password";
 
+function vaultButton(page: Page) {
+  return page.getByRole("button", { name: new RegExp(`^${name}`) });
+}
+
 async function createVault(page: Page) {
   await page.goto(passwordManagerURL);
   await page.getByRole("button", { name: "Create new vault", exact: true }).click();
@@ -15,7 +19,7 @@ async function createVault(page: Page) {
 }
 
 async function unlock(page: Page) {
-  await page.getByRole("button", { name: new RegExp(`^${name}`) }).click();
+  await vaultButton(page).click();
   await page.getByLabel(/^Master password/).fill(password);
   await page.getByRole("button", { name: "Unlock", exact: true }).click();
   await expect(page).toHaveURL(`${passwordManagerURL}/vault`);
@@ -34,6 +38,8 @@ test("saved inactivity timeout applies now and survives navigation, unlock, and 
   });
   const timeout = page.getByLabel("Lock after inactivity");
   await navigation.getByRole("button", { name: "Lock vault", exact: true }).click();
+  // Let IndexedDB open before advancing the clock past its open timeout.
+  await expect(vaultButton(page)).toBeVisible();
   await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
   await page.clock.pauseAt(new Date("2026-01-01T00:00:10Z"));
   await unlock(page);
