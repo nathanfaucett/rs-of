@@ -52,9 +52,10 @@ export class BrowserSyncSDK {
     };
     async openOwnedSqlHandle(handle, cacheKey = handle.id) {
         const database = await Database.open(handle.id);
+        const { apiUrl, getStorageToken } = this.config;
         const dbHandle = new BrowserDatabaseHandle(database, { ...handle.identity, creationEpoch: 0n, schemaFingerprint: new Uint8Array(32) }, {
-            storageApiUrl: this.config.apiUrl,
-            tokenProvider: () => this.config.getStorageToken("storage:sync", ["read", "write"]),
+            storageApiUrl: apiUrl,
+            tokenProvider: () => getStorageToken("storage:sync", ["read", "write"]),
         }, true);
         this.databases.set(cacheKey, dbHandle);
         return dbHandle;
@@ -143,8 +144,13 @@ class BrowserDatabaseHandle {
     ownsDatabase;
     constructor(database, identity, options, ownsDatabase) {
         this.database = database;
-        this.identity = identity;
-        this.options = options;
+        this.identity = {
+            storeId: identity.storeId,
+            replicaId: identity.replicaId,
+            creationEpoch: identity.creationEpoch,
+            schemaFingerprint: new Uint8Array(identity.schemaFingerprint),
+        };
+        this.options = { storageApiUrl: options.storageApiUrl, tokenProvider: options.tokenProvider };
         this.ownsDatabase = ownsDatabase;
     }
     get id() {

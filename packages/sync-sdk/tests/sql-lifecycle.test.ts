@@ -106,6 +106,51 @@ it("wraps an existing browser SQL database without opening storage or starting s
   }
 });
 
+it("keeps the original destination and token provider when caller inputs change", async () => {
+  vi.stubGlobal("indexedDB", indexedDB);
+  vi.stubGlobal(
+    "WebSocket",
+    class extends StalledSocket {
+      override receive() {
+        super.receive(fixtures.rejected);
+      }
+    }
+  );
+  const database = await Database.open("original-sync-destination");
+  try {
+    const identity = {
+      storeId: "11111111-1111-1111-1111-111111111111",
+      replicaId: "22222222-2222-2222-2222-222222222222",
+      creationEpoch: 300n,
+      schemaFingerprint: new Uint8Array(32).fill(0x33),
+    };
+    const options = {
+      storageApiUrl: "https://node.test/storage",
+      tokenProvider: () => "idp-token-é",
+    };
+    const handle = createEstablishedSqlHandle(database, identity, options);
+    identity.storeId = "44444444-4444-4444-4444-444444444444";
+    identity.replicaId = "55555555-5555-5555-5555-555555555555";
+    identity.creationEpoch = 1n;
+    identity.schemaFingerprint.fill(0xff);
+    options.storageApiUrl = "https://other.test/storage";
+    options.tokenProvider = () => "different-token";
+
+    try {
+      await expect(handle.sync()).rejects.toThrow("Sync attach rejected");
+      const { sent, url } = StalledSocket.latest;
+      expect(url).toBe("wss://node.test/storage/sync/ws");
+      expect(sent).toEqual([bytes(fixtures.hello), bytes(fixtures.attachBidirectional)]);
+      expect(handle.id).toBe("11111111-1111-1111-1111-111111111111");
+    } finally {
+      await handle.close();
+    }
+  } finally {
+    database.close();
+    vi.unstubAllGlobals();
+  }
+});
+
 const config = (): SyncConfig => ({
   apiUrl: "https://node.test/storage",
   appId: "local-login",
