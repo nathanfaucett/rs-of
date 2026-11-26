@@ -261,12 +261,13 @@ async fn password_reset_replaces_the_sign_in_password() {
         )
     };
     sign_in("test-password").await.expect("initial sign-in");
-    assert!(
+    for blank in ["", " "] {
         service
-            .reset_user_password(principal.user.id, " ")
+            .reset_user_password(principal.user.id, blank)
             .await
-            .is_err()
-    );
+            .expect_err("blank password is rejected");
+    }
+    sign_in("test-password").await.expect("unchanged password");
     service
         .reset_user_password(principal.user.id, "new-password")
         .await

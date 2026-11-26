@@ -1,6 +1,7 @@
 <script lang="ts">
-    import type { UpdateUserInfoRequest, UserInfo } from "@ofsdk/idp-client";
+    import { ResponseError, type UpdateUserInfoRequest, type UserInfo } from "@ofsdk/idp-client";
     import { onMount } from "svelte";
+    import * as v from "valibot";
     import { goto } from "$app/navigation";
     import { resolve } from "$app/paths";
     import { page } from "$app/state";
@@ -43,6 +44,13 @@
     // Reset password
     let resetPasswordModalRef: Modal;
     let resettingPassword = $state(false);
+    let resetPasswordDraft = $state("");
+    let passwordReset = $state(false);
+    let resetError = $state<string | null>(null);
+    const emailSchema = v.pipe(v.string(), v.email());
+    const resetDestination = $derived(
+        v.is(emailSchema, user?.email) ? user.email : null,
+    );
 
     async function loadConsents() {
         if (!parsedUserId) {
@@ -178,22 +186,51 @@
     }
 
     function confirmResetPassword() {
+        if (!resettingPassword) {
+            passwordReset = false;
+            resetError = null;
+        }
+        resetPasswordDraft = "";
         resetPasswordModalRef?.show();
     }
 
-    async function resetPassword() {
-        if (!parsedUserId || !user) return;
+    function resetFailure(cause: unknown): string {
+        if (cause instanceof ResponseError) {
+            switch (cause.response.status) {
+                case 400:
+                    return "The IdP rejected the request. Check the new password and try again.";
+                case 401:
+                    return "Sign in again to reset this password.";
+                case 403:
+                    return "You do not have permission to reset passwords.";
+                case 404:
+                    return "This User was not found. Return to Users and select an existing account.";
+                default:
+                    return "The IdP did not confirm the reset. Verify the password with the User before trying again.";
+            }
+        }
+        return "Could not confirm the reset. Check the connection before trying again.";
+    }
+
+    async function resetPassword(event: SubmitEvent) {
+        event.preventDefault();
+        if (!parsedUserId || !resetDestination || resettingPassword || passwordReset) return;
+        const password = resetPasswordDraft;
+        if (password.length < 8 || !password.trim()) {
+            resetError = "Enter at least 8 characters. A password cannot contain only spaces.";
+            return;
+        }
         resettingPassword = true;
+        resetPasswordDraft = "";
+        resetError = null;
         try {
             await idpApi.resetPassword({
                 userId: parsedUserId,
-                resetPassword: { password: "" }, // Server will generate a reset link/email
+                resetPassword: { password },
             });
-            notifications.add("Password reset email sent", "success");
-            resetPasswordModalRef?.close();
+            passwordReset = true;
         } catch (cause) {
-            console.error(cause);
-            notifications.add("Failed to send password reset", "error");
+            resetError = resetFailure(cause);
         } finally {
             resettingPassword = false;
         }
@@ -461,30 +498,58 @@
         </div>
     </Modal>
 
-    <Modal bind:this={resetPasswordModalRef} title="Reset Password">
-        <div class="flex flex-col gap-4">
-            <p class="mb-0">
-                This will send a password reset email to <strong
-                    >{user?.email ?? "the user's email"}</strong
-                >.
-            </p>
-            <form method="dialog" class="flex justify-end gap-2">
+    <Modal
+        bind:this={resetPasswordModalRef}
+        title="Reset Password"
+        onclose={() => (resetPasswordDraft = "")}
+    >
+        <form class="flex flex-col gap-4" onsubmit={resetPassword}>
+            {#if resetDestination}
+                <p class="mb-0">
+                    Password handoff: <strong>{resetDestination}</strong>.
+                    No email is sent. Share the new password securely yourself.
+                </p>
+                {#if !passwordReset}
+                    <Field label="New password" description="Use at least 8 characters." required>
+                        {#snippet children(control)}
+                            <input
+                                class="input"
+                                type="password"
+                                autocomplete="new-password"
+                                bind:value={resetPasswordDraft}
+                                minlength={8}
+                                disabled={resettingPassword}
+                                {...control}
+                            />
+                        {/snippet}
+                    </Field>
+                {/if}
+            {:else}
+                <p class="mb-0">This User has no valid email address for password handoff.</p>
+            {/if}
+            {#if passwordReset}
+                <Alert tone="success">Password changed on this IdP. No email was sent.</Alert>
+            {:else if resetError}
+                <Alert tone="danger">{resetError}</Alert>
+            {/if}
+            <div class="flex justify-end gap-2">
                 <button
                     class="btn btn-secondary btn-md"
                     type="button"
                     onclick={() => resetPasswordModalRef?.close()}
                 >
-                    Cancel
+                    {passwordReset ? "Done" : "Cancel"}
                 </button>
-                <button
-                    class="btn btn-primary btn-md"
-                    type="submit"
-                    onclick={resetPassword}
-                    disabled={resettingPassword}
-                >
-                    {resettingPassword ? "Sending..." : "Send reset email"}
-                </button>
-            </form>
-        </div>
+                {#if !passwordReset}
+                    <button
+                        class="btn btn-primary btn-md"
+                        type="submit"
+                        disabled={resettingPassword || !resetDestination}
+                    >
+                        {resettingPassword ? "Resetting..." : "Reset password"}
+                    </button>
+                {/if}
+            </div>
+        </form>
     </Modal>
 </Page>
