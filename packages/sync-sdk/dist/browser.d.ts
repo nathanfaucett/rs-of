@@ -1,3 +1,5 @@
+import { Database } from "@ofsdk/sql";
+import { type StoreIdentity, type SyncClientOptions } from "@ofsdk/storage-sync-client";
 import { type Observable } from "rxjs";
 import type { DatabaseHandle, FilesystemHandle, KvStoreHandle, SyncConfig, SyncSDK, SyncState } from "./core";
 /** Browser sync SDK implementation */
@@ -19,6 +21,7 @@ export declare class BrowserSyncSDK implements SyncSDK {
             name: string | null;
         }[]>;
     };
+    private openOwnedSqlHandle;
     /** KV store sync */
     kv: {
         open: (storeId: string) => Promise<KvStoreHandle>;
@@ -39,6 +42,13 @@ export declare class BrowserSyncSDK implements SyncSDK {
     };
     close(): Promise<void>;
 }
+/**
+ * Wrap a caller-owned database for an established replica of the given Storage Resource.
+ * This does not open storage, authorize, or start sync. Explicit `sync()` is bidirectional
+ * and must not be used for first upload or to join independent histories. `close()`
+ * stops this handle's sync without closing the original database.
+ */
+export declare function createEstablishedSqlHandle(database: Database, identity: StoreIdentity, options: SyncClientOptions): DatabaseHandle;
 /** Create sync SDK instance for browser */
 export declare function createSync(config: SyncConfig): Promise<SyncSDK>;
 //# sourceMappingURL=browser.d.ts.map

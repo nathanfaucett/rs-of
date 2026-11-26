@@ -40,44 +40,26 @@ export class BrowserSyncSDK {
             if (existing && !existing.isClosed)
                 return existing;
             const handle = await this.storageClient.openSqlDatabase(databaseId);
-            // Open local WASM database with the resourceId as name
-            const sqlDatabase = await Database.open(handle.id);
-            const storeIdentity = {
-                storeId: handle.identity.storeId,
-                replicaId: handle.identity.replicaId,
-                creationEpoch: 0n,
-                schemaFingerprint: new Uint8Array(32),
-            };
-            const dbHandle = new BrowserDatabaseHandle({
-                sqlDatabase,
-                resourceId: handle.id,
-                storeIdentity,
-            }, this.config);
-            this.databases.set(databaseId, dbHandle);
-            return dbHandle;
+            return this.openOwnedSqlHandle(handle, databaseId);
         },
         create: async (name) => {
-            const handle = await this.storageClient.createSqlDatabase(name);
-            const sqlDatabase = await Database.open(handle.id);
-            const storeIdentity = {
-                storeId: handle.identity.storeId,
-                replicaId: handle.identity.replicaId,
-                creationEpoch: 0n,
-                schemaFingerprint: new Uint8Array(32),
-            };
-            const dbHandle = new BrowserDatabaseHandle({
-                sqlDatabase,
-                resourceId: handle.id,
-                storeIdentity,
-            }, this.config);
-            this.databases.set(handle.id, dbHandle);
-            return dbHandle;
+            return this.openOwnedSqlHandle(await this.storageClient.createSqlDatabase(name));
         },
         list: async () => {
             const resources = await this.storageClient.listSqlDatabases();
             return resources.map((r) => ({ id: r.id, name: r.name ?? null }));
         },
     };
+    async openOwnedSqlHandle(handle, cacheKey = handle.id) {
+        const database = await Database.open(handle.id);
+        const { apiUrl, getStorageToken } = this.config;
+        const dbHandle = new BrowserDatabaseHandle(database, { ...handle.identity, creationEpoch: 0n, schemaFingerprint: new Uint8Array(32) }, {
+            storageApiUrl: apiUrl,
+            tokenProvider: () => getStorageToken("storage:sync", ["read", "write"]),
+        }, true);
+        this.databases.set(cacheKey, dbHandle);
+        return dbHandle;
+    }
     /** KV store sync */
     kv = {
         open: async (storeId) => {
@@ -137,6 +119,15 @@ export class BrowserSyncSDK {
         this._globalState$.complete();
     }
 }
+/**
+ * Wrap a caller-owned database for an established replica of the given Storage Resource.
+ * This does not open storage, authorize, or start sync. Explicit `sync()` is bidirectional
+ * and must not be used for first upload or to join independent histories. `close()`
+ * stops this handle's sync without closing the original database.
+ */
+export function createEstablishedSqlHandle(database, identity, options) {
+    return new BrowserDatabaseHandle(database, identity, options, false);
+}
 /** Browser SQL database handle */
 class BrowserDatabaseHandle {
     _changes$ = new Subject();
@@ -145,27 +136,33 @@ class BrowserDatabaseHandle {
         version: 0,
         vectorClock: {},
     });
-    sqlDatabase = null;
-    syncClient = null;
     lifecycle = null;
     closed = false;
-    handle;
-    config;
-    constructor(handle, config) {
-        this.handle = handle;
-        this.config = config;
-        this.sqlDatabase = handle.sqlDatabase;
+    database;
+    identity;
+    options;
+    ownsDatabase;
+    constructor(database, identity, options, ownsDatabase) {
+        this.database = database;
+        this.identity = {
+            storeId: identity.storeId,
+            replicaId: identity.replicaId,
+            creationEpoch: identity.creationEpoch,
+            schemaFingerprint: new Uint8Array(identity.schemaFingerprint),
+        };
+        this.options = { storageApiUrl: options.storageApiUrl, tokenProvider: options.tokenProvider };
+        this.ownsDatabase = ownsDatabase;
     }
     get id() {
-        return this.handle.resourceId;
+        return this.identity.storeId;
     }
     get isClosed() {
         return this.closed;
     }
     async execute(sql, params) {
-        if (!this.sqlDatabase || this.closed)
+        if (this.closed)
             throw new Error("Database closed");
-        return execute(this.sqlDatabase, sql, params);
+        return execute(this.database, sql, params);
     }
     get changes$() {
         return this._changes$.asObservable();
@@ -189,7 +186,7 @@ class BrowserDatabaseHandle {
         return this._state$.asObservable();
     }
     sync(_options) {
-        if (!this.sqlDatabase || this.closed)
+        if (this.closed)
             return Promise.resolve();
         return this.getSyncLifecycle().sync();
     }
@@ -198,16 +195,15 @@ class BrowserDatabaseHandle {
             return;
         this.closed = true;
         await this.lifecycle?.close();
-        this.sqlDatabase?.close();
-        this.sqlDatabase = null;
+        if (this.ownsDatabase)
+            this.database.close();
         this._changes$.complete();
         this._state$.complete();
     }
     getSyncLifecycle() {
         if (this.lifecycle)
             return this.lifecycle;
-        const client = this.getSyncClient();
-        this.lifecycle = new SqlSyncLifecycle(this.handle.sqlDatabase, client, this.handle.storeIdentity, {
+        this.lifecycle = new SqlSyncLifecycle(this.database, new SyncClient(this.options), this.identity, {
             connecting: () => this._state$.next({ ...this._state$.value, status: "connecting" }),
             synced: () => this._state$.next({ ...this._state$.value, status: "synced" }),
             failed: (error) => this._state$.next({
@@ -217,15 +213,6 @@ class BrowserDatabaseHandle {
             }),
         });
         return this.lifecycle;
-    }
-    getSyncClient() {
-        if (this.syncClient)
-            return this.syncClient;
-        this.syncClient = new SyncClient({
-            storageApiUrl: this.config.apiUrl,
-            tokenProvider: () => this.config.getStorageToken("storage:sync", ["read", "write"]),
-        });
-        return this.syncClient;
     }
 }
 /** Browser KV store handle */
