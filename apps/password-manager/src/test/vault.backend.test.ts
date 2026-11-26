@@ -6,7 +6,7 @@ import { StorageClient } from "../../../../packages/storage-client/src/index";
 import { MIGRATIONS } from "../lib/vault/storage/schema";
 import { createSyncVault, unlockSyncVault } from "../lib/vault/sync-vault";
 
-test("encrypted vault CRUD reaches real Storage and rejects a wrong password", async () => {
+test("encrypted vault CRUD reaches real Storage and reopens legacy SQL timestamps", async () => {
   const login = await session();
   const user: { sub: string } = await json(
     await fetch(`${backendURL}/idp/userinfo`, {
@@ -43,7 +43,17 @@ test("encrypted vault CRUD reaches real Storage and rejects a wrong password", a
     });
     const item = await vault.encryptAndStore(plaintext);
     expect((await vault.loadSecrets()).map((entry) => entry.id)).toContain(item.id);
+    const folder = await vault.createFolder("Private notes");
     await vault.saveLockSettings({ timeoutMinutes: 1 });
+    // Legacy SQL permitted timestamp text that current writes do not produce.
+    const legacyTimestamp = "2026-11-26 12:00:00";
+    for (const table of ["secrets", "folders"]) {
+      await handle.execute(`UPDATE ${table} SET created_at = ?, updated_at = ?`, [
+        legacyTimestamp,
+        legacyTimestamp,
+      ]);
+    }
+    await handle.execute("UPDATE lock_settings SET updated_at = ?", [legacyTimestamp]);
     await handle.sync({ direction: "push" });
     const remote = await storage.executeSql(
       handle.id,
@@ -76,10 +86,10 @@ test("encrypted vault CRUD reaches real Storage and rejects a wrong password", a
     if (!reopened) throw new Error("Expected vault to reopen");
     expect(reopened.id).toBe(vault.id);
     expect(await reopened.loadLockSettings()).toEqual({ timeoutMinutes: 1 });
+    expect(await reopened.readItems()).toEqual({ folders: [folder], items: [item] });
     expect(await reopened.decryptSecret(item)).toBe(plaintext);
-    const folder = { id: crypto.randomUUID(), name: "Private notes" };
     const edited = { ...item, folderId: folder.id, notes: "Updated private note" };
-    await reopened.mutateItems({ folders: [folder], upsert: [edited] });
+    await reopened.mutateItems({ upsert: [edited] });
     expect(await reopened.readItems()).toEqual({ folders: [folder], items: [edited] });
     await handle.sync({ direction: "push" });
     const updated = await storage.executeSql(

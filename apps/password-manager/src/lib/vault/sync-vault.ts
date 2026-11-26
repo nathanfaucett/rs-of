@@ -6,7 +6,7 @@ import {
   type VaultDatabase,
   type VaultHandle,
 } from "./encrypted-vault";
-import { MIGRATIONS, parseOptionalText, parseText } from "./storage/schema";
+import { MIGRATIONS, parseOptionalText, parseText, syncedEncryptedRows } from "./storage/schema";
 import type { VaultIdentity } from "./storage/VaultRegistry";
 
 function syncedDatabase(handle: DatabaseHandle): VaultDatabase {
@@ -37,6 +37,7 @@ function syncedDatabase(handle: DatabaseHandle): VaultDatabase {
         );
       }
     },
+    encryptedRows: syncedEncryptedRows,
     parseMeta(row) {
       return {
         id: parseText(row, "id"),
