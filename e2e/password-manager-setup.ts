@@ -23,7 +23,7 @@ export async function passwordManagerWhileWaiting(page: Page, origin: string, no
   await page.goto(origin);
   await page.getByRole("button", { name: "Create new vault", exact: true }).click();
   await page.getByLabel("Vault name").fill(name);
-  await page.getByLabel("Master password").fill(masterPassword);
+  await page.getByLabel("Master password", { exact: true }).fill(masterPassword);
   await page.getByLabel("Confirm password").fill(masterPassword);
   await page.getByRole("button", { name: "Create vault", exact: true }).click();
   await expect(page).toHaveURL(`${origin}/vault`);
@@ -109,7 +109,7 @@ export async function passwordManagerSignin(
   if (withLocalVault) {
     await page.getByRole("button", { name: new RegExp(name) }).click();
     await expect(page.getByRole("heading", { name: `Unlock vault: ${name}` })).toBeVisible();
-    const passwordInput = page.getByLabel("Master password");
+    const passwordInput = page.getByLabel("Master password", { exact: true });
     const unlock = page.getByRole("button", { name: "Unlock", exact: true });
     await passwordInput.fill(password);
     await unlock.click();
@@ -126,7 +126,7 @@ export async function passwordManagerSyncedVaults(page: Page, origin: string, st
     await page.getByRole("button", { name: "Create synced vault" }).click();
     await expect(page.getByLabel("Vault name")).toBeFocused();
     await page.getByLabel("Vault name").fill(name);
-    await page.getByLabel(/^Master password/).fill(masterPassword);
+    await page.getByLabel("Master password", { exact: true }).fill(masterPassword);
     await page.getByLabel("Confirm password").fill(masterPassword);
     await page.getByRole("button", { name: "Create vault", exact: true }).click();
     await expect(page)
@@ -159,8 +159,8 @@ export async function passwordManagerSyncedVaults(page: Page, origin: string, st
   await page.getByRole("button", { name: "Show synced vaults" }).click();
   await expect(page.getByRole("button", { name: /Second synced vault/ })).toBeVisible();
   await page.getByRole("button", { name: /First synced vault/ }).click();
-  await expect(page.getByLabel(/^Master password/)).toBeFocused();
-  await page.getByLabel(/^Master password/).fill(masterPassword);
+  await expect(page.getByLabel("Master password", { exact: true })).toBeFocused();
+  await page.getByLabel("Master password", { exact: true }).fill(masterPassword);
   const attached = page.waitForEvent("websocket", (socket) =>
     new URL(socket.url()).pathname.startsWith("/storage/")
   );

@@ -266,12 +266,22 @@ async fn run_separate_permission_acceptance(scenario: Scenario) {
     let _ = management_task.await;
     expect_status(
         client
+            .get(format!("{idp_base}/idp/oauth2/register/idp-evaluator"))
+            .bearer_auth(&admin)
+            .send()
+            .await
+            .expect("offline local policy still allows the retained infrastructure grant"),
+        http::StatusCode::OK,
+    )
+    .await;
+    expect_status(
+        client
             .get(format!("{idp_base}/idp/oauth2/register/human-client"))
             .bearer_auth(&admin)
             .send()
             .await
-            .expect("Management listener outage does not revoke local policy"),
-        http::StatusCode::OK,
+            .expect("offline local policy still denies the deleted Application grant"),
+        http::StatusCode::FORBIDDEN,
     )
     .await;
     let fresh_user = user_token(&client, &idp_base, "administrator", "idp-services").await;

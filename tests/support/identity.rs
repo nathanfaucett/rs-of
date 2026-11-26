@@ -434,7 +434,20 @@ pub(crate) async fn user_token(
             .as_str()
             .expect("access token present")
             .to_owned();
-    let response = client
+    let response = exchange_user_token(client, base, &token, resource).await;
+    expect_status(response, http::StatusCode::OK).await["access_token"]
+        .as_str()
+        .expect("API access token present")
+        .to_owned()
+}
+
+async fn exchange_user_token(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    resource: &str,
+) -> reqwest::Response {
+    client
         .post(format!("{base}/idp/oauth2/token"))
         .basic_auth("human-client", Some("human-secret"))
         .form(&[
@@ -442,7 +455,7 @@ pub(crate) async fn user_token(
                 "grant_type",
                 "urn:ietf:params:oauth:grant-type:token-exchange",
             ),
-            ("subject_token", token.as_str()),
+            ("subject_token", token),
             (
                 "subject_token_type",
                 "urn:ietf:params:oauth:token-type:access_token",
@@ -451,11 +464,7 @@ pub(crate) async fn user_token(
         ])
         .send()
         .await
-        .expect("exchange for API audience");
-    expect_status(response, http::StatusCode::OK).await["access_token"]
-        .as_str()
-        .expect("API access token present")
-        .to_owned()
+        .expect("exchange for API audience")
 }
 
 async fn post_password_grant(
@@ -803,6 +812,11 @@ pub(crate) async fn run_lifecycle_http_checks(
     .await;
     assert!(consents.as_array().expect("consent array").is_empty());
     expect_status(
+        exchange_user_token(client, base, &deleted_user, "idp-services").await,
+        http::StatusCode::OK,
+    )
+    .await;
+    expect_status(
         client
             .delete(format!("{base}/idp/users/{}", fixture.unassigned_user))
             .bearer_auth(&admin)
@@ -812,16 +826,13 @@ pub(crate) async fn run_lifecycle_http_checks(
         http::StatusCode::OK,
     )
     .await;
-    expect_status(
-        client
-            .get(format!("{base}/idp/oauth2/register/human-client"))
-            .bearer_auth(&deleted_user)
-            .send()
-            .await
-            .expect("deleted user bearer rejected"),
-        http::StatusCode::UNAUTHORIZED,
+    // An issued access JWT still verifies; exchange must resolve the current User.
+    let deleted = expect_status(
+        exchange_user_token(client, base, &deleted_user, "idp-services").await,
+        http::StatusCode::BAD_REQUEST,
     )
     .await;
+    assert_eq!(deleted["error"], "invalid_grant");
     let mut evaluator = expect_status(
         client
             .get(format!("{base}/idp/oauth2/register/idp-evaluator"))
