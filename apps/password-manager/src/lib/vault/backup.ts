@@ -14,14 +14,7 @@ import {
   verifyAuthentication,
 } from "./storage/crypto";
 import { getSharedClient } from "./storage/migrate-to-shared";
-import {
-  dbParam,
-  dbParams,
-  parseFolderRow,
-  parseLockSettingsRow,
-  parseSecretRow,
-  parseVaultRow,
-} from "./storage/schema";
+import { dbParam, dbParams, localEncryptedRows, parseVaultRow } from "./storage/schema";
 import { createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
 
 export const BACKUP_MAX_BYTES = 16 * 1024 * 1024;
@@ -297,7 +290,7 @@ async function verifySharedDb(
   // Verify secrets
   const secretsResults = await client.execute(
     `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM secrets WHERE vault_id = ?`,
-    (row: Row) => parseSecretRow(row),
+    localEncryptedRows.parseItemRow,
     [dbParam(vaultId)]
   );
   const expectedRecords = [...payload.secrets]
@@ -323,7 +316,7 @@ async function verifySharedDb(
   // Verify folders
   const foldersResults = await client.execute(
     `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ?`,
-    (row: Row) => parseFolderRow(row),
+    localEncryptedRows.parseItemRow,
     [dbParam(vaultId)]
   );
   const expectedFolders = [...(payload.folders ?? [])]
@@ -349,7 +342,7 @@ async function verifySharedDb(
   // Verify lock settings
   const lockResults = await client.execute(
     `SELECT vault_id, ciphertext, nonce, updated_at FROM lock_settings WHERE vault_id = ?`,
-    (row: Row) => parseLockSettingsRow(row),
+    localEncryptedRows.parseLockSettingsRow,
     [dbParam(vaultId)]
   );
   if (lockResults[0]) {

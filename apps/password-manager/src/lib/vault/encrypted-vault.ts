@@ -19,13 +19,7 @@ import {
   type VaultMeta,
   verifyAuthentication,
 } from "./storage/crypto";
-import {
-  parseFolderRow,
-  parseLockSettingsRow,
-  parseOptionalText,
-  parseSecretRow,
-  parseText,
-} from "./storage/schema";
+import { type EncryptedRowParsers, parseOptionalText, parseText } from "./storage/schema";
 import type { VaultHandleLike } from "./types";
 
 type VaultAuthentication = VaultMeta & { authentication?: string | null | undefined };
@@ -40,6 +34,7 @@ export interface VaultDatabase {
   write(sql: string, params: string[]): Promise<void>;
   writeBatch(statements: VaultWrite[]): Promise<void>;
   parseMeta: RowParser<VaultAuthentication>;
+  encryptedRows: EncryptedRowParsers;
   verifyExists?(id: string): Promise<void>;
   withItemLock?<T>(id: string, action: () => Promise<T>): Promise<T>;
   sync?: VaultHandleLike["sync"];
@@ -72,7 +67,7 @@ export class VaultHandle implements VaultHandleLike {
       await this.database.verifyExists?.(this.id);
       const rows = await this.database.read(
         `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM secrets WHERE vault_id = ?`,
-        parseSecretRow,
+        this.database.encryptedRows.parseItemRow,
         [this.id]
       );
       return Promise.all(
@@ -111,7 +106,7 @@ export class VaultHandle implements VaultHandleLike {
       await this.database.verifyExists?.(this.id);
       const rows = await this.database.read(
         `SELECT id, vault_id, ciphertext, nonce, created_at, updated_at FROM folders WHERE vault_id = ?`,
-        parseFolderRow,
+        this.database.encryptedRows.parseItemRow,
         [this.id]
       );
       return Promise.all(
@@ -317,7 +312,7 @@ export class VaultHandle implements VaultHandleLike {
       await this.database.verifyExists?.(this.id);
       const results = await this.database.read(
         `SELECT vault_id, ciphertext, nonce, updated_at FROM lock_settings WHERE vault_id = ?`,
-        parseLockSettingsRow,
+        this.database.encryptedRows.parseLockSettingsRow,
         [this.id]
       );
       const saved = results[0];

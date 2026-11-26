@@ -131,51 +131,6 @@ export const VaultRowSchema = v.object({
 
 export type VaultRow = v.InferOutput<typeof VaultRowSchema>;
 
-/**
- * Secret row from secrets table
- */
-export const SecretRowSchema = v.object({
-  id: v.string(),
-  vaultId: v.string(),
-  ciphertext: v.pipe(v.string(), v.minLength(1)),
-  nonce: v.pipe(v.string(), v.minLength(1)),
-  createdAt: v.pipe(v.string(), v.isoTimestamp()),
-  updatedAt: v.pipe(v.string(), v.isoTimestamp()),
-});
-
-export type SecretRow = v.InferOutput<typeof SecretRowSchema>;
-
-/**
- * Folder row from folders table
- */
-export const FolderRowSchema = v.object({
-  id: v.string(),
-  vaultId: v.string(),
-  ciphertext: v.pipe(v.string(), v.minLength(1)),
-  nonce: v.pipe(v.string(), v.minLength(1)),
-  createdAt: v.pipe(v.string(), v.isoTimestamp()),
-  updatedAt: v.pipe(v.string(), v.isoTimestamp()),
-});
-
-export type FolderRow = v.InferOutput<typeof FolderRowSchema>;
-
-/**
- * Lock settings row from lock_settings table
- */
-export const LockSettingsRowSchema = v.object({
-  vaultId: v.string(),
-  ciphertext: v.pipe(v.string(), v.minLength(1)),
-  nonce: v.pipe(v.string(), v.minLength(1)),
-  updatedAt: v.pipe(v.string(), v.isoTimestamp()),
-});
-
-export type LockSettingsRow = v.InferOutput<typeof LockSettingsRowSchema>;
-
-/**
- * Parser functions for typed execute().
- * These convert null-prototype Row with tagged DbValue cells to typed objects.
- */
-
 export function parseVaultRow(row: Record<string, DbValue>): VaultRow {
   return v.parse(VaultRowSchema, {
     id: parseText(row, "id"),
@@ -189,36 +144,39 @@ export function parseVaultRow(row: Record<string, DbValue>): VaultRow {
   });
 }
 
-export function parseSecretRow(row: Record<string, DbValue>): SecretRow {
-  return v.parse(SecretRowSchema, {
-    id: parseText(row, "id"),
+function encryptedRowParsers(timestamp: v.GenericSchema<string>) {
+  const shared = {
+    vaultId: v.string(),
+    ciphertext: v.pipe(v.string(), v.minLength(1)),
+    nonce: v.pipe(v.string(), v.minLength(1)),
+    updatedAt: timestamp,
+  };
+  const itemSchema = v.object({ id: v.string(), ...shared, createdAt: timestamp });
+  const lockSettingsSchema = v.object(shared);
+  const readEncrypted = (row: Record<string, DbValue>) => ({
     vaultId: parseText(row, "vault_id"),
     ciphertext: parseText(row, "ciphertext"),
     nonce: parseText(row, "nonce"),
-    createdAt: parseText(row, "created_at"),
     updatedAt: parseText(row, "updated_at"),
   });
+  return {
+    parseItemRow(row: Record<string, DbValue>) {
+      return v.parse(itemSchema, {
+        id: parseText(row, "id"),
+        ...readEncrypted(row),
+        createdAt: parseText(row, "created_at"),
+      });
+    },
+    parseLockSettingsRow(row: Record<string, DbValue>) {
+      return v.parse(lockSettingsSchema, readEncrypted(row));
+    },
+  };
 }
 
-export function parseFolderRow(row: Record<string, DbValue>): FolderRow {
-  return v.parse(FolderRowSchema, {
-    id: parseText(row, "id"),
-    vaultId: parseText(row, "vault_id"),
-    ciphertext: parseText(row, "ciphertext"),
-    nonce: parseText(row, "nonce"),
-    createdAt: parseText(row, "created_at"),
-    updatedAt: parseText(row, "updated_at"),
-  });
-}
-
-export function parseLockSettingsRow(row: Record<string, DbValue>): LockSettingsRow {
-  return v.parse(LockSettingsRowSchema, {
-    vaultId: parseText(row, "vault_id"),
-    ciphertext: parseText(row, "ciphertext"),
-    nonce: parseText(row, "nonce"),
-    updatedAt: parseText(row, "updated_at"),
-  });
-}
+export type EncryptedRowParsers = ReturnType<typeof encryptedRowParsers>;
+export const localEncryptedRows = encryptedRowParsers(v.pipe(v.string(), v.isoTimestamp()));
+// The legacy synced reader accepted timestamp text as stored, without ISO validation.
+export const syncedEncryptedRows = encryptedRowParsers(v.string());
 
 /**
  * Helper to create DbValue parameter arrays for execute()

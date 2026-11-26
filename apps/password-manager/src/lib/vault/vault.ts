@@ -10,7 +10,7 @@ import {
   migrateToSharedTables,
   needsMigration,
 } from "./storage/migrate-to-shared";
-import { dbParams, parseVaultRow } from "./storage/schema";
+import { dbParams, localEncryptedRows, parseVaultRow } from "./storage/schema";
 import { createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
 
 function localDatabase(client: Client): VaultDatabase {
@@ -30,6 +30,7 @@ function localDatabase(client: Client): VaultDatabase {
       }
     },
     parseMeta: parseVaultRow,
+    encryptedRows: localEncryptedRows,
     async verifyExists(id) {
       await createVaultRegistry(client).findVault(id);
     },
