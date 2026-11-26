@@ -1,27 +1,26 @@
 <script lang="ts">
-import { onDestroy } from "svelte";
+import { onDestroy, tick } from "svelte";
 import { Alert, Card, Field, type FieldControl } from "$lib/ui";
 import type { VaultHandleLike } from "$lib/vault/types";
 import { type ImportPreview, preparePersonalJsonImport } from "./import";
 import { IMPORT_MAX_BYTES } from "./personal-json";
 
-let { vault, active, oncancel, onimported }: {
+let { vault, active }: {
     vault: VaultHandleLike;
     active: () => boolean;
-    oncancel: () => void;
-    onimported: () => void;
 } = $props();
 let file: File | null = $state.raw(null);
 let preview = $state.raw<ImportPreview | null>(null);
 let busy = $state(false);
 let error = $state("");
 let confirmed = $state(false);
-let retired = $state(false);
+let completed = $state(false);
+let picker = $state<HTMLInputElement>();
+let retired = false;
 let generation = 0;
 
 const duplicate = $derived(!!preview && !!(preview.duplicates.sourceIds || preview.duplicates.logical));
-export function retire() {
-    retired = true;
+function resetBatch() {
     generation++;
     preview?.retire();
     preview = null;
@@ -29,11 +28,23 @@ export function retire() {
     confirmed = false;
     error = "";
 }
-onDestroy(retire);
+onDestroy(() => {
+    retired = true;
+    resetBatch();
+});
 function current(request: number) { return !retired && request === generation && active(); }
+async function resetPicker() {
+    resetBatch();
+    completed = false;
+    const request = generation;
+    await tick();
+    if (current(request) && picker) {
+        picker.value = "";
+        picker.focus();
+    }
+}
 function select(event: Event) {
-    generation++;
-    preview?.retire(); preview = null; confirmed = false; error = "";
+    resetBatch();
     const input = event.currentTarget as HTMLInputElement;
     file = input.files?.[0] ?? null;
     if (file && file.size > IMPORT_MAX_BYTES) {
@@ -65,7 +76,11 @@ async function commit() {
     busy = true; error = "";
     try {
         await prepared.commit(confirmed ? "import-as-new" : undefined);
-        if (current(request)) onimported();
+        if (current(request)) {
+            resetBatch();
+            busy = false;
+            completed = true;
+        }
     } catch {
         if (current(request)) {
             preview?.retire(); preview = null;
@@ -79,14 +94,16 @@ async function commit() {
     if (busy || preview || file) { event.preventDefault(); event.returnValue = ""; }
 }} />
 
-{#if !retired}
 <Card>
     <h2 id="import-json" tabindex="-1" {@attach (element) => { element.focus(); }}>Import Bitwarden JSON</h2>
     <p>Destination vault: <span class="break-all">{vault.id}</span></p>
     <p>Plaintext files expose credentials. Use a trusted personal JSON file and protect or remove it after migration. Nothing is sent to a server. This is not an encrypted backup.</p>
     <p>Supported subset: Login, Secure Note, Card, Identity, SSH Key, folders, custom fields and history. Attachments, organizations, collections, Trash, archive, linked fields, CSV, encrypted exports and unknown fields block the whole import. Passkeys are not supported: they are skipped and listed as warnings. Limit: 16 MiB, 10,000 items and 10,000 folders.</p>
     {#if error}<Alert tone="danger">{error}</Alert>{/if}
-    {#if preview}
+    {#if completed}
+        <p role="status" tabindex="-1" {@attach (element) => { element.focus(); }}>Import verified. All accepted items and folders were added.</p>
+        <button class="btn btn-primary btn-md" type="button" onclick={resetPicker}>Import another file</button>
+    {:else if preview}
         <h3 tabindex="-1" {@attach (element) => { element.focus(); }}>Import preview</h3>
         <p>No items or folders have been written. Existing items, Trash, folders and lock settings are retained. Every accepted record gets a new local identity; names never authorize overwrite.</p>
         <ul aria-label="Import counts">
@@ -114,11 +131,12 @@ async function commit() {
         {/if}
     {:else}
         <Field id="import-file" label="Personal JSON file">
-            {#snippet children(control: FieldControl)}<input {...control} type="file" accept=".json,application/json" disabled={busy} onchange={select} />{/snippet}
+            {#snippet children(control: FieldControl)}<input {...control} type="file" accept=".json,application/json" disabled={busy} onchange={select} bind:this={picker} />{/snippet}
         </Field>
         <button class="btn btn-primary btn-md" type="button" disabled={busy || !file} onclick={validate}>Validate import</button>
     {/if}
     {#if busy}<p role="status">{preview ? "Importing complete batch… A sent write can finish after lock." : "Validating import…"}</p>{/if}
-    <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => { retire(); oncancel(); }}>Cancel import</button>
+    {#if !completed}
+        <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={resetPicker}>Cancel import</button>
+    {/if}
 </Card>
-{/if}
