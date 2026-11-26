@@ -69,6 +69,7 @@ async function validate() {
         if (current(request)) error = "Cannot validate this UTF-8 personal JSON file. Check the file and local storage; do not clear browser data.";
     } finally { if (current(request)) busy = false; }
 }
+
 async function commit() {
     if (!preview || busy || !active() || (duplicate && !confirmed)) return;
     const request = generation;
@@ -101,7 +102,20 @@ async function commit() {
     <p>Supported subset: Login, Secure Note, Card, Identity, SSH Key, folders, custom fields and history. Attachments, organizations, collections, Trash, archive, linked fields, CSV, encrypted exports and unknown fields block the whole import. Passkeys are not supported: they are skipped and listed as warnings. Limit: 16 MiB, 10,000 items and 10,000 folders.</p>
     {#if error}<Alert tone="danger">{error}</Alert>{/if}
     {#if completed}
-        <p role="status" tabindex="-1" {@attach (element) => { element.focus(); }}>Import verified. All accepted items and folders were added.</p>
+        <p role="status" tabindex="-1" {@attach (element) => {
+            const drawer = document.querySelector<HTMLDialogElement>("#mobile-navigation:modal");
+            if (!drawer) {
+                element.focus();
+                return;
+            }
+            const onClose = () => {
+                if (drawer.open) return;
+                drawer.removeEventListener("close", onClose);
+                if (active()) element.focus();
+            };
+            drawer.addEventListener("close", onClose);
+            return () => drawer.removeEventListener("close", onClose);
+        }}>Import verified. All accepted items and folders were added.</p>
         <button class="btn btn-primary btn-md" type="button" onclick={resetPicker}>Import another file</button>
     {:else if preview}
         <h3 tabindex="-1" {@attach (element) => { element.focus(); }}>Import preview</h3>

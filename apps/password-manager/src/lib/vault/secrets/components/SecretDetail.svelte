@@ -16,7 +16,7 @@ let { record, canEdit, onedit, onclose, folderAssignment }: {
 } = $props();
 
 function websiteHref(value: string): string | undefined {
-    if (!/^https?:\/\/[^/?#]/i.test(value) || /[\s\\]/.test(value)) return undefined;
+    if (!/^https?:\/\/[^/?#]/i.test(value) || /[\s\\\p{Cc}]/u.test(value)) return undefined;
     try {
         return new URL(value).href;
     } catch {

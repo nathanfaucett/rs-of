@@ -83,6 +83,7 @@ test("mobile navigation contains focus and closes by keyboard, pointer, route, o
   await page.setViewportSize({ width: 1024, height: 800 });
   await expect(dialog).toHaveCount(0);
   await expect(expand).toBeVisible();
+  await expect(nav.getByRole("button", { name: "Settings", exact: true })).toBeFocused();
   await page.setViewportSize({ width: 390, height: 800 });
   await expect(opener).toBeVisible();
   await expect(dialog).toHaveCount(0);

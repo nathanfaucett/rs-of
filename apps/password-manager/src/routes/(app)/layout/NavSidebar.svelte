@@ -24,6 +24,7 @@ const isUnlocked = $derived(vaultStateModule.vaultData !== null);
 let collapsed = $state(false);
 let drawerOpen = $state(false);
 let drawer: HTMLDialogElement;
+let desktopNav: HTMLElement;
 
 onMount(() => {
 	const desktop = window.matchMedia("(min-width: 64rem)");
@@ -31,7 +32,10 @@ onMount(() => {
 	collapsed = stored === null ? window.innerWidth < 1024 : stored === "true";
 
 	function handleBreakpoint(event: MediaQueryListEvent) {
-		if (event.matches) closeDrawer();
+		if (!event.matches || !drawerOpen) return;
+		closeDrawer();
+		(desktopNav.querySelector<HTMLElement>('[aria-current="page"]') ??
+			desktopNav.querySelector('button'))?.focus();
 	}
 
 	desktop.addEventListener("change", handleBreakpoint);
@@ -138,7 +142,7 @@ function wrapDrawerTab(event: KeyboardEvent) {
 	{/if}
 {/snippet}
 
-<nav aria-label="Main navigation"
+<nav aria-label="Main navigation" bind:this={desktopNav}
 	class={['hidden lg:flex fixed left-0 top-0 z-50 h-full flex-col bg-surface border-r border-line transition-all duration-200 ease-out', collapsed ? 'w-16' : 'w-64']}>
 	{@render navigation(collapsed, false)}
 	<button

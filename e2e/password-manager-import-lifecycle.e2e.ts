@@ -91,9 +91,43 @@ test("Import keeps Settings open, retires the committed preview, and preserves v
   await picker.setInputFiles(validFile);
   await validate.click();
   await expect(preview).toBeFocused();
-  await commit.dblclick();
   const result = page.getByText("Import verified. All accepted items and folders were added.");
-  await expect(result).toBeFocused();
+  const destination = await page.getByText(/^Destination vault:/).innerText();
+  const vaultId = destination.replace(/^Destination vault:\s*/, "");
+  // Hold the real browser lock until the navigation dialog is open.
+  await page.evaluate(
+    (id) =>
+      new Promise<void>((held, reject) => {
+        void navigator.locks
+          .request(
+            `password-manager-import-${id}`,
+            () =>
+              new Promise<void>((release) => {
+                document.addEventListener("release-import-lock", () => release(), { once: true });
+                held();
+              })
+          )
+          .catch(reject);
+      }),
+    vaultId
+  );
+  await page.setViewportSize({ width: 390, height: 800 });
+  await commit.dblclick();
+  await expect(page.getByText(/^Importing complete batch/)).toBeVisible();
+  await button("Open navigation").click();
+  const drawer = page.getByRole("dialog", { name: "Main navigation" });
+  const settings = drawer.getByRole("button", {
+    name: "Settings",
+    exact: true,
+  });
+  await expect(settings).toBeFocused();
+  await page.evaluate(() => document.dispatchEvent(new Event("release-import-lock")));
+  await expect(result).toBeVisible();
+  await expect(settings).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  await expect(result).toBeFocused({ timeout: 4000 });
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.keyboard.press("Enter");
   await expect(result).toBeFocused();
   await expect(commit).toHaveCount(0);

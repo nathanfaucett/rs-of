@@ -7,7 +7,7 @@ This Svelte application demonstrates the platform's north-star workflow. It is i
 - Vaults use the browser `@ofsdk/sql` package and IndexedDB.
 - Core local vault operations do not require an IdP account or Storage service.
 - Search and filters work together. Select an item name to view its details, move it to an existing folder, or choose **Edit**. Details appear beside the list on desktop and below it on narrow screens. Login details show available authenticator codes and password history. **Launch** opens a valid HTTP or HTTPS website in a new tab.
-- The vault selector and the navigation sidebar for an unlocked local vault link to the OIDC sign-in route when you are signed out. On narrow screens, use **Open navigation** in the page header. **Close navigation** and Escape return focus to that button.
+- The vault selector and the navigation sidebar for an unlocked local vault link to the OIDC sign-in route when you are signed out. On narrow screens, use **Open navigation** in the page header. **Close navigation** and Escape return focus to that button. If the window switches to the desktop layout while navigation is open, focus moves to the current desktop destination.
 - Vault records are encrypted with AES-256-GCM. The current key derivation uses PBKDF2-SHA-512 with 600,000 iterations.
 - Press Enter to create or unlock a vault. The create form shows the master-password rule before submission.
 - Ordinary Identity fields and Notes are visible while you edit. Saved Secure Note and Identity notes still start masked in item details.
@@ -17,7 +17,7 @@ This Svelte application demonstrates the platform's north-star workflow. It is i
 - Browser local storage is not an encrypted backup.
 - The application includes local backup/recovery and offline-shell support; platform, eviction, update, and recovery limits still apply.
 - Items stay in Trash until you restore them or confirm permanent deletion. There is no automatic deletion. Permanent deletion does not change existing backups.
-- In Settings, validate a personal Bitwarden JSON file before you import it. **Cancel import** clears the current batch and returns to the file picker. A verified import closes its preview. Select **Import another file** to start a new batch.
+- In Settings, validate a personal Bitwarden JSON file before you import it. **Cancel import** clears the current batch and returns to the file picker. A verified import closes its preview and focuses the result. If mobile navigation is open, focus stays there until it closes. Select **Import another file** to start a new batch.
 
 Use test secrets only. Do not infer production cryptographic, browser, or remote synchronization qualification from local CRUD tests.
 

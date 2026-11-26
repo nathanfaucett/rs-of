@@ -225,7 +225,7 @@ function navigate(action: () => void) {
                 {/if}
             {:else}
                 <p aria-live="polite" aria-atomic="true">{results.length} {results.length === 1 ? "item" : "items"} found.</p>
-                <ul aria-label="Items" class="flex list-none flex-col gap-2 p-0">
+                <ul aria-label="Items" class="@container flex list-none flex-col gap-2 p-0">
                     {#each results as value (value.id)}
                         <li class="item-row rounded-control border border-line bg-surface-muted/40 px-3 py-2">
                             <div class="item-content">
@@ -301,6 +301,16 @@ function navigate(action: () => void) {
         align-items: center;
         gap: 0.25rem;
         flex-shrink: 0;
+    }
+    @container (width < 15rem) {
+        .item-row {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 0.25rem;
+        }
+        .item-actions {
+            justify-content: flex-end;
+        }
     }
 </style>
 </div>
