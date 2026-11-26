@@ -6,7 +6,14 @@
 
 **Status:** ready-for-agent
 
-- [ ] Sign in, Dashboard, list routes, and detail routes have unique, useful document titles; detail titles identify the current record when loaded.
-- [ ] The 404 page offers a Dashboard or safe Back action.
-- [ ] Route loads use the framework-provided fetch where required and no longer emit the observed `window.fetch` warning.
-- [ ] Browser checks cover titles, error recovery, and absence of new console errors; package checks pass.
+**Work status:** resolved
+
+- [x] Sign in, Dashboard, list routes, and detail routes have unique, useful document titles; detail titles identify the current record when loaded.
+- [x] The 404 page offers a Dashboard or safe Back action.
+- [x] Route loads use the framework-provided fetch where required and no longer emit the observed `window.fetch` warning.
+- [x] Browser checks cover titles, error recovery, and no new console errors on Sign in, Dashboard, or the return from 404; package checks pass.
+- [ ] Qualify absence of new console errors across all list and detail routes.
+
+## Comments
+
+- `e2e/app.e2e.ts` confirmed titles, 404 recovery, and no observed `window.fetch` warning. The console-error assertion did not cover every list and detail route.

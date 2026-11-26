@@ -2,6 +2,8 @@
 
 **Status:** ready-for-agent
 
+**Work status:** resolved
+
 **Milestone:** M3 — Two-Device offline use and administration
 
 ## Problem Statement
@@ -150,3 +152,12 @@ Record any unrun browser engines, native synchronization paths, actual reset-ema
 The source evidence is a Playwriter walkthrough on 2026-11-25 using the local `admin` account at desktop and mobile sizes. It produced 23 confirmed findings. Vite/HMR and browser-extension-only errors were excluded. The role-draft loss and Device-label concern were retested and excluded.
 
 The accepted sync decision is explicit: remove the dead Devices panel. Do not represent target synchronization architecture as current behavior, and do not weaken the existing authorization boundaries to obtain successful tests.
+
+## Comments
+
+- All 13 implementation tickets are resolved on `management-core-ux`, with the qualification limits below. This work does not qualify M3 as a whole.
+- Integration passed all 38 app Playwright tests in Chromium against a freshly rebuilt review backend. The 57 app unit tests, app lint, type check and build, E2E TypeScript check, OIDC tests, `cargo fmt` check, and diff check passed. Ticket 01's vault sync and sync-client browser checks passed individually.
+- All three HTTPS Create/Join tests and focused Rust owner tests passed in the review worktree. The root HTTPS repeat selected the local `.env` with the wrong port. The root owner rerun timed out during compilation. No full owner suite pass is claimed. CRAP and a fresh WASM build were not completed; the browser run used existing WASM.
+- Exact-grant Block/Unblock, MFA enable/disable, Device rename, and Device policy read/update passed at the owner HTTP boundary, not as browser success paths. Browser cancel and denial checks passed; the MFA connection failure was injected. Tickets 09 and 10 leave browser success unchecked. A real Device row and its Rename action were checked at 320, 390, 768, and 1440 CSS pixels in `e2e/owners.e2e.ts`.
+- Existing Installations were not backfilled. There were no email delivery or MFA protocol changes. Other browser engines, physical mobile devices, screen readers, and native synchronization were not qualified by this review.
+- Follow-up for ticket 07: IdP Create User is not atomic. A later email or root-metadata write can fail after the User and password verifier persist, leaving a partial account. The review found this risk; it did not fix it. Track atomic creation or safe recovery with failure-path tests.

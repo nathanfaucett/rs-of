@@ -6,12 +6,16 @@
 
 **Status:** ready-for-agent
 
-- [ ] Authorized list and create operations for Roles and Permissions succeed through the existing contracts.
-- [ ] A Permission can be assigned to a Role, and a Role assigned through the existing public workflow appears on User Detail.
-- [ ] Unauthorized access has a clear read-only or recovery state without raw `ResponseError` text or repeated failing requests.
-- [ ] Valid drafts remain after failed submissions, and unrelated successful saves do not emit role-load error notifications.
-- [ ] The authorization root cause is covered by real-owner tests, and the complete path is covered by real-backend browser tests.
+**Work status:** resolved
+
+- [x] Authorized list and create operations for Roles and Permissions succeed through the existing contracts.
+- [x] A Permission can be assigned to a Role, and a Role assigned through the existing public workflow appears on User Detail.
+- [x] Unauthorized access has a clear read-only or recovery state without raw `ResponseError` text or repeated failing requests.
+- [x] Valid drafts remain after failed submissions, and unrelated successful saves do not emit role-load error notifications.
+- [x] The authorization root cause is covered by real-owner tests, and the complete path is covered by real-backend browser tests.
 
 ## Comments
 
 Fresh setup provisions the operator Client scope and explicit Installation policy grants. Existing policy and Client registrations are not migrated. Application-delegated grants retain their original scope.
+
+- `e2e/management-policy.e2e.ts` passed Role and Permission creation, Permission assignment, User Detail after HTTP Role assignment, denied access, and draft preservation. The focused owner HTTP administration test passed in the review worktree.

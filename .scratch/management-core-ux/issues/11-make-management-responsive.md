@@ -6,10 +6,16 @@
 
 **Status:** ready-for-agent
 
-- [ ] At 320, 390, 768, and 1440 CSS pixels, primary forms and actions remain visible and operable without page-level horizontal clipping.
-- [ ] Small-screen navigation has an appropriate open and closed pattern, and the sidebar preference survives routes and reloads.
-- [ ] Wide tables and the Configuration control do not obscure actions or records.
-- [ ] Keyboard focus remains visible and predictable when navigation opens, closes, or changes route.
-- [ ] Real-backend browser checks cover Application, User, and Device workflows at desktop and mobile sizes.
+**Work status:** resolved
+
+- [x] At 320, 390, 768, and 1440 CSS pixels, primary forms and actions remain visible and operable without page-level horizontal clipping.
+- [x] Small-screen navigation has an appropriate open and closed pattern, and the sidebar preference survives routes and reloads.
+- [x] Wide tables and the Configuration control do not obscure actions or records.
+- [x] Keyboard focus remains visible and predictable when navigation opens, closes, or changes route.
+- [x] Real-backend browser checks cover Application, User, and Device workflows at desktop and mobile sizes.
 
 The app stores separate desktop and small-screen navigation preferences. Existing data, APIs, and wire protocols do not change.
+
+## Comments
+
+- `e2e/app.e2e.ts` covered forms, navigation, focus, and layout. `e2e/owners.e2e.ts` checked a real Device row and Rename action bounds and actionability at 320, 390, 768, and 1440 CSS pixels. These were Chromium viewports, not physical mobile devices.
