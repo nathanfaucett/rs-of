@@ -285,7 +285,7 @@ for (const lock of ["manual", "inactivity"] as const) {
   });
 }
 
-test("card, identity, note, SSH, and hidden custom fields open masked", async ({ page }) => {
+test("card, identity, SSH, and hidden custom secrets open masked", async ({ page }) => {
   await createVault(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page).toHaveTitle("Settings | Password Manager");
@@ -324,7 +324,6 @@ test("card, identity, note, SSH, and hidden custom fields open masked", async ({
       "Private key",
       "SYNTHETIC PRIVATE KEY TEXT\nNot an SSH key.\n",
     ],
-    ["SYNTHETIC Secure Note", "Notes", "Notes", "Private text fixture only.\nNo password field.\n"],
   ] as const;
   for (const [record, detailLabel, editorLabel, value] of samples) {
     await page.getByRole("button", { name: record, exact: true }).click();
@@ -336,7 +335,7 @@ test("card, identity, note, SSH, and hidden custom fields open masked", async ({
     await details.getByRole("button", { name: "Edit", exact: true }).click();
     const input = page.getByLabel(editorLabel, { exact: true });
     const show = page.getByRole("button", { name: `Show ${editorLabel}`, exact: true });
-    if (editorLabel === "Private key" || editorLabel === "Notes") {
+    if (editorLabel === "Private key") {
       await expect(input).toHaveCount(0);
       await show.press("Enter");
       await expect(input).toBeFocused();
