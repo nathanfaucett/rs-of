@@ -28,4 +28,8 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 ## Current evidence and qualification limits
 
-The current synced path registers or opens a Resource, then opens a separate browser database. It does not attach the existing local database. First attachment of an established local history is not yet qualified.
+The legacy synced path still opens a separate browser database. The SDK can now wrap an existing browser SQL database for explicit exchange with an established replica. Construction does not open a second database, request a token, or start sync. SDK tests cover the fixed destination and ownership of the local database. The app does not use this handle for first attachment.
+
+## Comments
+
+First upload still needs a Storage-side guard. The current WebSocket exchange is bidirectional and can apply batches before completion. A browser preflight does not prevent a concurrent SQL or replica write. Reject independent history before either side changes, and keep retries on the same Resource without treating an incomplete upload as an established binding. The non-seeded browser flow must also obtain the serving Node's exact Resource Selection through the authorized Device contract. Do not infer Selection or browser Device approval from sign-in.
