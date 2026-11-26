@@ -53,6 +53,28 @@
         createdClients.forApplication(applicationId),
     );
 
+    let readableClientIds = $state.raw(new Set<string>());
+
+    async function checkClientRead(clientId: string, generation: number) {
+        try {
+            await idpApi.getRegister({ clientId });
+            if (generation === createdClients.generation) {
+                readableClientIds = new Set([...readableClientIds, clientId]);
+            }
+        } catch {
+            // Creating a Client does not grant permission to read it.
+        }
+    }
+
+    async function copyClientId(clientId: string) {
+        try {
+            await navigator.clipboard.writeText(clientId);
+            notifications.add("Client ID copied", "success");
+        } catch {
+            notifications.add("Could not copy. Select and copy the ID.", "error");
+        }
+    }
+
     function parseLines(value: string): string[] {
         return value
             .split("\n")
@@ -112,7 +134,6 @@
             });
             notifications.add("Application saved", "success");
             appName = application.name;
-            appUri = application.uri;
             appDescription = application.description ?? "";
         } catch (cause) {
             console.error(cause);
@@ -173,6 +194,7 @@
             createdClients.add(applicationId, created);
             resetClientForm();
             notifications.add("Client created", "success");
+            if (created.clientId) void checkClientRead(created.clientId, generation);
         } catch (cause) {
             if (generation !== createdClients.generation) return;
             console.error(cause);
@@ -184,7 +206,13 @@
 
 
     onMount(() => {
-        void loadApplication();
+        void loadApplication().then(async () => {
+            const generation = createdClients.generation;
+            for (const client of applicationClients) {
+                if (generation !== createdClients.generation) break;
+                await checkClientRead(client.clientId, generation);
+            }
+        });
     });
 </script>
 
@@ -409,13 +437,16 @@
                             {#each applicationClients as client (client.clientId)}
                                 <tr>
                                     <td data-label="Client ID">
-                                        <a
-                                            href={resolve(
-                                                `/clients/${encodeURIComponent(client.clientId)}?application=${applicationId}`,
-                                            )}
-                                        >
-                                            {client.clientId}
-                                        </a>
+                                        {#if readableClientIds.has(client.clientId)}
+                                            <a href={resolve(`/clients/${encodeURIComponent(client.clientId)}?application=${applicationId}`)}>
+                                                {client.clientId}
+                                            </a>
+                                        {:else}
+                                            <span>{client.clientId}</span>
+                                        {/if}
+                                        <button class="btn btn-secondary btn-sm" type="button" onclick={() => copyClientId(client.clientId)}>
+                                            Copy ID
+                                        </button>
                                     </td>
                                     <td data-label="Name">{client.clientName}</td>
                                     <td data-label="Profile">{client.profile}</td>

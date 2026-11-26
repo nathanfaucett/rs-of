@@ -121,6 +121,7 @@ test("password reset reports a service failure, then confirms a local reset with
     await password.fill(replacement);
     await submit.click();
     await expect(dialog.getByRole("alert")).toContainText("The IdP did not confirm the reset.");
+    await expect(password).toHaveValue(replacement);
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(open).toBeFocused();

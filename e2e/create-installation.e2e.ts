@@ -399,6 +399,10 @@ nodeTest(
     expect(await signIn("admin@local.test", "password")).toBe(false);
     expect(await signIn(username, password)).toBe(true);
     await expect(page).not.toHaveURL(`${app}/signin`);
+    await page.goto(`${app}/clients/${ready.login_client.client_id}`);
+    await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue(
+      "Local Node operator"
+    );
     await node.restart();
     await expect
       .poll(() => descriptor(page, base).catch(() => undefined), { timeout: 60_000 })

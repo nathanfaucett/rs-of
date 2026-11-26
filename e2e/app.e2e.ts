@@ -161,6 +161,7 @@ test("management routes identify their page and recover from a missing route", a
   page.off("console", recordConsoleErrors);
   await page.getByRole("link", { name: "Applications", exact: true }).click();
   await expect(page).toHaveTitle("Applications — of");
+  await expect(page.getByRole("main")).toBeFocused();
   await page
     .getByRole("row", { name: /local-login/ })
     .getByRole("link", { name: /[0-9a-f-]{36}/ })

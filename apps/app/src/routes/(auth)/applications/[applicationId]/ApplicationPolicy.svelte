@@ -10,7 +10,6 @@
 
     let rolesLoading = $state(true);
     let rolesError = $state<{ text: string; retry: boolean } | null>(null);
-    let roleWriteDenied = $state(false);
     let roleWriteError = $state<string | null>(null);
     let creatingRole = $state(false);
     let deletingRoleId = $state<string | null>(null);
@@ -20,7 +19,6 @@
 
     let permissionsLoading = $state(true);
     let permissionsError = $state<{ text: string; retry: boolean } | null>(null);
-    let permissionWriteDenied = $state(false);
     let permissionWriteError = $state<string | null>(null);
     let creatingPermission = $state(false);
     let deletingPermissionId = $state<string | null>(null);
@@ -141,7 +139,7 @@
     async function onCreateRole(event: SubmitEvent) {
         event.preventDefault();
 
-        if (creatingRole || roleWriteDenied) return;
+        if (creatingRole) return;
         if (!roleName.trim()) {
             notifications.add("Role name is required", "error");
             return;
@@ -163,7 +161,6 @@
             await loadRoles();
         } catch (cause) {
             roleWriteError = managementPolicyError(cause, "create a role");
-            roleWriteDenied = managementPolicyStatus(cause) === 403;
         } finally {
             creatingRole = false;
         }
@@ -185,7 +182,6 @@
             await loadRoles();
         } catch (cause) {
             roleWriteError = managementPolicyError(cause, "delete a role");
-            roleWriteDenied = managementPolicyStatus(cause) === 403;
         } finally {
             deletingRoleId = null;
         }
@@ -194,7 +190,7 @@
     async function onCreatePermission(event: SubmitEvent) {
         event.preventDefault();
 
-        if (creatingPermission || permissionWriteDenied) return;
+        if (creatingPermission) return;
         if (!permissionName.trim()) {
             notifications.add("Permission name is required", "error");
             return;
@@ -216,7 +212,6 @@
             await loadPermissions(false);
         } catch (cause) {
             permissionWriteError = managementPolicyError(cause, "create a permission");
-            permissionWriteDenied = managementPolicyStatus(cause) === 403;
         } finally {
             creatingPermission = false;
         }
@@ -238,7 +233,6 @@
             await loadPermissions();
         } catch (cause) {
             permissionWriteError = managementPolicyError(cause, "delete a permission");
-            permissionWriteDenied = managementPolicyStatus(cause) === 403;
         } finally {
             deletingPermissionId = null;
         }
@@ -265,7 +259,6 @@
             await loadRolePermissions();
         } catch (cause) {
             rolePermissionWriteError = managementPolicyError(cause, "assign a permission");
-            permissionWriteDenied = managementPolicyStatus(cause) === 403;
         } finally {
             assigningPermission = false;
         }
@@ -289,7 +282,6 @@
             await loadRolePermissions();
         } catch (cause) {
             rolePermissionWriteError = managementPolicyError(cause, "revoke a permission");
-            permissionWriteDenied = managementPolicyStatus(cause) === 403;
         } finally {
             revokingRolePermissionId = null;
         }
@@ -325,7 +317,7 @@
                 <button
                     class="btn btn-primary btn-md"
                     type="submit"
-                    disabled={creatingRole || roleWriteDenied}
+                    disabled={creatingRole}
                     >{creatingRole ? "Creating..." : "Create role"}</button
                 >
             </div>
@@ -368,7 +360,7 @@
                                     class="btn btn-danger btn-md"
                                     type="button"
                                     onclick={() => onDeleteRole(role)}
-                                    disabled={roleWriteDenied || deletingRoleId !== null}
+                                    disabled={deletingRoleId !== null}
                                     >{deletingRoleId === role.id
                                         ? "Deleting..."
                                         : "Delete"}</button
@@ -406,7 +398,7 @@
                 <button
                     class="btn btn-primary btn-md"
                     type="submit"
-                    disabled={creatingPermission || permissionWriteDenied}
+                    disabled={creatingPermission}
                     >{creatingPermission
                         ? "Creating..."
                         : "Create permission"}</button
@@ -454,7 +446,7 @@
                                     type="button"
                                     onclick={() =>
                                         onDeletePermission(permission)}
-                                    disabled={permissionWriteDenied || deletingPermissionId !==
+                                    disabled={deletingPermissionId !==
                                         null}
                                     >{deletingPermissionId ===
                                     permission.id
@@ -514,7 +506,7 @@
                 class="btn btn-primary btn-md"
                 type="button"
                 onclick={onAssignPermissionToRole}
-                disabled={permissionWriteDenied || rolePermissionsError !== null || rolePermissionsLoading || !selectedRoleId ||
+                disabled={rolePermissionsError !== null || rolePermissionsLoading || !selectedRoleId ||
                     !selectedPermissionId || revokingRolePermissionId !== null ||
                     assigningPermission}
                 >{assigningPermission
@@ -563,7 +555,7 @@
                                             onRevokePermissionFromRole(
                                                 permission.id,
                                             )}
-                                        disabled={permissionWriteDenied || assigningPermission || revokingRolePermissionId !==
+                                        disabled={assigningPermission || revokingRolePermissionId !==
                                             null}
                                         >{revokingRolePermissionId ===
                                         permission.id

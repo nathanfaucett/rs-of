@@ -221,13 +221,13 @@
             return;
         }
         resettingPassword = true;
-        resetPasswordDraft = "";
         resetError = null;
         try {
             await idpApi.resetPassword({
                 userId: parsedUserId,
                 resetPassword: { password },
             });
+            resetPasswordDraft = "";
             passwordReset = true;
         } catch (cause) {
             resetError = resetFailure(cause);

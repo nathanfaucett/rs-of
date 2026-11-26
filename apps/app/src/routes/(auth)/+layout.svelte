@@ -29,7 +29,9 @@
     let main = $state<HTMLElement>();
 
     afterNavigate(({ from, to }) => {
-        if (from && from.url.pathname !== to?.url.pathname) {
+        const previous = from?.url?.pathname;
+        const next = to?.url?.pathname;
+        if (previous && next && previous !== next) {
             main?.scrollTo(0, 0);
             main?.focus({ preventScroll: true });
         }

@@ -76,12 +76,17 @@ test("Application creation rejects unsafe and malformed URIs and names open deta
     await nameLink.click();
     await expect(page).toHaveURL(`${appURL}/applications/${id}`);
     await expect(page.getByRole("textbox", { name: "URI", exact: true })).not.toBeEditable();
+    await expect(
+      page.getByRole("textbox", { name: "Description", exact: true }).first()
+    ).toBeVisible();
     const updated = `${name} updated`;
     await page.getByRole("textbox", { name: "Name", exact: true }).first().fill(updated);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect
       .poll(async () => (await owner.list()).find((entry) => entry.id === id)?.name)
       .toBe(updated);
+    await expect(page.getByText("Failed to save application", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "URI", exact: true })).toHaveValue(uri);
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(page).toHaveURL(`${appURL}/applications`);
@@ -91,6 +96,38 @@ test("Application creation rejects unsafe and malformed URIs and names open deta
       if (entry.name.startsWith(name)) await owner.remove(entry.id);
     }
   }
+});
+
+test("New Client IDs stay copyable without cross-Application detail access", async ({
+  page,
+  request,
+}) => {
+  const owner = await applicationOwner(request);
+  const application = (await owner.list()).find(({ name }) => name === "password-manager");
+  if (!application) throw new Error("Missing password-manager test Application");
+  await page.goto(`${appURL}/applications/${application.id}`);
+  await signIn(page);
+  // The seeded backend is isolated and removes the synthetic registration at teardown.
+  await page
+    .getByRole("textbox", { name: "Client name", exact: true })
+    .fill("Cross-Application Client");
+  await page
+    .getByRole("textbox", { name: "Redirect URIs", exact: true })
+    .fill(`${appURL}/callback`);
+  const registration = page.waitForResponse(
+    (response) =>
+      response.url() === `${backendURL}/idp/oauth2/register` &&
+      response.request().method() === "POST"
+  );
+  await page.getByRole("button", { name: "Create client", exact: true }).click();
+  const { client_id } = await (await registration).json();
+  expect(client_id).toEqual(expect.any(String));
+  const clientRow = page.getByRole("row", { name: /Cross-Application Client/ });
+  await expect(clientRow).toContainText(client_id);
+  await expect(clientRow.getByRole("link", { name: client_id, exact: true })).toHaveCount(0);
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: appURL });
+  await clientRow.getByRole("button", { name: "Copy ID" }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(client_id);
 });
 
 test("Application pagination stops at exact and short boundaries and keeps the prior page on failure", async ({

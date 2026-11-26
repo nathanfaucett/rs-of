@@ -4,11 +4,10 @@ use of_model::idp::contract::permission_evaluation::{INSTALLATION_POLICY_ID, Ide
 use of_model::management_error::{ManagementError, ManagementResult};
 use ofdb_sql::{Client, QueryParams, QueryResult, Transaction, Value};
 
+use crate::INITIAL_ADMINISTRATOR_ACTIONS;
 use crate::service::APPLICATION_POLICY_ADMINISTRATION;
-use crate::{INITIAL_ADMINISTRATOR_ACTIONS, ManagementService};
 
 use super::insert::{db_error, policy_insert, returned_id};
-use super::{DbPermissionRepo, DbRoleRepo};
 
 const ADMINISTRATOR: &str = "installation-administrator";
 
@@ -22,6 +21,38 @@ pub async fn provision_initial_administrator(
     client: &Client,
     user_id: Id,
     actions: &[IdentityAction],
+) -> ManagementResult<()> {
+    provision_administrator(client, user_id, actions, None).await
+}
+
+/// Provision the default operator with Client read access in the login Application only.
+///
+/// # Errors
+/// Returns an error for an invalid Application ID or failed administrator provisioning.
+pub async fn provision_initial_operator(
+    client: &Client,
+    user: Id,
+    login_application: Id,
+) -> ManagementResult<()> {
+    if login_application.is_nil() {
+        return Err(ManagementError::InvalidInput(
+            "login Application must not be the Installation policy".into(),
+        ));
+    }
+    provision_administrator(
+        client,
+        user,
+        &INITIAL_ADMINISTRATOR_ACTIONS,
+        Some(login_application),
+    )
+    .await
+}
+
+async fn provision_administrator(
+    client: &Client,
+    user_id: Id,
+    actions: &[IdentityAction],
+    login_application: Option<Id>,
 ) -> ManagementResult<()> {
     let mut names = Vec::with_capacity(actions.len());
     for action in actions {
@@ -43,7 +74,7 @@ pub async fn provision_initial_administrator(
     }
     names.sort_unstable();
     let mut tx = client.transaction().await.map_err(db_error)?;
-    if let Err(error) = provision(&mut tx, user_id, &names).await {
+    if let Err(error) = provision(&mut tx, user_id, &names, login_application).await {
         tx.rollback().await.map_err(db_error)?;
         return Err(error);
     }
@@ -59,25 +90,27 @@ pub async fn provision_seeded_client_reader(
     application: Id,
     user: Id,
 ) -> ManagementResult<()> {
-    let management = ManagementService::new(
-        DbPermissionRepo::new(client.clone()),
-        DbRoleRepo::new(client.clone()),
-    );
-    let role = management
-        .create_role(application, "local-client-reader", None)
-        .await?;
-    let permission = management
-        .create_permission(application, IdentityAction::ClientsRead.permission(), None)
-        .await?;
-    management
-        .add_permission_to_role(application, role.id, permission.id)
-        .await?;
-    management
-        .add_role_to_user(application, user, role.id)
-        .await
+    let mut tx = client.transaction().await.map_err(db_error)?;
+    if let Err(error) = provision_client_reader(
+        &mut tx,
+        application,
+        &Value::Uuid(user),
+        Utc::now().timestamp(),
+    )
+    .await
+    {
+        tx.rollback().await.map_err(db_error)?;
+        return Err(error);
+    }
+    tx.commit().await.map_err(db_error)
 }
 
-async fn provision(tx: &mut Transaction, user: Id, names: &[&str]) -> ManagementResult<()> {
+async fn provision(
+    tx: &mut Transaction,
+    user: Id,
+    names: &[&str],
+    login_application: Option<Id>,
+) -> ManagementResult<()> {
     let key = Value::Text(ADMINISTRATOR.into());
     let user = Value::Uuid(user);
     let inventory = names.join("\n");
@@ -123,12 +156,42 @@ async fn provision(tx: &mut Transaction, user: Id, names: &[&str]) -> Management
         "INSERT INTO application_user_roles (user_id, application_id, role_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $4)",
         QueryParams::Positional(vec![user.clone(), Value::Uuid(INSTALLATION_POLICY_ID), Value::Uuid(role), Value::Integer(now)]),
     ).await?;
+    if let Some(application) = login_application {
+        provision_client_reader(tx, application, &user, now).await?;
+    }
     execute(
         tx,
         "INSERT INTO administrator_provisioning (name, user_id, actions) VALUES ($1, $2, $3)",
         QueryParams::Positional(vec![key, user, Value::Text(inventory)]),
     )
     .await?;
+    Ok(())
+}
+
+async fn provision_client_reader(
+    tx: &mut Transaction,
+    application: Id,
+    user: &Value,
+    now: i64,
+) -> ManagementResult<()> {
+    let (sql, params) = policy_insert("roles", application, "local-client-reader", None, now);
+    let role = returned_id(&execute(tx, &sql, params).await?)?;
+    let (sql, params) = policy_insert(
+        "permissions",
+        application,
+        IdentityAction::ClientsRead.permission(),
+        None,
+        now,
+    );
+    let permission = returned_id(&execute(tx, &sql, params).await?)?;
+    execute(tx,
+        "INSERT INTO role_permissions (role_id, permission_id, created_at, updated_at) VALUES ($1, $2, $3, $3)",
+        QueryParams::Positional(vec![Value::Uuid(role), Value::Uuid(permission), Value::Integer(now)]),
+    ).await?;
+    execute(tx,
+        "INSERT INTO application_user_roles (user_id, application_id, role_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $4)",
+        QueryParams::Positional(vec![user.clone(), Value::Uuid(application), Value::Uuid(role), Value::Integer(now)]),
+    ).await?;
     Ok(())
 }
 

@@ -464,10 +464,10 @@ where
             || client
                 .allowed_grant_types
                 .contains(&GrantType::ClientCredentials)
-            || client
-                .allowed_scopes
-                .iter()
-                .any(|scope| scope.starts_with("idp.") || scope.starts_with("management."))
+            || client.allowed_scopes.iter().any(|scope| {
+                scope != MANAGEMENT_POLICY_ADMINISTRATION_SCOPE
+                    && (scope.starts_with("idp.") || scope.starts_with("management."))
+            })
         {
             return Err(ErrorResponse::new(ErrorCode::NotFound));
         }
@@ -485,7 +485,11 @@ where
             terms_of_service_uri: client.terms_of_service_uri,
             policy_uri: client.policy_uri,
             redirect_uris: client.redirect_uris,
-            allowed_scopes: client.allowed_scopes,
+            allowed_scopes: client
+                .allowed_scopes
+                .into_iter()
+                .filter(|scope| scope != MANAGEMENT_POLICY_ADMINISTRATION_SCOPE)
+                .collect(),
         })
     }
 
@@ -1130,6 +1134,13 @@ where
             return Err(ErrorResponse::new(ErrorCode::InvalidScope)
                 .with_description("at least one scope is required for client credentials"));
         }
+        if requested_scopes
+            .iter()
+            .any(|scope| scope == MANAGEMENT_POLICY_ADMINISTRATION_SCOPE)
+        {
+            return Err(ErrorResponse::new(ErrorCode::InvalidScope)
+                .with_description("policy administration scope requires user token exchange"));
+        }
         validate_scopes(&requested_scopes, &client.allowed_scopes)?;
 
         observe("active_root");
@@ -1277,13 +1288,14 @@ where
             .as_deref()
             .or(subject_token.resource.as_deref());
 
-        if requested_scopes.is_empty()
+        let inherited_policy_scope = scopes
+            .iter()
+            .any(|scope| scope == MANAGEMENT_POLICY_ADMINISTRATION_SCOPE);
+        scopes.retain(|scope| scope != MANAGEMENT_POLICY_ADMINISTRATION_SCOPE);
+        if (requested_scopes.is_empty() || inherited_policy_scope)
             && resource == Some(MANAGEMENT_APPLICATION_URI)
             && client
                 .allowed_scopes
-                .iter()
-                .any(|scope| scope == MANAGEMENT_POLICY_ADMINISTRATION_SCOPE)
-            && !scopes
                 .iter()
                 .any(|scope| scope == MANAGEMENT_POLICY_ADMINISTRATION_SCOPE)
         {
@@ -1787,13 +1799,7 @@ where
         let signing_jwk = self.local_signing_jwk().await?;
         let access_expires_at = checked_expiration(now, self.oauth_config.token_ttl_secs)?;
         let refresh_expires_at = checked_expiration(now, self.oauth_config.refresh_token_ttl_secs)?;
-        let scope = if scopes.is_empty() {
-            None
-        } else {
-            Some(scopes.join(" "))
-        };
-
-        let access_claims = StandardClaims {
+        let mut access_claims = StandardClaims {
             r#type: TokenType::Bearer,
             r#use: TokenUse::Access,
             exp: access_expires_at.timestamp(),
@@ -1812,6 +1818,14 @@ where
             authorization_details: authorization_details.map(<[AuthorizationDetail]>::to_vec),
         };
 
+        // The marker is reserved for Management access tokens created by exchange.
+        if audience != Some(MANAGEMENT_APPLICATION_URI) {
+            access_claims
+                .scope
+                .retain(|scope| scope != MANAGEMENT_POLICY_ADMINISTRATION_SCOPE);
+        }
+        let scope = (!access_claims.scope.is_empty()).then(|| access_claims.scope.join(" "));
+
         let access_token_value = encode_jwt(
             &signing_jwk,
             &super::token::AccessClaims {
@@ -1821,6 +1835,9 @@ where
             },
         )?;
 
+        access_claims
+            .scope
+            .retain(|scope| scope != MANAGEMENT_POLICY_ADMINISTRATION_SCOPE);
         let user_info = principal_user_info(principal);
 
         let id_token = IdTokenClaims {

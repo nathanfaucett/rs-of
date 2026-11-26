@@ -19,6 +19,9 @@ Roles across the Installation. Without that grant, the existing User-role view
 remains limited to the token's Application and requires its `users.read` grant.
 
 Fresh default setup provisions the operator Client scope and the four Installation
-grants. Existing login Client registrations, setup receipts, and grants are unchanged: restarting or retrying setup does not
-grant access to existing administrators or restore removed grants. Existing
-Installations need a separate, explicit policy provisioning decision.
+grants. It also grants `idp.clients.read` only in the operator login Application.
+IdP issues the policy scope only through User token exchange for Management.
+Existing login Client registrations, setup receipts, and grants are unchanged.
+Restarting or retrying setup does not grant access to existing administrators
+or restore removed grants. Existing Installations need a separate, explicit
+policy provisioning decision.

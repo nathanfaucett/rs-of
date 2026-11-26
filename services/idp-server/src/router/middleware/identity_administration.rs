@@ -4,10 +4,12 @@ use of_model::idp::contract::client_registration::ClientRegistration;
 use of_model::idp::contract::error_code::ErrorCode;
 use of_model::idp::contract::error_response::ErrorResponse;
 use of_model::idp::contract::grant_type::GrantType;
-use of_model::idp::contract::permission_evaluation::IdentityAction;
 use of_model::idp::contract::permission_evaluation::PermissionEvaluationRequest;
 use of_model::idp::contract::permission_evaluation::PermissionSubject;
 use of_model::idp::contract::permission_evaluation::PermissionTarget;
+use of_model::idp::contract::permission_evaluation::{
+    IdentityAction, MANAGEMENT_POLICY_ADMINISTRATION_SCOPE,
+};
 
 use crate::router::{middleware::authorization::StandardAuthorization, state::RouterState};
 
@@ -64,8 +66,8 @@ pub(crate) fn infrastructure_client(client: &ClientRegistration) -> bool {
         || client
             .allowed_grant_types
             .contains(&GrantType::ClientCredentials)
-        || client
-            .allowed_scopes
-            .iter()
-            .any(|scope| scope.starts_with("idp.") || scope.starts_with("management."))
+        || client.allowed_scopes.iter().any(|scope| {
+            scope != MANAGEMENT_POLICY_ADMINISTRATION_SCOPE
+                && (scope.starts_with("idp.") || scope.starts_with("management."))
+        })
 }

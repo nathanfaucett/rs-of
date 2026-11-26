@@ -183,7 +183,19 @@ test("Device administration, signed approval, and list discovery", async ({ page
   const row = page.getByRole("row").filter({ has: page.getByTitle(publicKey) });
   await expect(row).toBeVisible();
   await expect(row.getByRole("cell", { name: "Unknown", exact: true })).toHaveCount(0);
-  await row.getByRole("button", { name: "Rename", exact: true }).click();
+  const rename = row.getByRole("button", { name: "Rename", exact: true });
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 780 });
+    await rename.click({ trial: true });
+    const rowBox = await row.boundingBox();
+    const actionBox = await rename.boundingBox();
+    if (!rowBox || !actionBox) throw new Error("Device row or Rename action is missing");
+    expect(rowBox.x).toBeGreaterThanOrEqual(0);
+    expect(rowBox.x + rowBox.width).toBeLessThanOrEqual(width);
+    expect(actionBox.x).toBeGreaterThanOrEqual(0);
+    expect(actionBox.x + actionBox.width).toBeLessThanOrEqual(width);
+  }
+  await rename.click();
   const draft = row.getByRole("textbox", { name: "Device name" });
   await draft.fill("Unsaved name");
   const renameDenied = page.waitForResponse((res) => res.request().method() === "PATCH");

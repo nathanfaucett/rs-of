@@ -7,7 +7,6 @@ use device_service::HostedControlPlane;
 use device_service::ofdb::DbDeviceRepo;
 use device_service::ofdb::DbSelectionPolicyRepo;
 use idp_service::setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret};
-use management_service::INITIAL_ADMINISTRATOR_ACTIONS;
 use of_model::id::Id;
 use serde::{Deserialize, Serialize};
 use setup::{
@@ -439,9 +438,18 @@ async fn provision(
     control
         .wait_registered(&record.client.to_string(), &command.cancellation)
         .await?;
-    let idp = control
-        .wait_peer(&command.intent, "idp", &command.cancellation)
-        .await?;
+    // A confirmed registration can survive a retry before IdP republishes the login Application.
+    let (idp, login_application) = loop {
+        let idp = control
+            .wait_peer(&command.intent, "idp", &command.cancellation)
+            .await?;
+        if let Some(application) =
+            serde_json::from_value::<Option<Id>>(idp.facts["login_application"].clone())?
+        {
+            break (idp, application);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
     let user: Id = serde_json::from_value(idp.facts["user"].clone())?;
     let evaluator: Id = serde_json::from_value(idp.facts["evaluator"].clone())?;
     if user.is_nil()
@@ -481,13 +489,9 @@ async fn provision(
     let opened = engine.as_ref().expect("opened Management");
     let seeded_at = Instant::now();
     let identity_client = identity_client(config, control, &command.intent).await?;
-    management_service::provision_initial_administrator(
-        &identity_client,
-        user,
-        &INITIAL_ADMINISTRATOR_ACTIONS,
-    )
-    .await
-    .map_err(io::Error::other)?;
+    management_service::ofdb::provision_initial_operator(&identity_client, user, login_application)
+        .await
+        .map_err(io::Error::other)?;
     record.device = crate::provisioning::provision_initial_device(
         opened.client.clone(),
         (!record.device.is_nil()).then_some(record.device),

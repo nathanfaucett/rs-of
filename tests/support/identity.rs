@@ -190,7 +190,13 @@ pub(crate) async fn seed_idp_with_config(
         .into();
     other_client.application.uri = other_application.uri;
     other_client.client_id = Some("other-client".into());
-    other_client.client_secret = Some("other-secret".into());
+    other_client.client_secret = None;
+    other_client.client_type = ClientType::Public;
+    other_client.token_endpoint_auth_method = TokenEndpointAuthMethod::None;
+    other_client.allowed_scopes.push(
+        of_model::idp::contract::permission_evaluation::MANAGEMENT_POLICY_ADMINISTRATION_SCOPE
+            .into(),
+    );
     clients
         .create_client(other_client)
         .await
@@ -850,21 +856,18 @@ pub(crate) async fn run_lifecycle_http_checks(
     .await;
 }
 
-pub(crate) async fn run_permission_http_checks(
+pub(crate) async fn assert_client_read_isolation(
     client: &reqwest::Client,
     base: &str,
-    management_base: &str,
-    fixture: &PermissionFixture,
-    evaluator_status: http::StatusCode,
-) {
-    let admin = user_token(client, base, "administrator", "idp-services").await;
-    let app_admin = user_token(client, base, "app-administrator", "idp-services").await;
-    let unassigned = user_token(client, base, "unassigned", "idp-services").await;
+    admin: &str,
+    app_admin: &str,
+    unassigned: &str,
+) -> serde_json::Value {
     let registration_url = format!("{base}/idp/oauth2/register/human-client");
     let registration = expect_status(
         client
             .get(&registration_url)
-            .bearer_auth(&admin)
+            .bearer_auth(admin)
             .send()
             .await
             .expect("read permitted client"),
@@ -875,7 +878,7 @@ pub(crate) async fn run_permission_http_checks(
     expect_status(
         client
             .get(&registration_url)
-            .bearer_auth(&unassigned)
+            .bearer_auth(unassigned)
             .send()
             .await
             .expect("read denied client"),
@@ -885,7 +888,7 @@ pub(crate) async fn run_permission_http_checks(
     expect_status(
         client
             .get(format!("{base}/idp/oauth2/register/other-client"))
-            .bearer_auth(&admin)
+            .bearer_auth(admin)
             .send()
             .await
             .expect("cross-app read"),
@@ -895,13 +898,39 @@ pub(crate) async fn run_permission_http_checks(
     expect_status(
         client
             .get(format!("{base}/idp/oauth2/register/idp-evaluator"))
-            .bearer_auth(&app_admin)
+            .bearer_auth(app_admin)
             .send()
             .await
             .expect("infrastructure read"),
         http::StatusCode::FORBIDDEN,
     )
     .await;
+    expect_status(
+        client
+            .get(format!("{base}/idp/oauth2/register/idp-evaluator"))
+            .bearer_auth(admin)
+            .send()
+            .await
+            .expect("infrastructure administrator reads evaluator"),
+        http::StatusCode::OK,
+    )
+    .await;
+    registration
+}
+
+pub(crate) async fn run_permission_http_checks(
+    client: &reqwest::Client,
+    base: &str,
+    management_base: &str,
+    fixture: &PermissionFixture,
+    evaluator_status: http::StatusCode,
+) {
+    let admin = user_token(client, base, "administrator", "idp-services").await;
+    let app_admin = user_token(client, base, "app-administrator", "idp-services").await;
+    let unassigned = user_token(client, base, "unassigned", "idp-services").await;
+    let registration =
+        assert_client_read_isolation(client, base, &admin, &app_admin, &unassigned).await;
+    let registration_url = format!("{base}/idp/oauth2/register/human-client");
     expect_status(
         client
             .get(format!("{base}/idp/users/{}", fixture.administrator))

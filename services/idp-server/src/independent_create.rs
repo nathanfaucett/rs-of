@@ -156,7 +156,8 @@ async fn run(
                     .verify_setup_infrastructure_registration(registration)
                     .await?;
             }
-            public(&config, &control, &intent, &record).await?;
+            let application = login_application(opened, record.login).await?;
+            public(&config, &control, &intent, &record, Some(application)).await?;
             runtime = Some(
                 build(
                     &runtime_config(&config, &intent, &record)?,
@@ -321,11 +322,20 @@ fn observe(
     })
 }
 
+async fn login_application(owner: &OwnerProvisioner, login: Id) -> io::Result<Id> {
+    owner
+        .oauth2
+        .application_id_for_client(&login.to_string())
+        .await
+        .map_err(|error| io::Error::other(format!("{error:?}")))
+}
+
 async fn public(
     config: &AppConfig,
     control: &IndependentCreateControl,
     intent: &IndependentCreateIntent,
     record: &Record,
+    login_application: Option<Id>,
 ) -> io::Result<()> {
     let registration = SetupRelationship::IdpManagement.registration(
         record.client,
@@ -340,7 +350,7 @@ async fn public(
     } else {
         None
     };
-    control.set_public(IndependentOwnerPublic { operation: intent.clone(), owner: "idp".into(), clients: vec![serde_json::to_value(registration)?], facts: serde_json::json!({"identity_socket":identity_socket, "user":record.user, "login_client":record.login, "endpoint":record.endpoint, "evaluator":record.client}), registered: Vec::new() }, Arc::new(move |requested| {
+    control.set_public(IndependentOwnerPublic { operation: intent.clone(), owner: "idp".into(), clients: vec![serde_json::to_value(registration)?], facts: serde_json::json!({"identity_socket":identity_socket, "user":record.user, "login_client":record.login, "login_application":login_application, "endpoint":record.endpoint, "evaluator":record.client}), registered: Vec::new() }, Arc::new(move |requested| {
         if requested != id { return Err(io::Error::other("unknown consumer Client")); }
         load_setup_secret(&scope, requested)
     })).await
@@ -382,7 +392,7 @@ async fn provision(
         intent.purpose,
         protected.elapsed().as_millis()
     );
-    public(config, control, intent, &record).await?;
+    public(config, control, intent, &record, None).await?;
     let device = control
         .wait_peer(intent, "device", &command.cancellation)
         .await?;
@@ -536,7 +546,8 @@ async fn provision(
         "Independent setup owner=idp purpose=create phase=client-registration-seed elapsed_ms={}",
         clients_at.elapsed().as_millis()
     );
-    public(config, control, intent, &record).await?;
+    let application = login_application(owner, record.login).await?;
+    public(config, control, intent, &record, Some(application)).await?;
     let registrar = Arc::clone(owner);
     control
         .set_registrar(Arc::new(move |registration| {

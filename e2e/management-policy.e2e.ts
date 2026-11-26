@@ -1,28 +1,62 @@
 import { expect, test } from "@playwright/test";
 import { appURL, backendURL } from "./backend.mjs";
-import { frontendSession, json, passwordSession, signIn } from "./session";
+import { frontendSession, json, signIn } from "./session";
 
 test("Management Roles and Permissions work outside the sign-in Application", async ({
   browser,
   page,
   request,
 }) => {
-  const login = await passwordSession(request);
-  const exchange = async (resource: string) => {
-    const token = await json<{ access_token: string }>(
+  const marker = "management.policy.administer";
+  type ScopedToken = {
+    access_token: string;
+    scope: string;
+    id_token: string;
+    refresh_token: string;
+  };
+  const login = await json<ScopedToken>(
+    await request.post(`${backendURL}/idp/oauth2/token`, {
+      form: {
+        grant_type: "password",
+        client_id: "local-login",
+        username: "admin@local.test",
+        password: "password",
+        scope: `openid ${marker}`,
+        resource: "idp-management",
+      },
+    })
+  );
+  expect(login.scope).toBe("openid");
+  const tokenScopes = (jwt: string) => {
+    const { scope }: { scope: string } = JSON.parse(
+      Buffer.from(jwt.split(".")[1] ?? "", "base64url").toString()
+    );
+    return scope ? scope.split(" ").map((item) => JSON.parse(item) as string) : [];
+  };
+  for (const jwt of [login.access_token, login.id_token, login.refresh_token]) {
+    expect(tokenScopes(jwt)).toEqual(["openid"]);
+  }
+  const exchange = async (resource: string, subject = login.access_token) => {
+    const token = await json<ScopedToken>(
       await request.post(`${backendURL}/idp/oauth2/token`, {
         form: {
           grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
-          subject_token: login.access_token,
+          subject_token: subject,
           subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
           resource,
         },
       })
     );
+    expect(token.scope?.split(" ").includes(marker)).toBe(resource === "idp-management");
+    expect(tokenScopes(token.access_token).includes(marker)).toBe(resource === "idp-management");
+    for (const jwt of [token.id_token, token.refresh_token]) {
+      expect(tokenScopes(jwt)).not.toContain(marker);
+    }
     return { Authorization: `Bearer ${token.access_token}` };
   };
   const idp = await exchange(`${backendURL}/idp`);
   const management = await exchange("idp-management");
+  await exchange(`${backendURL}/idp`, management.Authorization.slice("Bearer ".length));
   const user = await json<{ sub: string }>(
     await request.get(`${backendURL}/idp/userinfo`, {
       headers: { Authorization: `Bearer ${login.access_token}` },
@@ -99,6 +133,16 @@ test("Management Roles and Permissions work outside the sign-in Application", as
           has: page.getByRole("button", { name: "Revoke", exact: true }),
         })
     ).toBeVisible();
+
+    const revoke = page.getByRole("button", { name: "Revoke", exact: true });
+    await page.route(
+      `${appPolicy}/roles/${roleId}/permissions/${permissionId}`,
+      (route) => route.fulfill({ status: 403, headers: { "access-control-allow-origin": appURL } }),
+      { times: 1 }
+    );
+    await revoke.click();
+    await expect(page.getByRole("alert").filter({ hasText: "revoke a permission" })).toBeVisible();
+    await expect(permissionForm.getByRole("button", { name: "Create permission" })).toBeEnabled();
 
     await roleName.fill("Vault reader");
     const description = roleForm.getByLabel("Description", { exact: true });

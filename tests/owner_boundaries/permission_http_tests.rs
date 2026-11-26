@@ -13,21 +13,32 @@ use of_model::idp::contract::{
 use tower::ServiceExt;
 
 use crate::support::identity::{
-    expect_status, run_lifecycle_http_checks, run_permission_http_checks, seed_idp,
-    seed_permissions, user_token,
+    assert_client_read_isolation, expect_status, run_lifecycle_http_checks,
+    run_permission_http_checks, seed_idp, seed_permissions, user_token,
 };
 
 #[test]
 fn normal_permission_http_administration() {
-    run_http_test(false);
+    run_http_test(Scenario::Administration);
 }
 
 #[test]
 fn normal_identity_and_infrastructure_lifecycle() {
-    run_http_test(true);
+    run_http_test(Scenario::Lifecycle);
 }
 
-fn run_http_test(lifecycle_only: bool) {
+#[test]
+fn operator_marker_preserves_application_client_read_isolation() {
+    run_http_test(Scenario::ClientRead);
+}
+
+enum Scenario {
+    Administration,
+    Lifecycle,
+    ClientRead,
+}
+
+fn run_http_test(scenario: Scenario) {
     std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024)
         .spawn(move || {
@@ -37,14 +48,14 @@ fn run_http_test(lifecycle_only: bool) {
                 .enable_all()
                 .build()
                 .expect("build HTTP test runtime")
-                .block_on(run_separate_permission_acceptance(lifecycle_only));
+                .block_on(run_separate_permission_acceptance(scenario));
         })
         .expect("spawn HTTP acceptance")
         .join()
         .expect("HTTP acceptance did not panic");
 }
 
-async fn run_separate_permission_acceptance(lifecycle_only: bool) {
+async fn run_separate_permission_acceptance(scenario: Scenario) {
     let root = std::env::temp_dir().join(format!(
         "permission-http-{}",
         of_model::idp::model::Id::now_v7()
@@ -154,7 +165,21 @@ async fn run_separate_permission_acceptance(lifecycle_only: bool) {
         .timeout(std::time::Duration::from_secs(12))
         .build()
         .expect("bounded test client");
-    if lifecycle_only {
+    if matches!(scenario, Scenario::ClientRead) {
+        let admin = user_token(&client, &idp_base, "administrator", "idp-services").await;
+        let app_admin = user_token(&client, &idp_base, "app-administrator", "idp-services").await;
+        let unassigned = user_token(&client, &idp_base, "unassigned", "idp-services").await;
+        assert_client_read_isolation(&client, &idp_base, &admin, &app_admin, &unassigned).await;
+        idp_task.abort();
+        management_task.abort();
+        let _ = idp_task.await;
+        let _ = management_task.await;
+        server.endpoint().close().await;
+        drop(runtime);
+        std::fs::remove_dir_all(root).expect("remove Client read fixture data");
+        return;
+    }
+    if matches!(scenario, Scenario::Lifecycle) {
         run_lifecycle_http_checks(&client, &idp_base, &management_base, &fixture).await;
         let actor = user_token(&client, &idp_base, "administrator", "idp-services").await;
         let unconfigured = idp_server::build_runtime(

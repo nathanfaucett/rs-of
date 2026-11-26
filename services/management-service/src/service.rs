@@ -473,6 +473,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fresh_operator_client_read_is_application_scoped_and_not_backfilled() {
+        use of_model::idp::contract::permission_evaluation::IdentityAction;
+        for fresh in [true, false] {
+            let engine = ofdb_sql::Database::in_memory();
+            let client = engine.client();
+            up(&client).await.expect("initialize policy schema");
+            let administrator = Id::now_v7();
+            let login_application = Id::now_v7();
+            if !fresh {
+                crate::provision_initial_administrator(
+                    &client,
+                    administrator,
+                    &crate::INITIAL_ADMINISTRATOR_ACTIONS,
+                )
+                .await
+                .expect("provision old inventory");
+            }
+            crate::ofdb::provision_initial_operator(&client, administrator, login_application)
+                .await
+                .expect("provision operator");
+            let service = ManagementService::new(
+                DbPermissionRepo::new(client.clone()),
+                DbRoleRepo::new(client),
+            );
+            for (application, allowed) in [(login_application, fresh), (Id::now_v7(), false)] {
+                assert_eq!(
+                    service
+                        .has_user_application_permission(
+                            administrator,
+                            application,
+                            IdentityAction::ClientsRead.permission(),
+                        )
+                        .await
+                        .expect("evaluate exact Client read grant"),
+                    allowed
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn retrying_setup_with_a_previous_inventory_does_not_grant_user_creation() {
         use of_model::idp::contract::permission_evaluation::{
             IdentityAction, IdentityResource, PermissionEvaluationRequest, PermissionSubject,
