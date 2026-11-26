@@ -11,7 +11,9 @@ Milestone: M2 — Single-Node encrypted synchronization
 ## Scope and non-goals
 
 - Require explicit confirmation before the first upload. Authentication alone must not attach or upload data.
-- Reuse the verified IdP and Storage endpoints and the idempotent Storage registration contract.
+- Reuse the verified IdP and Storage endpoints and the idempotent Storage registration contract. IdP issues tokens; Storage hosts the WebSocket and authorizes the exact Resource and applicable Selection.
+- The SDK opens a Resource-scoped transport and supplies it to `ofdb` on the existing local database. The transport carries the existing SQL sync payload bytes. Do not translate local commits into Storage changes or require a new database wrapper at the app boundary.
+- Use one SQL Resource per WebSocket in this ticket. The Resource transport must not expose this connection detail to the app; multiplexing and browser KV are follow-up work.
 - Keep the legacy path for opening old synced data, but remove the separate action for creating new synced vaults.
 - Do not merge two populated databases or add commit-driven push in this ticket.
 
@@ -19,7 +21,7 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 - [ ] A vault created and edited offline retains its ID and master password after sign-in and attachment.
 - [ ] The confirmation identifies the exact Installation and User/Application destination before any local change is sent.
-- [ ] Initial reconciliation publishes the existing local history to one Storage Resource through the authorized SQL transport.
+- [ ] Initial reconciliation runs `ofdb` SQL history exchange on the existing local database through the authorized WebSocket transport for the selected Resource.
 - [ ] Storage contains ciphertext and no known plaintext secret, master password, or unwrapped key.
 - [ ] Repeated registration and attachment attempts do not create a duplicate Resource or browser database.
 - [ ] The vault remains readable and editable locally after network loss or sign-out.
@@ -28,7 +30,7 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 ## Current evidence and qualification limits
 
-The legacy synced path still opens a separate browser database. The SDK can now wrap an existing browser SQL database for explicit exchange with an established replica. Construction does not open a second database, request a token, or start sync. SDK tests cover the fixed destination and ownership of the local database. The app does not use this handle for first attachment.
+The legacy synced path still opens a separate browser database. The SDK has an established-replica helper that reuses an existing database and fixes the destination at construction. This is groundwork, not the target app interface or a first-attachment mechanism. Reuse its transport and lifecycle where applicable; do not base first attachment on the helper's unguarded bidirectional exchange.
 
 ## Comments
 

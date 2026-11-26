@@ -34,8 +34,14 @@ Keep one active, encrypted Password Manager database per browser profile and one
 - Distinguish initial reconciliation of independent databases from normal exchange between established replicas. Use `ofdb` SQL history and its deterministic conflict ordering, not `updated_at` or a new app-level last-write-wins rule. Preserve stable vault and item identities and deletion history. Do not infer deletion from an absent row or match by display name. Prove the merge preserves decryptable complete records, including ciphertext and its nonce; where history or identity is incompatible, stop without discarding either source.
 - Preserve existing local and legacy synced data. Reopen or migrate legacy data through a supported, non-destructive path into the one active database. Keep the original data recoverable until the result is verified. Remove the separate synced-vault create and unlock path only when existing users can access their data through the unified flow. Do not clear browser storage or rewrite credentials to force migration.
 - Keep encryption before writes to persisted history. Sync ciphertext through the existing SQL history transport. No plaintext secret, master password, or unwrapped key goes to Storage. Metadata protection must not be implied beyond what the schema encrypts.
-- Reuse the browser SQL sync lifecycle over the existing Storage WebSocket transport where possible. Attach it to the already-open local database instead of opening another database named after the remote Resource. Use the verified IdP and Storage endpoints rather than deriving one URL from the other. The sync adapter owns attachment, cancellation, status, and retry; vault CRUD does not depend on it.
-- IdP authenticates Users and OAuth Clients and supplies tokens. Storage owns the Resource catalog and access, and runs the authorized SQL exchange. Device supplies approval, revocation, and placement policy. Do not bypass the non-seeded Storage policy or treat OIDC sign-in as browser Device approval. Sign-out or revocation ends authorized sync, not local custody.
+
+### Sync ownership and transport
+
+- `ofdb` publishes notifications after durable commits and owns sync messages, history exchange, and conflict resolution. A local commit notification wakes the SDK; it is not a wire message. Send the existing `ofdb` sync payload bytes, not vault CRUD events or a new Storage change protocol.
+- IdP authenticates Users and OAuth Clients and issues tokens. Device supplies approval, revocation, and placement policy. Sign-in does not grant Device approval or Selection.
+- Storage hosts the WebSocket and binds an authorized transport to the requested Resource kind and ID. It owns the Resource catalog, checks namespace access and applicable Device and Selection policy, and connects the stream to the Resource's `ofdb` instance. Storage framing carries control and routing data around the `ofdb` payload; it does not define a second history protocol. First upload must reject unapproved merge before either side changes, even if another writer races the initial check.
+- Use verified IdP and Storage endpoints. The SDK opens a Resource-scoped transport and supplies it to `ofdb` on the already-open local database. Do not create a second database or require an SDK database wrapper at the app boundary. The shared SDK owns commit-driven scheduling, serialization, cancellation, status, and retry. Vault CRUD does not depend on the SDK. Sign-out or revocation ends authorized sync, not local custody.
+- Expose one logical transport per Resource. Today one WebSocket carries one SQL Resource. Future multiplexing can share a socket across SQL and KV Resources without changing `ofdb` payloads or the Resource-scoped interface. Each stream needs its own authorization, routing ID, and bounded queue. A denied or revoked stream closes independently; a socket reconnect reauthorizes each stream.
 
 ## Testing Decisions
 
@@ -47,7 +53,7 @@ Keep one active, encrypted Password Manager database per browser profile and one
 ## Out of Scope
 
 - Cross-User sharing, Application-only Storage namespaces, key distribution, and key rotation.
-- Browser KV or filesystem transport, transparent peer forwarding, and continuous real-time delivery.
+- Multiple Resources on one WebSocket, browser KV or filesystem transport, transparent peer forwarding, and continuous real-time delivery. Multiplexing is a follow-up, not a dependency of this spec.
 - Full two-Device offline convergence qualification. That is separate from testing initial merge and single-Node reattachment.
 - Changing the local master-password model or persisting plaintext secrets.
 
