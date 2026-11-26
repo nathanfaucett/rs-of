@@ -142,9 +142,9 @@ async function handleSave() {
                         </button>
                     </fieldset>
                 {:else if draft.kind === "card"}
-                    <CardFields {draft} disabled={!workflow.canEdit} />
+                    <CardFields bind:draft={editor.draft as import("../secret-draft").CardDraft} disabled={!workflow.canEdit} />
                 {:else if draft.kind === "identity"}
-                    <IdentityFields {draft} disabled={!workflow.canEdit} />
+                    <IdentityFields bind:draft={editor.draft as import("../secret-draft").IdentityDraft} disabled={!workflow.canEdit} />
                 {:else if draft.kind === "sshKey"}
                     <SshKeyFields bind:draft={editor.draft as import("../secret-draft").SshKeyDraft} disabled={!workflow.canEdit} />
                 {:else if draft.kind === "secureNote"}
@@ -200,11 +200,8 @@ async function handleSave() {
             </fieldset>
             <Field id="notes" label="Notes">
                 {#snippet children(control: FieldControl)}
-                    {#if draft.kind === "secureNote" || draft.kind === "identity"}
-                        <PasswordInput {...control} label="Notes" bind:value={draft.notes} rows={3} disabled={!workflow.canEdit} />
-                    {:else}
-                        <textarea {...control} bind:value={draft.notes} rows="3" disabled={!workflow.canEdit}></textarea>
-                    {/if}
+                    <textarea {...control} bind:value={draft.notes} rows="3" disabled={!workflow.canEdit}
+                        autocomplete="off" spellcheck="false" autocapitalize="off"></textarea>
                 {/snippet}
             </Field>
             <label class="flex items-center gap-2 text-sm text-ink" for="favorite">

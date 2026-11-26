@@ -3,7 +3,7 @@ import { Field, type FieldControl } from "$lib/ui";
 import type { CardDraft } from "../secret-draft";
 import PasswordInput from "./PasswordInput.svelte";
 
-let { draft, disabled }: { draft: CardDraft; disabled: boolean } = $props();
+let { draft = $bindable(), disabled }: { draft: CardDraft; disabled: boolean } = $props();
 </script>
 
 <fieldset class="flex min-w-0 flex-col gap-3" {disabled}>
