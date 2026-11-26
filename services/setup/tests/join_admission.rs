@@ -1,12 +1,12 @@
 #![cfg(all(unix, feature = "join"))]
 
 use std::{
-    fs,
+    fs, io,
     net::TcpListener,
     os::unix::fs::PermissionsExt,
     path::Path,
     process::{Child, Command},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -18,8 +18,11 @@ use axum::{
 use iroh_base::{EndpointId, SecretKey};
 use reqwest::{Certificate, Client, StatusCode, redirect::Policy};
 use serde_json::{Value, json};
-use setup::{SetupAdmission, join::JoinHost};
-use tempfile::tempdir;
+use setup::{
+    SetupAdmission,
+    join::{JoinHost, JoinJournalStore},
+};
+use tempfile::{TempDir, tempdir};
 use tokio::time::{sleep, timeout};
 use tower::ServiceExt;
 
@@ -287,4 +290,191 @@ async fn proxy_uses_node_code_but_retains_private_join_admission() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert!(code(&join_path).is_none());
     assert!(code(&node_path).is_some_and(|retained| retained == node_code));
+}
+
+#[derive(Default)]
+struct JournalStore(Mutex<Option<Vec<u8>>>);
+
+impl JoinJournalStore for JournalStore {
+    fn load(&self) -> io::Result<Option<Vec<u8>>> {
+        Ok(self.0.lock().expect("read journal store").clone())
+    }
+
+    fn save(&self, journal: &[u8]) -> io::Result<()> {
+        *self.0.lock().expect("write journal store") = Some(journal.to_vec());
+        Ok(())
+    }
+}
+
+struct JournalProxy {
+    root: TempDir,
+    node: Arc<SetupAdmission>,
+    auth: HeaderValue,
+    journal: Arc<JournalStore>,
+}
+
+impl JournalProxy {
+    fn new() -> Self {
+        let root = tempdir().expect("isolated root");
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).expect("private root");
+        let node_path = root.path().join("node");
+        let node = Arc::new(SetupAdmission::open(&node_path).expect("open Node admission"));
+        let code = SetupAdmission::protected_code(&node_path)
+            .expect("read Node admission")
+            .expect("active Node code");
+        let auth = HeaderValue::try_from(format!("Setup {code}")).expect("setup header");
+        Self {
+            root,
+            node,
+            auth,
+            journal: Arc::default(),
+        }
+    }
+
+    fn open(&self) -> io::Result<JoinHost> {
+        let journal = Arc::clone(&self.journal);
+        JoinHost::open_for_proxy_with_journal(ORIGIN, Arc::clone(&self.node), journal)
+    }
+
+    async fn post(&self, host: &JoinHost, body: &Value) -> Response {
+        proxy_post(host, ORIGIN, &[&self.auth], body).await
+    }
+}
+
+#[tokio::test]
+async fn journal_proxy_uses_only_node_admission_and_retries_the_exact_intent() {
+    let proxy = JournalProxy::new();
+    let host = proxy.open().expect("open journal proxy");
+    let mut intent = join_intent();
+    let prepare = json!({"action": "prepare", "intent": intent});
+    assert_eq!(
+        proxy_post(&host, ORIGIN, &[], &prepare).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        proxy_post(&host, "https://other.test", &[&proxy.auth], &prepare)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert!(proxy.journal.load().expect("read journal").is_none());
+    let response = proxy.post(&host, &prepare).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let prepared = to_bytes(response.into_body(), 8192)
+        .await
+        .expect("prepared view");
+    let retained = proxy.journal.load().expect("read journal");
+    assert!(retained.is_some());
+    drop(host);
+
+    let host = proxy.open().expect("reopen journal proxy");
+    for body in [prepare, json!({"action": "resume"})] {
+        let response = proxy.post(&host, &body).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), 8192)
+                .await
+                .expect("retained view"),
+            prepared
+        );
+    }
+    intent["name"] = json!("Different Node");
+    assert_eq!(
+        proxy
+            .post(&host, &json!({"action": "prepare", "intent": intent}))
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(proxy.journal.load().expect("read journal"), retained);
+    assert_eq!(host.approved_bases().await.expect("read completion"), None);
+    assert_eq!(proxy.node.host_intent().expect("read Node binding"), None);
+    let files: Vec<_> = fs::read_dir(proxy.root.path())
+        .expect("read root")
+        .map(|entry| entry.expect("root entry").file_name())
+        .collect();
+    assert_eq!(files, ["node"]);
+}
+
+#[tokio::test]
+async fn journal_proxy_requires_verified_approval_and_never_reopens_it_for_writes() {
+    let proxy = JournalProxy::new();
+    let host = proxy.open().expect("open journal proxy");
+    let prepare = json!({"action": "prepare", "intent": join_intent()});
+    assert_eq!(proxy.post(&host, &prepare).await.status(), StatusCode::OK);
+    assert_eq!(
+        proxy
+            .post(&host, &json!({"action": "approve", "accessToken": ""}))
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    drop(host);
+
+    let bytes = proxy
+        .journal
+        .load()
+        .expect("read journal")
+        .expect("prepared journal");
+    let mut journal: Value = serde_json::from_slice(&bytes).expect("decode journal");
+    let id = "00000000-0000-0000-0000-000000000001";
+    journal["phase"] = json!({"approved": id});
+    proxy
+        .journal
+        .save(&serde_json::to_vec(&journal).expect("encode journal"))
+        .expect("seed unverified approval");
+    proxy.open().expect_err("reject unverified approval");
+
+    journal["storage_verified"] = json!(true);
+    let approved = serde_json::to_vec(&journal).expect("encode journal");
+    proxy
+        .journal
+        .save(&approved)
+        .expect("seed verified approval");
+    let host = proxy.open().expect("reopen verified journal");
+    let request = Request::get("/setup/join")
+        .header(header::ORIGIN, ORIGIN)
+        .body(Body::empty())
+        .expect("GET request");
+    let response = host
+        .router()
+        .oneshot(request)
+        .await
+        .expect("status response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let view: Value = serde_json::from_slice(
+        &to_bytes(response.into_body(), 8192)
+            .await
+            .expect("approved view"),
+    )
+    .expect("decode approved view");
+    assert_eq!(
+        view,
+        json!({"stage": "approved", "publicKey": journal["public_key"], "deviceId": id})
+    );
+    assert_eq!(
+        host.approved_bases().await.expect("read completion"),
+        Some((
+            "https://installation.test/idp".into(),
+            "https://installation.test/storage".into()
+        ))
+    );
+    for body in [
+        prepare,
+        json!({"action": "resume"}),
+        json!({"action": "request", "accessToken": "unused"}),
+        json!({"action": "approve", "accessToken": "unused"}),
+    ] {
+        assert_eq!(
+            proxy.post(&host, &body).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(proxy.journal.load().expect("read journal"), Some(approved));
+    let mut headers = HeaderMap::new();
+    headers.insert(header::AUTHORIZATION, proxy.auth);
+    proxy
+        .node
+        .check(&headers)
+        .expect("Node code remains active");
 }

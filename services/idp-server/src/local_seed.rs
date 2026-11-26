@@ -1,6 +1,9 @@
 use std::io;
 
-use idp_service::repo::{ClientRepo, KeyRepo, UserRepo};
+use idp_service::{
+    NodeSignerBinding,
+    repo::{ClientRepo, KeyRepo, PrivateKeyKeyringRepo, UserRepo},
+};
 use management_service::ofdb::provision_seeded_client_reader;
 use management_service::{INITIAL_ADMINISTRATOR_ACTIONS, provision_initial_administrator};
 use of_model::id::Id;
@@ -14,47 +17,26 @@ use of_model::idp::contract::permission_evaluation::MANAGEMENT_POLICY_ADMINISTRA
 use of_model::idp::contract::response_type::ResponseType;
 use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 
-use crate::router::state::RouterState;
+use crate::{provisioning::ensure_initial_signer, router::state::RouterState};
 
 pub async fn signer(
     client: ofdb_sql::Client,
     storage: &btree_redb::SharedDatabase,
     namespace: &str,
     issuer: &str,
-) -> io::Result<idp_service::oauth2::node_signer::NodeSignerBinding> {
-    use idp_service::{
-        ofdb::{DbIssuerKeyRepo, DbKeyRepo},
-        repo::{KeyService, PrivateKeyKeyringRepo},
-    };
+) -> io::Result<NodeSignerBinding> {
     use sha2::{Digest, Sha256};
+
     let member_id = Id::new_v5(&Id::NAMESPACE_URL, namespace.as_bytes());
-    let binding = idp_service::oauth2::node_signer::NodeSignerBinding {
+    let binding = NodeSignerBinding {
         member_id,
         key_id: Id::new_v5(&member_id, b"local-signer"),
         endpoint_id: iroh::SecretKey::from_bytes(&Sha256::digest(namespace.as_bytes()).into())
             .public()
             .to_string(),
     };
-    let keys = KeyService::new(
-        DbKeyRepo::new(client.clone()),
-        PrivateKeyKeyringRepo::new_local(storage).map_err(io::Error::other)?,
-        namespace,
-    );
-    let public_keys = DbIssuerKeyRepo::new(client);
-    if public_keys
-        .keys(issuer, 0)
-        .await
-        .map_err(io::Error::other)?
-        .is_empty()
-    {
-        let public = keys
-            .prepare_node_signer(&binding)
-            .map_err(io::Error::other)?;
-        public_keys
-            .install_initial(issuer, &public)
-            .await
-            .map_err(io::Error::other)?;
-    }
+    let keys = PrivateKeyKeyringRepo::new_local(storage).map_err(io::Error::other)?;
+    ensure_initial_signer(client, keys, namespace, issuer, &binding).await?;
     Ok(binding)
 }
 

@@ -53,10 +53,26 @@ use crate::{
 const PATH: &str = "/setup/join";
 const STORE: &str = "join-v1.json";
 
+/// Private, synchronous storage for one Join journal.
+///
+/// The opaque bytes contain the endpoint secret key. Store them without changes.
+pub trait JoinJournalStore: Send + Sync {
+    /// Return `None` only when no journal has been committed.
+    ///
+    /// # Errors
+    /// Return an error if the committed state cannot be read.
+    fn load(&self) -> io::Result<Option<Vec<u8>>>;
+
+    /// Atomically replace the journal. Return success only after durable commit.
+    ///
+    /// # Errors
+    /// Return an error if durable commit cannot be confirmed.
+    fn save(&self, journal: &[u8]) -> io::Result<()>;
+}
+
 /// Protected local Device join, served over native or verified proxy HTTPS.
 pub struct JoinHost {
     listener: Option<(SocketAddr, LocalTls)>,
-    node_admission: Option<Arc<SetupAdmission>>,
     origin: HeaderValue,
     state: Arc<Host>,
 }
@@ -108,7 +124,15 @@ impl JoinHost {
         require_private(&root.join("admission"), true)?;
         let admission = Arc::new(SetupAdmission::open(&root.join("admission"))?);
         let tls = LocalTls::open(&TlsConfig(root.clone(), address))?;
-        Self::with_admission(root, origin, admission, Some((address, tls)), None)
+        Self::with_store(
+            origin,
+            Store::File {
+                root,
+                admission,
+                node_admission: None,
+            },
+            Some((address, tls)),
+        )
     }
 
     /// Open the protected join flow for a caller-owned, verified HTTPS route.
@@ -133,19 +157,49 @@ impl JoinHost {
             require_private(&path, true)?;
         }
         let admission = Arc::new(SetupAdmission::open(&path)?);
-        Self::with_admission(root, origin, admission, None, Some(node_admission))
+        Self::with_store(
+            origin,
+            Store::File {
+                root,
+                admission,
+                node_admission: Some(node_admission),
+            },
+            None,
+        )
     }
 
-    fn with_admission(
-        root: PathBuf,
+    /// Open Join on a caller-owned, verified HTTPS route without Join files or a
+    /// Join code. POST checks the Node admission; Join does not bind or retire it.
+    /// The caller must retain the exact public and browser origins and ensure only
+    /// one live Join host owns this journal, including across processes.
+    ///
+    /// # Errors
+    /// Fails when the origin or retained journal is invalid or unavailable.
+    pub fn open_for_proxy_with_journal(
         origin: &str,
-        admission: Arc<SetupAdmission>,
+        node_admission: Arc<SetupAdmission>,
+        journal: Arc<dyn JoinJournalStore>,
+    ) -> io::Result<Self> {
+        if !origin.starts_with("https://") {
+            return Err(io::Error::other("join requires an HTTPS browser origin"));
+        }
+        Self::with_store(
+            origin,
+            Store::Journal {
+                journal,
+                node_admission,
+            },
+            None,
+        )
+    }
+
+    fn with_store(
+        origin: &str,
+        store: Store,
         listener: Option<(SocketAddr, LocalTls)>,
-        node_admission: Option<Arc<SetupAdmission>>,
     ) -> io::Result<Self> {
         let state = Arc::new(Host {
-            root,
-            admission,
+            store,
             operation: Mutex::new(()),
         });
         state.load().map_err(|_error| {
@@ -153,7 +207,6 @@ impl JoinHost {
         })?;
         Ok(Self {
             listener,
-            node_admission,
             origin: setup_origin(origin)?,
             state,
         })
@@ -178,13 +231,17 @@ impl JoinHost {
             .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
             .allow_private_network(true);
         let writes = Router::new().route(PATH, post(action));
-        let writes = match &self.node_admission {
-            Some(node) => writes.route_layer(middleware::from_fn_with_state(
-                (Arc::clone(node), Arc::clone(&self.state.admission)),
+        let writes = match &self.state.store {
+            Store::File {
+                admission,
+                node_admission: Some(node),
+                ..
+            } => writes.route_layer(middleware::from_fn_with_state(
+                (Arc::clone(node), Arc::clone(admission)),
                 proxy_admission,
             )),
-            None => writes.route_layer(middleware::from_fn_with_state(
-                Arc::clone(&self.state.admission),
+            store => writes.route_layer(middleware::from_fn_with_state(
+                Arc::clone(store.admission()),
                 setup_admission_middleware,
             )),
         };
@@ -207,15 +264,10 @@ impl JoinHost {
     /// Fails when retained approval evidence cannot be read or does not match.
     pub async fn approved_bases(&self) -> io::Result<Option<(String, String)>> {
         let _guard = self.state.operation.lock().await;
-        let read = || -> Result<_> {
-            let journal = self.state.load()?;
-            if !self.state.admission.is_retired()? {
-                return Ok(None);
-            }
-            Ok(journal)
-        };
-        let Some(mut journal) =
-            read().map_err(|_error| io::Error::other("retained join evidence unavailable"))?
+        let Some(mut journal) = self
+            .state
+            .completed()
+            .map_err(|_error| io::Error::other("retained join evidence unavailable"))?
         else {
             return Ok(None);
         };
@@ -283,9 +335,51 @@ async fn no_store(request: Request, next: Next) -> Response {
 }
 
 struct Host {
-    root: PathBuf,
-    admission: Arc<SetupAdmission>,
+    store: Store,
     operation: Mutex<()>,
+}
+
+enum Store {
+    File {
+        root: PathBuf,
+        admission: Arc<SetupAdmission>,
+        node_admission: Option<Arc<SetupAdmission>>,
+    },
+    Journal {
+        journal: Arc<dyn JoinJournalStore>,
+        node_admission: Arc<SetupAdmission>,
+    },
+}
+
+impl Store {
+    const fn admission(&self) -> &Arc<SetupAdmission> {
+        match self {
+            Self::File { admission, .. } => admission,
+            Self::Journal { node_admission, .. } => node_admission,
+        }
+    }
+
+    fn retired(&self, journal: &Journal) -> Result<bool> {
+        match self {
+            Self::File { admission, .. } => Ok(admission.is_retired()?),
+            Self::Journal { .. } => Ok(matches!(journal.phase, Phase::Approved(_))),
+        }
+    }
+
+    // For a DB journal, the prepared commit binds the intent and the approved commit retires it.
+    fn bind(&self, headers: &HeaderMap, journal: &Journal) -> Result<()> {
+        if let Self::File { admission, .. } = self {
+            admission.bind(headers, &journal.binding()?)?;
+        }
+        Ok(())
+    }
+
+    fn retire(&self, headers: &HeaderMap, journal: &Journal) -> Result<()> {
+        if let Self::File { admission, .. } = self {
+            admission.retire(headers, &journal.binding()?)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Deserialize, PartialEq, Eq, Serialize)]
@@ -503,28 +597,56 @@ fn view(journal: Option<&Journal>) -> Response {
 }
 
 impl Host {
-    fn load(&self) -> Result<Option<Journal>> {
-        let path = self.root.join(STORE);
-        let bound = self.admission.host_intent()?;
-        let retired = self.admission.is_retired()?;
-        if !present(&path).map_err(|_error| Failure::Unavailable)? {
-            return if bound.is_none() && !retired {
-                Ok(None)
-            } else {
-                Err(Failure::Unavailable)
-            };
+    fn completed(&self) -> Result<Option<Journal>> {
+        match self.load()? {
+            Some(journal) if self.store.retired(&journal)? => Ok(Some(journal)),
+            _ => Ok(None),
         }
+    }
+
+    fn load(&self) -> Result<Option<Journal>> {
+        let (bytes, file_admission) = match &self.store {
+            Store::File {
+                root, admission, ..
+            } => {
+                let bound = admission.host_intent()?;
+                let retired = admission.is_retired()?;
+                let path = root.join(STORE);
+                if !present(&path).map_err(|_error| Failure::Unavailable)? {
+                    return if bound.is_none() && !retired {
+                        Ok(None)
+                    } else {
+                        Err(Failure::Unavailable)
+                    };
+                }
+                let bytes = read_private(&path).map_err(|_error| Failure::Unavailable)?;
+                (bytes, Some((bound, retired)))
+            }
+            Store::Journal { journal, .. } => {
+                let Some(bytes) = journal.load().map_err(|_error| Failure::Unavailable)? else {
+                    return Ok(None);
+                };
+                (bytes, None)
+            }
+        };
         let journal: Journal =
-            serde_json::from_slice(&read_private(&path).map_err(|_error| Failure::Unavailable)?)
-                .map_err(|_error| Failure::Unavailable)?;
+            serde_json::from_slice(&bytes).map_err(|_error| Failure::Unavailable)?;
         if !journal.intent.valid()
             || SecretKey::from_bytes(&journal.key).public().to_string() != journal.public_key
             || journal.public_key == journal.intent.accepting_public_key
             || journal.phase.id().is_some_and(|id| !record_id(id))
-            || (retired && !matches!(journal.phase, Phase::Approved(_)))
-            || match bound {
-                Some(value) => value != journal.binding()?,
-                None => !matches!(journal.phase, Phase::Prepared),
+            || match file_admission {
+                Some((bound, retired)) => {
+                    (retired && !matches!(journal.phase, Phase::Approved(_)))
+                        || match bound {
+                            Some(value) => value != journal.binding()?,
+                            None => !matches!(journal.phase, Phase::Prepared),
+                        }
+                }
+                None => {
+                    matches!(journal.phase, Phase::Requesting)
+                        || matches!(journal.phase, Phase::Approved(_)) != journal.storage_verified
+                }
             }
         {
             return Err(Failure::Conflict);
@@ -534,12 +656,18 @@ impl Host {
 
     fn save(&self, journal: &Journal) -> Result<()> {
         let write = || -> io::Result<()> {
-            let path = self.root.join(format!(".join-{}", random_capability()?));
+            let root = match &self.store {
+                Store::File { root, .. } => root,
+                Store::Journal { journal: store, .. } => {
+                    return store.save(&serde_json::to_vec(journal)?);
+                }
+            };
+            let path = root.join(format!(".join-{}", random_capability()?));
             let mut file = private_options(true).open(&path)?;
             serde_json::to_writer(&mut file, journal)?;
             file.sync_all()?;
-            fs::rename(path, self.root.join(STORE))?;
-            sync_ancestry(&self.root)
+            fs::rename(path, root.join(STORE))?;
+            sync_ancestry(root)
         };
         write().map_err(|_error| Failure::Unavailable)
     }
@@ -562,16 +690,14 @@ impl Host {
                 journal
             }
         };
-        self.admission.bind(headers, &journal.binding()?)?;
+        self.store.bind(headers, &journal)?;
         Ok(journal)
     }
 }
 
 async fn status(State(host): State<Arc<Host>>) -> Result<Response> {
     let _guard = host.operation.lock().await;
-    let journal = host.load()?;
-    let retired = host.admission.is_retired()?;
-    Ok(view(journal.as_ref().filter(|_| retired)))
+    Ok(view(host.completed()?.as_ref()))
 }
 
 async fn action(
@@ -580,8 +706,15 @@ async fn action(
     Json(action): Json<Action>,
 ) -> Result<Response> {
     let _guard = host.operation.lock().await;
-    host.admission.check(&headers)?;
+    host.store.admission().check(&headers)?;
     let retained = host.load()?;
+    if matches!(host.store, Store::Journal { .. })
+        && retained
+            .as_ref()
+            .is_some_and(|item| matches!(item.phase, Phase::Approved(_)))
+    {
+        return Err(SetupAdmissionError::Denied.into());
+    }
     let action = match action {
         Action::Prepare { intent } => {
             let journal = host.prepare(&headers, retained, intent)?;
@@ -594,7 +727,7 @@ async fn action(
         other => other,
     };
     let mut journal = retained.ok_or(Failure::Conflict)?;
-    host.admission.bind(&headers, &journal.binding()?)?;
+    host.store.bind(&headers, &journal)?;
     if let Phase::Approved(_) = journal.phase {
         host.finish(&headers, journal).await?;
         return Ok(view(host.load()?.as_ref()));
@@ -608,7 +741,7 @@ async fn action(
         Action::Approve { access_token } => {
             let device = device_client(&journal.intent, access_token).await?;
             host.approve(&device, &mut journal).await?;
-            host.admission.retire(&headers, &journal.binding()?)?;
+            host.store.retire(&headers, &journal)?;
         }
         Action::Prepare { .. } => unreachable!("prepare returns before owner calls"),
     }
@@ -756,7 +889,7 @@ impl Host {
             journal.storage_verified = true;
             self.save(&journal)?;
         }
-        self.admission.retire(headers, &journal.binding()?)?;
+        self.store.retire(headers, &journal)?;
         Ok(())
     }
 

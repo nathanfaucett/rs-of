@@ -1,7 +1,7 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { request } from "node:https";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -32,7 +32,11 @@ async function freePort() {
 }
 
 function run(command: string, args: string[], env: NodeJS.ProcessEnv = process.env) {
-  return execFileSync(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] })
+  return execFileSync(command, args, {
+    cwd,
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  })
     .toString()
     .trim();
 }
@@ -107,7 +111,12 @@ async function tlsFixture(root: string) {
     "-i",
     files("ca.pem"),
   ]);
-  return { home, ca: files("ca.pem"), key: files("tls.key"), certificate: files("tls.pem") };
+  return {
+    home,
+    ca: files("ca.pem"),
+    key: files("tls.key"),
+    certificate: files("tls.pem"),
+  };
 }
 
 function status(url: string, ca: Buffer): Promise<number> {
@@ -132,8 +141,9 @@ async function stop(child: ChildProcess | undefined) {
   }
 }
 
-async function code(path: string) {
-  const value = (await readFile(path, "utf8")).split("\n")[1];
+async function code(path: string, raw = false) {
+  const text = await readFile(path, "utf8");
+  const value = raw ? text : text.split("\n")[1];
   if (!value || !/^[a-f0-9]{64}$/.test(value) || (await stat(path)).mode & 0o077) {
     throw new Error("Setup code not available through protected local management");
   }
@@ -202,10 +212,28 @@ async function launchNode(root: string) {
       await ready(`${base}/setup/node`);
     };
     await startBackend();
-    launch("pnpm", ["apps:dev"]);
+    // Keep workspace .env overrides from selecting a developer's running Node.
+    const nodeEnv = {
+      PUBLIC_UNIFIED_ORIGIN: base,
+      PUBLIC_IDP_BASE_URL: `${base}/idp`,
+      PUBLIC_DEVICE_BASE_URL: `${base}/device`,
+      PUBLIC_MANAGEMENT_BASE_URL: `${base}/management`,
+      PUBLIC_STORAGE_BASE_URL: `${base}/storage`,
+    };
+    launch("pnpm", ["--filter", "@ofsdk/app", "dev"], {
+      ...nodeEnv,
+      PUBLIC_URL: app,
+    });
+    launch("pnpm", ["--filter", "@ofsdk/password-manager", "dev"], {
+      ...nodeEnv,
+      PUBLIC_URL: pm,
+      PUBLIC_NODE_SETUP_URL: `${app}/setup`,
+    });
     await ready(app);
     await ready(pm);
-    const browser = await chromium.launch({ env: { ...process.env, HOME: tls.home } });
+    const browser = await chromium.launch({
+      env: { ...process.env, HOME: tls.home },
+    });
     return {
       data,
       base,
@@ -234,7 +262,7 @@ async function launchNode(root: string) {
 const nodeTest = test.extend<{ node: Awaited<ReturnType<typeof launchNode>> }>({
   node: async ({ browserName }, use) => {
     expect(browserName).toBe("chromium");
-    // The IdP identity socket must fit in the OS Unix socket path.
+
     const root = await mkdtemp(resolve(tmpdir(), "of-first-run-"));
     try {
       const node = await launchNode(root);
@@ -282,14 +310,16 @@ async function choose(
   await expect(page.getByRole("heading", { name: "Set up this Node" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Start a new Installation" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Join an existing Installation" })).toBeVisible();
-  expect(await descriptor(page, node.base)).toEqual({ state: "awaiting_choice" });
+  expect(await descriptor(page, node.base)).toEqual({
+    state: "awaiting_choice",
+  });
   expect(await select(page, node.base, choice)).toBe(401);
   for (const owner of owners) {
     await expect(stat(resolve(node.data, `${owner}.setup-host`))).rejects.toMatchObject({
       code: "ENOENT",
     });
   }
-  const nodeCode = await code(resolve(node.data, "node-admission/state"));
+  const nodeCode = await code(resolve(node.data, "node-admission/state"), true);
   await page.getByLabel("Node setup code", { exact: true }).fill(nodeCode);
   await page
     .getByRole("button", {
@@ -319,7 +349,9 @@ nodeTest(
     await expect(page.getByLabel(/setup code/i)).toHaveCount(0);
     await expect.poll(() => descriptor(page, base)).toEqual({ state: "creating" });
     for (const owner of owners) {
-      await expect(stat(resolve(data, owner))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(resolve(data, owner))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
     }
 
     const endpoint = `${base}/setup/node/create`;
@@ -362,6 +394,12 @@ nodeTest(
     };
     await expectNoOwnerSetupRoutes();
 
+    let streams = 0;
+    let snapshots = 0;
+    page.on("request", (request) => {
+      if (request.url() === `${base}/setup/node/events`) streams += 1;
+      if (request.url() === `${base}/setup/node`) snapshots += 1;
+    });
     await page.getByLabel("Administrator username", { exact: true }).fill(username);
     await page.getByLabel("Administrator password", { exact: true }).fill(password);
     const [accepted] = await Promise.all([
@@ -369,18 +407,24 @@ nodeTest(
       page.getByRole("button", { name: "Create", exact: true }).click(),
     ]);
     expect(accepted.status()).toBe(202);
-    await expect(page).toHaveURL(`${app}/signin`, { timeout: 35_000 });
-    await expect
-      .poll(() => descriptor(page, base), { timeout: 60_000 })
-      .toEqual({
-        state: "ready",
-        idp,
-        storage,
-        login_client: {
-          client_id: expect.stringMatching(/\S/),
-          scopes: expect.arrayContaining(["openid"]),
-        },
-      });
+    await expect(page).toHaveURL(`${app}/signin`, { timeout: 60_000 });
+    expect(streams).toBe(1);
+    expect(snapshots).toBeLessThanOrEqual(2);
+    expect((await readdir(data)).sort()).toEqual([
+      "node-admission",
+      "unified-setup.lock",
+      "unified.redb",
+    ]);
+    expect(await code(resolve(data, "node-admission/state"), true)).toBe(nodeCode);
+    expect(await descriptor(page, base)).toEqual({
+      state: "ready",
+      idp,
+      storage,
+      login_client: {
+        client_id: expect.stringMatching(/\S/),
+        scopes: expect.arrayContaining(["openid"]),
+      },
+    });
     const ready = await descriptor(page, base);
     const signIn = async (name: string, credential: string) => {
       await page.getByLabel("Username", { exact: true }).fill(name);
@@ -405,7 +449,9 @@ nodeTest(
     );
     await node.restart();
     await expect
-      .poll(() => descriptor(page, base).catch(() => undefined), { timeout: 60_000 })
+      .poll(() => descriptor(page, base).catch(() => undefined), {
+        timeout: 60_000,
+      })
       .toEqual(ready);
     await expectNoOwnerSetupRoutes();
     await page.goto(app);
@@ -420,7 +466,11 @@ nodeTest(
     ]) {
       expect((await api(endpoint, ca, { headers: { Origin: pm } })).origin).toBe(pm);
       expect(
-        (await api(endpoint, ca, { headers: { Origin: "https://other.localhost" } })).origin
+        (
+          await api(endpoint, ca, {
+            headers: { Origin: "https://other.localhost" },
+          })
+        ).origin
       ).toBeUndefined();
     }
     expect(await descriptor(pmPage, base)).toEqual(ready);
@@ -579,7 +629,9 @@ async function remoteInstallation(node: Awaited<ReturnType<typeof launchNode>>) 
     await exchange(idp)
   );
   const deviceToken = await exchange(device);
-  const key = generateKeyPairSync("ed25519").publicKey.export({ format: "jwk" });
+  const key = generateKeyPairSync("ed25519").publicKey.export({
+    format: "jwk",
+  });
   const publicKey = Buffer.from(key.x ?? "", "base64url").toString("hex");
   await post(
     `${device}/devices/enrollments`,
@@ -645,7 +697,10 @@ nodeTest("Join refuses Storage outside the selected Installation", async ({ node
       })
     ).status
   ).toBe(200);
-  const refused = await post({ action: "request", accessToken: "must-not-be-forwarded" });
+  const refused = await post({
+    action: "request",
+    accessToken: "must-not-be-forwarded",
+  });
   expect(refused.status).toBe(409);
   expect(await descriptor(page, base)).toEqual({ state: "joining" });
   expect(await remote.devices()).toEqual(before);
@@ -731,7 +786,9 @@ nodeTest(
     });
     expect(await status(`${base}/idp/.well-known/openid-configuration`, ca)).toBe(404);
     for (const owner of owners) {
-      await expect(stat(resolve(data, owner))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(resolve(data, owner))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
       await expect(stat(resolve(data, `${owner}.setup-host`))).rejects.toMatchObject({
         code: "ENOENT",
       });

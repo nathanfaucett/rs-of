@@ -24,10 +24,7 @@ required-features = ["cli"]
 
 [features]
 default = ["cli", "completions"]
-independent = [
-    "dep:setup",
-    "server-common/independent",
-]
+independent = ["setup/operator-login", "server-common/independent"]
 cli = ["independent", "dep:dotenvy", "dep:clap", "dep:cli"]
 completions = ["cli?/completions", "dep:clap_complete"]
 

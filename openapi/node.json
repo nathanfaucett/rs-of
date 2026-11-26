@@ -67,6 +67,9 @@
           },
           {
             "properties": {
+              "active": {
+                "type": "boolean"
+              },
               "state": {
                 "enum": ["creating"],
                 "type": "string"
@@ -87,6 +90,9 @@
           },
           {
             "properties": {
+              "create": {
+                "type": "boolean"
+              },
               "state": {
                 "enum": ["blocked"],
                 "type": "string"
@@ -236,7 +242,7 @@
         },
         "responses": {
           "202": {
-            "description": "Create accepted; check Node readiness"
+            "description": "Create accepted; observe Node setup events for completion"
           },
           "400": {
             "description": "Invalid administrator details"
@@ -323,9 +329,6 @@
           "403": {
             "description": "Browser origin not allowed"
           },
-          "409": {
-            "description": "Conflicting retained setup"
-          },
           "503": {
             "description": "Setup unavailable"
           }
@@ -336,6 +339,30 @@
           }
         ],
         "tags": ["node_create"]
+      }
+    },
+    "/setup/node/events": {
+      "get": {
+        "operationId": "node_setup_events",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/Descriptor"
+                }
+              }
+            },
+            "description": "Server-sent message events. Each data field is a JSON setup descriptor. Sends the current snapshot, then pushes startup and Create changes. Join approval is read through the status endpoint."
+          },
+          "403": {
+            "description": "Browser origin not allowed"
+          },
+          "503": {
+            "description": "The Node setup runtime is unavailable"
+          }
+        },
+        "tags": []
       }
     }
   },

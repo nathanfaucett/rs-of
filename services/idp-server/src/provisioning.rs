@@ -5,9 +5,10 @@ use std::{
 };
 
 use idp_service::{
+    NodeSignerBinding,
     oauth2::service::OAuth2Service,
     ofdb::{
-        DbApplicationRepo, DbClientRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
+        DbApplicationRepo, DbClientRepo, DbIssuerKeyRepo, DbKeyRepo, DbOAuth2AuthorizationCodeRepo,
         DbOAuth2RefreshTokenRepo, DbOAuth2UserConsentRepo, DbUserRepo,
     },
     repo::{
@@ -32,6 +33,36 @@ pub async fn open_local_identity_database(directory: &Path) -> io::Result<Arc<Da
         .await
         .map_err(io::Error::other)?;
     Ok(engine)
+}
+
+/// Installs the first issuer key if the issuer key catalog is empty.
+///
+/// # Errors
+/// Returns an error if the key provider or issuer catalog cannot be read or written.
+pub async fn ensure_initial_signer<P: PrivateKeyRepo + Send + Sync>(
+    client: ofdb_sql::Client,
+    private_keys: P,
+    namespace: &str,
+    issuer: &str,
+    binding: &NodeSignerBinding,
+) -> io::Result<()> {
+    let keys = KeyService::new(DbKeyRepo::new(client.clone()), private_keys, namespace);
+    let public_keys = DbIssuerKeyRepo::new(client);
+    if public_keys
+        .keys(issuer, 0)
+        .await
+        .map_err(io::Error::other)?
+        .is_empty()
+    {
+        let public = keys
+            .prepare_node_signer(binding)
+            .map_err(io::Error::other)?;
+        public_keys
+            .install_initial(issuer, &public)
+            .await
+            .map_err(io::Error::other)?;
+    }
+    Ok(())
 }
 
 fn to_io_error(error: ErrorResponse) -> io::Error {

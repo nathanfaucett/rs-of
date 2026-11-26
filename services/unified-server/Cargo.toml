@@ -45,6 +45,18 @@ cli = { path = "../cli", default-features = false, features = [
 
 # Internal
 device-server = { path = "../device-server", default-features = false }
+device-service = { path = "../device-service", default-features = false, features = [
+    "ofdb",
+    "std",
+] }
+idp-service = { path = "../idp-service", default-features = false, features = [
+    "local-private-keys",
+    "ofdb",
+    "std",
+] }
+management-service = { path = "../management-service", default-features = false, features = [
+    "ofdb",
+] }
 db = { package = "of-db", path = "../db", default-features = false, features = [
     "native",
 ] }
@@ -56,7 +68,16 @@ storage-server = { path = "../storage-server", default-features = false, feature
     "independent",
 ] }
 
-setup = { path = "../setup", default-features = false, features = ["join"], optional = true }
+setup = { path = "../setup", default-features = false, features = [
+    "join",
+    "operator-login",
+], optional = true }
+
+of-model = { path = "../model", default-features = false, features = [
+    "ofdb",
+    "std",
+] }
+iroh = { version = "1.4", default-features = false, features = ["tls-ring"] }
 
 # Serialization
 serde = { version = "1.0", default-features = false, features = [
@@ -73,6 +94,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 
 # Async
+async-stream = { version = "0.3", default-features = false }
 tokio = { version = "1.52", default-features = false, features = [
     "macros",
     "rt-multi-thread",
@@ -96,24 +118,13 @@ axum = { version = "0.8", default-features = false, features = [
 ] }
 tower = { version = "0.5", default-features = false, features = ["util"] }
 tower-http = { version = "0.7", default-features = false, features = ["cors"] }
-utoipa = { version = "5.5", default-features = false, features = ["macros"], optional = true }
+utoipa = { version = "5.5", default-features = false, features = [
+    "macros",
+], optional = true }
 
 [dev-dependencies]
-# Contract export
-device-service = { path = "../device-service", default-features = false, features = [
-    "ofdb",
-    "std",
-    "utoipa",
-] }
-of-model = { path = "../model", default-features = false, features = [
-    "ofdb",
-    "std",
-] }
-
 # Process fixtures
 base64 = { version = "0.22", default-features = false, features = ["std"] }
-iroh = { version = "1.4", default-features = false, features = ["tls-ring"] }
-management-service = { path = "../management-service", default-features = false, features = ["ofdb"] }
 tempfile = { version = "3.27", default-features = false }
 
 [[example]]

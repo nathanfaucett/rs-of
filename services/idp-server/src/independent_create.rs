@@ -6,17 +6,13 @@ use idp_service::{
     setup_credentials::{SetupRelationship, create_setup_secret, load_setup_secret},
 };
 use of_model::id::Id;
-use of_model::idp::contract::application_registration::ApplicationRegistration;
-use of_model::idp::contract::client_profile::ClientProfile;
 use of_model::idp::contract::client_registration::ClientRegistration;
-use of_model::idp::contract::client_type::ClientType;
-use of_model::idp::contract::grant_type::GrantType;
-use of_model::idp::contract::token_endpoint_auth_method::TokenEndpointAuthMethod;
 use serde::{Deserialize, Serialize};
 use setup::{
     independent_create::{IndependentCreateCommand, IndependentCreateControl},
     independent_operation::{IndependentCreateIntent, IndependentOwnerPublic},
     independent_setup::IndependentSetupHost,
+    operator_login_registration,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -139,7 +135,12 @@ async fn run(
                 opened.verify_node_signer(&binding(&record)?).await?;
             }
             opened
-                .verify_public_login_client(login(&intent, record.login))
+                .verify_public_login_client(operator_login_registration(
+                    record.login,
+                    &intent.idp,
+                    &intent.device,
+                    &intent.storage,
+                ))
                 .await?;
             opened
                 .verify_setup_infrastructure_registration(
@@ -291,7 +292,12 @@ fn observe(
             }
             observe("login_client");
             owner
-                .verify_public_login_client(login(&intent, record.login))
+                .verify_public_login_client(operator_login_registration(
+                    record.login,
+                    &intent.idp,
+                    &intent.device,
+                    &intent.storage,
+                ))
                 .await?;
             observe("user");
             owner
@@ -527,7 +533,12 @@ async fn provision(
     );
     let clients_at = Instant::now();
     owner
-        .ensure_setup_public_login_client(login(intent, record.login))
+        .ensure_setup_public_login_client(operator_login_registration(
+            record.login,
+            &intent.idp,
+            &intent.device,
+            &intent.storage,
+        ))
         .await?;
     let mut own_registration = SetupRelationship::IdpManagement.registration(
         record.client,
@@ -615,54 +626,6 @@ async fn provision(
             &record,
         )
         .await
-}
-
-fn login(intent: &IndependentCreateIntent, id: Id) -> ClientRegistration {
-    ClientRegistration {
-        application: ApplicationRegistration {
-            name: Some("Local Node operator".into()),
-            uri: intent.idp.clone(),
-            description: None,
-        },
-        client_id: Some(id.to_string()),
-        client_secret: None,
-        client_id_issued_at: None,
-        client_secret_expires_at: None,
-        client_name: "Local Node operator".into(),
-        client_uri: None,
-        logo_uri: None,
-        contacts: Vec::new(),
-        terms_of_service_uri: None,
-        policy_uri: None,
-        client_type: ClientType::Public,
-        profile: ClientProfile::Native,
-        redirect_uris: Vec::new(),
-        allowed_grant_types: vec![
-            GrantType::Password,
-            GrantType::RefreshToken,
-            GrantType::TokenExchange,
-        ],
-        response_types: Vec::new(),
-        allowed_scopes: vec![
-            "openid".into(),
-            "profile".into(),
-            "email".into(),
-            of_model::idp::contract::permission_evaluation::MANAGEMENT_POLICY_ADMINISTRATION_SCOPE
-                .into(),
-        ],
-        allowed_audiences: vec![
-            intent.idp.clone(),
-            "idp-management".into(),
-            intent.device.clone(),
-            intent.storage.clone(),
-            "storage:databases".into(),
-            "storage:filesystems".into(),
-        ],
-        token_endpoint_auth_method: TokenEndpointAuthMethod::None,
-        software_statement: None,
-        software_id: None,
-        software_version: None,
-    }
 }
 
 async fn build(config: &AppConfig, engine: ofdb_sql::Client) -> io::Result<IdpRuntime> {

@@ -8,9 +8,11 @@
         createNode,
         type NodeCreateIntent,
         NodeSetupError,
+        type NodeSetupStatus,
         nodeSetupCode,
         nodeSetupStatus,
         readNodeCreateIntent,
+        watchNodeSetupStatus,
     } from "$lib/common/state/nodeSetup";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
@@ -20,15 +22,18 @@
     let intent = $state.raw<NodeCreateIntent | null>();
     let busy = $state(false);
     let waiting = $state(false);
+    let needsCheck = $state(false);
     let error = $state("");
+    let stopWatching: (() => void) | undefined;
     let mounted = false;
 
     onMount(() => {
         mounted = true;
         code = nodeSetupCode("create");
-        if (code) void run(inspect);
+        if (code) void checkStatus();
         return () => {
             mounted = false;
+            stopWatching?.();
         };
     });
 
@@ -53,56 +58,66 @@
             report(cause);
         } finally {
             busy = false;
-            waiting = false;
         }
     }
 
-    async function inspect() {
-        intent = undefined;
-        password = "";
-        const status = await nodeSetupStatus();
-        if (!mounted) return;
-        if (!status || status.state === "unavailable")
+    async function applyStatus(status: NodeSetupStatus | undefined) {
+        if (!status || status.state === "unavailable") {
+            needsCheck = true;
             throw new Error(
                 "Cannot verify Node setup. Check the connection and try again.",
             );
+        }
+        needsCheck = false;
         if (status.state !== "creating" && status.state !== "blocked") {
             await goto(resolve(status.route), { replaceState: true });
             return;
         }
+        intent = undefined;
         if (code) intent = await readNodeCreateIntent(code);
+        if (!mounted) return;
+        if (status.state === "creating" && status.active && code) watch();
+        if (status.state === "blocked" && !error) {
+            error =
+                "The Node reports that setup is blocked. Check the server terminal.";
+        }
     }
 
-    async function checkReadiness() {
-        waiting = true;
-        const deadline = Date.now() + 30_000;
-        while (mounted && Date.now() < deadline) {
-            const status = await nodeSetupStatus();
-            if (!mounted) return;
-            if (
-                status &&
-                (status.route === "/signin" ||
-                    status.route === "/setup/join" ||
-                    status.state === "awaiting_choice")
-            ) {
-                await goto(resolve(status.route), { replaceState: true });
-                return;
-            }
-            if (status?.state === "blocked") break;
-            await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-        if (!mounted) return;
+    async function inspect() {
+        stopWatching?.();
         waiting = false;
-        error =
-            "The Node is not ready yet. Check retained setup before retrying.";
-        await inspect();
+        password = "";
+        const status = await nodeSetupStatus();
+        if (mounted) await applyStatus(status);
+    }
+
+    function checkStatus() {
+        return run(inspect);
+    }
+
+    function watch() {
+        stopWatching?.();
+        waiting = true;
+        stopWatching = watchNodeSetupStatus(
+            (status) => {
+                if (status.state === "creating" && status.active) return;
+                stopWatching?.();
+                waiting = false;
+                void run(() => applyStatus(status));
+            },
+            () => {
+                waiting = false;
+                needsCheck = true;
+                error =
+                    "Node status updates stopped. Select Check Node status to reconnect.";
+            },
+        );
     }
 
     async function mutate(
         operation: () => Promise<void>,
         after: () => Promise<void>,
     ) {
-        intent = undefined;
         try {
             await operation();
         } catch (cause) {
@@ -113,9 +128,20 @@
         if (mounted) await after();
     }
 
+    async function waitForCreate() {
+        intent = undefined;
+        try {
+            intent = await readNodeCreateIntent(code);
+        } catch (cause) {
+            report(cause);
+        }
+        if (mounted && code) watch();
+    }
+
     function submit(event: SubmitEvent) {
         event.preventDefault();
-        if (intent === undefined) return run(inspect);
+        if (waiting || needsCheck) return;
+        if (intent === undefined) return checkStatus();
         const retained = intent;
         const entered = password;
         password = "";
@@ -129,7 +155,7 @@
                             ? undefined
                             : entered,
                     ),
-                checkReadiness,
+                waitForCreate,
             ),
         );
     }
@@ -137,12 +163,14 @@
     function cancel() {
         const retained = intent;
         if (!retained) return;
-        return run(() =>
-            mutate(async () => {
+        return run(async () => {
+            stopWatching?.();
+            waiting = false;
+            await mutate(async () => {
                 await cancelNodeCreate(code, retained.operation_nonce);
                 administrator = "";
-            }, inspect),
-        );
+            }, inspect);
+        });
     }
 </script>
 
@@ -150,10 +178,30 @@
     <PageHeader title="Create an Installation" />
     <Card>
         {#if error}<Alert tone="danger">{error}</Alert>{/if}
-        {#if waiting}
-            <Alert tone="info">Waiting for the Node to be ready.</Alert>
-        {:else if busy}
+        {#if busy}
             <Alert tone="info">Checking Node setup.</Alert>
+        {:else if waiting || needsCheck}
+            {#if waiting}
+                <Alert tone="info">Waiting for the Node to be ready.</Alert>
+            {/if}
+            <div class="flex flex-wrap gap-4">
+                {#if intent}
+                    <button
+                        type="button"
+                        class="btn btn-secondary btn-md"
+                        onclick={cancel}
+                    >
+                        Cancel Create
+                    </button>
+                {/if}
+                <button
+                    type="button"
+                    class="btn btn-secondary btn-md"
+                    onclick={checkStatus}
+                >
+                    Check Node status
+                </button>
+            </div>
         {:else}
             <form onsubmit={submit} class="flex flex-col gap-4">
                 {#if intent === undefined}
@@ -235,7 +283,7 @@
                             <button
                                 type="button"
                                 class="btn btn-secondary btn-md"
-                                onclick={() => run(inspect)}
+                                onclick={checkStatus}
                             >
                                 Check Node status
                             </button>

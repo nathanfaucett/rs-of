@@ -1,6 +1,13 @@
 <script lang="ts">
-    import { refreshAll } from "$app/navigation";
-    import { chooseNodeSetup } from "$lib/common/state/nodeSetup";
+    import { onMount } from "svelte";
+    import { goto } from "$app/navigation";
+    import { resolve } from "$app/paths";
+    import {
+        chooseNodeSetup,
+        type NodeSetupStatus,
+        nodeSetupStatus,
+        watchNodeSetupStatus,
+    } from "$lib/common/state/nodeSetup";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
     import type { PageProps } from "./$types";
@@ -10,24 +17,77 @@
     let busy = $state(false);
     let error = $state("");
 
-    $effect(() => {
-        if (data.state !== "starting") return;
-        const timer = setInterval(() => void refreshAll(), 500);
-        return () => clearInterval(timer);
+    let setupState = $derived(data.state);
+    let stopWatching: (() => void) | undefined;
+    let mounted = false;
+
+    onMount(() => {
+        mounted = true;
+        if (setupState === "starting") watch();
+        return () => {
+            mounted = false;
+            stopWatching?.();
+        };
     });
 
-    async function choose(choice: "create" | "join") {
+    async function applyStatus(status: NodeSetupStatus) {
+        if (status.route === "/setup") setupState = status.state;
+        else await goto(resolve(status.route), { replaceState: true });
+    }
+
+    function watch() {
+        stopWatching?.();
+        stopWatching = watchNodeSetupStatus(
+            (status) => {
+                if (status.state === "starting") return;
+                stopWatching?.();
+                void run(() => applyStatus(status));
+            },
+            () => {
+                error =
+                    "Node status updates stopped. Select Check Node status to reconnect.";
+            },
+        );
+    }
+
+    async function run(operation: () => Promise<void>) {
+        if (busy) return;
         busy = true;
         error = "";
         try {
-            await chooseNodeSetup(choice, code);
-            code = "";
-            await refreshAll();
+            await operation();
         } catch (cause) {
-            error = cause instanceof Error ? cause.message : "Cannot select Node setup.";
+            error =
+                cause instanceof Error
+                    ? cause.message
+                    : "Cannot verify Node setup.";
         } finally {
             busy = false;
         }
+    }
+
+    function choose(choice: "create" | "join") {
+        return run(async () => {
+            await chooseNodeSetup(choice, code);
+            if (!mounted) return;
+            code = "";
+            setupState = "starting";
+            watch();
+        });
+    }
+
+    function checkStatus() {
+        return run(async () => {
+            stopWatching?.();
+            const status = await nodeSetupStatus();
+            if (!mounted) return;
+            if (!status) {
+                setupState = "unavailable";
+                return;
+            }
+            await applyStatus(status);
+            if (mounted && status.state === "starting") watch();
+        });
     }
 </script>
 
@@ -35,9 +95,9 @@
     <PageHeader title="Set up this Node" />
     <Card>
         {#if error}<Alert tone="danger">{error}</Alert>{/if}
-        {#if data.state === "starting"}
+        {#if setupState === "starting"}
             <p>Your choice was saved. Starting the selected setup.</p>
-        {:else if data.state === "unavailable" || data.state === "blocked"}
+        {:else if setupState === "unavailable" || setupState === "blocked"}
             <Alert tone="danger">Cannot verify Node setup. Check the server terminal and HTTPS trust.</Alert>
         {:else}
             <p>Use the protected Node setup code from the file shown in the server terminal.</p>
@@ -51,6 +111,6 @@
                 <button type="button" class="btn btn-secondary btn-md" disabled={busy} onclick={() => choose("join")}>Join an existing Installation</button>
             </div>
         {/if}
-        <button type="button" class="btn btn-secondary btn-md" disabled={busy} onclick={() => refreshAll()}>Check Node status</button>
+        <button type="button" class="btn btn-secondary btn-md" disabled={busy} onclick={checkStatus}>Check Node status</button>
     </Card>
 </Page>

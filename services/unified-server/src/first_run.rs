@@ -7,18 +7,22 @@ use std::{
     time::Duration,
 };
 
+use crate::{
+    node_create::NodeCreate,
+    node_runtime::NodeRuntime,
+    node_setup::{ADMISSION, Choice, NodeSetup},
+    setup_store::SetupStore,
+};
 use axum::{
     Router,
     extract::Request,
-    http::{HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::get,
 };
+use db::EmbeddedDatabase;
 use reqwest::{Client, Url};
-use server_common::{
-    IndependentCreateControl, IndependentCreateHost, IndependentSetupHost, LocalTls, ServerConfig,
-    random_capability, setup_files,
-};
+use server_common::{LocalTls, random_capability, setup_files};
 use setup::join::JoinHost;
 use tokio::{
     net::TcpListener,
@@ -28,16 +32,9 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
-use tower_http::cors::{Any, CorsLayer};
-
-use crate::{
-    compose_router,
-    node_create::NodeCreate,
-    node_setup::{ADMISSION, Choice, Completion, NodeSetup, OWNERS},
-};
 
 const ROOT_MARKER: &str = "unified-setup.lock";
-const HOSTS_MARKER: &str = "unified-setup-hosts";
+const DATABASE: &str = "unified.redb";
 const PROBE_PATH: &str = "/.well-known/unified-setup-probe";
 
 pub async fn serve(
@@ -111,25 +108,29 @@ pub async fn serve(
     let result = async {
         verified?;
         let _root_lock = open_root(&root)?;
-        let mut owners = None;
         let result = async {
-            let node = NodeSetup::open(&root, &ui_origin, &pm_origin, &public_origin)?;
+            let database = EmbeddedDatabase::open(&root).await.map_err(io::Error::other)?;
+            let store = SetupStore::open(&database).await?;
+            let node = NodeSetup::open(&root, &ui_origin, &pm_origin, &public_origin, store.clone(), shutdown.clone())?;
             let mut selection = node.choice();
-            published.send_replace(Some(node.router(Completion::Starting)));
+            published.send_replace(Some(node.router(Router::new())));
             let choice = tokio::select! {
                 () = shutdown.cancelled() => return Ok(()),
                 result = jobs.join_next() => return flatten(result),
                 value = selection.wait_for(Option::is_some) => value.map_err(io::Error::other)?.expect("retained choice"),
             };
             match choice {
-                Choice::Create => owners = Some(run_owners(
-                    &root, (&ui_origin, &public_origin, &pm_origin), &client,
-                    &node, &published, &shutdown, &mut jobs,
-                )?),
+                Choice::Create => {
+                    let (create, commands) = NodeCreate::open(node.clone(), store).await?;
+                    published.send_replace(Some(node.router(create.router()).merge(create.owner_routes())));
+                    jobs.spawn(create.run(NodeRuntime {
+                        root: root.clone(), base: public_origin, ui: ui_origin, pm: pm_origin, client, database,
+                    }, commands, shutdown.clone()));
+                }
                 Choice::Join => {
-                    let path = root.join("join");
-                    let join = Arc::new(JoinHost::open_for_proxy(&path, &ui_origin, node.admission())?);
-                    published.send_replace(Some(join.router().merge(node.router(Completion::Join(join)))));
+                    let join = Arc::new(JoinHost::open_for_proxy_with_journal(&ui_origin, node.admission(), Arc::new(store))?);
+                    published.send_replace(Some(node.router(Router::new()).merge(join.router())));
+                    node.joined(join);
                 }
             }
             tokio::select! {
@@ -138,182 +139,10 @@ pub async fn serve(
             }
         }.await;
         shutdown.cancel();
-        let result = drain(&mut jobs, result).await;
-        drop(owners);
-        result
+        drain(&mut jobs, result).await
     }.await;
     shutdown.cancel();
     drain(&mut jobs, result).await
-}
-
-fn run_owners(
-    root: &Path,
-    (ui_origin, public_origin, pm_origin): (&str, &str, &str),
-    client: &Client,
-    node: &NodeSetup,
-    published: &watch::Sender<Option<Router>>,
-    shutdown: &CancellationToken,
-    jobs: &mut JoinSet<io::Result<()>>,
-) -> io::Result<[IndependentCreateHost; 3]> {
-    let [idp, device, storage] = OWNERS.map(|owner| {
-        IndependentSetupHost::prepare_for_proxy(
-            owner,
-            &root.join(owner),
-            ui_origin,
-            public_origin,
-            client.clone(),
-        )
-    });
-    let (idp, device, storage) = (idp?, device?, storage?);
-    let (idp, idp_commands) = idp.into_create(shutdown.clone())?;
-    let (device, device_commands) = device.into_create(shutdown.clone())?;
-    let (storage, storage_commands) = storage.into_create(shutdown.clone())?;
-    let controls = [idp.control(), device.control(), storage.control()];
-    IndependentCreateControl::connect_local(&controls)?;
-    write_hosts_marker(root)?;
-    let (idp_config, device_config, storage_config) =
-        owner_configs(root, ui_origin, public_origin)?;
-    let (device_ready, mut device_identity) = watch::channel(None);
-    let (management_ready, management_router) = watch::channel::<Option<Router>>(None);
-    let management_base = format!("{public_origin}/management");
-    let management = management_routes(
-        &management_base,
-        server_common::setup_origin(ui_origin)?,
-        management_router.clone(),
-    );
-    jobs.spawn(idp_server::run_owner_setup(
-        Arc::new(idp_config),
-        idp.control(),
-        idp_commands,
-        shutdown.clone(),
-    ));
-    jobs.spawn(device_server::run_owner_setup(
-        Arc::new(device_config),
-        device.control(),
-        device_commands,
-        shutdown.clone(),
-        Some(device_ready),
-    ));
-    jobs.spawn(storage_server::run_owner_setup(
-        Arc::new(storage_config),
-        storage.control(),
-        storage_commands,
-        shutdown.clone(),
-    ));
-    let stop = shutdown.clone();
-    jobs.spawn(async move {
-        let serving = tokio::select! {
-            () = stop.cancelled() => return Ok(()),
-            value = device_identity.wait_for(Option::is_some) => value.map_err(io::Error::other)?.clone(),
-        };
-        let (identity, control) = serving.expect("Device published its serving state");
-        let router = management_server::build_router(identity, &management_base, "/management", control).await.map_err(io::Error::other)?;
-        management_ready.send_replace(Some(router));
-        stop.cancelled().await;
-        Ok(())
-    });
-    let api_origins = [
-        server_common::setup_origin(ui_origin)?,
-        server_common::setup_origin(pm_origin)?,
-    ];
-    let completion = Completion::Create {
-        create: NodeCreate::new(node.admission(), controls, public_origin.into()),
-        management: management_router,
-    };
-    published.send_replace(Some(
-        compose_router(
-            idp.api_router(api_origins.clone()),
-            management,
-            device.api_router([api_origins[0].clone()]),
-            storage.api_router(api_origins),
-        )
-        .merge(node.router(completion)),
-    ));
-    Ok([idp, device, storage])
-}
-
-fn owner_configs(
-    root: &Path,
-    ui_origin: &str,
-    public_origin: &str,
-) -> io::Result<(
-    idp_server::AppConfig,
-    device_server::AppConfig,
-    storage_server::AppConfig,
-)> {
-    let config = |owner: &str| -> io::Result<(String, ServerConfig, String)> {
-        let path = root.join(owner);
-        let data_dir = path
-            .to_str()
-            .ok_or_else(|| io::Error::other("setup data path must be UTF-8"))?;
-        let prefix = format!("/{owner}");
-        let base = format!("{public_origin}{prefix}");
-        let server = ServerConfig {
-            prefix: Some(prefix),
-            setup_ui_origin: Some(ui_origin.to_owned()),
-            ..Default::default()
-        };
-        Ok((data_dir.into(), server, base))
-    };
-    let (data_dir, server, api_public_uri) = config("idp")?;
-    let mut idp_config = idp_server::AppConfig {
-        data_dir,
-        server,
-        api_public_uri,
-        ui_public_uri: ui_origin.to_owned(),
-        ..Default::default()
-    };
-    idp_config
-        .oauth2
-        .issuer
-        .clone_from(&idp_config.api_public_uri);
-    let (data_dir, server, api_public_uri) = config("device")?;
-    let device_config = device_server::AppConfig {
-        data_dir,
-        server,
-        api_public_uri,
-        ..Default::default()
-    };
-    let (data_dir, server, api_public_uri) = config("storage")?;
-    let storage_config = storage_server::AppConfig {
-        data_dir,
-        server,
-        api_public_uri,
-        ..Default::default()
-    };
-    Ok((idp_config, device_config, storage_config))
-}
-
-fn management_routes(
-    management_base: &str,
-    ui_origin: HeaderValue,
-    management_router: watch::Receiver<Option<Router>>,
-) -> Router {
-    let metadata = management_server::public_metadata_router(management_base, "/management")
-        .fallback(|| async { StatusCode::SERVICE_UNAVAILABLE });
-    Router::new()
-        .fallback(move |request: Request| {
-            let router = management_router
-                .borrow()
-                .clone()
-                .unwrap_or_else(|| metadata.clone());
-            async move {
-                if request.uri().path().starts_with("/management/setup/") {
-                    return StatusCode::NOT_FOUND.into_response();
-                }
-                router
-                    .oneshot(request)
-                    .await
-                    .expect("infallible Management router")
-            }
-        })
-        .layer(
-            CorsLayer::new()
-                .allow_origin(ui_origin)
-                .allow_methods(Any)
-                .allow_headers(Any)
-                .allow_private_network(true),
-        )
 }
 
 async fn verify_proxy(client: &Client, origin: &str, proof: &str) -> io::Result<()> {
@@ -348,31 +177,18 @@ fn validate_root(root: &Path) -> io::Result<()> {
     for entry in read_dir(root)? {
         let name = entry?.file_name();
         if !retained
-            || ![
-                ROOT_MARKER,
-                HOSTS_MARKER,
-                ADMISSION,
-                "join",
-                "idp",
-                "device",
-                "storage",
-                "idp.setup-host",
-                "device.setup-host",
-                "storage.setup-host",
-            ]
-            .iter()
-            .any(|allowed| name == *allowed)
+            || ![ROOT_MARKER, ADMISSION, DATABASE, "sync-staging"]
+                .iter()
+                .any(|allowed| name == *allowed)
         {
             return Err(io::Error::other(
                 "unsupported retained state; preserve it and choose a fresh setup data root",
             ));
         }
     }
-    if setup_files::present(&root.join(HOSTS_MARKER))? {
-        setup_files::require_private(&root.join(HOSTS_MARKER), false)?;
-        for owner in OWNERS {
-            setup_files::require_private(&root.join(owner).with_extension("setup-host"), true)?;
-        }
+    if setup_files::present(&root.join(ADMISSION))? && !setup_files::present(&root.join(DATABASE))?
+    {
+        return Err(io::Error::other("retained Node database is missing"));
     }
     Ok(())
 }
@@ -385,7 +201,14 @@ fn open_root(root: &Path) -> io::Result<File> {
     if retained {
         setup_files::require_private(&marker, false)?;
     }
-    let lock = setup_files::private_options(!retained).open(marker)?;
+    let lock = match setup_files::private_options(true).open(&marker) {
+        Ok(lock) => lock,
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            setup_files::require_private(&marker, false)?;
+            setup_files::private_options(false).open(&marker)?
+        }
+        Err(error) => return Err(error),
+    };
     lock.try_lock().map_err(io::Error::other)?;
     validate_root(root)?;
     if !retained {
@@ -393,17 +216,6 @@ fn open_root(root: &Path) -> io::Result<File> {
         setup_files::sync_ancestry(root)?;
     }
     Ok(lock)
-}
-
-fn write_hosts_marker(root: &Path) -> io::Result<()> {
-    let marker = root.join(HOSTS_MARKER);
-    if !setup_files::present(&marker)? {
-        setup_files::private_options(true)
-            .open(marker)?
-            .sync_all()?;
-        setup_files::sync_ancestry(root)?;
-    }
-    Ok(())
 }
 
 fn flatten(result: Option<Result<io::Result<()>, JoinError>>) -> io::Result<()> {

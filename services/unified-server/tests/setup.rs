@@ -25,6 +25,30 @@ fn setup_rejects_old_local_data_without_touching_it() {
 }
 
 #[test]
+fn setup_rejects_a_split_database_root_without_touching_it() {
+    let root = tempfile::tempdir().expect("private data directory");
+    fs::write(root.path().join("unified-setup.lock"), []).expect("old root lock");
+    fs::create_dir(root.path().join("idp")).expect("old IdP directory");
+    let database = root.path().join("idp/idp.redb");
+    fs::write(&database, b"retained IdP data").expect("old IdP data");
+    let output = Command::new(env!("CARGO_BIN_EXE_unified-server"))
+        .args(["setup", "--data-dir"])
+        .arg(root.path())
+        .env_remove("PUBLIC_BASE_URL")
+        .env("PORTLESS_URL", "https://unified.localhost:1355")
+        .env("PORT", "12345")
+        .output()
+        .expect("run setup command");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("choose a fresh setup data root"));
+    assert_eq!(
+        fs::read(database).expect("retained IdP data"),
+        b"retained IdP data"
+    );
+    assert!(!root.path().join("unified.redb").exists());
+}
+
+#[test]
 fn setup_rejects_plaintext_public_origin_before_writing_state() {
     let root = tempfile::tempdir().expect("private data directory");
     let output = Command::new(env!("CARGO_BIN_EXE_unified-server"))

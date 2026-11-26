@@ -12,6 +12,14 @@ const intentSchema = v.object({
   password_required: v.boolean(),
   operation_nonce: v.pipe(v.string(), v.nonEmpty()),
 });
+const descriptorSchema = v.object({
+  state: v.string(),
+  active: v.optional(v.unknown()),
+  create: v.optional(v.unknown()),
+  idp: v.optional(v.unknown()),
+  storage: v.optional(v.unknown()),
+  login_client: v.optional(v.unknown()),
+});
 export type NodeCreateIntent = v.InferOutput<typeof intentSchema>;
 type Choice = "create" | "join";
 export type NodeSetupStatus =
@@ -19,7 +27,8 @@ export type NodeSetupStatus =
       route: "/setup";
       state: "awaiting_choice" | "starting" | "blocked" | "unavailable";
     }
-  | { route: "/setup/installation"; state: "creating" }
+  | { route: "/setup/installation"; state: "creating"; active: boolean }
+  | { route: "/setup/installation"; state: "blocked" }
   | { route: "/setup/join"; state: "joining" | "ready" }
   | {
       route: "/signin";
@@ -59,16 +68,23 @@ export async function nodeSetupStatus(
     ...setupInit,
     signal: AbortSignal.timeout(5000),
   }).catch(() => undefined);
-  const descriptor: {
-    state?: unknown;
-    idp?: unknown;
-    storage?: unknown;
-    login_client?: unknown;
-  } = (response?.ok && (await response.json().catch(() => undefined))) || {};
-  if (node !== unifiedNode()) return { route: "/setup", state: "unavailable" };
+  const descriptor = response?.ok ? await response.json().catch(() => undefined) : undefined;
+  return parseNodeSetupStatus(node, descriptor);
+}
+
+function parseNodeSetupStatus(node: string, value: unknown): NodeSetupStatus {
+  const unavailable = { route: "/setup", state: "unavailable" } as const;
+  if (node !== unifiedNode()) return unavailable;
+  const parsed = v.safeParse(descriptorSchema, value);
+  if (!parsed.success) return unavailable;
+  const descriptor = parsed.output;
   switch (descriptor.state) {
     case "creating":
-      return { route: "/setup/installation", state: "creating" };
+      return {
+        route: "/setup/installation",
+        state: "creating",
+        active: descriptor.active === true,
+      };
     case "joining":
       return { route: "/setup/join", state: "joining" };
     case "ready":
@@ -88,12 +104,53 @@ export async function nodeSetupStatus(
         return { route: "/setup/join", state: "ready" };
       }
       break;
+    case "blocked":
+      return descriptor.create === true
+        ? { route: "/setup/installation", state: "blocked" }
+        : { route: "/setup", state: "blocked" };
     case "awaiting_choice":
     case "starting":
-    case "blocked":
       return { route: "/setup", state: descriptor.state };
   }
-  return { route: "/setup", state: "unavailable" };
+  return unavailable;
+}
+
+export function watchNodeSetupStatus(
+  onStatus: (status: NodeSetupStatus) => void,
+  onDisconnect: () => void
+): () => void {
+  const node = unifiedNode();
+  if (!node) {
+    onDisconnect();
+    return () => {};
+  }
+  const source = new EventSource(`${node}/setup/node/events`);
+  let closed = false;
+  function close() {
+    if (closed) return;
+    closed = true;
+    source.close();
+  }
+  function disconnect() {
+    if (closed) return;
+    close();
+    onDisconnect();
+  }
+  source.onerror = disconnect;
+  source.onmessage = ({ data }) => {
+    if (closed) return;
+    let descriptor: unknown;
+    try {
+      descriptor = JSON.parse(data);
+    } catch {
+      disconnect();
+      return;
+    }
+    const status = parseNodeSetupStatus(node, descriptor);
+    if (status.state === "unavailable") disconnect();
+    else onStatus(status);
+  };
+  return close;
 }
 
 export class NodeSetupError extends Error {

@@ -76,7 +76,10 @@ pub use router::{
 };
 pub use router::{openapi_document, openapi_router, public_metadata_router};
 #[cfg(feature = "network")]
-pub use runtime::{StorageRuntime, build_http_runtime, build_local_runtime, build_runtime};
+pub use runtime::{
+    StorageRuntime, build_http_runtime, build_local_runtime, build_runtime,
+    build_shared_http_runtime,
+};
 #[cfg(all(unix, feature = "independent"))]
 pub use startup::prepare_setup;
 #[cfg(feature = "sync")]

@@ -15,6 +15,10 @@ pub mod independent_setup;
 #[cfg(all(unix, feature = "join"))]
 pub mod join;
 pub mod local_tls;
+#[cfg(all(unix, feature = "operator-login"))]
+mod operator_login;
+#[cfg(all(unix, feature = "operator-login"))]
+pub use operator_login::operator_login_registration;
 #[cfg(unix)]
 mod setup_admission;
 pub mod setup_files;

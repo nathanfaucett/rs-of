@@ -42,12 +42,12 @@ pnpm apps:dev
 
 Open the [main app](https://of.localhost:1355). To select **Start a new Installation** or **Join an existing Installation**, enter the protected Node code from the private file whose path the server prints. The browser reuses that code in memory only. Reenter it if setup resumes after a reload or an OIDC sign-in redirect. Portless can prefix these hostnames in a Git worktree; use the URLs it prints. You do not need to set environment variables.
 
-- **Create** sets the first administrator and runs the local owner setup workers automatically in the Node process. Unified Create does not expose public owner setup routes or seed accounts. Wait for setup to verify readiness before signing in.
+- **Create** sets the first administrator and starts the services from one local `ofdb`. It does not expose owner setup routes or seed accounts. The Node pushes readiness updates to the app.
 - **Join** uses the same Node code, but still requires pairing and approval from the existing Installation. It does not start local owner APIs or create accounts.
 
 The [Password Manager](https://password-manager.localhost:1355) can use local vaults immediately. For sign-in it reads the selected IdP and Storage from the [Node setup descriptor](openapi/node.json) after setup completes.
 
-Restart with the same data root and public URLs to resume active setup or use completed setup. The default root is `.data`. Existing unified roots and their original codes need no migration. The operator uses only the Node code. The server still rejects seeded roots without changing them. See [local setup and recovery](services/unified-server/README.md) for unsupported roots and recovery steps.
+Restart with the same data root and public URLs to continue setup or use a completed Installation. The default root is `.data`. The server rejects previous split-database and seeded roots without modifying them. See [local setup and recovery](services/unified-server/README.md).
 
 ## Repository map
 

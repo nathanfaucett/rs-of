@@ -1,28 +1,40 @@
-use std::sync::Arc;
+use std::{io, sync::Arc};
 
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, State},
+    extract::{DefaultBodyLimit, Request, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::post,
 };
 use serde::{Deserialize, Serialize};
-use server_common::{
-    IndependentCreateControl, IndependentCreateIntent, IndependentCreateRequest, SetupAdmission,
-    random_capability,
-};
-use tokio::sync::Mutex;
+use server_common::SetupAdmission;
+use tokio::sync::{Mutex, mpsc};
+use tokio_util::sync::CancellationToken;
+use tower::ServiceExt;
 use utoipa::ToSchema;
 
-use crate::node_setup::OWNERS;
+use crate::{
+    node_runtime::{CreateRecord, NodeRuntime},
+    node_setup::{Descriptor, LoginClient, NodeSetup},
+    setup_store::SetupStore,
+};
+
+const RECORD: &str = "create";
 
 #[derive(Clone)]
 pub struct NodeCreate {
+    node: NodeSetup,
     admission: Arc<SetupAdmission>,
-    owners: [IndependentCreateControl; 3],
-    base: String,
-    operation: Arc<Mutex<()>>,
+    store: SetupStore,
+    state: Arc<Mutex<CreateState>>,
+    commands: mpsc::Sender<(String, CancellationToken)>,
+}
+
+struct CreateState {
+    record: Option<CreateRecord>,
+    active: Option<CancellationToken>,
+    router: Option<Router>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -46,17 +58,26 @@ pub struct CancelRequest {
 }
 
 impl NodeCreate {
-    pub fn new(
-        admission: Arc<SetupAdmission>,
-        owners: [IndependentCreateControl; 3],
-        base: String,
-    ) -> Self {
-        Self {
-            admission,
-            owners,
-            base,
-            operation: Arc::new(Mutex::new(())),
-        }
+    pub async fn open(
+        node: NodeSetup,
+        store: SetupStore,
+    ) -> io::Result<(Self, mpsc::Receiver<(String, CancellationToken)>)> {
+        let record = store.read(RECORD).await?;
+        let (commands, receiver) = mpsc::channel(1);
+        Ok((
+            Self {
+                admission: node.admission(),
+                node,
+                store,
+                commands,
+                state: Arc::new(Mutex::new(CreateState {
+                    record,
+                    active: None,
+                    router: None,
+                })),
+            },
+            receiver,
+        ))
     }
 
     pub fn router(&self) -> Router {
@@ -68,38 +89,101 @@ impl NodeCreate {
             .with_state(self.clone())
     }
 
-    pub const fn owners(&self) -> &[IndependentCreateControl; 3] {
-        &self.owners
+    pub fn owner_routes(&self) -> Router {
+        let state = self.state.clone();
+        Router::new().fallback(move |request: Request| async move {
+            let router = state.lock().await.router.clone();
+            match router {
+                Some(router) => router
+                    .oneshot(request)
+                    .await
+                    .expect("infallible Node router"),
+                None => StatusCode::NOT_FOUND.into_response(),
+            }
+        })
     }
 
-    pub fn matches_bases(&self, intent: &IndependentCreateIntent) -> bool {
-        intent.issuer == intent.idp
-            && OWNERS.iter().all(|owner| {
-                intent.base(owner).ok() == Some(format!("{}/{owner}", self.base).as_str())
-            })
-    }
-
-    async fn retained(&self) -> Result<(Option<IndependentCreateIntent>, [bool; 3]), StatusCode> {
-        let mut exact = None;
-        let mut retired = [false; 3];
-        for (owner, retired) in self.owners.iter().zip(&mut retired) {
-            let (intent, done) = owner
-                .local_setup_state()
-                .await
-                .map_err(|_error| StatusCode::SERVICE_UNAVAILABLE)?;
-            *retired = done;
-            if let Some(intent) = intent {
-                if !self.matches_bases(&intent)
-                    || exact.as_ref().is_some_and(|exact| exact != &intent)
-                {
-                    return Err(StatusCode::CONFLICT);
-                }
-                exact = Some(intent);
-            } else if done {
-                return Err(StatusCode::SERVICE_UNAVAILABLE);
+    pub async fn run(
+        self,
+        runtime: NodeRuntime,
+        mut commands: mpsc::Receiver<(String, CancellationToken)>,
+        shutdown: CancellationToken,
+    ) -> io::Result<()> {
+        let restore = {
+            let state = self.state.lock().await;
+            let restore = state
+                .record
+                .as_ref()
+                .is_some_and(|record| record.device.is_some());
+            if !restore && state.active.is_none() {
+                self.node.publish(Descriptor::Creating { active: false });
+            }
+            restore
+        };
+        if restore {
+            if let Err(error) = self.build(&runtime, None, &shutdown, &shutdown).await {
+                eprintln!("Cannot open retained Node Installation: {error}");
+                self.node.publish(Descriptor::Blocked { create: true });
             }
         }
-        Ok((exact, retired))
+        loop {
+            let (password, cancelled) = tokio::select! {
+                biased;
+                () = shutdown.cancelled() => break,
+                command = commands.recv() => match command { Some(command) => command, None => break },
+            };
+            if let Err(error) = self
+                .build(&runtime, Some(&password), &cancelled, &shutdown)
+                .await
+            {
+                let mut state = self.state.lock().await;
+                state.active = None;
+                if error.kind() == io::ErrorKind::Interrupted {
+                    self.node.publish(Descriptor::Creating { active: false });
+                } else {
+                    eprintln!("Cannot complete Node Create: {error}");
+                    self.node.publish(Descriptor::Blocked { create: true });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn build(
+        &self,
+        runtime: &NodeRuntime,
+        password: Option<&str>,
+        cancelled: &CancellationToken,
+        shutdown: &CancellationToken,
+    ) -> io::Result<()> {
+        let mut record: CreateRecord = self
+            .store
+            .read(RECORD)
+            .await?
+            .ok_or_else(|| io::Error::other("Node Create record is missing"))?;
+        let router = runtime
+            .build(&mut record, password, cancelled, shutdown)
+            .await?;
+        let mut state = self.state.lock().await;
+        if cancelled.is_cancelled() || shutdown.is_cancelled() {
+            return Err(io::ErrorKind::Interrupted.into());
+        }
+        if password.is_some() {
+            self.store.write(RECORD, &record).await?;
+        }
+        let client_id = record.login.to_string();
+        state.router = Some(router);
+        state.active = None;
+        state.record = Some(record);
+        self.node.publish(Descriptor::Ready {
+            idp: format!("{}/idp", runtime.base),
+            storage: format!("{}/storage", runtime.base),
+            login_client: Some(LoginClient {
+                client_id,
+                scopes: vec!["openid"],
+            }),
+        });
+        Ok(())
     }
 
     fn authorize(&self, headers: &HeaderMap) -> Result<(), StatusCode> {
@@ -109,65 +193,44 @@ impl NodeCreate {
     }
 
     async fn start(&self, request: CreateRequest) -> Result<StatusCode, StatusCode> {
-        let _guard = self.operation.lock().await;
-        let (retained, retired) = self.retained().await?;
-        if retired == [true; 3] {
-            return Err(StatusCode::CONFLICT);
-        }
-        let intent = if let Some(retained) = retained {
-            if retained.administrator != request.administrator {
-                return Err(StatusCode::CONFLICT);
-            }
-            retained
-        } else {
-            let nonce = random_capability().map_err(|_error| StatusCode::SERVICE_UNAVAILABLE)?;
-            IndependentCreateIntent {
-                purpose: "create".into(),
-                operation_nonce: nonce[..32].into(),
-                administrator: request.administrator,
-                node: "My Node".into(),
-                idp: format!("{}/idp", self.base),
-                issuer: format!("{}/idp", self.base),
-                device: format!("{}/device", self.base),
-                storage: format!("{}/storage", self.base),
-            }
-        };
-        intent
-            .canonical()
-            .map_err(|_error| StatusCode::BAD_REQUEST)?;
-        if !retired[0]
-            && request
-                .password
-                .as_ref()
-                .is_none_or(|password| !(8..=4096).contains(&password.len()))
+        let mut state = self.state.lock().await;
+        if request.administrator.trim().is_empty()
+            || request.administrator.len() > 256
+            || request.administrator.chars().any(char::is_control)
         {
             return Err(StatusCode::BAD_REQUEST);
         }
-        let mut password = request.password;
-        for (index, owner) in self.owners.iter().enumerate() {
-            if retired[index] {
-                continue;
-            }
-            let status = owner
-                .submit_local(IndependentCreateRequest {
-                    intent: intent.clone(),
-                    password: if index == 0 { password.take() } else { None },
-                })
-                .await;
-            if status != StatusCode::ACCEPTED {
-                let current = owner
-                    .local_setup_state()
-                    .await
-                    .map_err(|_error| StatusCode::SERVICE_UNAVAILABLE)?;
-                if current != (Some(intent.clone()), true) {
-                    return Err(if status == StatusCode::UNAUTHORIZED {
-                        StatusCode::SERVICE_UNAVAILABLE
-                    } else {
-                        status
-                    });
-                }
+        if let Some(record) = &state.record {
+            if record.device.is_some() || record.administrator != request.administrator {
+                return Err(StatusCode::CONFLICT);
             }
         }
+        let password = request
+            .password
+            .filter(|password| (8..=4096).contains(&password.len()) && !password.trim().is_empty())
+            .ok_or(StatusCode::BAD_REQUEST)?;
+        if let Some(active) = &state.active {
+            return if active.is_cancelled() {
+                Err(StatusCode::CONFLICT)
+            } else {
+                Ok(StatusCode::ACCEPTED)
+            };
+        }
+        if state.record.is_none() {
+            let record = CreateRecord::new(request.administrator)
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            self.store
+                .write(RECORD, &record)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            state.record = Some(record);
+        }
+        let cancelled = CancellationToken::new();
+        self.commands
+            .try_send((password, cancelled.clone()))
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        state.active = Some(cancelled);
+        self.node.publish(Descriptor::Creating { active: true });
         Ok(StatusCode::ACCEPTED)
     }
 }
@@ -183,7 +246,7 @@ fn no_store(result: Result<impl IntoResponse, StatusCode>) -> Response {
 
 #[utoipa::path(post, path = "/setup/node/create", operation_id = "create_node_installation", request_body = CreateRequest,
     security(("node_setup_code" = [])), responses(
-        (status = 202, description = "Create accepted; check Node readiness"),
+        (status = 202, description = "Create accepted; observe Node setup events for completion"),
         (status = 400, description = "Invalid administrator details"),
         (status = 401, description = "Protected Node code missing or invalid"),
         (status = 403, description = "Browser origin not allowed"),
@@ -210,20 +273,18 @@ pub async fn create(
         (status = 204, description = "No Create operation is retained"),
         (status = 401, description = "Protected Node code missing or invalid"),
         (status = 403, description = "Browser origin not allowed"),
-        (status = 409, description = "Conflicting retained setup"),
         (status = 503, description = "Setup unavailable")
     ))]
 pub async fn recover(State(node): State<NodeCreate>, headers: HeaderMap) -> Response {
     no_store(
         async {
             node.authorize(&headers)?;
-            let _guard = node.operation.lock().await;
-            let (intent, retired) = node.retained().await?;
-            Ok(match intent {
-                Some(intent) => Json(CreateRecovery {
-                    administrator: intent.administrator,
-                    password_required: !retired[0],
-                    operation_nonce: intent.operation_nonce,
+            let state = node.state.lock().await;
+            Ok(match &state.record {
+                Some(record) => Json(CreateRecovery {
+                    administrator: record.administrator.clone(),
+                    password_required: record.device.is_none(),
+                    operation_nonce: record.nonce.clone(),
                 })
                 .into_response(),
                 None => StatusCode::NO_CONTENT.into_response(),
@@ -249,206 +310,17 @@ pub async fn cancel(
     no_store(
         async {
             node.authorize(&headers)?;
-            let _guard = node.operation.lock().await;
-            let (intent, retired) = node.retained().await?;
-            let intent = intent
-                .filter(|intent| {
-                    intent.operation_nonce == request.operation_nonce && retired != [true; 3]
-                })
-                .ok_or(StatusCode::CONFLICT)?;
-            for owner in &node.owners {
-                owner.cancel_local(&intent).await;
+            let state = node.state.lock().await;
+            if !state.record.as_ref().is_some_and(|record| {
+                record.nonce == request.operation_nonce && record.device.is_none()
+            }) {
+                return Err(StatusCode::CONFLICT);
+            }
+            if let Some(active) = &state.active {
+                active.cancel();
             }
             Ok(StatusCode::NO_CONTENT)
         }
         .await,
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt, sync::Arc};
-
-    use axum::{
-        body::{Body, to_bytes},
-        http::{Request, StatusCode, header},
-    };
-    use serde_json::{Value, json};
-    use server_common::{
-        IndependentCreateIntent, IndependentCreateRequest, IndependentSetupHost, SetupAdmission,
-    };
-    use tokio::sync::mpsc::error::TryRecvError;
-    use tokio_util::sync::CancellationToken;
-    use tower::ServiceExt;
-
-    use super::NodeCreate;
-    use crate::node_setup::{ADMISSION, OWNERS};
-
-    #[tokio::test]
-    async fn node_create_recovers_and_cancels_exact_partial_intent() {
-        const BASE: &str = "https://node.localhost";
-        const PASSWORD: &str = "test-password";
-        const CREATE: &str = "/setup/node/create";
-        const RECOVER: &str = "/setup/node/create/intent";
-        const CANCEL: &str = "/setup/node/create/cancel";
-
-        let root = tempfile::Builder::new()
-            .permissions(fs::Permissions::from_mode(0o700))
-            .tempdir()
-            .expect("private setup root");
-        let admission_path = root.path().join(ADMISSION);
-        let client = reqwest::Client::new();
-        let open_owner = |owner| {
-            IndependentSetupHost::prepare_for_proxy(
-                owner,
-                &root.path().join(owner),
-                BASE,
-                BASE,
-                client.clone(),
-            )
-            .expect("prepare owner")
-            .into_create(CancellationToken::new())
-            .expect("open owner control and commands")
-        };
-        let intent = IndependentCreateIntent {
-            purpose: "create".into(),
-            operation_nonce: "0123456789abcdef0123456789abcdef".into(),
-            administrator: "first-admin".into(),
-            node: "Retained Node".into(),
-            idp: format!("{BASE}/idp"),
-            issuer: format!("{BASE}/idp"),
-            device: format!("{BASE}/device"),
-            storage: format!("{BASE}/storage"),
-        };
-
-        {
-            let _admission = SetupAdmission::open(&admission_path).expect("open Node admission");
-            let [_idp, (device, _commands), _storage] = OWNERS.map(open_owner);
-            assert_eq!(
-                device
-                    .control()
-                    .submit_local(IndependentCreateRequest {
-                        intent: intent.clone(),
-                        password: None,
-                    })
-                    .await,
-                StatusCode::ACCEPTED
-            );
-        }
-
-        let [
-            (idp, idp_commands),
-            (device, device_commands),
-            (storage, storage_commands),
-        ] = OWNERS.map(open_owner);
-        let mut receivers = [idp_commands, device_commands, storage_commands];
-        let owners = [idp.control(), device.control(), storage.control()];
-        for (owner, expected) in owners.iter().zip([None, Some(&intent), None]) {
-            let (retained, retired) = owner
-                .local_setup_state()
-                .await
-                .expect("read reopened state");
-            assert!(!retired);
-            assert!(
-                retained.as_ref() == expected,
-                "{} retained state",
-                owner.owner()
-            );
-        }
-        let code = SetupAdmission::protected_code(&admission_path)
-            .expect("read private Node code")
-            .expect("active Node code");
-        let admission = SetupAdmission::open(&admission_path).expect("reopen Node admission");
-        let router = NodeCreate::new(Arc::new(admission), owners, BASE.into()).router();
-        let post = |path: &str, authorize: bool, body: Value| {
-            let mut request = Request::post(path).header(header::CONTENT_TYPE, "application/json");
-            if authorize {
-                request = request.header(header::AUTHORIZATION, format!("Setup {code}"));
-            }
-            router.clone().oneshot(
-                request
-                    .body(Body::from(body.to_string()))
-                    .expect("build Node request"),
-            )
-        };
-
-        let response = post(RECOVER, false, Value::Null)
-            .await
-            .expect("unauthorized recovery response");
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let response = post(RECOVER, true, Value::Null)
-            .await
-            .expect("authorized recovery response");
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
-        let body = to_bytes(response.into_body(), 1024)
-            .await
-            .expect("read recovery body");
-        assert_eq!(
-            serde_json::from_slice::<Value>(&body).expect("recovery JSON"),
-            json!({
-                "administrator": intent.administrator,
-                "operation_nonce": intent.operation_nonce,
-                "password_required": true,
-            })
-        );
-
-        let response = post(
-            CREATE,
-            true,
-            json!({"administrator": "other-admin", "password": PASSWORD}),
-        )
-        .await
-        .expect("conflicting administrator response");
-        assert_eq!(response.status(), StatusCode::CONFLICT);
-        for receiver in &mut receivers {
-            assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
-        }
-
-        let response = post(
-            CREATE,
-            true,
-            json!({"administrator": intent.administrator, "password": PASSWORD}),
-        )
-        .await
-        .expect("exact retry response");
-        assert_eq!(response.status(), StatusCode::ACCEPTED);
-        let commands = receivers.map(|mut receiver| receiver.try_recv().expect("owner command"));
-        for (command, password) in commands.iter().zip([Some(PASSWORD), None, None]) {
-            assert!(
-                command.intent == intent,
-                "owner received a different intent"
-            );
-            assert_eq!(command.password.as_deref(), password);
-        }
-
-        let cancel = json!({"operation_nonce": intent.operation_nonce});
-        let response = post(CANCEL, false, cancel.clone())
-            .await
-            .expect("unauthorized cancellation response");
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let response = post(
-            CANCEL,
-            true,
-            json!({"operation_nonce": "ffffffffffffffffffffffffffffffff"}),
-        )
-        .await
-        .expect("wrong nonce response");
-        assert_eq!(response.status(), StatusCode::CONFLICT);
-        assert!(
-            commands
-                .iter()
-                .all(|command| !command.cancellation.is_cancelled())
-        );
-
-        let response = post(CANCEL, true, cancel)
-            .await
-            .expect("exact cancellation response");
-        assert_eq!(response.status(), StatusCode::NO_CONTENT);
-        assert!(
-            commands
-                .iter()
-                .all(|command| command.cancellation.is_cancelled())
-        );
-    }
 }

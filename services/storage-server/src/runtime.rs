@@ -1,6 +1,7 @@
 use std::{fmt, io, path::Path, sync::Arc, thread};
 
 use axum::Router;
+use db::adapters::EmbeddedDatabase;
 use iroh::{EndpointId, SecretKey};
 use iroh_chain::Server;
 use management_service::service::MANAGEMENT_APPLICATION_URI;
@@ -147,8 +148,8 @@ pub async fn build_local_runtime(
         None,
         Some(peer),
         CancellationToken::new(),
-        Some(client),
-        Some(&storage),
+        Some((&storage, client)),
+        true,
     )
 }
 
@@ -195,7 +196,7 @@ pub fn build_runtime(
         endpoint,
         cancellation_token,
         None,
-        None,
+        false,
     )
 }
 
@@ -219,7 +220,32 @@ pub fn build_http_runtime(
         Some(management_endpoint),
         cancellation_token,
         None,
+        false,
+    )
+}
+
+/// Builds HTTPS Storage on a shared embedded database with the supplied IdP and Device clients.
+///
+/// # Errors
+/// Returns an error if resource runtimes cannot open retained state.
+pub fn build_shared_http_runtime(
+    state: RouterState,
+    data_dir: &Path,
+    api_prefix: &str,
+    management_endpoint: EndpointId,
+    database: &EmbeddedDatabase,
+    cancellation_token: CancellationToken,
+) -> io::Result<StorageRuntime> {
+    build_runtime_inner(
+        state,
+        data_dir,
+        api_prefix,
+        "",
         None,
+        Some(management_endpoint),
+        cancellation_token,
+        Some((&database.storage, database.client())),
+        false,
     )
 }
 
@@ -231,27 +257,22 @@ fn build_runtime_inner(
     server: Option<Server>,
     endpoint: Option<EndpointId>,
     cancellation_token: CancellationToken,
-    catalog_client: Option<ofdb_sql::Client>,
-    shared_storage: Option<&btree_redb::SharedDatabase>,
+    shared: Option<(&btree_redb::SharedDatabase, ofdb_sql::Client)>,
+    seeded_fixture: bool,
 ) -> io::Result<StorageRuntime> {
-    let local = catalog_client.is_some();
-    let databases = Arc::new(match catalog_client {
-        Some(client) => DatabaseRuntime::with_shared(
-            shared_storage.expect("local storage supplied").clone(),
-            client,
-        )?,
-        None => DatabaseRuntime::new(data_dir.join("databases"))?,
-    });
+    let (databases, shared_storage) = match shared {
+        Some((storage, client)) => (
+            DatabaseRuntime::with_shared(storage.clone(), client)?,
+            Some(storage),
+        ),
+        None => (DatabaseRuntime::new(data_dir.join("databases"))?, None),
+    };
+    let databases = Arc::new(databases);
     let file_systems = endpoint
         .map(|endpoint| {
-            let root = data_dir.join("filesystems");
-            if local {
-                ScopedFileSystemRuntime::<EndpointId>::with_shared(
-                    shared_storage.expect("local storage supplied").clone(),
-                    endpoint,
-                )
-            } else {
-                ScopedFileSystemRuntime::<EndpointId>::new(root, endpoint)
+            match shared_storage {
+                Some(storage) => ScopedFileSystemRuntime::with_shared(storage.clone(), endpoint),
+                None => ScopedFileSystemRuntime::new(data_dir.join("filesystems"), endpoint),
             }
             .map(Arc::new)
         })
@@ -264,7 +285,7 @@ fn build_runtime_inner(
             databases: Arc::clone(&databases),
             file_systems: Arc::clone(file_systems),
         });
-    if !local && state.local_replication_authorizer.is_none() {
+    if !seeded_fixture && state.local_replication_authorizer.is_none() {
         state.local_replication_authorizer =
             state
                 .device_client
@@ -324,7 +345,7 @@ fn build_runtime_inner(
         .merge(resource_routes);
 
     #[cfg(feature = "sync")]
-    let router = router.merge(if local {
+    let router = router.merge(if seeded_fixture {
         local_sync_router(state, Arc::clone(&databases), data_dir.join("sync-staging"))
     } else {
         sync_router(state, Arc::clone(&databases), data_dir.join("sync-staging"))

@@ -154,12 +154,21 @@ test("Management Roles and Permissions work outside the sign-in Application", as
     await expect(roleName).toHaveValue("Vault reader");
     await expect(description).toHaveValue("Keep this draft");
 
-    const assignment = await request.post(`${appPolicy}/users/${user.sub}/roles/${roleId}`, {
-      headers: management,
-    });
-    expect(assignment.ok()).toBeTruthy();
     await page.goto(`${appURL}/users/${user.sub}`);
-    await expect(page.getByRole("cell", { name: "Vault reader", exact: true })).toBeVisible();
+    await page
+      .getByRole("combobox", { name: "Application", exact: true })
+      .selectOption({ label: "Role test" });
+    await page
+      .getByRole("combobox", { name: "Role", exact: true })
+      .selectOption({ label: "Vault reader" });
+    await page.getByRole("button", { name: "Assign role", exact: true }).click();
+    const assignedRole = page.getByRole("row").filter({
+      has: page.getByRole("cell", { name: "Vault reader", exact: true }),
+    });
+    await expect(assignedRole).toBeVisible();
+    page.once("dialog", (dialog) => dialog.accept());
+    await assignedRole.getByRole("button", { name: "Revoke", exact: true }).click();
+    await expect(assignedRole).toHaveCount(0);
 
     // Use a real session for the same User from a non-operator OAuth Client.
     const restricted = await frontendSession(request, "app", appURL);

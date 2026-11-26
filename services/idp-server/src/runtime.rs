@@ -212,7 +212,11 @@ pub async fn build_state(
     .await
 }
 
-async fn build_state_with_keys(
+/// Builds the OAuth owner state using a caller-supplied private-key provider.
+///
+/// # Errors
+/// Returns an error if permission configuration or issuer signer validation fails.
+pub async fn build_state_with_keys(
     config: &AppConfig,
     engine: ofdb_sql::Client,
     devices: Option<Arc<DbDeviceRepo>>,

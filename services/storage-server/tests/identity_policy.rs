@@ -12,9 +12,12 @@ use std::{
 };
 
 use axum::{
+    Router,
     body::{Body, to_bytes},
     http::{Method, Request, StatusCode, header::AUTHORIZATION},
+    routing::post,
 };
+use db::adapters::EmbeddedDatabase;
 use of_model::contract::{
     authorization_details::{
         AuthorizationDetail, StorageAuthorizationAction, StorageAuthorizationDetail,
@@ -28,11 +31,12 @@ use of_model::device::contract::device_state::DeviceState;
 use of_model::id::Id;
 use of_model::idp::contract::introspection_response::IntrospectionResponse;
 use storage_server::{
-    DeviceReplicationPolicy, IdpClient, IdpIntrospectionError, LocalReplicationAuthorizer,
-    RouterState, resource_router,
+    DeviceClient, DeviceReplicationPolicy, IdpClient, IdpIntrospectionError,
+    LocalReplicationAuthorizer, RouterState, build_shared_http_runtime, resource_router,
 };
 use storage_service::database_runtime::DatabaseRuntime;
-use tokio::sync::Semaphore;
+use tokio::{net::TcpListener, sync::Semaphore};
+use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
 async fn request_status(client: IdpClient, method: Method) -> StatusCode {
@@ -154,6 +158,83 @@ fn approved_policy(endpoint: iroh::EndpointId, owner: &str) -> DeviceReplication
         admin_allowed: true,
         resources: vec![],
     }
+}
+
+#[tokio::test]
+async fn shared_http_runtime_uses_device_policy_without_resource_sidecars() {
+    let root = env::temp_dir().join(format!("storage-shared-http-{}", Id::now_v7()));
+    let database = EmbeddedDatabase::open(&root).await.expect("embedded host");
+    let data_dir = root.join("storage");
+    let endpoint = iroh::SecretKey::generate().public();
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind policy fixture");
+    let base = format!("http://{}", listener.local_addr().expect("fixture address"));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let token_route = Router::new().route(
+        "/idp/oauth2/token",
+        post({
+            let calls = Arc::clone(&calls);
+            move || {
+                let calls = Arc::clone(&calls);
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    StatusCode::UNAUTHORIZED
+                }
+            }
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, token_route).await });
+    let issuer = format!("{base}/idp");
+    let device = DeviceClient::new(
+        &format!("{base}/device"),
+        &issuer,
+        "storage-client",
+        "storage-secret",
+        &issuer,
+        "management-service",
+    )
+    .expect("configure Device client");
+    let claims = identity(&Id::now_v7().to_string());
+    let state = RouterState::new("https://storage.example", endpoint.to_string())
+        .with_idp_client(IdpClient::local(move |_| {
+            let claims = claims.clone();
+            async move { Ok(claims) }
+        }))
+        .with_device_client(device);
+    let shutdown = CancellationToken::new();
+    let runtime = build_shared_http_runtime(
+        state,
+        &data_dir,
+        "/storage",
+        endpoint,
+        &database,
+        shutdown.clone(),
+    )
+    .expect("build shared HTTP runtime");
+
+    let response = runtime
+        .router()
+        .oneshot(
+            Request::builder()
+                .uri("/storage/databases")
+                .header(AUTHORIZATION, "Bearer user-token")
+                .body(Body::empty())
+                .expect("build database request"),
+        )
+        .await
+        .expect("check Storage authorization");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(!data_dir.join("databases").exists());
+    assert!(!data_dir.join("filesystems").exists());
+    assert!(runtime.copy_retirement().is_some());
+    assert!(runtime.data_handler().is_none());
+    runtime.shutdown().await.expect("stop shared runtime");
+    assert!(shutdown.is_cancelled());
+    server.abort();
+    drop(database);
+    fs::remove_dir_all(root).expect("remove shared data");
 }
 
 #[tokio::test]

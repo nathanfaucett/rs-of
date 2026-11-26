@@ -182,10 +182,10 @@ impl SetupAdmission {
             local.directory.sync_all()?;
             let mut bytes = [0u8; 32];
             getrandom::fill(&mut bytes).map_err(|error| io::Error::other(error.to_string()))?;
-            let code = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+            let code: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
             if local.history.is_some() {
                 let mut file = local_file(&local.directory, "state", true)?;
-                write!(file, "setup-code-v1\n{code}")?;
+                file.write_all(code.as_bytes())?;
                 file.sync_all()?;
                 local.directory.sync_all()?;
             } else {
@@ -398,12 +398,11 @@ impl LocalState {
             let file = local_file(&self.directory, "state", false)?;
             let mut text = String::new();
             file.take(1200).read_to_string(&mut text)?;
-            let code = text
-                .strip_prefix("setup-code-v1\n")
-                .filter(|code| valid_code(code))
-                .ok_or_else(invalid_state)?;
+            if !valid_code(&text) {
+                return Err(invalid_state());
+            }
             return Ok(Retained {
-                code: Some(code.to_owned()),
+                code: Some(text),
                 intent,
             });
         }

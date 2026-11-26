@@ -1277,7 +1277,11 @@ impl<P: PrivateKeyRepo + Send + Sync> OwnerProvisioner<P> {
     }
 }
 
-fn validate_metadata_root(key: &Key, entity: EntityType, id: Id) -> io::Result<()> {
+/// Verifies that a key is the hardened metadata root of the specified Principal.
+///
+/// # Errors
+/// Returns an error if the owner, derivation path, or key shape does not match.
+pub fn validate_metadata_root(key: &Key, entity: EntityType, id: Id) -> io::Result<()> {
     let path = key.derivation_path().map_err(io::Error::other)?;
     if id.is_nil()
         || key.id.is_nil()
