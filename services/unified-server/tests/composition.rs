@@ -746,8 +746,9 @@ async fn assert_saved_resource(client: &reqwest::Client, url: &str, read: &str) 
     );
 }
 
-#[path = "composition/device_lifecycle.rs"]
+#[path = "composition/account_security.rs"]
 mod account_security;
+#[path = "composition/device_lifecycle.rs"]
 mod device_lifecycle;
 
 struct OwnerFixture {
@@ -922,7 +923,7 @@ async fn unified_routes_are_published_only_under_their_owner_prefixes() {
 }
 
 #[tokio::test]
-async fn device_write_requires_both_device_audience_and_exact_grant() {
+async fn device_administration_rename_requires_device_audience_and_exact_grant() {
     let fixture = OwnerFixture::start().await;
     let OwnerFixture {
         base,
@@ -974,6 +975,83 @@ async fn device_write_requires_both_device_audience_and_exact_grant() {
     let renamed = response_json(rename(&device_token)).await;
     assert_eq!(renamed["id"], device_id);
     assert_eq!(renamed["name"], "Renamed Device");
+}
+
+#[tokio::test]
+async fn device_administration_policy_read_and_update_require_separate_grants() {
+    let fixture = OwnerFixture::start().await;
+    let OwnerFixture {
+        base,
+        client,
+        management,
+        ..
+    } = &fixture;
+    let device_base = format!("{base}/device");
+    let login = fixture.sign_in("admin@local.test", "password").await;
+    let admin = fixture.subject(&login).await;
+    let token = exchange_token(client, base, "local-login", &login, &device_base, None).await;
+    exercise_device(client, base, &login, true).await;
+    let list = response_json(
+        client
+            .get(format!("{device_base}/devices"))
+            .bearer_auth(&token),
+    )
+    .await;
+    let id = list[0]["id"].as_str().expect("approved Device ID");
+    let url = format!("{device_base}/devices/{id}/restriction");
+    let read = || client.get(&url).bearer_auth(&token);
+    let update = |allowed| {
+        client
+            .put(&url)
+            .bearer_auth(&token)
+            .json(&json!({ "adminAllowed": allowed }))
+    };
+
+    assert_status(read(), StatusCode::FORBIDDEN).await;
+    assert_status(update(true), StatusCode::FORBIDDEN).await;
+    grant(
+        management,
+        INSTALLATION_POLICY_ID,
+        admin,
+        "device-policy-write-fixture",
+        &[IdentityAction::DeviceRestrictionsUpdate.permission()],
+    )
+    .await;
+    assert_status(update(false), StatusCode::NO_CONTENT).await;
+    assert_status(read(), StatusCode::FORBIDDEN).await;
+    grant(
+        management,
+        INSTALLATION_POLICY_ID,
+        admin,
+        "device-policy-read-fixture",
+        &[IdentityAction::DeviceRestrictionsRead.permission()],
+    )
+    .await;
+    assert_eq!(
+        response_json(read()).await,
+        json!({ "adminAllowed": false })
+    );
+    assert_status(update(true), StatusCode::NO_CONTENT).await;
+    assert_eq!(response_json(read()).await, json!({ "adminAllowed": true }));
+
+    let idp = exchange_token(
+        client,
+        base,
+        "local-login",
+        &login,
+        &format!("{base}/idp"),
+        None,
+    )
+    .await;
+    assert_status(
+        client
+            .put(&url)
+            .bearer_auth(idp)
+            .json(&json!({ "adminAllowed": false })),
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    assert_eq!(response_json(read()).await, json!({ "adminAllowed": true }));
 }
 
 #[tokio::test]

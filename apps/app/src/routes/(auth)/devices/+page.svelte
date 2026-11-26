@@ -1,12 +1,8 @@
 <script lang="ts">
-    import { toDataURL } from "qrcode";
     import { onMount } from "svelte";
     import DevicePolicy from "$lib/common/components/DevicePolicy.svelte";
     import Modal from "$lib/common/components/Modal.svelte";
-    import {
-        deviceApi,
-        getDeviceApiUrl,
-    } from "$lib/common/state/deviceClient.svelte";
+    import { deviceApi } from "$lib/common/state/deviceClient.svelte";
     import {
         approveDeviceEnrollment,
         type DeviceEnrollment,
@@ -17,6 +13,10 @@
         renameDevice,
         revokeDevice,
     } from "$lib/common/state/devices.svelte";
+    import {
+        managementPolicyError,
+        managementPolicyStatus,
+    } from "$lib/common/state/managementPolicyError";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
@@ -27,25 +27,23 @@
     let deviceEndpointId = $state<string | null>(null);
     let editingId = $state<string | null>(null);
     let editingName = $state("");
+    let renaming = $state(false);
+    let renameError = $state<string | null>(null);
     let enrolling = $state(false);
     let enrollmentError = $state<string | null>(null);
-    let enrollmentResultModal = $state<{
-        enrollment: DeviceEnrollment;
-        deviceUri: string;
-        qrCode: string;
-    } | null>(null);
     let newDeviceName = $state("");
     let newDeviceAddress = $state("");
-    let generatingKeys = $state(false);
-
+    let newDevicePublicKey = $state("");
     let enrollmentFormModalRef = $state<Modal>();
-    let enrollmentResultModalRef = $state<Modal>();
 
     const initialLoading = $derived(!error && loading && devices.length === 0);
     const empty = $derived(!error && !loading && devices.length === 0);
     const hasDevices = $derived(!error && devices.length > 0);
-    function formatTimestamp(value: number): string {
-        return new Date(value * 1000).toLocaleString();
+    function formatTimestamp(value: number | null | undefined): string {
+        // Initial Device provisioning uses 1 when it has no update time.
+        if (value == null || value <= 1) return "Unknown";
+        const date = new Date(value * 1000);
+        return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleString();
     }
 
     function shortValue(value: string): string {
@@ -62,11 +60,7 @@
             devices = await listDevices();
             pendingEnrollments = await listPendingEnrollments();
         } catch (cause) {
-            console.error(cause);
-            error =
-                cause instanceof Error
-                    ? cause.message
-                    : "Failed to load devices";
+            error = managementPolicyError(cause, "load Devices");
         } finally {
             loading = false;
         }
@@ -83,32 +77,33 @@
         }
     }
 
-    async function onCopy(value: string, label: string) {
-        try {
-            await navigator.clipboard.writeText(value);
-            notifications.add(`${label} copied`, "success");
-        } catch {
-            notifications.add(`Could not copy ${label.toLowerCase()}`, "error");
-        }
-    }
-
     function onStartRename(device: DeviceInfo) {
         editingId = device.id;
         editingName = device.name;
+        renameError = null;
     }
 
     async function onRename(device: DeviceInfo) {
-        if (!editingName.trim()) {
+        if (renaming) return;
+        const name = editingName.trim();
+        if (!name || new TextEncoder().encode(name).length > 512) {
+            renameError = "Device name must be 1 to 512 bytes after trimming.";
             return;
         }
+        renameError = null;
+        renaming = true;
         try {
-            await renameDevice(device.id, editingName.trim());
+            const renamed = await renameDevice(device.id, name);
+            devices = devices.map((record) => record.id === renamed.id ? renamed : record);
             editingId = null;
             notifications.add("Device renamed", "success");
             await loadDevices();
         } catch (cause) {
-            console.error(cause);
-            notifications.add("Failed to rename device", "error");
+            renameError = managementPolicyStatus(cause) === 403
+                ? "Only the Device owner with rename permission can rename it. Ask an administrator for access."
+                : managementPolicyError(cause, "rename the Device");
+        } finally {
+            renaming = false;
         }
     }
 
@@ -130,62 +125,47 @@
         }
     }
 
-    async function generateKeypair(): Promise<{ publicKey: string }> {
-        const keyPair = await crypto.subtle.generateKey(
-            { name: "ECDSA", namedCurve: "P-256" },
-            true,
-            ["sign", "verify"],
-        );
-        const publicKeyJwk = await crypto.subtle.exportKey(
-            "jwk",
-            keyPair.publicKey,
-        );
-        const publicKey = JSON.stringify(publicKeyJwk);
-        return { publicKey };
-    }
-
     function openEnrollmentForm() {
-        enrollmentError = null;
-        newDeviceName = "";
-        newDeviceAddress = "";
         enrollmentFormModalRef?.show();
     }
 
     async function onEnrollDevice() {
-        if (!newDeviceName.trim() || !newDeviceAddress.trim()) {
-            enrollmentError = "Device name and address are required";
+        if (enrolling) return;
+        const name = newDeviceName.trim();
+        const address = newDeviceAddress.trim();
+        const publicKey = newDevicePublicKey.trim();
+        const encoder = new TextEncoder();
+        for (const [label, value] of [
+            ["Device name", name],
+            ["Device address", address],
+        ]) {
+            if (!value || encoder.encode(value).length > 512) {
+                enrollmentError = `${label} must be 1 to 512 bytes after trimming.`;
+                return;
+            }
+        }
+        if (!/^[0-9a-f]{64}$/.test(publicKey)) {
+            enrollmentError = "Enter the Device's Iroh endpoint public key as 64 lowercase hexadecimal characters.";
             return;
         }
         enrollmentError = null;
         enrolling = true;
-        generatingKeys = true;
         try {
-            const { publicKey } = await generateKeypair();
-            generatingKeys = false;
-            const enrollment = await enrollDevice(
-                newDeviceAddress.trim(),
-                newDeviceName.trim(),
-                publicKey,
-            );
-            const deviceApiUrl = getDeviceApiUrl();
-            const deviceUri = `${deviceApiUrl}#${publicKey}`;
-            const qrCode = await toDataURL(deviceUri);
-            enrollmentResultModal = { enrollment, deviceUri, qrCode };
+            await enrollDevice(address, name, publicKey);
+            newDeviceName = "";
+            newDeviceAddress = "";
+            newDevicePublicKey = "";
             enrollmentFormModalRef?.close();
-            enrollmentResultModalRef?.show();
+            notifications.add("Device enrolled", "success");
             await loadDevices();
         } catch (cause) {
-            console.error(cause);
-            enrollmentError =
-                cause instanceof Error
-                    ? cause.message
-                    : "Failed to enroll device";
+            enrollmentError = managementPolicyStatus(cause) === 403
+                ? "Only the first Device can enroll here. For another Device, use pairing. If this is the first Device, ask an administrator for enrollment access."
+                : managementPolicyError(cause, "enroll the Device");
         } finally {
             enrolling = false;
-            generatingKeys = false;
         }
     }
-
 
     onMount(() => {
         void deviceApi
@@ -266,12 +246,23 @@
                                             bind:value={editingName}
                                             type="text"
                                             aria-label="Device name"
+                                            disabled={renaming}
+                                            required
                                         />
                                         <button
                                             class="btn btn-secondary btn-md"
-                                            type="submit">Save</button
+                                            type="submit"
+                                            disabled={renaming}>Save</button
+                                        >
+                                        <button
+                                            class="btn btn-secondary btn-md"
+                                            type="button"
+                                            disabled={renaming}
+                                            onclick={() => { editingId = null; }}
+                                            >Cancel</button
                                         >
                                     </form>
+                                    {#if renameError}<Alert tone="danger">{renameError}</Alert>{/if}
                                 {:else}
                                     {device.name}
                                 {/if}
@@ -289,6 +280,7 @@
                                         <button
                                             class="btn btn-secondary btn-md"
                                             type="button"
+                                            disabled={renaming || editingId !== null}
                                             onclick={() =>
                                                 onStartRename(device)}
                                             >Rename</button
@@ -359,36 +351,28 @@
                 void onEnrollDevice();
             }}
         >
-            <Field
-                label="Device name"
-                required
-                issues={enrollmentError ? [{ message: enrollmentError }] : []}
-            >
+            <p>This form enrolls the first Device only. Use pairing to add another Device.</p>
+            <Field label="Device name" required>
                 {#snippet children(control)}
-                    <input
-                        bind:value={newDeviceName}
-                        type="text"
-                        placeholder="My Device"
-                        disabled={enrolling}
-                        aria-invalid={!!enrollmentError}
-                        {...control}
-                    />
+                    <input bind:value={newDeviceName} type="text" disabled={enrolling} {...control} />
                 {/snippet}
             </Field>
             <Field
                 label="Device address"
+                description="Enter the endpoint address, for example 127.0.0.1:23456. The Device service stores it as text, up to 512 bytes."
                 required
-                issues={enrollmentError ? [{ message: enrollmentError }] : []}
             >
                 {#snippet children(control)}
-                    <input
-                        bind:value={newDeviceAddress}
-                        type="text"
-                        placeholder="https://device.example.com"
-                        disabled={enrolling}
-                        aria-invalid={!!enrollmentError}
-                        {...control}
-                    />
+                    <input bind:value={newDeviceAddress} type="text" disabled={enrolling} {...control} />
+                {/snippet}
+            </Field>
+            <Field
+                label="Endpoint public key"
+                description="Copy the 64-character lowercase hexadecimal Iroh public key from the Device. Keep its private key on that Device."
+                required
+            >
+                {#snippet children(control)}
+                    <input bind:value={newDevicePublicKey} type="text" disabled={enrolling} spellcheck={false} {...control} />
                 {/snippet}
             </Field>
             {#if enrollmentError}
@@ -398,7 +382,6 @@
                 <button
                     class="btn btn-secondary btn-md"
                     type="button"
-                    formmethod="dialog"
                     onclick={() => enrollmentFormModalRef?.close()}
                 >
                     Cancel
@@ -406,102 +389,11 @@
                 <button
                     class="btn btn-primary btn-md"
                     type="submit"
-                    disabled={enrolling || generatingKeys}
+                    disabled={enrolling}
                 >
-                    {generatingKeys
-                        ? "Generating keys..."
-                        : enrolling
-                          ? "Enrolling..."
-                          : "Enroll device"}
+                    {enrolling ? "Enrolling..." : "Enroll device"}
                 </button>
             </div>
         </form>
     </Modal>
-
-    {#if enrollmentResultModal}
-        {@const result = enrollmentResultModal}
-        <Modal bind:this={enrollmentResultModalRef} title="Device Enrolled">
-            <div class="flex flex-col gap-4">
-                <p class="mb-0 text-sm text-ink-muted">
-                    Device enrolled successfully. Share the device URI or scan
-                    the QR code to complete setup.
-                </p>
-                <div class="grid gap-3 md:grid-cols-2">
-                    <div class="flex flex-col gap-2">
-                        <label for="device-uri" class="text-sm font-medium"
-                            >Device URI</label
-                        >
-                        <div class="flex gap-2">
-                            <input
-                                id="device-uri"
-                                type="text"
-                                value={result.deviceUri}
-                                readonly
-                                class="flex-1 font-mono text-sm"
-                            />
-                            <button
-                                class="btn btn-secondary btn-md"
-                                type="button"
-                                onclick={() =>
-                                    void onCopy(
-                                        result.deviceUri,
-                                        "Device URI",
-                                    )}
-                            >
-                                Copy
-                            </button>
-                        </div>
-                    </div>
-                    <div class="flex flex-col gap-2">
-                        <span id="qr-code-label" class="text-sm font-medium"
-                            >QR Code</span
-                        >
-                        <img
-                            src={result.qrCode}
-                            alt="Device URI QR code"
-                            class="w-48 h-48 mx-auto"
-                            aria-labelledby="qr-code-label"
-                        />
-                    </div>
-                </div>
-                {#if result.enrollment.approvalCode}
-                    {@const approvalCode = result.enrollment.approvalCode}
-                    <div class="flex flex-col gap-2">
-                        <label for="approval-code" class="text-sm font-medium"
-                            >Approval Code</label
-                        >
-                        <div class="flex gap-2">
-                            <input
-                                id="approval-code"
-                                type="text"
-                                value={approvalCode}
-                                readonly
-                                class="flex-1 font-mono text-sm"
-                            />
-                            <button
-                                class="btn btn-secondary btn-md"
-                                type="button"
-                                onclick={() =>
-                                    void onCopy(
-                                        approvalCode,
-                                        "Approval code",
-                                    )}
-                            >
-                                Copy
-                            </button>
-                        </div>
-                        <p class="mb-0 text-sm text-ink-muted">
-                            Provide this approval code to the device to complete
-                            enrollment.
-                        </p>
-                    </div>
-                {/if}
-                <form method="dialog" class="flex justify-end">
-                    <button class="btn btn-primary btn-md" type="submit">
-                        Done
-                    </button>
-                </form>
-            </div>
-        </Modal>
-    {/if}
 </Page>

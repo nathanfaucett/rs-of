@@ -1,11 +1,14 @@
 <script lang="ts">
     import {
         type DeviceInfo,
-        type DeviceRestriction,
         SelectionKind,
     } from "@ofsdk/device-client";
     import * as v from "valibot";
     import { deviceApi } from "$lib/common/state/deviceClient.svelte";
+    import {
+        managementPolicyError,
+        managementPolicyStatus,
+    } from "$lib/common/state/managementPolicyError";
     import Alert from "$lib/ui/Alert.svelte";
     import Card from "$lib/ui/Card.svelte";
     import Field from "$lib/ui/Field.svelte";
@@ -17,7 +20,7 @@
     let resourceId = $state("");
     let kind = $state<SelectionKind>(SelectionKind.Database);
     let storageAccessToken = $state("");
-    let restriction = $state.raw<DeviceRestriction | null>(null);
+    let adminAllowed = $state<boolean | null>();
     let busy = $state(false);
     let error = $state("");
     let statusMessage = $state("");
@@ -30,12 +33,17 @@
     async function readRestriction() {
         busy = true;
         error = "";
-        restriction = null;
+        statusMessage = "";
         try {
             v.parse(uuid, deviceId);
-            restriction = await deviceApi.getDeviceRestriction({ deviceId });
+            const restriction = await deviceApi.getDeviceRestriction({ deviceId });
+            adminAllowed = restriction.adminAllowed;
         } catch (cause) {
-            error = String(cause);
+            if (managementPolicyStatus(cause) === 404) {
+                adminAllowed = null;
+            } else {
+                error = managementPolicyError(cause, "read the replication policy");
+            }
         } finally {
             busy = false;
         }
@@ -56,11 +64,11 @@
                 deviceId,
                 deviceRestriction: { adminAllowed: allowed },
             });
-            restriction = await deviceApi.getDeviceRestriction({ deviceId });
+            adminAllowed = allowed;
             statusMessage =
-                "Device service acknowledged the restriction. Local-copy retirement may still be pending; no resource is reported ready.";
+                "Replication policy updated. This does not grant access to resources or confirm local-copy cleanup.";
         } catch (cause) {
-            error = String(cause);
+            error = managementPolicyError(cause, "update the replication policy");
         } finally {
             busy = false;
         }
@@ -132,8 +140,9 @@
                     bind:value={deviceId}
                     disabled={busy}
                     onchange={() => {
-                        restriction = null;
+                        adminAllowed = undefined;
                         statusMessage = "";
+                        error = "";
                     }}
                 >
                     <option value="">Select a Device</option>
@@ -151,11 +160,11 @@
             onclick={readRestriction}
             disabled={busy || !deviceId}>Read current restriction</button
         >
-        {#if restriction}<p>
-                Current administrative replication permission: {restriction.adminAllowed
-                    ? "allowed"
-                    : "restricted"}.
-            </p>{/if}
+        {#if adminAllowed === null}
+            <p>No replication policy is set for this Device.</p>
+        {:else if adminAllowed !== undefined}
+            <p>Current administrative replication permission: {adminAllowed ? "allowed" : "restricted"}.</p>
+        {/if}
         <div class="flex gap-2">
             <button
                 class="btn btn-secondary btn-md"
