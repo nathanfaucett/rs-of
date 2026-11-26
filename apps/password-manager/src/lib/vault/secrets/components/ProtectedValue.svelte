@@ -1,11 +1,12 @@
 <script lang="ts">
-import { onDestroy } from "svelte";
+import { onDestroy, type Snippet } from "svelte";
 import { clipboardFeedback, copyValue } from "../clipboard";
 
-let { label, value, protected: protectedValue = true }: {
+let { label, value, protected: protectedValue = true, actions }: {
     label: string;
     value: string | null | undefined;
     protected?: boolean;
+    actions?: Snippet;
 } = $props();
 
 let revealed = $state(false);
@@ -36,6 +37,7 @@ async function copy() {
         {/if}
         <button class="btn btn-secondary btn-md h-auto min-h-9 max-w-full py-1.5 text-center wrap-anywhere whitespace-normal" type="button" disabled={copying || value == null}
             onclick={() => void copy()}>Copy {label}</button>
+        {@render actions?.()}
     </div>
     {#if copied !== null}<p role={copied ? "status" : "alert"}>{clipboardFeedback(copied)}</p>{/if}
 </fieldset>

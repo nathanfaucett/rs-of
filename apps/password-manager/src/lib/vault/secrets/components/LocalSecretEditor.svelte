@@ -70,6 +70,7 @@ async function cancelDelete() {
 }
 const searchId = `${uid}-search`;
 let detailTrigger: HTMLButtonElement | undefined;
+const detail = $derived(workflow.editor ? null : workflow.detail);
 const folderChoices = $derived.by(() => {
     const folders = workflow.folders;
     const totals = new Map<string, number>();
@@ -121,7 +122,7 @@ function navigate(action: () => void) {
     if (hasUnsavedChanges()) { event.preventDefault(); event.returnValue = ""; }
 }} />
 
-<div class="flex flex-col gap-4">
+<div class={["grid grid-cols-1 items-start gap-4", detail && "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]"]}>
     <Card title="Items" description="Stored locally in your encrypted vault.">
         {#snippet actions()}
             <button class="btn btn-secondary btn-md" type="button" disabled={!workflow.canRefresh}
@@ -259,8 +260,7 @@ function navigate(action: () => void) {
         {/if}
     </Card>
 
-    {#if workflow.detail && !workflow.editor}
-        {@const detail = workflow.detail}
+    {#if detail}
         {#key detail.id}
             <SecretDetail record={detail} canEdit={workflow.canEdit}
                 onedit={() => navigate(() => goto(resolve(`/vault/edit/${detail.id}`)))} onclose={closeDetails}>
@@ -270,7 +270,7 @@ function navigate(action: () => void) {
                         const destination = new FormData(event.currentTarget).get("destination");
                         if (typeof destination === "string") navigate(() => { void workflow.moveItem(detail.id, destination || null); });
                     }}>
-                        <label class="flex min-w-0 flex-col gap-1">Move to folder
+                        <label class="flex min-w-0 max-w-full flex-col gap-1">Move to folder
                             <select name="destination" class="w-full" value={detail.folderId ?? ""} disabled={!workflow.canEdit}>
                                 <option value="">Unfiled</option>
                                 {#each folderChoices as folder (folder.id)}

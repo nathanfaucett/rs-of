@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, tick, untrack } from "svelte";
 	import Dialog from "$lib/shared/components/Dialog.svelte";
+	import { formatTimestamp } from "$lib/shared/util/timestamp";
 	import { Alert, Card } from "$lib/ui";
 	import type { Secret } from "$lib/vault/secrets/secret";
 	import { createLocalSecretWorkflow } from "$lib/vault/secrets/workflow.svelte";
@@ -10,7 +11,6 @@
 	const workflow = untrack(() => createLocalSecretWorkflow({ vault }));
 	onDestroy(workflow.dispose);
 
-	const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 	let heading: HTMLHeadingElement;
 	let cancelButton = $state<HTMLButtonElement>();
 	let pendingDelete = $state.raw<{ item: Secret; trigger: HTMLButtonElement }>();
@@ -87,7 +87,8 @@
 							<div class="min-w-0 wrap-anywhere">
 								<p class="font-medium">{item.name}</p>
 								{#if item.deletedAt}
-									<p class="text-sm text-ink-subtle">Deleted: <time datetime={item.deletedAt}>{dateFormat.format(new Date(item.deletedAt))}</time></p>
+									{@const formatted = formatTimestamp(item.deletedAt)}
+									<p class="text-sm text-ink-subtle">Deleted: {#if formatted}<time datetime={item.deletedAt}>{formatted}</time>{:else}Unknown{/if}</p>
 								{/if}
 							</div>
 							<div class="flex flex-wrap gap-2">

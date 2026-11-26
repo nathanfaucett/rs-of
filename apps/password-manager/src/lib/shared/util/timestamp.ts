@@ -23,3 +23,14 @@ export function normalizeTimestamp(value: string): string {
   const fraction = (/\.(\d+)/.exec(value)?.[1] ?? "").replace(/0+$/, "").padEnd(3, "0");
   return new Date(value).toISOString().replace(/\.\d{3}Z$/, `.${fraction}Z`);
 }
+
+const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+export function formatTimestamp(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return dateFormat.format(new Date(normalizeTimestamp(value)));
+  } catch {
+    return undefined;
+  }
+}
