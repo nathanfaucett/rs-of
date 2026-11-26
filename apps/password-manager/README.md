@@ -7,7 +7,7 @@ This Svelte application demonstrates the platform's north-star workflow. It is i
 - Vaults use the browser `@ofsdk/sql` package and IndexedDB.
 - Core local vault operations do not require an IdP account or Storage service.
 - Search and filters work together. Select an item name to view its details, move it to an existing folder, or choose **Edit**. Login details show available authenticator codes and password history.
-- The vault selector and the navigation sidebar for an unlocked local vault link to the OIDC sign-in route when you are signed out.
+- The vault selector and the navigation sidebar for an unlocked local vault link to the OIDC sign-in route when you are signed out. On narrow screens, use **Open navigation** in the page header. **Close navigation** and Escape return focus to that button.
 - Vault records are encrypted with AES-256-GCM. The current key derivation uses PBKDF2-SHA-512 with 600,000 iterations.
 - Press Enter to create or unlock a vault. The create form shows the master-password rule before submission.
 - Ordinary Identity fields and Notes are visible while you edit. Saved Secure Note and Identity notes still start masked in item details.

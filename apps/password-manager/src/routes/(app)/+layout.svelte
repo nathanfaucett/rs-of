@@ -38,7 +38,7 @@ $effect(() => {
     }
 });</script>
 
-<div class="flex min-h-screen bg-canvas">
+<div class="flex min-h-screen flex-col bg-canvas lg:flex-row">
     <NavSidebar onNavigate={(view: NavigationView) => void goto(resolve(`/${view}`))} />
 
     <main class="flex-1 min-h-0 min-w-0 flex flex-col lg:ml-64">
