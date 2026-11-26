@@ -168,6 +168,87 @@ impl Database {
                 .map_err(|error| SyncError::PreApply(error.to_string()))?,
         }
     }
+    /// Checks first-upload eligibility. This is only a preflight; publish checks again atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if native admission or the catalog read fails.
+    #[cfg(feature = "redb")]
+    pub async fn first_upload_is_eligible(&self) -> Result<bool, crate::Error> {
+        let DatabaseBackend::File(resource) = &self.backend else {
+            return Err(from_engine(engine::EngineError::Unsupported(
+                "native first upload",
+            )));
+        };
+        let engine = resource.read().await.map_err(native_error)?;
+        sync_stage(|| history::catalog_history_is_empty_for(&*engine))
+            .await
+            .map_err(from_engine)
+    }
+
+    /// Receives SQL v7 into a private staging database and publishes it only into a previously
+    /// unused native destination. A caller must report success separately from SQL v7 completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for transport, validation, authorization, staging, or publish failure.
+    #[cfg(feature = "redb")]
+    pub async fn receive_first_upload<T, Q, U>(
+        &self,
+        transport: &mut T,
+        config: &SessionConfig,
+        directory: impl AsRef<Path>,
+        mut check: Q,
+    ) -> Result<(), SyncError<T::Error>>
+    where
+        T: SyncTransport + platform::MaybeSend,
+        T::Error: Display + platform::MaybeSend,
+        Q: FnMut() -> U + platform::MaybeSend,
+        U: Future<Output = Result<(), String>> + platform::MaybeSend,
+    {
+        let DatabaseBackend::File(resource) = &self.backend else {
+            return Err(engine::EngineError::Unsupported("native first upload").into());
+        };
+        let factory = self.native_stage_factory(directory);
+        resource
+            .session(sync_stage(|| async {
+                let staged = engine::Engine::new(
+                    engine::InMemoryKernel::new(),
+                    engine_automerge::AutomergeRowCodec::new(),
+                );
+                sync_stage(|| {
+                    history::synchronize_with_stage_factory_checked(
+                        &staged,
+                        transport,
+                        config,
+                        SyncRole::Responder,
+                        &factory,
+                        &mut check,
+                    )
+                })
+                .await?;
+                check().await.map_err(SyncError::PreApply)?;
+                let engine = resource
+                    .read()
+                    .await
+                    .map_err(|error| SyncError::PreApply(error.to_string()))?;
+                if !sync_stage(|| {
+                    history::publish_initial_history_for(
+                        &*engine,
+                        &staged,
+                        config.max_session_bytes,
+                    )
+                })
+                .await?
+                {
+                    return Err(SyncError::DestinationHasHistory);
+                }
+                Ok(())
+            }))
+            .await
+            .map_err(|error| SyncError::PreApply(error.to_string()))?
+    }
+
     fn native_stage_factory(&self, directory: impl AsRef<Path>) -> NativeStageFactory {
         let factory = history::FileSyncStageFactory::new(directory);
         match &self.backend {

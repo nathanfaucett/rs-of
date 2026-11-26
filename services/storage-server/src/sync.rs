@@ -1,6 +1,10 @@
 #![cfg(feature = "sync")]
 
-use std::{io, path::PathBuf, sync::Arc};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use axum::{
     Router,
@@ -12,7 +16,7 @@ use axum::{
     routing::get,
 };
 use of_model::{id::Id, storage::namespace::StorageNamespace};
-use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
+use ofdb_sql::{Database, SessionConfig, SyncRole, SyncTransport, history::SyncError};
 use serde::{Deserialize, Serialize};
 use storage_service::database_runtime::DatabaseRuntime;
 use uuid::Uuid;
@@ -85,6 +89,7 @@ pub enum AbortReason {
     BackendUnavailable,
     MalformedMessage,
     InternalError(String),
+    DestinationHasHistory,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -100,6 +105,8 @@ pub enum SyncMessage {
     Abort(AbortReason),
     Ping,
     Pong,
+    FirstUpload(AttachRequest),
+    FirstUploadPublished,
 }
 
 impl SyncMessage {
@@ -508,15 +515,16 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
     }))
     .await
     .map_err(|_| AbortReason::MalformedMessage)?;
-    let request = match wire.receive().await {
-        Ok(SyncMessage::AttachRequest(request))
-            if request.store_identity == hello.store_identity
-                && request.direction == AttachDirection::Bidirectional =>
-        {
-            request
-        }
+    let (request, first_upload) = match wire.receive().await {
+        Ok(SyncMessage::AttachRequest(request)) => (request, false),
+        Ok(SyncMessage::FirstUpload(request)) => (request, true),
         _ => return Err(AbortReason::MalformedMessage),
     };
+    if request.store_identity != hello.store_identity
+        || request.direction != AttachDirection::Bidirectional
+    {
+        return Err(AbortReason::MalformedMessage);
+    }
     let token = String::from_utf8(request.auth_token.0).map_err(|_| AbortReason::Unauthorized)?;
     let idp = state
         .router_state
@@ -566,10 +574,21 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
         .open_selected(&namespace, auth.store_id.into())
         .map_err(|_| AbortReason::BackendUnavailable)?
         .ok_or(AbortReason::BackendUnavailable)?;
+    let eligible = if first_upload {
+        database
+            .first_upload_is_eligible()
+            .await
+            .map_err(|_error| AbortReason::BackendUnavailable)?
+    } else {
+        true
+    };
     authorization
         .check()
         .await
-        .map_err(|_| AbortReason::Unauthorized)?;
+        .map_err(|_error| AbortReason::Unauthorized)?;
+    if !eligible {
+        return Err(AbortReason::DestinationHasHistory);
+    }
     wire.send(SyncMessage::AttachResponse(AttachResponse {
         accepted: true,
         backend_replica_id: Uuid::now_v7(),
@@ -580,36 +599,69 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
     }))
     .await
     .map_err(|_| AbortReason::BackendUnavailable)?;
-    database
-        .exchange_resource_history(
-            &mut WebSocketTransport {
-                wire,
-                authorization: &authorization,
-            },
-            &SessionConfig::default(),
-            SyncRole::Responder,
-            &state.staging_dir,
-            || async {
-                authorization
-                    .check()
-                    .await
-                    .map_err(|error| error.to_string())
-            },
-        )
-        .await
-        .map_err(|error| match error {
-            ofdb_sql::history::SyncError::PreApply(_) => AbortReason::Unauthorized,
-            ofdb_sql::history::SyncError::Transport(error)
-                if error.kind() == io::ErrorKind::PermissionDenied =>
-            {
-                AbortReason::Unauthorized
-            }
-            error => {
-                log::debug!("Storage WebSocket sync failed: {error}");
-                AbortReason::MalformedMessage
-            }
-        })?;
+    exchange_attached_history(
+        WebSocketTransport {
+            wire,
+            authorization: &authorization,
+        },
+        &database,
+        &state.staging_dir,
+        first_upload,
+    )
+    .await
+}
+
+async fn exchange_attached_history(
+    mut transport: WebSocketTransport<'_>,
+    database: &Database,
+    staging_dir: &Path,
+    first_upload: bool,
+) -> Result<(), AbortReason> {
+    let authorization = transport.authorization;
+    let check = || async {
+        authorization
+            .check()
+            .await
+            .map_err(|error| error.to_string())
+    };
+    let config = SessionConfig::default();
+    if first_upload {
+        database
+            .receive_first_upload(&mut transport, &config, staging_dir, check)
+            .await
+            .map_err(exchange_abort)?;
+        transport
+            .wire
+            .send(SyncMessage::FirstUploadPublished)
+            .await
+            .map_err(|_error| AbortReason::BackendUnavailable)?;
+    } else {
+        database
+            .exchange_resource_history(
+                &mut transport,
+                &config,
+                SyncRole::Responder,
+                staging_dir,
+                check,
+            )
+            .await
+            .map_err(exchange_abort)?;
+    }
     Ok(())
+}
+
+fn exchange_abort(error: SyncError<io::Error>) -> AbortReason {
+    match error {
+        SyncError::DestinationHasHistory => AbortReason::DestinationHasHistory,
+        SyncError::PreApply(_) => AbortReason::Unauthorized,
+        SyncError::Transport(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            AbortReason::Unauthorized
+        }
+        error => {
+            log::debug!("Storage WebSocket sync failed: {error}");
+            AbortReason::MalformedMessage
+        }
+    }
 }
 
 #[cfg(test)]
