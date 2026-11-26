@@ -1,4 +1,9 @@
-import type { VaultMeta } from "../vault";
+export interface VaultMeta {
+  id: string;
+  salt: string;
+  iv: string;
+  createdAt: string;
+}
 
 export const PBKDF2_ITERATIONS = 600_000;
 
