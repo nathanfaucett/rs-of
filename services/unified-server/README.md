@@ -11,7 +11,9 @@ Use the protected Node code from the private file whose path the server prints. 
 
 Keep the data root and HTTPS origins unchanged on restart. `node-admission/state` contains only the Node code. Locks remain on disk, but setup state is in `unified.redb`.
 
-There is no in-place migration from the previous split-database layout, earlier setup formats, or seeded roots. The server rejects them without modification. Preserve the old root and use `just unified --data-dir <fresh-private-path>` for a new Node.
+The initial single-database layout could retain the database at `node-admission/unified.redb`. After acquiring the root lock, setup atomically moves that file to the data root. It rejects two retained database files as ambiguous.
+
+There is no in-place migration from the previous split-database layout, other earlier setup formats, or seeded roots. The server rejects them without modification. Preserve the old root and use `just unified --data-dir <fresh-private-path>` for a new Node.
 
 The [Node setup contract](../../openapi/node.json) publishes IdP and Storage bases only after the Node verifies Create or verifies the selected Installation’s owner evidence and records verified Device approval. The local Node permits Password Manager to read the descriptor. After Join, the existing Installation must permit the exact Password Manager origin on its IdP and Storage APIs. Separate IdP and Storage bases can be used for sign-in; the reference app does not offer legacy vault replication with those bases.
 

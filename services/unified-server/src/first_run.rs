@@ -1,5 +1,5 @@
 use std::{
-    fs::{File, read_dir},
+    fs::{File, read_dir, rename},
     io,
     net::Ipv4Addr,
     path::{Path, PathBuf},
@@ -109,7 +109,7 @@ pub async fn serve(
         verified?;
         let _root_lock = open_root(&root)?;
         let result = async {
-            let database = EmbeddedDatabase::open(&root).await.map_err(io::Error::other)?;
+            let database = open_database(&root).await?;
             let store = SetupStore::open(&database).await?;
             let node = NodeSetup::open(&root, &ui_origin, &pm_origin, &public_origin, store.clone(), shutdown.clone())?;
             let mut selection = node.choice();
@@ -169,6 +169,29 @@ async fn verify_proxy(client: &Client, origin: &str, proof: &str) -> io::Result<
     })
 }
 
+async fn open_database(root: &Path) -> io::Result<EmbeddedDatabase> {
+    let path = root.join(DATABASE);
+    let previous = root.join(ADMISSION).join(DATABASE);
+    match (
+        setup_files::present(&path)?,
+        setup_files::present(&previous)?,
+    ) {
+        (true, true) => {
+            return Err(io::Error::other("multiple retained Node databases"));
+        }
+        (false, true) => {
+            setup_files::require_private(&previous, false)?;
+            rename(&previous, &path)?;
+            File::open(previous.parent().expect("nested database parent"))?.sync_all()?;
+            setup_files::sync_ancestry(root)?;
+        }
+        _ => (),
+    }
+    EmbeddedDatabase::open_file(path)
+        .await
+        .map_err(io::Error::other)
+}
+
 fn validate_root(root: &Path) -> io::Result<()> {
     if !setup_files::present(root)? {
         return Ok(());
@@ -186,8 +209,12 @@ fn validate_root(root: &Path) -> io::Result<()> {
             ));
         }
     }
-    if setup_files::present(&root.join(ADMISSION))? && !setup_files::present(&root.join(DATABASE))?
-    {
+    let database = setup_files::present(&root.join(DATABASE))?;
+    let previous = setup_files::present(&root.join(ADMISSION).join(DATABASE))?;
+    if database && previous {
+        return Err(io::Error::other("multiple retained Node databases"));
+    }
+    if setup_files::present(&root.join(ADMISSION))? && !database && !previous {
         return Err(io::Error::other("retained Node database is missing"));
     }
     Ok(())
@@ -216,6 +243,52 @@ fn open_root(root: &Path) -> io::Result<File> {
         setup_files::sync_ancestry(root)?;
     }
     Ok(lock)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs::Permissions, os::unix::fs::PermissionsExt};
+
+    use db::EmbeddedDatabase;
+    use server_common::setup_files;
+
+    use super::{DATABASE, open_database, open_root, validate_root};
+    use crate::{node_setup::ADMISSION, setup_store::SetupStore};
+
+    #[tokio::test]
+    async fn retained_nested_database_moves_to_the_root() {
+        let root = tempfile::Builder::new()
+            .permissions(Permissions::from_mode(0o700))
+            .tempdir()
+            .expect("private data directory");
+        drop(open_root(root.path()).expect("fresh root lock"));
+        let admission = root.path().join(ADMISSION);
+        setup_files::create_private_directory(&admission, false).expect("admission directory");
+        let nested = EmbeddedDatabase::open(&admission)
+            .await
+            .expect("nested database");
+        let store = SetupStore::open(&nested).await.expect("setup store");
+        store
+            .write("retained", &"database contents")
+            .await
+            .expect("retained record");
+        drop(store);
+        drop(nested);
+
+        validate_root(root.path()).expect("nested database layout");
+        let _lock = open_root(root.path()).expect("retained root lock");
+        let database = open_database(root.path()).await.expect("root database");
+        let store = SetupStore::open(&database).await.expect("reopened store");
+        assert_eq!(
+            store
+                .read::<String>("retained")
+                .await
+                .expect("retained record"),
+            Some("database contents".into())
+        );
+        assert!(root.path().join(DATABASE).is_file());
+        assert!(!admission.join(DATABASE).exists());
+    }
 }
 
 fn flatten(result: Option<Result<io::Result<()>, JoinError>>) -> io::Result<()> {
