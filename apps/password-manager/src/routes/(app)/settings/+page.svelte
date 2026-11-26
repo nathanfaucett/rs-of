@@ -10,14 +10,13 @@ import LockSettingsControl from "$lib/vault/LockSettings.svelte";
 let error = $state("");
 let notice = $state("");
 let busy = $state(false);
-let importing = $state(false);
 let session = 0;
 
 let vaultData = $derived(vaultStateModule.vaultData);
 
 
 async function downloadBackup(recovery = false) {
-	if (!vaultData || busy || importing) return;
+	if (!vaultData || busy) return;
 	busy = true;
 	error = "";
 	notice = "";
@@ -42,17 +41,6 @@ async function downloadBackup(recovery = false) {
 		if (request === session) busy = false;
 	}
 }
-
-function finishImport(success = false) {
-	if (!vaultData || vaultData.inactivity.check()) return;
-	importing = false;
-	notice = success ? "Import verified. All accepted items and folders were added." : "";
-	const request = session;
-	setTimeout(() => {
-		if (request === session && !vaultData?.inactivity.check()) document.getElementById("import-json-action")?.focus();
-	}, 0);
-}
-
 </script>
 
 <svelte:head><title>Settings | Password Manager</title></svelte:head>
@@ -64,10 +52,10 @@ function finishImport(success = false) {
 		{#if vaultData}
 		            <LockSettingsControl settings={vaultData.lockSettings} onsave={vaultStateModule.saveLockSettings} />
 		            <JsonExport vault={vaultData.vault} isActive={() => !vaultData.inactivity.check()} />
-		            <ImportJson vault={vaultData.vault} active={() => !vaultData.inactivity.check()} oncancel={() => finishImport()} onimported={() => finishImport(true)} />
+		            <ImportJson vault={vaultData.vault} active={() => !vaultData.inactivity.check()} />
 		            <div class="flex gap-2">
-		                <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
-		                <button class="btn btn-secondary btn-md" type="button" disabled={busy || importing} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
+		                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => void downloadBackup()}>{busy ? "Preparing backup…" : "Download encrypted backup"}</button>
+		                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => void downloadBackup(true)}>Download pre-transition backup</button>
 		            </div>
 		            <div class="pt-4 border-t border-line">
 		                <button

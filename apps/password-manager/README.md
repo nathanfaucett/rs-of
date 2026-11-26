@@ -16,6 +16,7 @@ This Svelte application demonstrates the platform's north-star workflow. It is i
 - Browser local storage is not an encrypted backup.
 - The application includes local backup/recovery and offline-shell support; platform, eviction, update, and recovery limits still apply.
 - Items stay in Trash until you restore them or confirm permanent deletion. There is no automatic deletion. Permanent deletion does not change existing backups.
+- In Settings, validate a personal Bitwarden JSON file before you import it. **Cancel import** clears the current batch and returns to the file picker. A verified import closes its preview. Select **Import another file** to start a new batch.
 
 Use test secrets only. Do not infer production cryptographic, browser, or remote synchronization qualification from local CRUD tests.
 
