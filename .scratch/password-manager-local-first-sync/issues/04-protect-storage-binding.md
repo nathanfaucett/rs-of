@@ -11,7 +11,8 @@ Milestone: M2 — Single-Node encrypted synchronization
 ## Scope and non-goals
 
 - Scope every binding to the verified Installation and namespace; never reuse it across Users or Installations.
-- Keep attachment, cancellation, status, and retry in the sync adapter rather than vault CRUD.
+- Keep attachment, cancellation, status, and retry in the sync adapter rather than vault CRUD. Detachment closes the Resource transport and stops scheduling without closing the local database or changing its contents.
+- Retain the Resource-scoped transport interface across reconnects. Use one SQL Resource per WebSocket for this spec; the interface does not expose whether a future SDK implementation shares a socket.
 - Clear unlocked keys on account switch and require confirmation before attaching to a different account.
 - Do not treat a token as Device approval or bypass Storage Resource and Selection policy.
 
