@@ -2,10 +2,12 @@
     import { onMount } from "svelte";
 
     import { resolve } from "$app/paths";
+    import ListDiscovery from "$lib/common/components/ListDiscovery.svelte";
     import {
         type Application,
         idpAdministration,
     } from "$lib/common/state/idpAdministration";
+    import { discoverRows, type ListOrder } from "$lib/common/state/listDiscovery";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
@@ -28,6 +30,12 @@
         uriSubmitted && !isApplicationUri(uri.trim())
             ? [{ message: "Enter an HTTP or HTTPS URL without credentials, or a URN." }]
             : [],
+    );
+
+    let search = $state("");
+    let order = $state<ListOrder>("default");
+    const visibleRows = $derived(
+        discoverRows(applications, search, order, (row) => [row.id, row.uri, row.description]),
     );
 
     function formatTimestamp(value: number): string {
@@ -186,6 +194,13 @@
         </form>
     </Card>
 
+    <ListDiscovery
+        listScope="current page"
+        fields="Name, ID, URI, or description."
+        bind:search
+        bind:order
+    />
+
     {#if failedOffset !== null}
         <Alert tone="danger" title="Could not load applications">
             <button
@@ -203,7 +218,11 @@
         <Card tone="subtle">Loading applications...</Card>
     {:else if applications.length === 0 && failedOffset === null}
         <Card tone="subtle">No applications found.</Card>
-    {:else if applications.length > 0}
+    {:else if applications.length > 0 && visibleRows.length === 0}
+        <Card tone="subtle">
+            <p class="mb-0" role="status">No matches on this page.</p>
+        </Card>
+    {:else if visibleRows.length > 0}
         <div class="overflow-x-auto rounded-card border border-line bg-surface">
             <table class="table">
                 <thead>
@@ -216,7 +235,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {#each applications as application (application.id)}
+                    {#each visibleRows as application (application.id)}
                         <tr>
                             <td data-label="ID">
                                 <a

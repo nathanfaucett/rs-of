@@ -9,6 +9,7 @@ export default defineConfig({
       "src/lib/common/state/nodeSetup.test.ts",
       "src/lib/common/state/setupClient.test.ts",
       "src/lib/common/state/serviceApi.test.ts",
+      "src/lib/common/state/listDiscovery.test.ts",
       "src/lib/common/state/sessionAccess.test.ts",
       "src/routes/(auth)/authorize/registration.test.ts",
       "src/routes/(auth)/applications/applicationUri.test.ts",

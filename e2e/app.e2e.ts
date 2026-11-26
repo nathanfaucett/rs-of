@@ -552,12 +552,27 @@ for (const width of [320, 390, 768, 1440]) {
       }
     }
 
+    async function expectDiscoveryToFit(scope: string) {
+      const search = main.getByRole("searchbox", { name: `Search ${scope}` });
+      const sort = main.getByRole("combobox", { name: `Sort ${scope}` });
+      await search.press("Tab");
+      await expect(sort).toBeFocused();
+      for (const control of [search, sort]) {
+        const box = await control.boundingBox();
+        if (!box) throw new Error("List discovery control is not visible");
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+      }
+    }
+
+    await expectDiscoveryToFit("current page");
     await main.getByRole("textbox", { name: "Name" }).fill("Responsive draft");
     await main.getByRole("textbox", { name: "URI" }).fill("https://responsive.example.test");
     await main.getByRole("button", { name: "Create application" }).click({ trial: true });
     await expectRecordToFit();
 
     await page.goto(`${appURL}/users`);
+    await expectDiscoveryToFit("current page");
     await expectRecordToFit();
     await main.getByRole("button", { name: "Add user" }).click();
     const createUser = page.getByRole("dialog");
@@ -566,6 +581,7 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(createUser).toBeHidden();
 
     await page.goto(`${appURL}/devices`);
+    await expectDiscoveryToFit("loaded devices");
     const refreshed = page.waitForResponse(`${backendURL}/device/devices`);
     await main.getByRole("button", { name: "Refresh", exact: true }).click();
     expect((await refreshed).ok()).toBeTruthy();

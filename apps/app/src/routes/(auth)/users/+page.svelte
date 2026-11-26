@@ -2,8 +2,10 @@
     import { ResponseError, type UserInfo } from "@ofsdk/idp-client";
     import { onMount } from "svelte";
     import { resolve } from "$app/paths";
+    import ListDiscovery from "$lib/common/components/ListDiscovery.svelte";
     import Modal from "$lib/common/components/Modal.svelte";
     import { idpApi } from "$lib/common/state/idpClient.svelte";
+    import { discoverRows, type ListOrder } from "$lib/common/state/listDiscovery";
     import { notifications } from "$lib/common/state/notifications.svelte";
     import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 
@@ -21,6 +23,12 @@
     let newName = $state("");
     let newEmail = $state("");
     let newPassword = $state("");
+
+    let search = $state("");
+    let order = $state<ListOrder>("default");
+    const visibleRows = $derived(
+        discoverRows(users, search, order, (row) => [row.sub, row.preferredUsername, row.email]),
+    );
 
     const pageNumber = $derived(Math.floor(offset / pageSize) + 1);
 
@@ -122,12 +130,23 @@
         {/snippet}
     </PageHeader>
 
+    <ListDiscovery
+        listScope="current page"
+        fields="Name, user ID, username, or email."
+        bind:search
+        bind:order
+    />
+
     {#if error}
         <Alert tone="danger">{error}</Alert>
     {:else if loading && users.length === 0}
         <Card tone="subtle">Loading users...</Card>
     {:else if users.length === 0}
         <Card tone="subtle">No users found.</Card>
+    {:else if visibleRows.length === 0}
+        <Card tone="subtle">
+            <p class="mb-0" role="status">No matches on this page.</p>
+        </Card>
     {:else}
         <div class="overflow-x-auto rounded-card border border-line bg-surface">
             <table class="table">
@@ -141,14 +160,20 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {#each users as user (user.sub)}
+                    {#each visibleRows as user (user.sub)}
                         <tr>
                             <td data-label="User ID">
                                 <a href={resolve(`/users/${user.sub}`)}
                                     >{user.sub}</a
                                 >
                             </td>
-                            <td data-label="Name">{user.name ?? "-"}</td>
+                            <td data-label="Name">
+                                {#if user.name}
+                                    <a href={resolve(`/users/${user.sub}`)}>{user.name}</a>
+                                {:else}
+                                    -
+                                {/if}
+                            </td>
                             <td data-label="Username">{user.preferredUsername ?? "-"}</td>
                             <td data-label="Email">{user.email ?? "-"}</td>
                             <td data-label="Updated">{user.updatedAt.toLocaleString()}</td>

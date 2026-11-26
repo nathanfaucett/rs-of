@@ -118,9 +118,19 @@ test("Application pagination stops at exact and short boundaries and keeps the p
     await expect(rows).toHaveCount(25);
     await expect(next).toBeDisabled();
 
+    const search = page.getByRole("searchbox", { name: "Search current page" });
+    const sort = page.getByRole("combobox", { name: "Sort current page" });
+    await expect(search).toBeVisible();
+    await search.fill(prefix.toUpperCase());
+    await sort.selectOption("name-desc");
+    await expect(rows.first()).toContainText(`${prefix} 24`);
+
     const last = await owner.create(`${prefix} extra`, `https://example.test/${randomUUID()}`);
     ids.push(last.id);
     await page.reload();
+    await expect(next).toBeEnabled();
+    await search.fill("nothing matches this query");
+    await expect(page.getByText("No matches on this page.")).toBeVisible();
     await expect(next).toBeEnabled();
     await page.route(
       (url) =>
@@ -131,12 +141,18 @@ test("Application pagination stops at exact and short boundaries and keeps the p
     await next.click();
     await expect(page.getByRole("alert")).toContainText("Could not load applications");
     await expect(offset).toBeVisible();
-    await expect(rows).toHaveCount(25);
+    await expect(page.getByText("No matches on this page.")).toBeVisible();
     await expect(next).toBeDisabled();
+    await search.fill("");
+    await expect(rows).toHaveCount(25);
+    await search.fill("nothing matches this query");
 
     await page.getByRole("button", { name: "Retry", exact: true }).click();
     await expect(page.getByRole("alert")).toHaveCount(0);
     await expect(page.getByText("Offset: 25", { exact: true })).toBeVisible();
+    await expect(search).toHaveValue("nothing matches this query");
+    await expect(page.getByText("No matches on this page.")).toBeVisible();
+    await search.fill("");
     await expect(rows).toHaveCount(1);
     await expect(next).toBeDisabled();
     await prev.click();

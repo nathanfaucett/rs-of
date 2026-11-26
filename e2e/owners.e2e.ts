@@ -124,10 +124,7 @@ for (const [clientId, origin] of [
   });
 }
 
-test("Device administration and signed second-Device approval use the Device owner", async ({
-  page,
-  request,
-}) => {
+test("Device administration, signed approval, and list discovery", async ({ page, request }) => {
   const session = await frontendSession(request, "app", appURL);
   const token = await json<{ access_token: string }>(
     await request.post(`${backendURL}/idp/oauth2/token`, {
@@ -314,6 +311,23 @@ test("Device administration and signed second-Device approval use the Device own
   expect((await device.listDevices()).find(({ id }) => id === pending.id)).toEqual(approved);
   const denied = await request.get(`${backendURL}/device/devices`);
   expect(denied.ok()).toBeFalsy();
+
+  // Use the two real Device records from this scenario, without adding another enrollment.
+  await page.reload();
+  const search = page.getByRole("searchbox", { name: "Search loaded devices" });
+  const sort = page.getByRole("combobox", { name: "Sort loaded devices" });
+  const records = page.locator("tbody tr").filter({ hasText: /E2E browser device|Second Device/ });
+  await expect(records).toHaveCount(2);
+  await search.fill(secondKey.toUpperCase());
+  await expect(records).toHaveCount(1);
+  await expect(records.first()).toContainText("Second Device");
+  await search.fill("no matching device");
+  await expect(page.getByText("No matching devices.")).toBeVisible();
+  await search.fill("");
+  await sort.selectOption("name-desc");
+  await expect(records.first()).toContainText("Second Device");
+  await sort.selectOption("name-asc");
+  await expect(records.first()).toContainText("E2E browser device");
 });
 
 test("IdP Client read requires a token from the granted Application", async ({ request }) => {
