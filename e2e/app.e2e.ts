@@ -12,6 +12,15 @@ test("invalid service selection opens configuration", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Configuration", exact: true })).toBeVisible();
 });
 
+test("public configuration uses a floating action without a bottom bar", async ({ page }) => {
+  await page.goto(`${appURL}/signin`);
+  const configuration = page.getByRole("button", { name: "Configuration", exact: true });
+  await expect(configuration).toBeVisible();
+  await expect(configuration).toHaveCSS("position", "fixed");
+  await configuration.click();
+  await expect(page.getByRole("dialog", { name: "Configuration", exact: true })).toBeVisible();
+});
+
 test("configuration discovers and saves unified service URLs", async ({ page }) => {
   await page.goto(`${appURL}/config`);
   await page.getByRole("button", { name: "Detect services", exact: true }).click();
@@ -494,6 +503,9 @@ test("management navigation works by keyboard and remembers both layouts", async
   await menu.focus();
   await menu.press("Enter");
   await expect(menu).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    page.locator("#management-sidebar").getByRole("button", { name: "Configuration", exact: true })
+  ).toBeVisible();
   await page.keyboard.press("Tab");
   const dashboard = navigation.getByRole("link", { name: "Dashboard" });
   await expect(dashboard).toBeFocused();
@@ -592,6 +604,9 @@ for (const width of [320, 390, 768, 1440]) {
     await enrollDevice.getByRole("button", { name: "Enroll device" }).click({ trial: true });
     await enrollDevice.getByRole("button", { name: "Cancel" }).click();
     await expect(enrollDevice).toBeHidden();
+
+    const menu = page.getByRole("button", { name: "Navigation", exact: true });
+    if (await menu.isVisible()) await menu.click();
 
     const mainBox = await main.boundingBox();
     const configurationBox = await configuration.boundingBox();

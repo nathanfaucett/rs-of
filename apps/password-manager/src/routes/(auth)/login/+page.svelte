@@ -34,6 +34,9 @@ onMount(() => {
         {#if authState.error}
           <Alert tone="danger">{authState.error}</Alert>
         {/if}
+        {#if authState.setupUrl}
+          <a class="btn btn-secondary btn-md" href={authState.setupUrl}>Open Node setup</a>
+        {/if}
         <Field id="login" label="Sign in with your identity provider">
           <div class="flex flex-col gap-3">
             <button class="btn btn-primary btn-md w-full" type="button" disabled={busy} onclick={handleLogin}>

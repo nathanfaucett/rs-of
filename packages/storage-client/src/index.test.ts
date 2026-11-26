@@ -394,6 +394,31 @@ it.each(["ensure", "create", "list", "get", "delete", "sql"])(
     expect(fetch).not.toHaveBeenCalled();
   }
 );
+it.each(["exchange", "resource"])(
+  "database %s network failure gives actionable guidance without generated error text",
+  async (stage) => {
+    const failure = new TypeError("Failed to fetch");
+    const fetch =
+      stage === "exchange"
+        ? vi.fn().mockRejectedValue(failure)
+        : vi
+            .fn()
+            .mockResolvedValueOnce(Response.json({ access_token: "db-token" }))
+            .mockRejectedValueOnce(failure);
+    const client = new StorageClient({
+      idpBaseUrl: "https://idp.test/idp",
+      storageBaseUrl: "https://storage.test/storage",
+      clientId: "web",
+      bearerToken: () => "user-token",
+      fetch,
+    });
+    await expect(client.listDatabases()).rejects.toMatchObject({
+      message: "Storage service is unavailable. Check the Node status and connection, then retry.",
+    });
+    expect(fetch).toHaveBeenCalledTimes(stage === "exchange" ? 1 : 2);
+  }
+);
+
 it.each(["ensure", "create", "list", "get", "delete", "sql"])(
   "database %s redacts failures and never automatically replays",
   async (operation) => {

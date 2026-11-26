@@ -1,6 +1,7 @@
 import {
   DefaultApi as IdpApi,
   Configuration as IdpConfiguration,
+  FetchError as IdpFetchError,
   ResponseError as IdpResponseError,
   SubjectTokenType,
 } from "@ofsdk/idp-client";
@@ -15,7 +16,7 @@ import type {
   SqlResponse,
   SqlValue,
 } from "./generated/models/index.js";
-import { Configuration, querystring, ResponseError } from "./generated/runtime.js";
+import { Configuration, FetchError, querystring, ResponseError } from "./generated/runtime.js";
 
 export { ResourcesResidencyApi } from "./generated/apis/ResourcesResidencyApi.js";
 export type {
@@ -41,11 +42,19 @@ export class DatabaseOperationError extends Error {
   }
 }
 
+function storageUnavailable(cause: Error): Error {
+  return new Error(
+    "Storage service is unavailable. Check the Node status and connection, then retry.",
+    { cause }
+  );
+}
+
 async function databaseResult<T>(pending: Promise<T>): Promise<T> {
   try {
     return await pending;
   } catch (error) {
     if (error instanceof ResponseError) throw new DatabaseOperationError(error.response.status);
+    if (error instanceof FetchError) throw storageUnavailable(error);
     throw error;
   }
 }
@@ -449,6 +458,7 @@ export class StorageClient {
       .catch((error: unknown) => {
         if (error instanceof IdpResponseError)
           throw new Error(`Storage token exchange failed: ${error.response.status}`);
+        if (error instanceof IdpFetchError) throw storageUnavailable(error);
         throw error;
       });
     if (!result.accessToken) {

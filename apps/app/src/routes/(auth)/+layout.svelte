@@ -19,6 +19,7 @@
     import { afterNavigate, goto } from "$app/navigation";
     import { resolve } from "$app/paths";
     import { page } from "$app/state";
+    import ConfigButton from "$lib/common/components/ConfigButton.svelte";
     import { clearOidcSession } from "$lib/common/state/oidc.svelte";
     import type { LayoutProps } from "./$types";
 
@@ -171,6 +172,7 @@
         </nav>
 
         <div class="border-t border-line p-2">
+            <ConfigButton collapsed={sidebar.item} />
             <button
                 type="button"
                 class={[

@@ -33,7 +33,10 @@ export default defineConfig(({ command, mode, isPreview }) => {
             PUBLIC_IDP_BASE_URL: `${unified}/idp`,
             PUBLIC_STORAGE_BASE_URL: `${unified}/storage`,
           }
-        : { PUBLIC_UNIFIED_ORIGIN: unified };
+        : {
+            PUBLIC_UNIFIED_ORIGIN: unified,
+            PUBLIC_NODE_SETUP_URL: `https://${prefix}of.localhost${suffix}/setup`,
+          };
     for (const [key, value] of Object.entries(defaults)) {
       process.env[key] ??= env[key] ?? value;
     }

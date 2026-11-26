@@ -4,7 +4,12 @@ const name = "Local during setup";
 const masterPassword = "local-only-master-password";
 const localRecord = "Record saved before Node setup";
 
-export async function passwordManagerWhileWaiting(page: Page, origin: string, node: string) {
+export async function passwordManagerWhileWaiting(
+  page: Page,
+  origin: string,
+  node: string,
+  app: string
+) {
   const oauth: string[] = [];
   await page.goto(origin);
   await page.getByRole("link", { name: "Sign in to sync" }).click();
@@ -18,6 +23,10 @@ export async function passwordManagerWhileWaiting(page: Page, origin: string, no
   ]);
   expect(await descriptor.json()).toEqual({ state: "awaiting_choice" });
   await expect(page.getByRole("alert")).toContainText("Finish Node setup");
+  await expect(page.getByRole("link", { name: "Open Node setup", exact: true })).toHaveAttribute(
+    "href",
+    `${app}/setup`
+  );
   await expect(page).toHaveURL(`${origin}/login`);
   expect(oauth).toEqual([]);
   await page.goto(origin);

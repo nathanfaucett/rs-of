@@ -313,7 +313,7 @@ nodeTest(
     const storage = `${base}/storage`;
     const page = await browser.newPage();
     const pmPage = await browser.newPage();
-    await passwordManagerWhileWaiting(pmPage, pm, base);
+    await passwordManagerWhileWaiting(pmPage, pm, base, app);
     const nodeCode = await choose(page, node, "create");
     await expect(page.getByLabel("Administrator username", { exact: true })).toBeVisible();
     await expect(page.getByLabel(/setup code/i)).toHaveCount(0);
@@ -658,7 +658,7 @@ nodeTest(
     const remote = await remoteInstallation(node);
     const page = await browser.newPage();
     const pmPage = await browser.newPage();
-    await passwordManagerWhileWaiting(pmPage, pm, base);
+    await passwordManagerWhileWaiting(pmPage, pm, base, app);
     const nodeCode = await choose(page, node, "join");
     await expect(page.getByLabel("Local join helper")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Prepare join" })).toBeVisible();

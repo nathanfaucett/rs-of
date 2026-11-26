@@ -113,3 +113,30 @@ test("password-manager redirects to IdP, requests consent, and establishes a ses
   await expect(page).toHaveURL(`${passwordManagerURL}/`);
   await expect(page.getByRole("button", { name: "Show synced vaults", exact: true })).toBeVisible();
 });
+
+test("synced vault network failure gives service recovery without local-storage advice", async ({
+  page,
+}) => {
+  await requestConsent(page);
+  await page.getByRole("button", { name: "Allow", exact: true }).click();
+  await expect(page).toHaveURL(`${passwordManagerURL}/`);
+  await page.route(`${backendURL}/idp/oauth2/token`, async (route) => {
+    const grant = new URLSearchParams(route.request().postData() ?? "").get("grant_type");
+    if (grant === "urn:ietf:params:oauth:grant-type:token-exchange") await route.abort("failed");
+    else await route.continue();
+  });
+
+  await page.getByRole("button", { name: "Create synced vault", exact: true }).click();
+  await page.getByLabel("Vault name", { exact: true }).fill("Interrupted sync vault");
+  await page.getByLabel("Master password", { exact: true }).fill("synthetic-sync-password");
+  await page.getByLabel("Confirm password", { exact: true }).fill("synthetic-sync-password");
+  await page.getByRole("button", { name: "Create vault", exact: true }).click();
+
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText(
+    "Storage service is unavailable. Check the Node status and connection, then retry."
+  );
+  await expect(alert).toContainText("Return to the selector");
+  await expect(alert).not.toContainText("interceptors");
+  await expect(alert).not.toContainText("Check browser storage");
+});

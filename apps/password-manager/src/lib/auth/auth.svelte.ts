@@ -2,7 +2,7 @@ import type { OidcClient, OidcUserInfo } from "@ofsdk/oidc-client";
 import { goto } from "$app/navigation";
 import { resolve } from "$app/paths";
 import { env } from "$env/dynamic/public";
-import { authConfig } from "./installation";
+import { authConfig, NodeSetupRequiredError } from "./installation";
 import { createOidcClient, type OidcAuthConfig } from "./oidc";
 
 let client: OidcClient | undefined;
@@ -14,9 +14,15 @@ let session = $state.raw<{
   clientId: string;
 } | null>(null);
 let error = $state<string | null>(null);
+let setupUrl = $state<string | null>(null);
 
 function config() {
   return authConfig(env, new URL(resolve("/callback"), window.location.origin).href);
+}
+
+function showError(cause: unknown, fallback: string) {
+  setupUrl = cause instanceof NodeSetupRequiredError ? cause.setupUrl : null;
+  error = cause instanceof Error ? cause.message : fallback;
 }
 
 async function restore(): Promise<void> {
@@ -34,7 +40,7 @@ async function restore(): Promise<void> {
     }
     if (oidc.getStoredTokenResponse()) await establishSession(oidc, selected);
   } catch (cause) {
-    error = cause instanceof Error ? cause.message : "Authentication failed";
+    showError(cause, "Authentication failed");
   }
 }
 
@@ -53,6 +59,7 @@ function initialize(): Promise<void> {
 async function login(): Promise<void> {
   await initialize();
   error = null;
+  setupUrl = null;
   try {
     if (session) {
       await goto(resolve("/"));
@@ -61,7 +68,7 @@ async function login(): Promise<void> {
     client = createOidcClient(await config());
     await client.signin();
   } catch (cause) {
-    error = cause instanceof Error ? cause.message : "Login failed";
+    showError(cause, "Login failed");
   }
 }
 
@@ -89,6 +96,9 @@ export const authState = {
   },
   get error() {
     return error;
+  },
+  get setupUrl() {
+    return setupUrl;
   },
   initialize,
   login,

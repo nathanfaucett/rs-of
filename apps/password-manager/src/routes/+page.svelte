@@ -45,14 +45,18 @@ async function createVault() {
     }
     busy = true;
     const pwd = password;
+    const synced = vaultStateModule.state.status === "create-vault" && vaultStateModule.state.synced;
     try {
-        await vaultStateModule.createVault(pwd, vaultName.trim(), vaultStateModule.state.status === "create-vault" && vaultStateModule.state.synced);
+        await vaultStateModule.createVault(pwd, vaultName.trim(), synced);
         password = "";
         confirmPassword = "";
         vaultName = "";
     } catch (cause) {
         if (isRedirect(cause)) throw cause;
-        error = `${cause instanceof Error ? cause.message : "Failed to create vault."} Check browser storage and free space. Return to the selector to recover an interrupted registration before retrying. Do not clear browser data.`;
+        const recovery = synced
+            ? "Return to the selector to recover an interrupted registration before retrying. Do not clear browser data."
+            : "Check browser storage and free space. Return to the selector to recover an interrupted registration before retrying. Do not clear browser data.";
+        error = `${cause instanceof Error ? cause.message : "Failed to create vault."} ${recovery}`;
     } finally {
         busy = false;
     }
