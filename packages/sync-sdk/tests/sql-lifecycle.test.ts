@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
+import { Database } from "@ofsdk/sql";
 import { indexedDB } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initSync } from "../../sql/pkg/ofdb_wasm.js";
 import fixtures from "../../storage-sync-client/src/wire-fixtures.json";
-import { BrowserSyncSDK } from "../src/browser";
+import { BrowserSyncSDK, createEstablishedSqlHandle } from "../src/browser";
 import type { SyncConfig, SyncSDK } from "../src/core";
 import { NodeSyncSDK } from "../src/node";
 
@@ -55,6 +56,55 @@ class StalledSocket extends EventTarget {
     this.dispatchEvent(new Event("close"));
   }
 }
+
+it("wraps an existing browser SQL database without opening storage or starting sync", async () => {
+  vi.stubGlobal("indexedDB", indexedDB);
+  const fetch = vi.fn();
+  const socket = vi.fn();
+  const tokenProvider = vi.fn(() => "storage-token");
+  vi.stubGlobal("fetch", fetch);
+  vi.stubGlobal("WebSocket", socket);
+  const database = await Database.open("existing-local-database");
+  const client = database.client();
+  const open = vi.spyOn(indexedDB, "open");
+  try {
+    await client.executeRaw("CREATE TABLE items (id UUID PRIMARY KEY, value TEXT)");
+    await client.executeRaw("INSERT INTO items (value) VALUES ('local data')");
+    const identity = {
+      storeId: "11111111-1111-1111-1111-111111111111",
+      replicaId: "22222222-2222-2222-2222-222222222222",
+      creationEpoch: 0n,
+      schemaFingerprint: new Uint8Array(32),
+    };
+    const handle = createEstablishedSqlHandle(database, identity, {
+      storageApiUrl: "https://node.test/storage",
+      tokenProvider,
+    });
+    expect(handle.id).toBe(identity.storeId);
+    await expect(handle.execute("SELECT value FROM items")).resolves.toEqual({
+      columns: ["value"],
+      rows: [["local data"]],
+    });
+    await handle.close();
+    const localClient = database.client();
+    try {
+      await expect(localClient.executeRaw("SELECT value FROM items")).resolves.toMatchObject([
+        { rows: [[{ type: "text", value: "local data" }]] },
+      ]);
+    } finally {
+      localClient.close();
+    }
+    expect(open).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(tokenProvider).not.toHaveBeenCalled();
+    expect(socket).not.toHaveBeenCalled();
+  } finally {
+    open.mockRestore();
+    client.close();
+    database.close();
+    vi.unstubAllGlobals();
+  }
+});
 
 const config = (): SyncConfig => ({
   apiUrl: "https://node.test/storage",
