@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { Snippet } from "svelte";
+import { formatTimestamp } from "$lib/shared/util/timestamp";
 import { Card } from "$lib/ui";
 import { identityFields } from "../identity-fields";
 import type { Secret } from "../secret";
@@ -13,7 +14,21 @@ let { record, canEdit, onedit, onclose, folderAssignment }: {
     onclose: () => void;
     folderAssignment: Snippet;
 } = $props();
+
+function websiteHref(value: string): string | undefined {
+    if (!/^https?:\/\/[^/?#]/i.test(value) || /[\s\\]/.test(value)) return undefined;
+    try {
+        return new URL(value).href;
+    } catch {
+        return undefined;
+    }
+}
 </script>
+
+{#snippet timestamp(value: string)}
+    {@const formatted = formatTimestamp(value)}
+    {#if formatted}<time datetime={value}>{formatted}</time>{:else}Unknown{/if}
+{/snippet}
 
 <Card title="Item details" description="Use Edit to change item fields.">
     <div class="flex min-w-0 flex-col gap-4 wrap-anywhere">
@@ -32,7 +47,15 @@ let { record, canEdit, onedit, onclose, folderAssignment }: {
             {#if record.totp}<TotpCode value={record.totp} />{/if}
             <h3>Websites</h3>
             {#each record.uris as uri, i (uri)}
-                <ProtectedValue label={`Website ${i + 1}`} value={uri.uri} protected={false} />
+                {@const href = websiteHref(uri.uri)}
+                <ProtectedValue label={`Website ${i + 1}`} value={uri.uri} protected={false}>
+                    {#snippet actions()}
+                        {#if href}
+                            <a class="btn btn-secondary btn-md" {href} target="_blank" rel="noopener noreferrer"
+                                aria-label={`Launch ${uri.uri}`}>Launch</a>
+                        {/if}
+                    {/snippet}
+                </ProtectedValue>
                 <p>Match rule: {uri.match ?? "Default (inherited)"}</p>
             {:else}<p>No websites.</p>{/each}
         {:else if record.kind === "card"}
@@ -62,10 +85,10 @@ let { record, canEdit, onedit, onclose, folderAssignment }: {
         {:else}<p>No custom fields.</p>{/each}
         <h3>Password history ({record.history.length})</h3>
         {#each record.history as entry, i (entry)}
-            <p>Password changed at <time datetime={entry.changedAt}>{entry.changedAt}</time></p>
+            <p>Password changed at {@render timestamp(entry.changedAt)}</p>
             <ProtectedValue label={`History password ${i + 1}`} value={entry.secret} />
         {:else}<p>No password history.</p>{/each}
-        <p>Created: <time datetime={record.createdAt}>{record.createdAt}</time></p>
-        <p>Updated: <time datetime={record.updatedAt}>{record.updatedAt}</time></p>
+        <p>Created: {@render timestamp(record.createdAt)}</p>
+        <p>Updated: {@render timestamp(record.updatedAt)}</p>
     </div>
 </Card>
