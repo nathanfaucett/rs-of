@@ -55,6 +55,8 @@ Local vault use needs no service configuration. Use the [default Node setup](../
 
 For a new OAuth Client, sign in as a User allowed to register it. Select **Accept** to register Password Manager, then **Allow** to grant access. The Application URI defaults to the Password Manager origin. An explicit fixed-client configuration uses `PUBLIC_OIDC_CLIENT_ID`, `PUBLIC_OIDC_APPLICATION_URI`, `PUBLIC_IDP_BASE_URL`, and `PUBLIC_STORAGE_URL` (or `PUBLIC_STORAGE_BASE_URL`), as in the [seeded test fixture](../../e2e/README.md#browser-configuration-and-desktop-isolation). Do not use a seeded Client for an Installation created by Node setup.
 
+Local and legacy synced vaults use the same encryption, unlock, and editing code. They still use separate browser databases. This shared code does not migrate vaults or change their IDs, master passwords, lock settings, or Storage Resource bindings.
+
 **Create new vault** always creates a local vault. A successful sign-in does not unlock a vault or move its data. Signed-in Users can explicitly show or create synced vaults; replication through the legacy browser sync SDK still requires paired `/idp` and `/storage` bases on the same server.
 
 The browser must allow IndexedDB, Web Crypto, Web Locks, and the relevant service-worker/cache APIs for offline delivery. Use HTTPS or a secure loopback development context.

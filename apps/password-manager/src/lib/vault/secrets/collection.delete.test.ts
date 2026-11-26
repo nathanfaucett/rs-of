@@ -1,6 +1,6 @@
 // @vitest-environment playwright
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EncryptedSecret, VaultHandle } from "../vault";
+import type { VaultHandle } from "../vault";
 import { createLocalSecretCollection, UnacknowledgedStorageWriteError } from "./collection";
 import type { Login as Secret } from "./secret";
 
@@ -39,17 +39,15 @@ async function setup(remove: boolean) {
       return { items, folders: [] };
     }),
     loadSecrets: vi.fn(async () =>
-      [...records.values()].map(
-        (record): EncryptedSecret => ({
-          id: record.id,
-          ciphertext: JSON.stringify(record),
-          nonce: "test",
-          createdAt: record.createdAt,
-          updatedAt: record.updatedAt,
-        })
-      )
+      [...records.values()].map((record) => ({
+        id: record.id,
+        ciphertext: JSON.stringify(record),
+        nonce: "test",
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      }))
     ),
-    decryptSecret: vi.fn(async (record: EncryptedSecret) => record.ciphertext),
+    decryptSecret: vi.fn(async (record: { ciphertext: string }) => record.ciphertext),
     encryptAndStore: vi.fn(async (plaintext: string) => {
       const record: Secret = JSON.parse(plaintext);
       records.set(record.id, record);

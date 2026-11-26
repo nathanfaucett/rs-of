@@ -102,11 +102,33 @@ it("persists encrypted logins across lock/unlock and permanently removes a delet
     assert(secrets[0]);
     expect(secrets[0].id).toBe(id);
     expect("secret" in secrets[0] && secrets[0].secret).toBe("test-password");
+    await vault.saveLockSettings({ timeoutMinutes: 1 });
+    const { client, close } = await getStorageClient();
+    try {
+      for (const table of ["secrets", "lock_settings"]) {
+        const [result] = await client.executeRaw(
+          `SELECT ciphertext, nonce FROM ${table} WHERE vault_id = ?`,
+          [{ type: "text", value: vaultId }]
+        );
+        expect(result?.rows).toEqual([
+          [
+            { type: "text", value: expect.stringMatching(/^[A-Za-z0-9+/]+=*$/) },
+            { type: "text", value: expect.stringMatching(/^[A-Za-z0-9+/]{16}$/) },
+          ],
+        ]);
+        expect(JSON.stringify(result?.rows)).not.toContain("test-password");
+        expect(JSON.stringify(result?.rows)).not.toContain(password);
+      }
+    } finally {
+      close();
+    }
   } finally {
     await vault.close();
   }
   const unlocked = await unlockVault(password, vaultId);
   try {
+    expect(unlocked.id).toBe(vaultId);
+    expect(await unlocked.loadLockSettings()).toEqual({ timeoutMinutes: 1 });
     const records = await unlocked.loadSecrets();
     assert(records[0]);
     expect(await unlocked.decryptSecret(records[0])).toBe(plaintext);
