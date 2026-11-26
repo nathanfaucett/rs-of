@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work status: resolved
+
 Milestone: M2 — Single-Node encrypted synchronization
 
 ## Scope and non-goals
@@ -16,12 +18,12 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 ## Acceptance checks
 
-- [ ] Signed-out local create, unlock, edit, and lock behavior remains unchanged.
-- [ ] Signed-in legacy synced create, unlock, edit, and lock behavior remains unchanged against a real backend.
-- [ ] Existing vault IDs, passwords, lock settings, and Resource bindings survive reopen without migration or duplication.
-- [ ] The shared implementation preserves complete encrypted records, including ciphertext and nonce, and never persists plaintext secrets through the new path.
-- [ ] Focused vault tests and the existing real-backend Password Manager workflow pass.
+- [x] Signed-out local create, unlock, edit, and lock behavior remains unchanged.
+- [x] Signed-in legacy synced create, unlock, edit, and lock behavior remains unchanged against a real backend.
+- [x] Existing vault IDs, passwords, lock settings, and Resource bindings survive reopen without migration or duplication.
+- [x] The shared implementation preserves complete encrypted records, including ciphertext and nonce, and never persists plaintext secrets through the new path.
+- [x] Focused vault tests and the existing real-backend Password Manager workflow pass.
 
 ## Current evidence and qualification limits
 
-Local and synced vaults currently have separate implementations and browser databases. This ticket is a compatibility-preserving prefactor; it does not deliver first attachment or merge.
+Local and legacy synced vaults share the encrypted vault implementation. The existing database handles and formats are unchanged. Focused vault tests, 5 seeded Chromium backend tests, and all 27 Password Manager Playwright tests passed. This ticket does not deliver first attachment or merge.
