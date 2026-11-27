@@ -16,10 +16,9 @@ interface LifecycleCallbacks {
   failed(error: Error): void;
 }
 
-export interface SqlResourceSyncOptions extends SyncClientOptions {
-  /** Use established only after the app has verified an existing replica binding. */
-  mode: "first-upload" | "established";
-}
+/** Use established only after the app has verified an existing replica binding. */
+export type SqlResourceSyncOptions = SyncClientOptions &
+  ({ mode: "first-upload" | "established" } | { mode: "first-restore"; localTag: Uint8Array });
 
 export interface SqlResourceSync {
   /** Exchange SQL history. First upload resolves only after Storage confirms publication. */
@@ -35,9 +34,16 @@ export function createSqlResourceSync(
   options: SqlResourceSyncOptions
 ): SqlResourceSync {
   const { mode } = options;
-  if (mode !== "first-upload" && mode !== "established")
+  if (mode !== "first-upload" && mode !== "first-restore" && mode !== "established")
     throw new SyncError("protocol", "Unknown SQL Resource sync mode");
-  return new SqlSyncLifecycle(database, new SyncClient(options), identity, undefined, mode);
+  return new SqlSyncLifecycle(
+    database,
+    new SyncClient(options),
+    identity,
+    undefined,
+    mode,
+    options.mode === "first-restore" ? new Uint8Array(options.localTag) : undefined
+  );
 }
 
 interface ActiveSync {
@@ -54,18 +60,21 @@ export class SqlSyncLifecycle implements SqlResourceSync {
   private readonly identity: StoreIdentity;
   private readonly callbacks: LifecycleCallbacks | undefined;
   private readonly mode: SqlResourceSyncOptions["mode"];
+  private readonly localTag: Uint8Array | undefined;
 
   constructor(
     database: Database,
     client: SyncClient,
     identity: StoreIdentity,
     callbacks: LifecycleCallbacks | undefined,
-    mode: SqlResourceSyncOptions["mode"] = "established"
+    mode: SqlResourceSyncOptions["mode"] = "established",
+    localTag?: Uint8Array
   ) {
     this.database = database;
     this.client = client;
     this.identity = { ...identity, schemaFingerprint: new Uint8Array(identity.schemaFingerprint) };
     this.mode = mode;
+    this.localTag = localTag;
     this.callbacks = callbacks;
   }
 
@@ -112,8 +121,14 @@ export class SqlSyncLifecycle implements SqlResourceSync {
       const upload =
         this.mode === "first-upload" ? await this.client.attachFirstUpload(attach) : undefined;
       const attached =
-        upload ?? (await this.client.attach({ ...attach, direction: "Bidirectional" }));
+        upload ??
+        (await this.client.attach({
+          ...attach,
+          direction: this.mode === "first-restore" ? "Pull" : "Bidirectional",
+        }));
       session = attached;
+      if (this.mode === "first-restore" && attached.result.grantedDirection !== "Pull")
+        throw new SyncError("protocol", "Storage did not grant a read-only restore");
       arm("inactivity");
       const withActivity = async <T>(operation: () => T | Promise<T>): Promise<T> => {
         try {
@@ -129,16 +144,32 @@ export class SqlSyncLifecycle implements SqlResourceSync {
         send: (data: Uint8Array) => withActivity(() => attached.send(data)),
         receive: () => withActivity(() => attached.receive()),
       });
-      await this.database.synchronizeHistory(transport);
+      if (this.mode === "first-restore") {
+        if (!this.localTag) throw new SyncError("protocol", "Missing local restore tag");
+        await this.database.restoreHistory(transport, controller.signal, this.localTag);
+      } else {
+        await this.database.synchronizeHistory(transport);
+      }
       if (upload && !controller.signal.aborted) await upload.waitForPublish();
       if (this.closed || controller.signal.aborted) {
         throw new SyncError("cancelled", "Sync session cancelled");
       }
       this.callbacks?.synced();
     } catch (cause) {
-      // WASM wraps transport failures. Preserve the first-upload abort reason for callers.
-      const failure =
-        this.mode === "first-upload" && transportFailure instanceof SyncError
+      // WASM wraps errors. Preserve the initial exchange failure reason for callers.
+      const sqlCause: unknown = cause instanceof Error ? cause.cause : undefined;
+      const localHistory =
+        this.mode === "first-restore" &&
+        typeof sqlCause === "object" &&
+        sqlCause !== null &&
+        "destinationHasHistory" in sqlCause &&
+        sqlCause.destinationHasHistory === true;
+      const failure = localHistory
+        ? new SyncError(
+            "destination-has-history",
+            "Merge required: this browser has local history. No data was changed."
+          )
+        : this.mode !== "established" && transportFailure instanceof SyncError
           ? transportFailure
           : cause;
       const error = timeout

@@ -183,19 +183,32 @@ impl DeviceClient {
     pub async fn selection_snapshot(
         &self,
         endpoint_id: &str,
+        renew: bool,
     ) -> Result<SelectedResourcesResponse, String> {
-        // The ordinary pre-apply check refreshes the token before writer admission.
-        let service_token = self
-            .cached_service_token()?
-            .ok_or("Device Selection service token is not current")?;
+        let service_token = if renew {
+            self.service_access_token().await?
+        } else {
+            self.cached_service_token()?
+                .ok_or("Device Selection service token is not current")?
+        };
         let mut url = self.device_base_url.clone();
-        url.path_segments_mut()
-            .map_err(|()| "invalid Device endpoint URL")?
-            .pop_if_empty()
-            .extend(["replication", "selection-snapshots", endpoint_id]);
-        let response = self
-            .client
-            .get(url)
+        {
+            let mut segments = url
+                .path_segments_mut()
+                .map_err(|()| "invalid Device endpoint URL")?;
+            segments
+                .pop_if_empty()
+                .extend(["replication", "selection-snapshots", endpoint_id]);
+            if renew {
+                segments.push("admission");
+            }
+        }
+        let request = if renew {
+            self.client.post(url)
+        } else {
+            self.client.get(url)
+        };
+        let response = request
             .bearer_auth(service_token)
             .send()
             .await

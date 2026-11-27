@@ -480,6 +480,100 @@ mod history_transport {
     }
 }
 
+#[cfg(all(feature = "in-memory", feature = "validated-history"))]
+#[tokio::test]
+async fn initial_restore_metadata_storage_is_not_a_sql_table_or_index() {
+    let database = Database::in_memory();
+    let client = database.client();
+    client
+        .execute_sql("CREATE TABLE documents (id INTEGER PRIMARY KEY)", None)
+        .await
+        .expect("regular tables can be created");
+    for sql in [
+        r#"CREATE TABLE "ofdb:local:initial-restore" (id INTEGER PRIMARY KEY)"#,
+        r#"CREATE INDEX "ofdb:local:initial-restore" ON documents (id)"#,
+    ] {
+        let error = client
+            .execute_sql(sql, None)
+            .await
+            .expect_err("local metadata storage is reserved");
+        assert!(error.to_string().contains("reserved"), "{error}");
+    }
+}
+
+#[cfg(all(feature = "in-memory", feature = "validated-history"))]
+#[tokio::test]
+async fn initial_restore_refuses_history_written_during_exchange() {
+    use core::future::ready;
+    use history_transport::{Channel, unbounded_channel};
+    use ofdb_sql::history::{SessionConfig, SyncError, SyncRole};
+
+    let source = Database::in_memory();
+    let target = Database::in_memory();
+    source
+        .client()
+        .execute_sql("CREATE TABLE remote_items (id INTEGER PRIMARY KEY)", None)
+        .await
+        .expect("seed remote history");
+    let config = SessionConfig::default();
+    let directory = tempfile::tempdir().expect("stage directory");
+    let (a_send, a_recv) = unbounded_channel();
+    let (b_send, b_recv) = unbounded_channel();
+    let mut pull = Channel(a_send, b_recv);
+    let mut serve = Channel(b_send, a_recv);
+    let (received, sent) = tokio::join!(
+        target.restore_resource_history_memory(
+            &mut pull,
+            &config,
+            b"remote-id".to_vec(),
+            || Ok(())
+        ),
+        async {
+            // The initiator has passed its empty preflight before sending Hello.
+            let first = serve.1.recv().await.expect("restore started");
+            target
+                .client()
+                .execute_sql("CREATE TABLE local_items (id INTEGER PRIMARY KEY)", None)
+                .await
+                .expect("local writer commits");
+            target
+                .client()
+                .execute_sql("DROP TABLE local_items", None)
+                .await
+                .expect("leave only retained local history");
+            let (queued, recv) = unbounded_channel();
+            queued.send(first).expect("forward restore Hello");
+            let forward = tokio::spawn(async move {
+                while let Some(frame) = serve.1.recv().await {
+                    if queued.send(frame).is_err() {
+                        break;
+                    }
+                }
+            });
+            let result = source
+                .exchange_resource_history(
+                    &mut Channel(serve.0, recv),
+                    &config,
+                    SyncRole::Responder,
+                    directory.path(),
+                    || ready(Ok(())),
+                )
+                .await;
+            forward.abort();
+            result
+        },
+    );
+    sent.expect("remote exchange completed");
+    assert!(matches!(received, Err(SyncError::DestinationHasHistory)));
+    assert!(
+        target
+            .client()
+            .execute_sql("SELECT * FROM remote_items", None)
+            .await
+            .is_err()
+    );
+}
+
 #[cfg(all(feature = "redb", feature = "validated-history"))]
 #[tokio::test]
 async fn first_upload_rechecks_authorization_after_waiting_for_destination_writer() {

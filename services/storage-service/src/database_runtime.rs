@@ -224,6 +224,43 @@ impl DatabaseRuntime {
         self.open(scope, id)
     }
 
+    /// Opens a live, provisioned SQL copy without registering, initializing, or updating it.
+    /// A standalone copy must already have an open owner in this runtime.
+    /// # Errors
+    /// Returns an error for an invalid namespace, fenced copy, or storage failure.
+    pub fn open_existing_for_pull<S: StorageNamespace>(
+        &self,
+        scope: &S,
+        id: DatabaseId,
+    ) -> io::Result<Option<Arc<Database>>> {
+        let mut open = self
+            .open
+            .lock()
+            .map_err(|_error| io::Error::other("database runtime lock poisoned"))?;
+        self.require_local_copy(scope, id)?;
+        if self.catalog.get(scope, id)?.is_none()
+            || self.local_copies.sql_initializing(scope, id)?
+        {
+            return Ok(None);
+        }
+        let key = database_key(scope, id);
+        let Some(host) = &self.shared else {
+            // A cold Redb writer open updates the file header. The read-only handle would
+            // prevent an ordinary writer from opening the same file while Pull is active.
+            let Some(database) = open.get(&key) else {
+                return Ok(None);
+            };
+            return Ok(self
+                .copy_path(scope, id)?
+                .try_exists()?
+                .then(|| Arc::clone(database)));
+        };
+        let database = Database::open_shared_existing(host, &self.resource_namespace(scope, id)?)
+            .map_err(error)?;
+        Ok(database
+            .map(|database| Arc::clone(open.entry(key).or_insert_with(|| Arc::new(database)))))
+    }
+
     /// Lists live database Resources in `scope`.
     ///
     /// # Errors
@@ -244,6 +281,17 @@ impl DatabaseRuntime {
         id: DatabaseId,
     ) -> io::Result<Option<DatabaseResource>> {
         self.catalog.get(scope, id)
+    }
+
+    /// Looks up an existing keyed Resource without opening or provisioning its copy.
+    /// # Errors
+    /// Returns an error for an invalid key, namespace, or catalog read failure.
+    pub fn get_by_creation_key<S: StorageNamespace>(
+        &self,
+        scope: &S,
+        key: &str,
+    ) -> io::Result<Option<DatabaseResource>> {
+        self.catalog.get_by_creation_key(scope, key)
     }
 
     /// Deletes a database Resource and evicts its open handles.
@@ -976,6 +1024,143 @@ mod tests {
                 .register_selected(&scope, id)
                 .expect("deny later provisioning")
         );
+    }
+
+    #[test]
+    fn standalone_pull_requires_a_warm_owner_and_does_not_touch_the_cold_file() {
+        let root = env::temp_dir().join(format!("pull-standalone-{}", Id::now_v7()));
+        let scope = Scope {
+            subject: "owner",
+            application: Id::now_v7(),
+        };
+        let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
+        let resource = runtime
+            .ensure(&scope, "first-upload", None)
+            .expect("provision through authorized path");
+        let path = runtime
+            .copy_path(&scope, resource.id)
+            .expect("physical copy path");
+        drop(runtime);
+        let before = fs::read(&path).expect("cold file");
+
+        let runtime = DatabaseRuntime::new(root.clone()).expect("reopen catalog");
+        assert!(
+            runtime
+                .open_existing_for_pull(&scope, resource.id)
+                .expect("cold Pull lookup")
+                .is_none()
+        );
+        assert_eq!(fs::read(&path).expect("file unchanged"), before);
+        let ordinary = runtime
+            .open_existing(&scope, resource.id)
+            .expect("ordinary open")
+            .expect("live copy");
+        let pull = runtime
+            .open_existing_for_pull(&scope, resource.id)
+            .expect("warm Pull")
+            .expect("open copy");
+        assert!(std::sync::Arc::ptr_eq(&ordinary, &pull));
+        drop(pull);
+        drop(ordinary);
+        drop(runtime);
+        fs::remove_dir_all(root).expect("remove test data");
+    }
+
+    #[tokio::test]
+    async fn pull_requires_existing_physical_sql_even_with_a_live_catalog_record() {
+        let root = env::temp_dir().join(format!("pull-existing-{}", Id::now_v7()));
+        let scope = Scope {
+            subject: "owner",
+            application: Id::now_v7(),
+        };
+        let database = EmbeddedDatabase::open(root.join("shared"))
+            .await
+            .expect("host");
+        for runtime in [
+            DatabaseRuntime::new(root.join("standalone")).expect("standalone runtime"),
+            DatabaseRuntime::with_shared(database.storage(), database.client())
+                .expect("shared runtime"),
+        ] {
+            let id = Id::now_v7();
+            assert!(
+                runtime
+                    .catalog
+                    .register_selected(&scope, id)
+                    .expect("catalog-only fixture")
+            );
+            let changes = runtime.catalog_changes();
+            assert!(
+                runtime
+                    .open_existing_for_pull(&scope, id)
+                    .expect("read-only open")
+                    .is_none()
+            );
+            assert!(!changes.has_changed().expect("watch remains open"));
+            assert!(
+                runtime
+                    .get(&scope, id)
+                    .expect("live catalog Resource")
+                    .is_some()
+            );
+        }
+        drop(database);
+        fs::remove_dir_all(root).expect("remove test data");
+    }
+
+    #[test]
+    fn creation_lookup_is_exact_namespaced_and_does_not_reserve() {
+        let root = env::temp_dir().join(format!("creation-lookup-{}", Id::now_v7()));
+        let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
+        let scope = Scope {
+            subject: "owner",
+            application: Id::now_v7(),
+        };
+        let label = Some("Same display name".to_owned());
+        let (unrelated, _) = runtime
+            .create(&scope, label.clone())
+            .expect("unkeyed Resource");
+        assert!(
+            runtime
+                .get_by_creation_key(&scope, "first-upload")
+                .expect("missing key")
+                .is_none()
+        );
+        assert_eq!(runtime.list(&scope).expect("no registration"), [unrelated]);
+        let keyed = runtime
+            .ensure(&scope, "first-upload", label)
+            .expect("keyed Resource");
+        assert_eq!(
+            runtime
+                .get_by_creation_key(&scope, "first-upload")
+                .expect("lookup"),
+            Some(keyed.clone())
+        );
+        for other in [
+            Scope {
+                subject: "different",
+                ..scope
+            },
+            Scope {
+                application: Id::now_v7(),
+                ..scope
+            },
+        ] {
+            assert!(
+                runtime
+                    .get_by_creation_key(&other, "first-upload")
+                    .expect("private namespace")
+                    .is_none()
+            );
+        }
+        assert!(runtime.delete(&scope, keyed.id).expect("tombstone"));
+        assert!(
+            runtime
+                .get_by_creation_key(&scope, "first-upload")
+                .expect("tombstone not visible")
+                .is_none()
+        );
+        drop(runtime);
+        fs::remove_dir_all(root).expect("remove test data");
     }
 
     #[tokio::test]

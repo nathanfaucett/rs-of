@@ -5,9 +5,9 @@ const INACTIVITY_TIMEOUT_MS = 30_000;
 /** Bind an already-open database to one Resource without starting sync or taking ownership. */
 export function createSqlResourceSync(database, identity, options) {
     const { mode } = options;
-    if (mode !== "first-upload" && mode !== "established")
+    if (mode !== "first-upload" && mode !== "first-restore" && mode !== "established")
         throw new SyncError("protocol", "Unknown SQL Resource sync mode");
-    return new SqlSyncLifecycle(database, new SyncClient(options), identity, undefined, mode);
+    return new SqlSyncLifecycle(database, new SyncClient(options), identity, undefined, mode, options.mode === "first-restore" ? new Uint8Array(options.localTag) : undefined);
 }
 /** Owns one handle's attach, transport, deadline, and close lifecycle. */
 export class SqlSyncLifecycle {
@@ -18,11 +18,13 @@ export class SqlSyncLifecycle {
     identity;
     callbacks;
     mode;
-    constructor(database, client, identity, callbacks, mode = "established") {
+    localTag;
+    constructor(database, client, identity, callbacks, mode = "established", localTag) {
         this.database = database;
         this.client = client;
         this.identity = { ...identity, schemaFingerprint: new Uint8Array(identity.schemaFingerprint) };
         this.mode = mode;
+        this.localTag = localTag;
         this.callbacks = callbacks;
     }
     sync() {
@@ -66,8 +68,14 @@ export class SqlSyncLifecycle {
             arm("attach");
             const attach = { identity: this.identity, signal: controller.signal };
             const upload = this.mode === "first-upload" ? await this.client.attachFirstUpload(attach) : undefined;
-            const attached = upload ?? (await this.client.attach({ ...attach, direction: "Bidirectional" }));
+            const attached = upload ??
+                (await this.client.attach({
+                    ...attach,
+                    direction: this.mode === "first-restore" ? "Pull" : "Bidirectional",
+                }));
             session = attached;
+            if (this.mode === "first-restore" && attached.result.grantedDirection !== "Pull")
+                throw new SyncError("protocol", "Storage did not grant a read-only restore");
             arm("inactivity");
             const withActivity = async (operation) => {
                 try {
@@ -84,7 +92,14 @@ export class SqlSyncLifecycle {
                 send: (data) => withActivity(() => attached.send(data)),
                 receive: () => withActivity(() => attached.receive()),
             });
-            await this.database.synchronizeHistory(transport);
+            if (this.mode === "first-restore") {
+                if (!this.localTag)
+                    throw new SyncError("protocol", "Missing local restore tag");
+                await this.database.restoreHistory(transport, controller.signal, this.localTag);
+            }
+            else {
+                await this.database.synchronizeHistory(transport);
+            }
             if (upload && !controller.signal.aborted)
                 await upload.waitForPublish();
             if (this.closed || controller.signal.aborted) {
@@ -93,10 +108,18 @@ export class SqlSyncLifecycle {
             this.callbacks?.synced();
         }
         catch (cause) {
-            // WASM wraps transport failures. Preserve the first-upload abort reason for callers.
-            const failure = this.mode === "first-upload" && transportFailure instanceof SyncError
-                ? transportFailure
-                : cause;
+            // WASM wraps errors. Preserve the initial exchange failure reason for callers.
+            const sqlCause = cause instanceof Error ? cause.cause : undefined;
+            const localHistory = this.mode === "first-restore" &&
+                typeof sqlCause === "object" &&
+                sqlCause !== null &&
+                "destinationHasHistory" in sqlCause &&
+                sqlCause.destinationHasHistory === true;
+            const failure = localHistory
+                ? new SyncError("destination-has-history", "Merge required: this browser has local history. No data was changed.")
+                : this.mode !== "established" && transportFailure instanceof SyncError
+                    ? transportFailure
+                    : cause;
             const error = timeout
                 ? new SyncError("transport", timeout === "attach" ? "Sync attach timed out" : "Sync receive timed out")
                 : failure instanceof Error

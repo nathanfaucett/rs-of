@@ -157,7 +157,7 @@ impl IdpClient {
         Ok(response)
     }
 
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "network")]
     pub fn has_local_device_policy(&self) -> bool {
         self.local_device_policy.is_some()
     }
@@ -181,7 +181,6 @@ impl IdpClient {
     ///
     /// # Errors
     /// Returns an error if the `IdP` rejects the token, is unavailable, or needs credential renewal.
-    #[cfg(feature = "sync")]
     pub async fn inspect_identity_read_only(
         &self,
         token: &str,

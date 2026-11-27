@@ -47,8 +47,9 @@ use crate::{
         ENGINE_TABLE_FIELDS_STORAGE, ENGINE_TABLES_STORAGE, IndexRow, TableFieldRow, TableRow,
         cached_table_schema, catalog_table_for_storage, column_id, columns as schema_columns,
         drop_inactive_index_storage, ensure as ensure_schema, index_schema, index_storage,
-        largest_schema_name_claim, lookup_table_id, lookup_table_id_with_rows, lookup_table_name,
-        table_schema as schema_table_schema, table_schema_with_fields, validate_row_id,
+        is_reserved_storage, largest_schema_name_claim, lookup_table_id, lookup_table_id_with_rows,
+        lookup_table_name, table_schema as schema_table_schema, table_schema_with_fields,
+        validate_row_id,
     },
 };
 
@@ -239,7 +240,7 @@ where
         | DataDefinition::AlterTable { table_name, .. } => table_name,
         _ => unreachable!(),
     };
-    if catalog_table_for_storage(name).is_some() {
+    if is_reserved_storage(name) {
         return Err(EngineError::InvalidQuery(
             "Catalog table names are reserved",
         ));
@@ -757,7 +758,7 @@ where
             "Index requires a name and column",
         ));
     }
-    if catalog_table_for_storage(&schema.name).is_some() {
+    if is_reserved_storage(&schema.name) {
         return Err(EngineError::InvalidQuery(
             "Catalog table names are reserved",
         ));
@@ -846,7 +847,7 @@ where
     table_schema
         .validate_primary_key()
         .map_err(EngineError::InvalidQuery)?;
-    if catalog_table_for_storage(&table_schema.name).is_some() {
+    if is_reserved_storage(&table_schema.name) {
         return Err(EngineError::InvalidQuery(
             "Catalog table names are reserved",
         ));

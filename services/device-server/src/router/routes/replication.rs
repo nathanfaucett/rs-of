@@ -44,10 +44,15 @@ pub(crate) async fn selected_resources(
 
 // Dedicated internal route: old owners must reject it, not run the reconciling GET.
 pub fn selection_snapshot_router() -> axum::Router<RouterState> {
-    axum::Router::new().route(
-        "/replication/selection-snapshots/{endpoint_id}",
-        axum::routing::get(selection_snapshot),
-    )
+    axum::Router::new()
+        .route(
+            "/replication/selection-snapshots/{endpoint_id}",
+            axum::routing::get(selection_snapshot),
+        )
+        .route(
+            "/replication/selection-snapshots/{endpoint_id}/admission",
+            axum::routing::post(selection_snapshot_admission),
+        )
 }
 
 async fn selection_snapshot(
@@ -55,9 +60,27 @@ async fn selection_snapshot(
     Path(endpoint_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<SelectedResourcesResponse>, ErrorResponse> {
-    authorize_storage_actor(&state, &headers, MANAGEMENT_REPLICATION_READ_SCOPE, false).await?;
+    read_selection_snapshot(state, &endpoint_id, &headers, false).await
+}
+
+async fn selection_snapshot_admission(
+    State(state): State<RouterState>,
+    Path(endpoint_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<SelectedResourcesResponse>, ErrorResponse> {
+    read_selection_snapshot(state, &endpoint_id, &headers, true).await
+}
+
+async fn read_selection_snapshot(
+    state: RouterState,
+    endpoint_id: &str,
+    headers: &HeaderMap,
+    renew: bool,
+) -> Result<Json<SelectedResourcesResponse>, ErrorResponse> {
+    // A cold admission can acquire the exact IdP reader credential; neither path repairs policy.
+    authorize_storage_actor(&state, headers, MANAGEMENT_REPLICATION_READ_SCOPE, renew).await?;
     crate::authority::DeviceAuthority::from_parts(state.control_plane, state.selection_policies)
-        .selected_resources_read_only(&endpoint_id)
+        .selected_resources_read_only(endpoint_id)
         .await
         .map(Json)
 }
@@ -319,6 +342,8 @@ mod tests {
             ofdb_sql::decode(&inserted[0].rows[0].values[0], "id").expect("generated Device ID");
         let policies = Arc::new(DbSelectionPolicyRepo::new(engine.clone().client()));
 
+        let token_requests = Arc::new(AtomicUsize::new(0));
+        let requests = token_requests.clone();
         let owner_active = Arc::new(AtomicBool::new(true));
         let active = owner_active.clone();
         let publication_race = Arc::new(AtomicUsize::new(0));
@@ -327,10 +352,16 @@ mod tests {
         let reads = active_reads.clone();
         let race_engine = engine.clone();
         let idp = axum::Router::new()
-            .route("/oauth2/token", post(|body: String| async move {
+            .route("/oauth2/token", post(move |body: String| {
+                requests.fetch_add(1, Ordering::SeqCst);
+                async move {
                 assert!(body.contains("client_secret=device-secret"));
+                assert!(body.contains("client_id=device-client"));
+                assert!(body.contains("audience=idp-api"));
+                assert!(body.contains("scope=idp.token.validate+idp.user.lookup"));
                 Json(serde_json::json!({"access_token":"device-token", "token_type":"Bearer", "expires_in":300,
                     "scope":"idp.token.validate idp.user.lookup", "iss":"https://issuer.example"}))
+                }
             }))
             .route("/oauth2/introspect", post(|headers: HeaderMap, body: String| async move {
                 assert_eq!(headers[AUTHORIZATION], "Bearer device-token");
@@ -395,22 +426,41 @@ mod tests {
         let router = crate::router::openapi_router::openapi_router(state, "/")
             .split_for_parts()
             .0;
+        let cached_snapshot = || {
+            Request::builder()
+                .uri(format!("/replication/selection-snapshots/{endpoint}"))
+                .header(AUTHORIZATION, "Bearer storage-token")
+                .body(Body::empty())
+                .expect("cached snapshot request")
+        };
+        let admission_snapshot = || {
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/replication/selection-snapshots/{endpoint}/admission"
+                ))
+                .header(AUTHORIZATION, "Bearer storage-token")
+                .body(Body::empty())
+                .expect("admission snapshot request")
+        };
         let response = router
             .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(format!("/replication/devices/{endpoint}/selections"))
-                    .header(AUTHORIZATION, "Bearer storage-token")
-                    .body(Body::empty())
-                    .expect("missing policy request"),
-            )
+            .oneshot(cached_snapshot())
+            .await
+            .expect("cold cached snapshot");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(token_requests.load(Ordering::SeqCst), 0);
+        let response = router
+            .clone()
+            .oneshot(admission_snapshot())
             .await
             .expect("read missing policy");
         assert_eq!(
             response.status(),
             StatusCode::SERVICE_UNAVAILABLE,
-            "missing policy must fail like the local owner evaluator"
+            "missing policy must fail without repair"
         );
+        assert_eq!(token_requests.load(Ordering::SeqCst), 1);
         policies
             .set_prevalidated(SelectionPolicy {
                 device_id: device,
@@ -433,6 +483,13 @@ mod tests {
             })
             .await
             .expect("select database");
+        let response = router
+            .clone()
+            .oneshot(admission_snapshot())
+            .await
+            .expect("cold admission snapshot");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(token_requests.load(Ordering::SeqCst), 1);
         for step in 0..7 {
             match step {
                 1 => {
@@ -513,6 +570,21 @@ mod tests {
                         .expect("snapshot did not create cleanup")
                 );
             }
+            if step == 4 {
+                let response = router
+                    .clone()
+                    .oneshot(admission_snapshot())
+                    .await
+                    .expect("snapshot after transfer");
+                assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                assert!(
+                    !policies
+                        .local_cleanup_pending(device)
+                        .await
+                        .expect("admission did not repair policy")
+                );
+            }
+            assert_eq!(token_requests.load(Ordering::SeqCst), 1);
             let response = router
                 .clone()
                 .oneshot(

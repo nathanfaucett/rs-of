@@ -1,7 +1,6 @@
 import { type Client, type Row, Database as SqlDatabase } from "@ofsdk/sql";
 import { dbParams, MIGRATIONS, parseOptionalText, parseText } from "./schema";
 
-const SHARED_DB_NAME = "password-manager-v1";
 const REGISTRY_DB_NAME = "password-manager-vault-registry-v2";
 const LEGACY_DB_PREFIX = "password-manager-local-";
 
@@ -21,29 +20,31 @@ interface LegacyVaultMeta {
   lockSettings: string | null;
 }
 
-export async function openSharedDatabase(): Promise<SqlDatabase> {
-  return await navigator.locks.request(`${SHARED_DB_NAME}:migrations`, async () => {
-    const db = await SqlDatabase.open(SHARED_DB_NAME);
+const SHARED_DB_NAME = "password-manager-v1";
+
+export function openSharedDatabase(): Promise<SqlDatabase> {
+  return SqlDatabase.open(SHARED_DB_NAME);
+}
+
+export async function getSharedClient(): Promise<Client> {
+  return navigator.locks.request(`${SHARED_DB_NAME}:migrations`, async () => {
+    const db = await openSharedDatabase();
     const client = db.client();
     try {
       await client.migrate(MIGRATIONS);
-      return db;
+      return client;
     } catch (error) {
-      db.close();
+      client.close();
       throw error;
     } finally {
-      client.close();
+      db.close();
     }
   });
 }
 
-export async function getSharedClient(): Promise<Client> {
-  const database = await openSharedDatabase();
-  try {
-    return database.client();
-  } finally {
-    database.close();
-  }
+export async function hasLegacyLocalVaults(): Promise<boolean> {
+  if (!(await indexedDB.databases()).some(({ name }) => name === REGISTRY_DB_NAME)) return false;
+  return (await readRegistryIndexedDB()).length > 0;
 }
 
 /** One-time migration from per-vault tables and the registry to shared tables. */
@@ -203,7 +204,7 @@ async function readRegistryIndexedDB(): Promise<LegacyVaultIdentity[]> {
         reject(getAllRequest.error);
       };
     };
-    request.onerror = () => resolve([]);
+    request.onerror = () => reject(request.error);
     request.onblocked = () => reject(new Error("Legacy registry read blocked"));
   });
 }

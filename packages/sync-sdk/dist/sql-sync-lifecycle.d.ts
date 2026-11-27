@@ -5,10 +5,13 @@ interface LifecycleCallbacks {
     synced(): void;
     failed(error: Error): void;
 }
-export interface SqlResourceSyncOptions extends SyncClientOptions {
-    /** Use established only after the app has verified an existing replica binding. */
+/** Use established only after the app has verified an existing replica binding. */
+export type SqlResourceSyncOptions = SyncClientOptions & ({
     mode: "first-upload" | "established";
-}
+} | {
+    mode: "first-restore";
+    localTag: Uint8Array;
+});
 export interface SqlResourceSync {
     /** Exchange SQL history. First upload resolves only after Storage confirms publication. */
     sync(): Promise<void>;
@@ -26,7 +29,8 @@ export declare class SqlSyncLifecycle implements SqlResourceSync {
     private readonly identity;
     private readonly callbacks;
     private readonly mode;
-    constructor(database: Database, client: SyncClient, identity: StoreIdentity, callbacks: LifecycleCallbacks | undefined, mode?: SqlResourceSyncOptions["mode"]);
+    private readonly localTag;
+    constructor(database: Database, client: SyncClient, identity: StoreIdentity, callbacks: LifecycleCallbacks | undefined, mode?: SqlResourceSyncOptions["mode"], localTag?: Uint8Array);
     sync(): Promise<void>;
     close(): Promise<void>;
     private run;

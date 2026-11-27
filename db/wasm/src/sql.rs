@@ -70,6 +70,39 @@ impl SqlDatabase {
             .map_err(crate::sql_history::JsSqlHistoryError::from)
             .map(crate::sql_history::SqlHistoryResult::from)
     }
+    /// Preflight only. The restore transaction checks the catalog again.
+    #[cfg(feature = "sync")]
+    pub async fn initial_restore_is_eligible(&self) -> Result<bool, JsError> {
+        Ok(self.database.initial_restore_is_eligible().await?)
+    }
+
+    /// Reads the local-only tag saved with this restore.
+    #[cfg(feature = "sync")]
+    pub async fn initial_restore_tag(&self) -> Result<Option<Vec<u8>>, JsError> {
+        Ok(self.database.initial_restore_tag().await?)
+    }
+
+    /// Receives SQL history without sending local history, then publishes if still pristine.
+    #[cfg(feature = "sync")]
+    pub async fn restore_history(
+        &self,
+        transport: &mut crate::sync::JsSqlSyncTransport,
+        signal: js_sys::Object,
+        tag: Vec<u8>,
+    ) -> Result<(), crate::sql_history::JsSqlHistoryError> {
+        self.database
+            .restore_resource_history_memory(
+                transport,
+                &ofdb_sql::history::SessionConfig::default(),
+                tag,
+                || match js_sys::Reflect::get(&signal, &JsValue::from_str("aborted")) {
+                    Ok(value) if value.as_bool() == Some(false) => Ok(()),
+                    _ => Err("restore cancelled".into()),
+                },
+            )
+            .await
+            .map_err(crate::sql_history::JsSqlHistoryError::from)
+    }
 }
 
 #[wasm_bindgen]

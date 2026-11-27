@@ -83,6 +83,11 @@ pub struct JsSqlHistoryError {
 
 #[wasm_bindgen]
 impl JsSqlHistoryError {
+    #[wasm_bindgen(getter, js_name = destinationHasHistory)]
+    pub fn destination_has_history(&self) -> bool {
+        matches!(self.inner, SyncError::DestinationHasHistory)
+    }
+
     #[wasm_bindgen(getter)]
     pub fn message(&self) -> String {
         self.inner.to_string()

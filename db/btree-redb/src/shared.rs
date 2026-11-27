@@ -134,6 +134,16 @@ impl SharedNamespace {
         Ok(())
     }
 
+    /// Tests for an existing physical table without opening a writer.
+    /// # Errors
+    /// Returns an error if storage cannot be read.
+    pub fn has_table(&self, name: &str) -> io::Result<bool> {
+        let transaction = self.host.database.begin_read().map_err(io::Error::other)?;
+        let name = self.table(name);
+        let mut tables = transaction.list_tables().map_err(io::Error::other)?;
+        Ok(tables.any(|table| table.name() == name))
+    }
+
     /// Returns or builds the process-local owner for this namespace.
     ///
     /// # Errors

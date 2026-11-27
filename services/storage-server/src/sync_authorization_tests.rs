@@ -132,9 +132,17 @@ async fn local_ws_requires_database_capability_and_rechecks_revocation() {
         }
     });
     let baseline = response.lock().expect("claims lock").clone();
-    let expected = super::authorize_session(&idp, None, "resource-token", &identity, "local")
-        .await
-        .expect("scoped capability");
+    let expected = super::authorize_session(
+        &idp,
+        None,
+        "resource-token",
+        &identity,
+        "local",
+        super::AttachDirection::Bidirectional,
+        super::AuthorityCheck::Reconcile,
+    )
+    .await
+    .expect("scoped capability");
     let authorization = super::SessionAuthorization {
         idp: &idp,
         device: None,

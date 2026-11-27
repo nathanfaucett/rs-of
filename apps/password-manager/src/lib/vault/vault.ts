@@ -9,6 +9,7 @@ import {
   getSharedClient,
   migrateToSharedTables,
   needsMigration,
+  openSharedDatabase,
 } from "./storage/migrate-to-shared";
 import { dbParams, localEncryptedRows, parseVaultRow } from "./storage/schema";
 import { createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
@@ -57,10 +58,19 @@ export async function unlockVault(password: string, id: string): Promise<VaultHa
 export async function listVaults(): Promise<
   { id: string; name: string; status: "ready"; migrated: boolean }[]
 > {
+  const database = await openSharedDatabase();
+  try {
+    // Merely opening the selector must not create independent catalog history.
+    if (await database.initialRestoreIsEligible()) return [];
+  } finally {
+    database.close();
+  }
   const client = await getSharedClient();
-  const identities = createVaultRegistry(client).listVaultIdentities();
-  client.close();
-  return identities;
+  try {
+    return await createVaultRegistry(client).listVaultIdentities();
+  } finally {
+    client.close();
+  }
 }
 
 export type { VaultHandle, VaultIdentity };

@@ -122,3 +122,84 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
   expect(result.deleted).toEqual([[], []]);
   expect(result.repeatedDelete).toEqual([[], []]);
 });
+
+test("restore refuses retained history from another IndexedDB handle during exchange", async ({
+  page,
+}) => {
+  const result = await page.evaluate(async () => {
+    const { Database, JsSqlSyncTransport, SqlHistoryRole } = window.sql;
+    const source = await Database.open("restore-source");
+    const destination = await Database.open("restore-destination");
+    const otherHandle = await Database.open("restore-destination");
+    const sourceClient = source.client();
+    const writer = otherHandle.client();
+    const channel = new MessageChannel();
+    function endpoint(port: MessagePort) {
+      const queued: Uint8Array[] = [];
+      let waiting: ((bytes: Uint8Array) => void) | undefined;
+      port.onmessage = ({ data }: MessageEvent<Uint8Array>) => {
+        if (waiting) {
+          const resolve = waiting;
+          waiting = undefined;
+          resolve(data);
+        } else queued.push(data);
+      };
+      return {
+        async send(bytes: Uint8Array) {
+          port.postMessage(bytes);
+        },
+        async receive() {
+          return (
+            queued.shift() ??
+            new Promise<Uint8Array>((resolve) => {
+              waiting = resolve;
+            })
+          );
+        },
+      };
+    }
+    const pull = endpoint(channel.port1);
+    const serve = endpoint(channel.port2);
+    let first = true;
+    try {
+      await sourceClient.executeRaw("CREATE TABLE remote_items (id INTEGER PRIMARY KEY)");
+      const [restored] = await Promise.allSettled([
+        destination.restoreHistory(
+          new JsSqlSyncTransport({
+            ...pull,
+            async send(bytes: Uint8Array) {
+              if (first) {
+                first = false;
+                await writer.executeRaw("CREATE TABLE local_items (id INTEGER PRIMARY KEY)");
+                await writer.executeRaw("DROP TABLE local_items");
+              }
+              await pull.send(bytes);
+            },
+          }),
+          new AbortController().signal,
+          Uint8Array.of(1)
+        ),
+        source.synchronizeHistory(new JsSqlSyncTransport(serve), SqlHistoryRole.Responder),
+      ]);
+      const tables = await writer.execute("SELECT name FROM tables", (row) => row.name);
+      return {
+        error: restored.status === "rejected" ? String(restored.reason) : null,
+        tables,
+        eligible: await destination.initialRestoreIsEligible(),
+        tag: (await destination.initialRestoreTag()) ?? null,
+      };
+    } finally {
+      channel.port1.close();
+      channel.port2.close();
+      writer.close();
+      sourceClient.close();
+      otherHandle.close();
+      destination.close();
+      source.close();
+    }
+  });
+  expect(result.error).toContain("destination already has retained history");
+  expect(result.tables).toEqual([]);
+  expect(result.eligible).toBe(false);
+  expect(result.tag).toBeNull();
+});

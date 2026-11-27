@@ -253,6 +253,25 @@ export class StorageClient {
     return databaseResult(this.resources(token).listDatabases(signal ? { signal } : undefined));
   }
 
+  async findSqlDatabaseByCreationKey(
+    creationKey: string,
+    signal?: AbortSignal
+  ): Promise<DatabaseResource | undefined> {
+    const token = await this.exchangeToken(["read"], signal, "storage:databases");
+    signal?.throwIfAborted();
+    try {
+      return await databaseResult(
+        this.resources(token).getDatabaseByCreationKey(
+          { creationKey },
+          signal ? { signal } : undefined
+        )
+      );
+    } catch (error) {
+      if (error instanceof DatabaseOperationError && error.status === 404) return undefined;
+      throw error;
+    }
+  }
+
   // KV Store methods
   async createKvStore(_name?: string): Promise<KvStoreHandle> {
     // TODO: Implement when KV REST API is available

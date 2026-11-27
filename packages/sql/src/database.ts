@@ -70,6 +70,36 @@ export class Database {
       throw wrapError(error, SqlError);
     }
   }
+
+  /** Preflight only. The restore transaction rechecks retained history. */
+  async initialRestoreIsEligible(): Promise<boolean> {
+    try {
+      return await this.handle.run((wasm) => wasm.initial_restore_is_eligible());
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
+
+  async initialRestoreTag(): Promise<Uint8Array | undefined> {
+    try {
+      return await this.handle.run((wasm) => wasm.initial_restore_tag());
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
+
+  /** Receive into a transient stage and publish only into a pristine database. */
+  async restoreHistory(
+    transport: JsSqlSyncTransport,
+    signal: AbortSignal,
+    tag: Uint8Array
+  ): Promise<void> {
+    try {
+      return await this.handle.run((wasm) => wasm.restore_history(transport, signal, tag));
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
 }
 
 export { SqlSyncDirection } from "../pkg/ofdb_wasm.js";

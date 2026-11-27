@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
     routing::{get, post},
 };
@@ -22,7 +22,8 @@ use storage_service::scoped_file_system::ScopedFileSystemRuntime;
 use crate::router::{
     state::RouterState,
     storage_authorization::{
-        StorageAuthorization, authorize_storage_token, scoped_file_system_socket_router,
+        StorageAuthorization, authorize_storage_token, inspect_storage_token_read_only,
+        scoped_file_system_socket_router,
     },
 };
 
@@ -110,6 +111,10 @@ pub fn resource_router(
     let mut router = Router::new()
         .route("/storage/databases/ensure", post(ensure_database))
         .route(
+            "/storage/databases/by-creation-key",
+            get(get_database_by_creation_key),
+        )
+        .route(
             "/storage/databases/{database_id}/sql",
             post(sql::execute_sql),
         )
@@ -146,6 +151,14 @@ pub async fn authorization(
     state: &ResourceState,
     headers: &HeaderMap,
 ) -> Result<StorageAuthorization, StatusCode> {
+    resource_authorization(state, headers, None).await
+}
+
+async fn resource_authorization(
+    state: &ResourceState,
+    headers: &HeaderMap,
+    read_only_renew: Option<bool>,
+) -> Result<StorageAuthorization, StatusCode> {
     let token = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -157,16 +170,42 @@ pub async fn authorization(
         .idp_client
         .as_ref()
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    authorize_storage_token(idp_client, token)
-        .await
-        .map_err(|error| match error {
-            crate::router::storage_authorization::StorageAuthorizationError::InvalidToken => {
-                StatusCode::UNAUTHORIZED
-            }
-            crate::router::storage_authorization::StorageAuthorizationError::ServiceUnavailable => {
-                StatusCode::SERVICE_UNAVAILABLE
-            }
-        })
+    let auth = match read_only_renew {
+        Some(renew) => inspect_storage_token_read_only(idp_client, token, renew).await,
+        None => authorize_storage_token(idp_client, token).await,
+    }
+    .map_err(|error| match error {
+        crate::router::storage_authorization::StorageAuthorizationError::InvalidToken => {
+            StatusCode::UNAUTHORIZED
+        }
+        crate::router::storage_authorization::StorageAuthorizationError::ServiceUnavailable => {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+    })?;
+    #[cfg(feature = "network")]
+    if let Some(renew) = read_only_renew.filter(|_| idp_client.has_local_device_policy()) {
+        // The ordinary owner hook can repair policy. Preserve its owner check with a snapshot.
+        let endpoint = &state.router.endpoint_id;
+        let snapshot = state
+            .router
+            .device_client
+            .as_ref()
+            .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
+            .selection_snapshot(endpoint, renew)
+            .await
+            .map_err(|_error| StatusCode::SERVICE_UNAVAILABLE)?;
+        if snapshot.endpoint_id != *endpoint
+            || snapshot.owner_subject != auth.subject
+            || !snapshot.admin_allowed
+            || snapshot.pending_cleanup.is_some()
+        {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    }
+    if read_only_renew.is_some() && !auth.is_current() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    Ok(auth)
 }
 
 pub fn namespace(
@@ -273,6 +312,60 @@ pub async fn list_databases(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     authorize_response(&state, &headers, &scope, "storage:databases", false).await?;
     Ok(Json(resources))
+}
+
+#[derive(serde::Deserialize)]
+pub struct DatabaseCreationLookup {
+    creation_key: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/storage/databases/by-creation-key",
+    params(("creation_key" = String, Query, description = "Exact database creation key in the signed-in namespace")),
+    responses(
+        (status = 200, description = "Existing keyed database Resource", body = DatabaseResource),
+        (status = 400, description = "Invalid creation key"),
+        (status = 401, description = "Invalid storage authorization"),
+        (status = 403, description = "Token does not permit reads"),
+        (status = 404, description = "No live keyed database Resource"),
+        (status = 503, description = "Storage runtime or authority unavailable")
+    ),
+    security(("authorization" = [])),
+    tag = "resources"
+)]
+pub async fn get_database_by_creation_key(
+    State(state): State<ResourceState>,
+    headers: HeaderMap,
+    Query(query): Query<DatabaseCreationLookup>,
+) -> Result<Json<DatabaseResource>, StatusCode> {
+    let (scope, can_read, _) = namespace(
+        resource_authorization(&state, &headers, Some(true)).await?,
+        "storage:databases",
+    )?;
+    if !can_read {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let resource = state
+        .databases
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
+        .get_by_creation_key(&scope, &query.creation_key)
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::InvalidInput {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+        })?;
+    let (current, can_read, _) = namespace(
+        resource_authorization(&state, &headers, Some(false)).await?,
+        "storage:databases",
+    )?;
+    if current != scope || !can_read {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    resource.map(Json).ok_or(StatusCode::NOT_FOUND)
 }
 
 #[utoipa::path(

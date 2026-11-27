@@ -439,6 +439,31 @@ impl Database {
         let namespace = host
             .namespace(&alloc::format!("sql:{name}"))
             .map_err(native_error)?;
+        Self::from_shared_namespace(namespace)
+    }
+
+    /// Opens a shared SQL namespace only if it already has a physical SQL catalog.
+    /// # Errors
+    /// Returns an error if the namespace cannot be read or is retired.
+    #[cfg(feature = "redb")]
+    pub fn open_shared_existing(
+        host: &engine_redb::SharedDatabase,
+        name: &str,
+    ) -> SqlResult<Option<Self>> {
+        let namespace = host
+            .namespace(&alloc::format!("sql:{name}"))
+            .map_err(native_error)?;
+        if !namespace
+            .has_table(&alloc::format!("sql:{}", engine::ENGINE_TABLES_STORAGE))
+            .map_err(native_error)?
+        {
+            return Ok(None);
+        }
+        Self::from_shared_namespace(namespace).map(Some)
+    }
+
+    #[cfg(feature = "redb")]
+    fn from_shared_namespace(namespace: engine_redb::SharedNamespace) -> SqlResult<Self> {
         let kernel = RedbKernel::namespaced(namespace.clone());
         let resource = engine_redb::NativeResource::new_shared(
             namespace,
@@ -969,3 +994,7 @@ mod history_session;
 ))]
 #[path = "browser_history_session.rs"]
 mod browser_history_session;
+
+#[cfg(feature = "validated-history")]
+#[path = "initial_restore.rs"]
+mod initial_restore;

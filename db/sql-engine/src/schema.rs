@@ -26,6 +26,12 @@ pub const ENGINE_TABLES_STORAGE: &str = "tables";
 pub const ENGINE_TABLE_FIELDS_STORAGE: &str = "table_fields";
 pub const ENGINE_INDICES_STORAGE: &str = "indices";
 pub const ENGINE_INDEX_FIELDS_STORAGE: &str = "index_fields";
+pub const ENGINE_INITIAL_RESTORE_STORAGE: &str = "ofdb:local:initial-restore";
+
+#[must_use]
+pub fn is_reserved_storage(name: &str) -> bool {
+    name == ENGINE_INITIAL_RESTORE_STORAGE || catalog_table_for_storage(name).is_some()
+}
 
 /// Validates RFC `UUIDv7` Logical Row identities.
 ///
@@ -574,7 +580,7 @@ async fn validate_storage_namespace<T: KernelTransaction, R: RowCodec<T>>(
     while let Some(row) = rows.next().await {
         let (_, value, _) = row?;
         let name = TableRow::try_from(&value)?.name;
-        if catalog_table_for_storage(&name).is_some() {
+        if is_reserved_storage(&name) {
             return Err(EngineError::InvalidQuery(
                 "Catalog table names are reserved",
             ));
@@ -586,7 +592,7 @@ async fn validate_storage_namespace<T: KernelTransaction, R: RowCodec<T>>(
     while let Some(row) = rows.next().await {
         let (_, value, _) = row?;
         let name = IndexRow::try_from(&value)?.name;
-        if catalog_table_for_storage(&name).is_some() || tables.contains(&name) {
+        if is_reserved_storage(&name) || tables.contains(&name) {
             return Err(EngineError::InvalidQuery("Index storage name is reserved"));
         }
     }

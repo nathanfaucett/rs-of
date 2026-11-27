@@ -51,6 +51,13 @@ pub struct GetDatabaseParams {
     pub database_id: String,
 }
 
+/// struct for passing parameters to the method [`get_database_by_creation_key`]
+#[derive(Clone, Debug)]
+pub struct GetDatabaseByCreationKeyParams {
+    /// Exact database creation key in the signed-in namespace
+    pub creation_key: String,
+}
+
 /// struct for passing parameters to the method [`get_file_system`]
 #[derive(Clone, Debug)]
 pub struct GetFileSystemParams {
@@ -119,6 +126,18 @@ pub enum EnsureDatabaseError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum GetDatabaseError {
+    Status401(),
+    Status403(),
+    Status404(),
+    Status503(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`get_database_by_creation_key`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GetDatabaseByCreationKeyError {
+    Status400(),
     Status401(),
     Status403(),
     Status404(),
@@ -452,6 +471,59 @@ pub async fn get_database(
         }
     } else {
         let entity: Option<GetDatabaseError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// # Errors
+/// Returns an error when the request or response cannot be processed.
+pub async fn get_database_by_creation_key(
+    configuration: &configuration::Configuration,
+    params: GetDatabaseByCreationKeyParams,
+) -> Result<models::DatabaseResource, Error<GetDatabaseByCreationKeyError>> {
+    let uri_str = format!("{}/databases/by-creation-key", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    req_builder = req_builder.query(&[("creation_key", params.creation_key.as_str())]);
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    }
+
+    let req = req_builder.build()?;
+    configuration::check_request(&req, configuration.request_limit)?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    let content = configuration::bounded_text(resp, configuration.response_limit).await?;
+
+    if status.as_u16() == 200 {
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::DatabaseResource`",
+            ))),
+            ContentType::Unsupported(unknown_type) => {
+                Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::DatabaseResource`"
+                ))))
+            }
+        }
+    } else {
+        let entity: Option<GetDatabaseByCreationKeyError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

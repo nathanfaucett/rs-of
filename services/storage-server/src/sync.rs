@@ -30,7 +30,7 @@ use crate::{
         state::RouterState,
         storage_authorization::{
             StorageAuthorization, StorageAuthorizationError, authorize_inspected_token,
-            authorize_storage_token, authorize_storage_token_read_only,
+            authorize_storage_token, inspect_storage_token_read_only,
         },
     },
 };
@@ -235,7 +235,16 @@ pub async fn authorize_sync(
     identity: &StoreIdentity,
     endpoint_id: &str,
 ) -> Result<SyncAuth, SyncAuthError> {
-    authorize_device_sync(idp, device, token, identity, endpoint_id, false).await
+    authorize_device_sync(
+        idp,
+        device,
+        token,
+        identity,
+        endpoint_id,
+        AttachDirection::Bidirectional,
+        AuthorityCheck::Reconcile,
+    )
+    .await
 }
 
 fn unix_time_seconds() -> i64 {
@@ -244,19 +253,25 @@ fn unix_time_seconds() -> i64 {
         .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64)
 }
 
+#[derive(Clone, Copy)]
+enum AuthorityCheck {
+    Reconcile,
+    Snapshot { renew: bool },
+}
+
 async fn authorize_device_sync(
     idp: &IdpClient,
     device: &DeviceClient,
     token: &str,
     identity: &StoreIdentity,
     endpoint_id: &str,
-    read_only: bool,
+    direction: AttachDirection,
+    authority: AuthorityCheck,
 ) -> Result<SyncAuth, SyncAuthError> {
-    let introspection = if read_only {
-        // The snapshot below validates the owner binding without IdP's reconciling Device hook.
-        idp.inspect_identity_read_only(token).await
-    } else {
-        idp.introspect(token).await
+    let introspection = match authority {
+        AuthorityCheck::Reconcile => idp.introspect(token).await,
+        AuthorityCheck::Snapshot { renew: true } => idp.inspect_identity(token).await,
+        AuthorityCheck::Snapshot { renew: false } => idp.inspect_identity_read_only(token).await,
     };
     if introspection
         .as_ref()
@@ -264,11 +279,14 @@ async fn authorize_device_sync(
     {
         return Err(SyncAuthError::Unauthorized);
     }
-    let auth = authorize_bidirectional(authorize_inspected_token(introspection), identity)?;
-    let selected = if read_only {
-        device.selection_snapshot(endpoint_id).await
-    } else {
-        device.selected_resources(endpoint_id).await
+    let auth = authorize_direction(
+        authorize_inspected_token(introspection),
+        identity,
+        direction,
+    )?;
+    let selected = match authority {
+        AuthorityCheck::Reconcile => device.selected_resources(endpoint_id).await,
+        AuthorityCheck::Snapshot { renew } => device.selection_snapshot(endpoint_id, renew).await,
     }
     .map_err(|_error| SyncAuthError::BackendUnavailable)?;
     if auth.expires_at <= unix_time_seconds()
@@ -294,30 +312,35 @@ async fn authorize_session(
     token: &str,
     identity: &StoreIdentity,
     endpoint_id: &str,
+    direction: AttachDirection,
+    authority: AuthorityCheck,
 ) -> Result<SyncAuth, SyncAuthError> {
     if let Some(device) = device {
-        return authorize_sync(idp, device, token, identity, endpoint_id).await;
+        return authorize_device_sync(
+            idp,
+            device,
+            token,
+            identity,
+            endpoint_id,
+            direction,
+            authority,
+        )
+        .await;
     }
-    authorize_local_session(idp, token, identity, false).await
-}
-
-async fn authorize_local_session(
-    idp: &IdpClient,
-    token: &str,
-    identity: &StoreIdentity,
-    read_only: bool,
-) -> Result<SyncAuth, SyncAuthError> {
-    let authorization = if read_only {
-        authorize_storage_token_read_only(idp, token).await
-    } else {
-        authorize_storage_token(idp, token).await
+    let authorization = match authority {
+        AuthorityCheck::Reconcile => authorize_storage_token(idp, token).await,
+        AuthorityCheck::Snapshot { renew } if !idp.has_local_device_policy() => {
+            inspect_storage_token_read_only(idp, token, renew).await
+        }
+        AuthorityCheck::Snapshot { .. } => Err(StorageAuthorizationError::InvalidToken),
     };
-    authorize_bidirectional(authorization, identity)
+    authorize_direction(authorization, identity, direction)
 }
 
-fn authorize_bidirectional(
+fn authorize_direction(
     authorization: Result<StorageAuthorization, StorageAuthorizationError>,
     identity: &StoreIdentity,
+    direction: AttachDirection,
 ) -> Result<SyncAuth, SyncAuthError> {
     let authorization = authorization.map_err(|error| match error {
         StorageAuthorizationError::InvalidToken => SyncAuthError::Unauthorized,
@@ -325,7 +348,11 @@ fn authorize_bidirectional(
     })?;
     if authorization.resource != "storage:sync"
         || !authorization.can_read
-        || !authorization.can_write
+        || match direction {
+            AttachDirection::Pull => false,
+            AttachDirection::Bidirectional => !authorization.can_write,
+            AttachDirection::Push => true,
+        }
     {
         return Err(SyncAuthError::Unauthorized);
     }
@@ -333,7 +360,7 @@ fn authorize_bidirectional(
         subject: authorization.subject,
         application_id: authorization.application_id,
         store_id: identity.store_id,
-        direction: AttachDirection::Bidirectional,
+        direction,
         expires_at: authorization.expires_at,
     })
 }
@@ -408,6 +435,20 @@ struct SessionAuthorization<'a> {
 
 impl SessionAuthorization<'_> {
     async fn check(&self) -> io::Result<()> {
+        self.check_authority(if self.expected.direction == AttachDirection::Pull {
+            AuthorityCheck::Snapshot { renew: false }
+        } else {
+            AuthorityCheck::Reconcile
+        })
+        .await
+    }
+
+    async fn check_publish(&self) -> io::Result<()> {
+        self.check_authority(AuthorityCheck::Snapshot { renew: false })
+            .await
+    }
+
+    async fn check_authority(&self, authority: AuthorityCheck) -> io::Result<()> {
         self.require_current(
             authorize_session(
                 self.idp,
@@ -415,27 +456,11 @@ impl SessionAuthorization<'_> {
                 self.token,
                 self.identity,
                 self.endpoint_id,
+                self.expected.direction,
+                authority,
             )
             .await,
         )
-    }
-
-    async fn check_publish(&self) -> io::Result<()> {
-        let result = match self.device {
-            Some(device) => {
-                authorize_device_sync(
-                    self.idp,
-                    device,
-                    self.token,
-                    self.identity,
-                    self.endpoint_id,
-                    true,
-                )
-                .await
-            }
-            None => authorize_local_session(self.idp, self.token, self.identity, true).await,
-        };
-        self.require_current(result)
     }
 
     fn require_current(&self, result: Result<SyncAuth, SyncAuthError>) -> io::Result<()> {
@@ -587,7 +612,8 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
         _ => return Err(AbortReason::MalformedMessage),
     };
     if request.store_identity != hello.store_identity
-        || request.direction != AttachDirection::Bidirectional
+        || request.direction == AttachDirection::Push
+        || (first_upload && request.direction != AttachDirection::Bidirectional)
     {
         return Err(AbortReason::MalformedMessage);
     }
@@ -614,6 +640,12 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
         &token,
         &request.store_identity,
         &state.router_state.endpoint_id,
+        request.direction,
+        if request.direction == AttachDirection::Pull {
+            AuthorityCheck::Snapshot { renew: true }
+        } else {
+            AuthorityCheck::Reconcile
+        },
     )
     .await
     .map_err(|error| match error {
@@ -635,11 +667,17 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
             .parse()
             .map_err(|_| AbortReason::Unauthorized)?,
     };
-    let database = state
-        .databases
-        .open_selected(&namespace, auth.store_id.into())
-        .map_err(|_| AbortReason::BackendUnavailable)?
-        .ok_or(AbortReason::BackendUnavailable)?;
+    let database = if auth.direction == AttachDirection::Pull {
+        state
+            .databases
+            .open_existing_for_pull(&namespace, auth.store_id.into())
+    } else {
+        state
+            .databases
+            .open_selected(&namespace, auth.store_id.into())
+    }
+    .map_err(|_| AbortReason::BackendUnavailable)?
+    .ok_or(AbortReason::BackendUnavailable)?;
     let eligible = if first_upload {
         database
             .first_upload_is_eligible()
@@ -706,6 +744,11 @@ async fn exchange_attached_history(
             .send(SyncMessage::FirstUploadPublished)
             .await
             .map_err(|_error| AbortReason::BackendUnavailable)?;
+    } else if authorization.expected.direction == AttachDirection::Pull {
+        database
+            .serve_resource_history(&mut transport, &config, staging_dir)
+            .await
+            .map_err(exchange_abort)?;
     } else {
         database
             .exchange_resource_history(
