@@ -22,7 +22,7 @@ use postcard::experimental::serialized_size;
 use thiserror::Error;
 use value::Value;
 
-use crate::pre_apply::{ApplyError, Check, CheckFuture, check_apply};
+use crate::pre_apply::{ApplyError, Check, CheckFuture, check_apply, commit_apply};
 use crate::scope::TableScope;
 use crate::{
     MemorySyncStageFactory, PROTOCOL_VERSION, SyncCandidateView, SyncHello, SyncIncrementalChange,
@@ -1153,7 +1153,7 @@ where
                     Ok(((), mutations))
                 })
             },
-            |_| Ok(()),
+            |()| Ok(()),
             commit,
         )
         .await
@@ -1382,39 +1382,44 @@ where
         let batch_changes = Arc::clone(&changes);
         check_apply(check).await?;
         engine
-            .mutate_tables(tables.as_slice(), move |codec, transaction| {
-                let snapshots = batch_snapshots;
-                let changes = batch_changes;
-                Box::pin(async move {
-                    let mut mutations = MutationSummary::default();
-                    for order in 0..4 {
-                        for unit in snapshots.iter() {
-                            let SyncKey::Row { table, .. } = &unit.key;
-                            if catalog_order(table) == order {
-                                merge_snapshot(codec, transaction, unit).await?;
-                                mutations.record_table(table);
+            .mutate_tables_with_commit(
+                tables.as_slice(),
+                move |codec, transaction| {
+                    let snapshots = batch_snapshots;
+                    let changes = batch_changes;
+                    Box::pin(async move {
+                        let mut mutations = MutationSummary::default();
+                        for order in 0..4 {
+                            for unit in snapshots.iter() {
+                                let SyncKey::Row { table, .. } = &unit.key;
+                                if catalog_order(table) == order {
+                                    merge_snapshot(codec, transaction, unit).await?;
+                                    mutations.record_table(table);
+                                }
                             }
                         }
-                    }
-                    for order in 0..4 {
-                        for change in changes.iter() {
-                            if catalog_order(&change.table) == order {
-                                merge_change(codec, transaction, change).await?;
-                                mutations.record_table(&change.table);
+                        for order in 0..4 {
+                            for change in changes.iter() {
+                                if catalog_order(&change.table) == order {
+                                    merge_change(codec, transaction, change).await?;
+                                    mutations.record_table(&change.table);
+                                }
                             }
                         }
-                    }
-                    validate_catalog(
-                        codec,
-                        transaction,
-                        snapshots.as_slice(),
-                        changes.as_slice(),
-                        expected.as_ref(),
-                    )
-                    .await?;
-                    Ok(((), mutations))
-                })
-            })
+                        validate_catalog(
+                            codec,
+                            transaction,
+                            snapshots.as_slice(),
+                            changes.as_slice(),
+                            expected.as_ref(),
+                        )
+                        .await?;
+                        Ok(((), mutations))
+                    })
+                },
+                |()| Ok(()),
+                |transaction| commit_apply(transaction, check),
+            )
             .await?;
     }
 
@@ -1496,7 +1501,7 @@ where
     check_apply(check).await?;
     let candidate_tables = scope.and_then(TableScope::candidate_tables);
     engine
-        .mutate_tables_validated(
+        .mutate_tables_with_commit(
             tables.as_slice(),
             move |codec, transaction| {
                 Box::pin(async move {
@@ -1538,10 +1543,10 @@ where
                 }
                 Ok(())
             },
+            |transaction| commit_apply(transaction, check),
         )
         .await
         .map(|_| ())
-        .map_err(ApplyError::from)
 }
 
 const fn sync_state_unit_estimate(unit: &SyncStateUnit) -> usize {
@@ -2551,66 +2556,70 @@ where
     let manifest = manifest.clone();
     check_apply(check).await?;
     sync_stage(|| {
-        engine.mutate_tables(&tables, move |codec, transaction| {
-            sync_stage(|| async move {
-                let mut mutations = MutationSummary::default();
-                for (stage_index, mut stage) in stages.into_iter().enumerate() {
-                    while let Some(record) = stage
-                        .next_record()
-                        .await
-                        .map_err(|error| EngineError::custom(error.to_string()))?
-                    {
-                        let message: SyncMessage = postcard::from_bytes(&record)
-                            .map_err(|error| EngineError::custom(error.to_string()))?;
-                        match message {
-                            SyncMessage::State(units) => {
-                                for unit in units {
-                                    validate_row_addresses(from_ref(&unit), &[])?;
-                                    validate_state_batch(from_ref(&unit))?;
-                                    let SyncKey::Row { table, .. } = &unit.key;
-                                    if catalog_order(table)
-                                        != u8::try_from(stage_index % 4)
-                                            .expect("four catalog stages")
-                                    {
-                                        return Err(EngineError::custom(
-                                            "Staged catalog state has an invalid apply order",
-                                        ));
+        engine.mutate_tables_with_commit(
+            &tables,
+            move |codec, transaction| {
+                sync_stage(|| async move {
+                    let mut mutations = MutationSummary::default();
+                    for (stage_index, mut stage) in stages.into_iter().enumerate() {
+                        while let Some(record) = stage
+                            .next_record()
+                            .await
+                            .map_err(|error| EngineError::custom(error.to_string()))?
+                        {
+                            let message: SyncMessage = postcard::from_bytes(&record)
+                                .map_err(|error| EngineError::custom(error.to_string()))?;
+                            match message {
+                                SyncMessage::State(units) => {
+                                    for unit in units {
+                                        validate_row_addresses(from_ref(&unit), &[])?;
+                                        validate_state_batch(from_ref(&unit))?;
+                                        let SyncKey::Row { table, .. } = &unit.key;
+                                        if catalog_order(table)
+                                            != u8::try_from(stage_index % 4)
+                                                .expect("four catalog stages")
+                                        {
+                                            return Err(EngineError::custom(
+                                                "Staged catalog state has an invalid apply order",
+                                            ));
+                                        }
+                                        merge_snapshot(codec, transaction, &unit).await?;
+                                        mutations.record_table(table);
                                     }
-                                    merge_snapshot(codec, transaction, &unit).await?;
-                                    mutations.record_table(table);
                                 }
-                            }
-                            SyncMessage::Changes(changes) => {
-                                validate_row_addresses(&[], &changes)?;
-                                for change in changes {
-                                    if catalog_order(&change.table)
-                                        != u8::try_from(stage_index % 4)
-                                            .expect("four catalog stages")
-                                    {
-                                        return Err(EngineError::custom(
-                                            "Staged catalog change has an invalid apply order",
-                                        ));
+                                SyncMessage::Changes(changes) => {
+                                    validate_row_addresses(&[], &changes)?;
+                                    for change in changes {
+                                        if catalog_order(&change.table)
+                                            != u8::try_from(stage_index % 4)
+                                                .expect("four catalog stages")
+                                        {
+                                            return Err(EngineError::custom(
+                                                "Staged catalog change has an invalid apply order",
+                                            ));
+                                        }
+                                        merge_change(codec, transaction, &change).await?;
+                                        mutations.record_table(&change.table);
                                     }
-                                    merge_change(codec, transaction, &change).await?;
-                                    mutations.record_table(&change.table);
                                 }
-                            }
-                            _ => {
-                                return Err(EngineError::custom(
-                                    "Unexpected message in catalog stage",
-                                ));
+                                _ => {
+                                    return Err(EngineError::custom(
+                                        "Unexpected message in catalog stage",
+                                    ));
+                                }
                             }
                         }
                     }
-                }
-                sync_stage(|| validate_catalog(codec, transaction, &[], &[], Some(&manifest)))
-                    .await?;
-                Ok(((), mutations))
-            })
-        })
+                    sync_stage(|| validate_catalog(codec, transaction, &[], &[], Some(&manifest)))
+                        .await?;
+                    Ok(((), mutations))
+                })
+            },
+            |()| Ok(()),
+            |transaction| commit_apply(transaction, check),
+        )
     })
     .await
-    .map_err(ApplyError::from)
 }
 
 struct StagedDataApply {

@@ -27,7 +27,10 @@ type Session = NonNullable<typeof authState.session>;
 let restoreCandidate = $state.raw<{ session: Session; id: string }>();
 let binding = $state.raw<{ session: Session; value: Awaited<ReturnType<typeof syncStateModule.getBinding>> }>();
 const currentBinding = $derived(binding?.session === authState.session ? binding?.value : undefined);
-let syncing = $state(false);
+const syncStatus = $derived(syncStateModule.getSyncStatus(
+    authState.session,
+    currentBinding?.status === "bound" ? currentBinding.id : undefined
+));
 let signingOut = $state(false);
 
 let uploadBlocked = $state(false);
@@ -102,20 +105,13 @@ async function retryLocalSave() {
 
 async function syncNow() {
     const session = authState.session;
-    if (!session || busy || syncing) return;
-    syncing = true;
+    if (!session || busy || !syncStatus) return;
     error = "";
     notice = "";
     try {
         await syncStateModule.syncBoundDatabase(session);
-        if (session === authState.session) notice = "Sync complete.";
     } catch {
-        await readBinding(session);
-        if (session === authState.session && currentBinding?.status === "bound" && !currentBinding.detached) {
-            error = "Sync failed. Check your connection, Storage access, and Selection. Your changes stay local. Retry with Sync now.";
-        }
-    } finally {
-        syncing = false;
+        // The SDK reports exchange failures. Detach and sign-out clear its status.
     }
 }
 
@@ -136,19 +132,16 @@ async function signOut() {
 
 async function changeDetachment(detached: boolean) {
     const session = authState.session;
-    if (!session || busy) return;
+    if (!session || busy || currentBinding?.status !== "bound") return;
     busy = true;
     error = "";
     notice = "";
     try {
-        await syncStateModule.setDetached(session, detached);
-        if (!detached) await readBinding(session);
+        await syncStateModule.setDetached(session, currentBinding.id, detached);
     } catch (cause) {
         error = cause instanceof Error ? cause.message : "Could not change Storage attachment.";
+        await readBinding(session);
     } finally {
-        if (detached && session === authState.session && currentBinding?.status === "bound") {
-            binding = { session, value: { ...currentBinding, detached: true } };
-        }
         busy = false;
     }
 }
@@ -337,14 +330,17 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                         {/if}
                         {#if currentBinding?.status === "bound"}
                             <p class="break-all">Linked Storage Resource ID: {currentBinding.id}</p>
-                            {#if currentBinding.detached}
-                                <p>Sync is detached. Your vaults stay on this browser.</p>
+                            {#if !syncStatus}
+                                <p>Sync is detached in this tab. Reattach to send and receive changes automatically.</p>
                                 <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => changeDetachment(false)}>Reattach sync</button>
                             {:else}
-                                <button class="btn btn-primary btn-md" type="button" disabled={busy || syncing} onclick={syncNow}>
-                                    {syncing ? "Syncing…" : "Sync now"}
-                                </button>
+                                <button class="btn btn-primary btn-md" type="button" disabled={busy || syncStatus.status === "syncing"} onclick={syncNow}>Sync now</button>
                                 <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => changeDetachment(true)}>Detach sync</button>
+                                {#if syncStatus.status === "error"}
+                                    <Alert tone="danger">Sync failed. Check your connection, Storage access, and Selection. Your changes stay local. Retry with Sync now.</Alert>
+                                {:else}
+                                    <p role="status">{syncStatus.status === "syncing" ? "Syncing…" : "Sync complete."}</p>
+                                {/if}
                             {/if}
                         {:else if currentBinding?.status === "pending-save"}
                             <p class="break-all">Storage confirmed upload to Resource ID: {currentBinding.id}</p>

@@ -15,6 +15,16 @@ pub struct SqlDatabase {
     database: Database,
 }
 
+/// Subscription lifetime; freeing this handle stops wakeups.
+#[wasm_bindgen]
+pub struct SqlCommitWatch(futures_util::future::AbortHandle);
+
+impl Drop for SqlCommitWatch {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 #[wasm_bindgen]
 impl SqlDatabase {
     /// Open a SQL database backed by IndexedDB.
@@ -28,6 +38,24 @@ impl SqlDatabase {
         SqlClient {
             client: self.database.client(),
         }
+    }
+
+    /// Observe coalesced physical commits without retaining the SQL database.
+    pub fn watch_commits(&self, listener: js_sys::Function) -> Result<SqlCommitWatch, JsError> {
+        let mut subscription = self
+            .database
+            .subscribe_commits()
+            .ok_or_else(|| JsError::new("SQL commit notifications require IndexedDB"))?;
+        let (handle, registration) = futures_util::future::AbortHandle::new_pair();
+        wasm_bindgen_futures::spawn_local(async move {
+            let task = async move {
+                while subscription.changed().await {
+                    let _ = listener.call0(&JsValue::UNDEFINED);
+                }
+            };
+            let _ = futures_util::future::Abortable::new(task, registration).await;
+        });
+        Ok(SqlCommitWatch(handle))
     }
 
     /// Get the change subscription for push-based synchronization.
@@ -59,12 +87,14 @@ impl SqlDatabase {
         &self,
         transport: &mut crate::sync::JsSqlSyncTransport,
         role: crate::sql_history::SqlHistoryRole,
+        can_apply: Option<js_sys::Function>,
     ) -> Result<crate::sql_history::SqlHistoryResult, crate::sql_history::JsSqlHistoryError> {
         self.database
-            .exchange_resource_history_memory(
+            .exchange_resource_history_memory_checked(
                 transport,
                 &ofdb_sql::history::SessionConfig::default(),
                 role.into(),
+                || check_history_apply(can_apply.as_ref()),
             )
             .await
             .map_err(crate::sql_history::JsSqlHistoryError::from)
@@ -89,7 +119,10 @@ impl SqlDatabase {
         expected: Option<Vec<u8>>,
         tag: Vec<u8>,
     ) -> Result<bool, JsError> {
-        Ok(self.database.replace_initial_restore_tag(expected, tag).await?)
+        Ok(self
+            .database
+            .replace_initial_restore_tag(expected, tag)
+            .await?)
     }
 
     /// Receives SQL history without sending local history, then publishes if still pristine.
@@ -99,6 +132,7 @@ impl SqlDatabase {
         transport: &mut crate::sync::JsSqlSyncTransport,
         signal: js_sys::Object,
         tag: Vec<u8>,
+        can_apply: Option<js_sys::Function>,
     ) -> Result<(), crate::sql_history::JsSqlHistoryError> {
         self.database
             .restore_resource_history_memory(
@@ -106,13 +140,29 @@ impl SqlDatabase {
                 &ofdb_sql::history::SessionConfig::default(),
                 tag,
                 || match js_sys::Reflect::get(&signal, &JsValue::from_str("aborted")) {
-                    Ok(value) if value.as_bool() == Some(false) => Ok(()),
+                    Ok(value) if value.as_bool() == Some(false) => {
+                        check_history_apply(can_apply.as_ref())
+                    }
                     _ => Err("restore cancelled".into()),
                 },
             )
             .await
             .map_err(crate::sql_history::JsSqlHistoryError::from)
     }
+}
+
+#[cfg(feature = "sync")]
+fn check_history_apply(can_apply: Option<&js_sys::Function>) -> Result<(), String> {
+    if let Some(check) = can_apply
+        && check
+            .call0(&JsValue::UNDEFINED)
+            .ok()
+            .and_then(|value| value.as_bool())
+            != Some(true)
+    {
+        return Err("local history apply cancelled".into());
+    }
+    Ok(())
 }
 
 #[wasm_bindgen]

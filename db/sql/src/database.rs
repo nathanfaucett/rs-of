@@ -409,6 +409,18 @@ impl Database {
         }
     }
 
+    /// Observe durable IndexedDB mutations from this WASM runtime, including tombstones.
+    /// The subscription keeps no database connection open and carries no SQL payloads.
+    #[must_use]
+    #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
+    pub fn subscribe_commits(&self) -> Option<btree::ChangeSubscription> {
+        match &self.backend {
+            DatabaseBackend::IndexedDb(engine) => engine.subscribe_changes(),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
+    }
+
     /// Opens origin-scoped browser persistence. Never falls back to memory.
     /// Transactions materialize the whole database; stale writes fail without retry.
     #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]

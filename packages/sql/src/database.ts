@@ -44,6 +44,23 @@ export class Database {
     return new Client(this.handle.get().client());
   }
 
+  /**
+   * Observe coalesced durable changes to this IndexedDB store in the current WASM runtime.
+   * Includes incoming history applied locally, not remote-only changes or writes in other tabs.
+   * Returns a function to unsubscribe. No events are replayed at subscription time.
+   */
+  onCommit(listener: () => void): () => void {
+    let subscribed = true;
+    const watch = this.handle.get().watch_commits(() => {
+      if (subscribed) listener();
+    });
+    return () => {
+      if (!subscribed) return;
+      subscribed = false;
+      watch.free();
+    };
+  }
+
   /** Synchronize with a remote peer using the given transport. */
   async synchronize(
     transport: JsPushSyncTransport,
@@ -59,13 +76,16 @@ export class Database {
   /**
    * Exchange SQL history v7 over caller-supplied byte frames.
    * Transports must bound reads and queued frames before buffering.
+   * A supplied synchronous `canApply` must return true before each local batch
+   * and its commit. A commit already issued to IndexedDB can finish.
    */
   async synchronizeHistory(
     transport: JsSqlSyncTransport,
-    role: SqlHistoryRole = SqlHistoryRole.Initiator
+    role: SqlHistoryRole = SqlHistoryRole.Initiator,
+    canApply?: () => boolean
   ): Promise<SqlHistoryResult> {
     try {
-      return await this.handle.run((wasm) => wasm.synchronize_history(transport, role));
+      return await this.handle.run((wasm) => wasm.synchronize_history(transport, role, canApply));
     } catch (error) {
       throw wrapError(error, SqlError);
     }
@@ -104,10 +124,13 @@ export class Database {
   async restoreHistory(
     transport: JsSqlSyncTransport,
     signal: AbortSignal,
-    tag: Uint8Array
+    tag: Uint8Array,
+    canApply?: () => boolean
   ): Promise<void> {
     try {
-      return await this.handle.run((wasm) => wasm.restore_history(transport, signal, tag));
+      return await this.handle.run((wasm) =>
+        wasm.restore_history(transport, signal, tag, canApply)
+      );
     } catch (error) {
       throw wrapError(error, SqlError);
     }

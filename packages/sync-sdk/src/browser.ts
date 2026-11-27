@@ -24,6 +24,8 @@ export {
   createSqlResourceSync,
   type SqlResourceSync,
   type SqlResourceSyncOptions,
+  type SqlResourceSyncStatus,
+  startSqlResourceSync,
 } from "./sql-sync-lifecycle";
 
 /** Document type that must have an id property for database operations. */

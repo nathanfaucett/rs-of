@@ -10,4 +10,6 @@ it("exports the Resource lifecycle from the browser and root entry points", asyn
   const root = await import("../dist/index.js");
   expect(browser.createSqlResourceSync).toBeTypeOf("function");
   expect(root.createSqlResourceSync).toBe(browser.createSqlResourceSync);
+  expect(browser.startSqlResourceSync).toBeTypeOf("function");
+  expect(root.startSqlResourceSync).toBe(browser.startSqlResourceSync);
 });

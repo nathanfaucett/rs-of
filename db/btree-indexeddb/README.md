@@ -61,11 +61,11 @@ issued persistence and its invalidation remain owned, not the Rust snapshot.
 Timeout/cancellation after issue does **not** establish rollback. Native abort,
 quota/access exceptions and version errors propagate without partial persistence.
 
-Notifications are process-local to clones of one opened adapter. Independently
-opened tabs/handles are protected by the persisted revision but do not receive
-cross-context notifications. Both SQL and KV facade committed subscriptions,
-checked sync and caller-polled continuous runners are supported. External-write gaps require
-broad reconciliation rather than relying only on local invalidation.
+Physical commit notifications are shared by handles of the same store in one
+WASM runtime. Other tabs, workers, and independent WASM instances do not share
+these notifications. The persisted revision still protects their writes from
+stale commits. Incoming history that mutates local storage wakes listeners;
+unchanged exchanges do not. Reconcile explicitly for changes outside the runtime.
 
 ## Initial cost and limits
 

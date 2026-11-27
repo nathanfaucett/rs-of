@@ -7,7 +7,9 @@ export {
   createSync as createBrowserSync,
   type SqlResourceSync,
   type SqlResourceSyncOptions,
+  type SqlResourceSyncStatus,
   SyncError,
+  startSqlResourceSync,
 } from "./browser";
 export * from "./core";
 export { createSync as createNodeSync, NodeSyncSDK } from "./node";
