@@ -343,7 +343,7 @@ async function choose(
 }
 
 nodeTest(
-  "default Create retains the Installation and uploads the explicitly selected local vault",
+  "default Create retains the Installation and supports guarded vault upload and restore",
   async ({ node }) => {
     const { app, base, browser, ca, data, pm } = node;
     const idp = `${base}/idp`;
@@ -605,6 +605,56 @@ nodeTest(
     await connect.click();
     await confirm.click();
     await expect(destination.getByRole("alert")).toContainText("already has history");
+    expect(await databases()).toEqual(catalog);
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
+
+    const findRemote = (page: Page) => page.getByRole("button", { name: "Find remote database" });
+    const confirmRestore = (page: Page) =>
+      page.getByRole("button", { name: "Restore database", exact: true });
+    await findRemote(pmPage).click();
+    await confirmRestore(pmPage).click();
+    await expect(pmPage.getByRole("alert").filter({ hasText: "Merge required" })).toBeVisible();
+    await expect(vault).toContainText(`ID: ${vaultId}`);
+
+    const restoredPage = await browser.newPage();
+    await passwordManagerSignin(
+      restoredPage,
+      { origin: pm, idp, storage, username, password },
+      false,
+      false
+    );
+    await findRemote(restoredPage).click();
+    await expect(
+      restoredPage.getByRole("region", { name: "Confirm remote database restore" })
+    ).toContainText(resourceId);
+    await confirmRestore(restoredPage).click();
+    const restoredVault = restoredPage.getByRole("button", { name: new RegExp(localVault) });
+    await expect(restoredVault).toContainText(`ID: ${vaultId}`);
+    const binding = restoredPage.getByText(`Restored Storage Resource ID: ${resourceId}`, {
+      exact: true,
+    });
+    await expect(binding).toBeVisible();
+    await restoredPage.reload();
+    await expect(binding).toBeVisible();
+    await expect(restoredVault).toHaveCount(1);
+    await restoredPage.route(`${base}/**`, (route) => route.abort());
+    await restoredPage.reload();
+    await restoredVault.click();
+    await restoredPage.getByLabel("Master password", { exact: true }).fill(masterPassword);
+    await restoredPage.getByRole("button", { name: "Unlock", exact: true }).click();
+    await restoredPage.getByRole("button", { name: localRecord, exact: true }).click();
+    await restoredPage
+      .getByRole("region", { name: "Item details" })
+      .getByRole("button", { name: "Edit", exact: true })
+      .click();
+    await expect(restoredPage.getByLabel("Notes", { exact: true })).toHaveValue(localSecret);
+    await restoredPage
+      .getByRole("textbox", { name: "Name", exact: true })
+      .fill("Edited restored vault offline");
+    await restoredPage.getByRole("button", { name: "Save changes" }).click();
+    await expect(
+      restoredPage.getByRole("button", { name: "Edited restored vault offline", exact: true })
+    ).toBeVisible();
     expect(await databases()).toEqual(catalog);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
 

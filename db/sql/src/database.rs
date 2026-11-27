@@ -969,3 +969,7 @@ mod history_session;
 ))]
 #[path = "browser_history_session.rs"]
 mod browser_history_session;
+
+#[cfg(feature = "validated-history")]
+#[path = "initial_restore.rs"]
+mod initial_restore;

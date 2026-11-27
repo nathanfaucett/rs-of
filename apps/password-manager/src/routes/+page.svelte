@@ -24,6 +24,10 @@ let confirmedSession = $state.raw<typeof authState.session>(null);
 let resourceId = $state("");
 let uploadError = $state("");
 let uploaded = $state(false);
+let restoreCandidate = $state.raw<{ session: NonNullable<typeof authState.session>; id: string }>();
+let binding = $state.raw<{ session: NonNullable<typeof authState.session>; id: string }>();
+const restoredResourceId = $derived(binding?.session === authState.session ? binding?.id : undefined);
+
 let destinationHasHistory = $state(false);
 
 function showDestination() {
@@ -61,7 +65,55 @@ async function upload() {
 
 onMount(() => {
     void vaultStateModule.init();
+    void readRestoreBinding();
 });
+
+async function readRestoreBinding() {
+    await authState.initialize();
+    const session = authState.session;
+    if (!session) return;
+    try {
+        const id = await syncStateModule.restoredResource(session);
+        if (session === authState.session && id) binding = { session, id };
+    } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Could not read the local restore record.";
+    }
+}
+
+async function findRestore() {
+    const session = authState.session;
+    if (busy || !session) return;
+    error = "";
+    notice = "";
+    busy = true;
+    try {
+        const id = await syncStateModule.findRestoreResource(session);
+        if (id) restoreCandidate = { session, id };
+        else notice = "No Password Manager database is available to restore.";
+    } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Could not find the remote database.";
+    } finally {
+        busy = false;
+    }
+}
+
+async function restore() {
+    const candidate = restoreCandidate;
+    if (busy || !candidate || candidate.session !== authState.session) return;
+    busy = true;
+    error = "";
+    try {
+        await syncStateModule.restoreRemoteDatabase(candidate.session, candidate.id);
+        await vaultStateModule.showVaultSelector();
+        binding = candidate;
+        restoreCandidate = undefined;
+        notice = "Remote database restored. Unlock its vaults with their existing passwords.";
+    } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Remote restore failed. Try again.";
+    } finally {
+        busy = false;
+    }
+}
 
 async function createVault() {
     if (busy) return;
@@ -178,7 +230,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                     {#if !authState.isAuthenticated}
                         <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
                     {:else}
-                        {#if vaultStateModule.state.vaults.some((vault) => !vault.synced)}
+                        {#if !restoredResourceId && vaultStateModule.state.vaults.some((vault) => !vault.synced)}
                             {#if confirmedSession && confirmedSession === authState.session}
                                 <section class="flex flex-col gap-2" aria-labelledby="sync-destination">
                                     <h2 id="sync-destination" class="font-medium">Confirm sync destination</h2>
@@ -208,6 +260,19 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                             {:else}
                                 <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showDestination}>Connect local database</button>
                             {/if}
+                        {/if}
+                        {#if restoredResourceId}
+                            <p>Restored Storage Resource ID: {restoredResourceId}</p>
+                        {:else if restoreCandidate && restoreCandidate.session === authState.session}
+                            <section class="flex flex-col gap-2" aria-labelledby="restore-source">
+                                <h2 id="restore-source" class="font-medium">Confirm remote database restore</h2>
+                                <p class="break-all">Restore from {restoreCandidate.session.storage}. Storage Resource ID: {restoreCandidate.id}</p>
+                                <p>The restore only downloads. It stops if this browser has local history.</p>
+                                <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={restore}>Restore database</button>
+                                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => restoreCandidate = undefined}>Cancel restore</button>
+                            </section>
+                        {:else}
+                            <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={findRestore}>Find remote database</button>
                         {/if}
                         {#if syncStateModule.supportsReplication()}
                             <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showSyncedVaults}>Show synced vaults</button>

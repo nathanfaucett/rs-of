@@ -64,7 +64,8 @@ export async function passwordManagerSignin(
     username,
     password,
   }: Record<"origin" | "idp" | "storage" | "username" | "password", string>,
-  withLocalVault = false
+  withLocalVault = false,
+  checkLegacySelector = true
 ) {
   await page.goto(origin);
   await page.getByRole("link", { name: "Sign in to sync" }).click();
@@ -114,16 +115,20 @@ export async function passwordManagerSignin(
   expect(new URLSearchParams(grant.request().postData() ?? "").get("client_id")).toBe(clientId);
   await expect(page).toHaveURL(`${origin}/`);
   await page.reload();
-  const show = page.getByRole("button", { name: "Show synced vaults" });
-  await expect(show).toBeVisible();
-  const [exchange, list] = await Promise.all([
-    tokenResponse("urn:ietf:params:oauth:grant-type:token-exchange"),
-    page.waitForResponse((res) => res.url() === `${storage}/databases`, { timeout: 20_000 }),
-    show.click(),
-  ]);
-  expect(exchange.ok()).toBe(true);
-  expect(new URLSearchParams(exchange.request().postData() ?? "").get("client_id")).toBe(clientId);
-  expect(list.ok()).toBe(true);
+  if (checkLegacySelector) {
+    const show = page.getByRole("button", { name: "Show synced vaults" });
+    await expect(show).toBeVisible();
+    const [exchange, list] = await Promise.all([
+      tokenResponse("urn:ietf:params:oauth:grant-type:token-exchange"),
+      page.waitForResponse((res) => res.url() === `${storage}/databases`, { timeout: 20_000 }),
+      show.click(),
+    ]);
+    expect(exchange.ok()).toBe(true);
+    expect(new URLSearchParams(exchange.request().postData() ?? "").get("client_id")).toBe(
+      clientId
+    );
+    expect(list.ok()).toBe(true);
+  }
 
   if (withLocalVault) {
     await page.getByRole("button", { name: new RegExp(localVault) }).click();

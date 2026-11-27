@@ -13,8 +13,9 @@ use platform::{MaybeSend, MaybeSync};
 
 use engine::{
     DocumentSummary, ENGINE_INDEX_FIELDS_STORAGE, ENGINE_INDICES_STORAGE,
-    ENGINE_TABLE_FIELDS_STORAGE, ENGINE_TABLES_STORAGE, Engine, EngineError, Kernel,
-    KernelTransaction, MutationSummary, Uuid, catalog_table_for_storage, validate_row_id,
+    ENGINE_INITIAL_RESTORE_STORAGE, ENGINE_TABLE_FIELDS_STORAGE, ENGINE_TABLES_STORAGE, Engine,
+    EngineError, Kernel, KernelTransaction, MutationSummary, Uuid, catalog_table_for_storage,
+    validate_row_id,
 };
 use futures::{FutureExt, StreamExt, pin_mut};
 use postcard::experimental::serialized_size;
@@ -195,6 +196,44 @@ where
             check,
             None,
             None,
+            false,
+        )
+    })
+    .await
+}
+
+/// Exchanges history in one direction: the initiator receives and the responder serves.
+/// The responder rejects incoming history and the initiator never sends history.
+///
+/// # Errors
+///
+/// Returns an error for transport, protocol, staging, or engine failure.
+pub async fn synchronize_pull_with_stage_factory<K, R, T, F>(
+    engine: &Engine<K, R>,
+    transport: &mut T,
+    config: &SessionConfig,
+    role: SyncRole,
+    stage_factory: &F,
+) -> Result<SyncResult, SyncError<T::Error>>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+    T: SyncTransport + MaybeSend,
+    T::Error: Display + MaybeSend,
+    F: SyncStageFactory,
+    F::Stage: 'static,
+{
+    sync_stage(|| {
+        synchronize_scoped(
+            engine,
+            transport,
+            config,
+            role,
+            stage_factory,
+            || ready(Ok(())),
+            None,
+            None,
+            true,
         )
     })
     .await
@@ -271,6 +310,7 @@ where
             check,
             None,
             Some(selection),
+            false,
         )
     })
     .await
@@ -491,6 +531,7 @@ where
             check,
             Some(scope),
             None,
+            false,
         )
     })
     .await
@@ -513,6 +554,7 @@ async fn synchronize_scoped<K, R, T, F, Q, U>(
     mut check: Q,
     mut scope: Option<TableScope<'_>>,
     selection: Option<SyncSelection>,
+    pull_only: bool,
 ) -> Result<SyncResult, SyncError<T::Error>>
 where
     Q: FnMut() -> U + MaybeSend,
@@ -555,11 +597,16 @@ where
     }
     exchange_hello(transport, role).await?;
 
-    let summaries = with_engine_abort(
-        transport,
-        discover(engine, config.max_session_bytes, scope.as_ref(), selection).await,
-    )
-    .await?;
+    let receiving_only = pull_only && role == SyncRole::Initiator;
+    let summaries = if receiving_only {
+        Vec::new()
+    } else {
+        with_engine_abort(
+            transport,
+            discover(engine, config.max_session_bytes, scope.as_ref(), selection).await,
+        )
+        .await?
+    };
     let local_manifest = SyncManifest::new(
         summaries
             .iter()
@@ -626,6 +673,21 @@ where
             .await?;
             (sent, received)
         }
+        SyncRole::Responder if pull_only => {
+            if !matches!(receive_message(transport).await?.0, SyncMessage::Done) {
+                return Err(SyncError::UnexpectedMessage);
+            }
+            let sent = send_outbound(transport, &outbound, config.max_units_per_frame).await?;
+            (
+                sent,
+                Received {
+                    snapshots: 0,
+                    changes: 0,
+                    requests: Vec::new(),
+                    bytes: 0,
+                },
+            )
+        }
         SyncRole::Responder => {
             let received = sync_stage(|| {
                 receive_outbound(
@@ -647,6 +709,9 @@ where
     let local_requests = take(&mut received.requests);
     let remote_requests = exchange_snapshot_requests(transport, role, &local_requests).await?;
 
+    if receiving_only && !remote_requests.is_empty() {
+        return Err(SyncError::UnexpectedMessage);
+    }
     let recovery = with_engine_abort(
         transport,
         sync_stage(|| {
@@ -678,6 +743,13 @@ where
             })
             .await?;
             (sent, received)
+        }
+        SyncRole::Responder if pull_only => {
+            if !matches!(receive_message(transport).await?.0, SyncMessage::Done) {
+                return Err(SyncError::UnexpectedMessage);
+            }
+            let sent = send_snapshots(transport, &recovery, config.max_units_per_frame).await?;
+            (sent, (0, 0))
         }
         SyncRole::Responder => {
             let received = sync_stage(|| {
@@ -918,9 +990,80 @@ where
     U: Future<Output = Result<(), String>> + MaybeSend,
     E: MaybeSend,
 {
+    sync_stage(|| {
+        publish_initial_history_with(engine, staged, max_bytes, None, |transaction| {
+            transaction.commit_checked(|| async { check().await.map_err(SyncError::PreApply) })
+        })
+    })
+    .await
+}
+
+/// Reads the caller's local-only tag from a successful initial restore.
+/// # Errors
+/// Returns an error if the storage read fails.
+pub async fn initial_restore_tag_for<K, R>(
+    engine: &Engine<K, R>,
+) -> Result<Option<Vec<u8>>, EngineError>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+{
+    engine
+        .read_transaction(|_, transaction| {
+            Box::pin(transaction.get_bytes(ENGINE_INITIAL_RESTORE_STORAGE, &[]))
+        })
+        .await
+}
+
+/// Restores a private stage using the destination's optimistic revision check to fence writes.
+///
+/// # Errors
+///
+/// Returns an error if the destination has history, the stage is invalid, the caller cancels,
+/// or the transaction fails.
+pub async fn restore_initial_history_for<K, R, S, C, Q, E>(
+    engine: &Engine<K, R>,
+    staged: &Engine<S, C>,
+    max_bytes: usize,
+    tag: Vec<u8>,
+    check: Q,
+) -> Result<(), SyncError<E>>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+    S: Kernel,
+    C: SyncRowCodec<S::Transaction>,
+    Q: FnOnce() -> Result<(), String> + MaybeSend,
+    E: MaybeSend,
+{
+    sync_stage(|| {
+        publish_initial_history_with(engine, staged, max_bytes, Some(tag), |transaction| async {
+            check().map_err(SyncError::PreApply)?;
+            transaction.commit().await.map_err(SyncError::Engine)
+        })
+    })
+    .await
+}
+
+async fn publish_initial_history_with<K, R, S, C, Q, U, E>(
+    engine: &Engine<K, R>,
+    staged: &Engine<S, C>,
+    max_bytes: usize,
+    tag: Option<Vec<u8>>,
+    commit: Q,
+) -> Result<(), SyncError<E>>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+    S: Kernel,
+    C: SyncRowCodec<S::Transaction>,
+    Q: FnOnce(K::Transaction) -> U + MaybeSend,
+    U: Future<Output = Result<(), SyncError<E>>> + MaybeSend,
+    E: MaybeSend,
+{
     let units = sync_stage(|| export_sync_state_limited(staged, max_bytes, None)).await?;
     if units.is_empty() {
-        return Err(EngineError::InvalidQuery("empty first upload").into());
+        return Err(EngineError::InvalidQuery("empty initial history").into());
     }
     validate_state_batch(&units)?;
     validate_row_addresses(&units, &[])?;
@@ -955,13 +1098,19 @@ where
                             validate_catalog(codec, transaction, &units, &[], None).await?;
                         }
                     }
+                    if let Some(tag) = tag {
+                        transaction
+                            .ensure_table(ENGINE_INITIAL_RESTORE_STORAGE)
+                            .await?;
+                        transaction
+                            .put_bytes(ENGINE_INITIAL_RESTORE_STORAGE, Vec::new(), tag)
+                            .await?;
+                    }
                     Ok(((), mutations))
                 })
             },
             |_| Ok(()),
-            |transaction| {
-                transaction.commit_checked(|| async { check().await.map_err(SyncError::PreApply) })
-            },
+            commit,
         )
         .await
         .map_err(|error| match error {

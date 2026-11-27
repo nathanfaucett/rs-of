@@ -661,22 +661,8 @@ async fn values(database: &ofdb_sql::Database) -> Vec<ofdb_sql::Value> {
 #[tokio::test]
 async fn ws_rejects_changed_identity_unsupported_direction_and_owner_protocol() {
     let fixture = Fixture::new().await;
-    for direction in [AttachDirection::Push, AttachDirection::Pull] {
-        let mut socket = fixture.hello().await;
-        send(
-            &mut socket,
-            SyncMessage::AttachRequest(AttachRequest {
-                store_identity: fixture.identity.clone(),
-                auth_token: AuthToken(b"user-token".to_vec()),
-                direction,
-            }),
-        )
-        .await;
-        assert_eq!(
-            receive(&mut socket).await,
-            SyncMessage::Abort(AbortReason::MalformedMessage)
-        );
-    }
+    let (_, response) = request_pull_or_push(&fixture, AttachDirection::Push).await;
+    assert_eq!(response, SyncMessage::Abort(AbortReason::MalformedMessage));
     let mut socket = fixture.hello().await;
     let mut changed = fixture.identity.clone();
     changed.store_id = uuid::Uuid::now_v7();
@@ -705,6 +691,89 @@ async fn ws_rejects_changed_identity_unsupported_direction_and_owner_protocol() 
     assert_eq!(
         receive(&mut socket).await,
         SyncMessage::Abort(AbortReason::MalformedMessage)
+    );
+}
+
+async fn request_pull_or_push(
+    fixture: &Fixture,
+    direction: AttachDirection,
+) -> (Socket, SyncMessage) {
+    let mut socket = fixture.hello().await;
+    send(
+        &mut socket,
+        SyncMessage::AttachRequest(AttachRequest {
+            store_identity: fixture.identity.clone(),
+            auth_token: AuthToken(b"user-token".to_vec()),
+            direction,
+        }),
+    )
+    .await;
+    let response = receive(&mut socket).await;
+    (socket, response)
+}
+
+#[tokio::test]
+async fn ws_pull_needs_read_and_never_accepts_incoming_sql_history() {
+    let fixture = Fixture::new().await;
+    *fixture.authorization_details.lock().expect("capability") =
+        Some(json!([{ "type": "storage", "actions": ["write"] }]));
+    let (_, denied) = request_pull_or_push(&fixture, AttachDirection::Pull).await;
+    assert_eq!(denied, SyncMessage::Abort(AbortReason::Unauthorized));
+    *fixture.authorization_details.lock().expect("capability") =
+        Some(json!([{ "type": "storage", "actions": ["read"] }]));
+    let remote = fixture
+        .databases
+        .open_selected(&fixture.namespace, fixture.identity.store_id)
+        .expect("remote database")
+        .expect("selected resource");
+    sql(&remote, "CREATE TABLE documents (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (1, 'only remote')").await;
+    let before = remote.history_manifest().await.expect("source history");
+    let (socket, response) = request_pull_or_push(&fixture, AttachDirection::Pull).await;
+    assert!(
+        matches!(response, SyncMessage::AttachResponse(response) if response.granted_direction == AttachDirection::Pull)
+    );
+    let restored = ofdb_sql::Database::in_memory();
+    restored
+        .restore_resource_history_memory(
+            &mut ClientTransport(socket),
+            &SessionConfig::default(),
+            b"source".to_vec(),
+            || Ok(()),
+        )
+        .await
+        .expect("read-only restore");
+    assert_eq!(
+        values(&restored).await,
+        [ofdb_sql::Value::Text("only remote".into())]
+    );
+    assert_eq!(
+        restored.initial_restore_tag().await.expect("local tag"),
+        Some(b"source".to_vec())
+    );
+
+    assert_eq!(
+        restored.history_manifest().await.expect("tag stays local"),
+        before
+    );
+
+    let (socket, _) = request_pull_or_push(&fixture, AttachDirection::Pull).await;
+    let sender = ofdb_sql::Database::in_memory();
+    sql(&sender, "CREATE TABLE documents (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (2, 'not allowed')").await;
+    let result = sender
+        .exchange_resource_history(
+            &mut ClientTransport(socket),
+            &SessionConfig::default(),
+            SyncRole::Initiator,
+            fixture.directory.0.join("stage"),
+            || async { Ok(()) },
+        )
+        .await;
+    assert!(
+        matches!(result, Err(SyncError::Transport(error)) if error.to_string().contains("MalformedMessage"))
+    );
+    assert_eq!(
+        remote.history_manifest().await.expect("no remote write"),
+        before
     );
 }
 

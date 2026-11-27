@@ -168,6 +168,44 @@ impl Database {
                 .map_err(|error| SyncError::PreApply(error.to_string()))?,
         }
     }
+    /// Serves SQL v7 history without applying any frames to this database.
+    /// The transport must authorize every read and send.
+    /// # Errors
+    /// Returns an error for transport, protocol, storage, or native admission failure.
+    #[cfg(feature = "redb")]
+    pub async fn serve_resource_history<T>(
+        &self,
+        transport: &mut T,
+        config: &SessionConfig,
+        directory: impl AsRef<Path>,
+    ) -> Result<SyncResult, SyncError<T::Error>>
+    where
+        T: SyncTransport + platform::MaybeSend,
+        T::Error: Display + platform::MaybeSend,
+    {
+        let DatabaseBackend::File(resource) = &self.backend else {
+            return Err(engine::EngineError::Unsupported("native history serving").into());
+        };
+        let factory = self.native_stage_factory(directory);
+        resource
+            .session(sync_stage(|| async {
+                let engine = resource
+                    .read()
+                    .await
+                    .map_err(|error| SyncError::PreApply(error.to_string()))?;
+                history::synchronize_pull_with_stage_factory(
+                    &*engine,
+                    transport,
+                    config,
+                    SyncRole::Responder,
+                    &factory,
+                )
+                .await
+            }))
+            .await
+            .map_err(|error| SyncError::PreApply(error.to_string()))?
+    }
+
     /// Checks first-upload eligibility. This is only a preflight; publish checks again atomically.
     ///
     /// # Errors
