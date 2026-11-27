@@ -211,9 +211,12 @@ test("first upload stays guarded after a lost publish receipt", async ({ page, r
   ]);
   expect(JSON.stringify(encrypted)).not.toContain(plaintext);
   expect(JSON.stringify(encrypted)).not.toContain(masterPassword);
-  const retry = destination.getByRole("button", { name: "Retry first upload" });
-  await retry.click();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Sync now", exact: true })).toHaveCount(0);
+  await connect.click();
+  await destination.getByRole("button", { name: "Confirm and upload" }).click();
   await expect(destination.getByRole("alert")).toContainText("already has history");
+  const retry = destination.getByRole("button", { name: "Retry first upload" });
   await expect(destination).toContainText(resourceId);
   await expect(retry).toHaveCount(0);
   expect(await storage.listDatabases()).toEqual(after);

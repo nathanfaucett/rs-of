@@ -39,6 +39,14 @@ The real-backend Chromium scenario creates an encrypted IndexedDB vault, signs i
 
 Attached sessions close after success and every failure. Handle or SDK close aborts and awaits active synchronization. Attach has a 10-second deadline and receive inactivity has a 30-second deadline. This is explicit single-Node behavior, not continuous delivery, two-Device convergence, durable replay, or production password-manager qualification.
 
+### Sync the active local database
+
+Use the vault selector to connect a populated local database or restore into a browser with no local history. First upload requires confirmation and a publication receipt from Storage. If that receipt is lost, the app does not link the database or try an unguarded upload. A restore only reads from Storage when it creates the local copy.
+
+After a verified upload or restore, **Sync now** exchanges history with the saved Resource. The app retains the verified Installation, User/Application namespace, and exact Resource ID in local database metadata, not in SQL history or vault backups. A browser with a restore record from an earlier version reuses that record. A previously uploaded database without a verified local record remains unlinked; existing remote history does not prove the earlier upload came from this database.
+
+Each exchange still requires current Storage authorization and Selection. Edits stay local if sync fails. **Detach sync** stops the exchange and keeps both copies. **Reattach sync** enables explicit sync to the same Resource. Signing out cancels sync and locks opened vaults. Signing back in does not upload anything until you select **Sync now**. A different account or Installation cannot use or replace the saved binding. There is no automatic sync on edit in this workflow.
+
 ## Local development
 
 Use the toolchain versions in `rust-toolchain.toml`, `.nvmrc`, and the root contributor guide. From the repository root:

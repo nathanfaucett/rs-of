@@ -65,7 +65,8 @@ export async function passwordManagerSignin(
     password,
   }: Record<"origin" | "idp" | "storage" | "username" | "password", string>,
   withLocalVault = false,
-  checkLegacySelector = true
+  checkLegacySelector = true,
+  registeredClientId?: string
 ) {
   await page.goto(origin);
   await page.getByRole("link", { name: "Sign in to sync" }).click();
@@ -85,7 +86,7 @@ export async function passwordManagerSignin(
   await expect(page).toHaveURL(/\/authorize\?/);
   const params = new URL(page.url()).searchParams;
   expect(params.get("application_id")).toBe(origin);
-  expect(params.has("client_id")).toBe(false);
+  expect(params.get("client_id")).toBe(registeredClientId ?? null);
   expect(params.get("code_challenge_method")).toBe("S256");
 
   const tokenResponse = (grant: string) =>
@@ -95,15 +96,18 @@ export async function passwordManagerSignin(
         new URLSearchParams(res.request().postData() ?? "").get("grant_type") === grant,
       { timeout: 20_000 }
     );
-  const [registration] = await Promise.all([
-    page.waitForResponse(
-      (res) => res.url() === `${idp}/oauth2/register` && res.request().method() === "POST",
-      { timeout: 15_000 }
-    ),
-    page.getByRole("button", { name: "Accept", exact: true }).click({ timeout: 10_000 }),
-  ]);
-  expect(registration.ok()).toBe(true);
-  const { client_id: clientId } = await registration.json();
+  let clientId = registeredClientId;
+  if (!clientId) {
+    const [registration] = await Promise.all([
+      page.waitForResponse(
+        (res) => res.url() === `${idp}/oauth2/register` && res.request().method() === "POST",
+        { timeout: 15_000 }
+      ),
+      page.getByRole("button", { name: "Accept", exact: true }).click({ timeout: 10_000 }),
+    ]);
+    expect(registration.ok()).toBe(true);
+    clientId = (await registration.json()).client_id;
+  }
   const [grant] = await Promise.all([
     tokenResponse("authorization_code"),
     page.getByRole("button", { name: "Allow", exact: true }).click({ timeout: 10_000 }),

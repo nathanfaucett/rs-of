@@ -213,9 +213,15 @@ async function launchNode(root: string) {
       expect.poll(() => status(url, ca), { timeout: 60_000 }).toBe(200);
     const startBackend = async () => {
       // Match the seeded runner's stack allowance for backend SQL workloads.
-      backend = launch("just", ["unified", "--data-dir", data], {
-        RUST_MIN_STACK: "67108864",
-      });
+      const stack = { RUST_MIN_STACK: "67108864" };
+      const { E2E_BACKEND_BIN: binary } = process.env;
+      backend = binary
+        ? launch(
+            "pnpm",
+            ["exec", "portless", "run", "--name", "unified", binary, "setup", "--data-dir", data],
+            stack
+          )
+        : launch("just", ["unified", "--data-dir", data], stack);
       await ready(`${base}/setup/node`);
     };
     await startBackend();
@@ -561,18 +567,18 @@ nodeTest(
       expect(response.status, response.body).toBeLessThan(300);
     }
     const pmDevice = await owner.exchange(pmSession, device);
-    const selected = await owner.call(`${device}/devices/${deviceId}/selection`, pmDevice, "PUT", {
-      applicationId,
-      id: resourceId,
-      kind: "database",
-      storageAccessToken: read,
-    });
+    const select = () =>
+      owner.call(`${device}/devices/${deviceId}/selection`, pmDevice, "PUT", {
+        applicationId,
+        id: resourceId,
+        kind: "database",
+        storageAccessToken: read,
+      });
+    const selected = await select();
     expect(selected.status, selected.body).toBe(204);
 
     await retry.click();
-    const outcome = destination.getByRole("status").or(destination.getByRole("alert"));
-    await expect(outcome).toBeVisible();
-    expect(await outcome.innerText()).toContain("First upload complete");
+    await expect(pmPage.getByText("First upload complete.", { exact: false })).toBeVisible();
     expect(await databases()).toEqual(catalog);
     const remote = () =>
       query(
@@ -603,10 +609,23 @@ nodeTest(
     for (const plaintext of [localRecord, localSecret, masterPassword])
       expect(saved.body).not.toContain(plaintext);
 
+    await node.restart();
+    await expect.poll(() => descriptor(page, base).catch(() => undefined)).toEqual(ready);
     await pmPage.reload();
-    await connect.click();
-    await confirm.click();
-    await expect(destination.getByRole("alert")).toContainText("already has history");
+    const linked = pmPage.getByText(`Linked Storage Resource ID: ${resourceId}`, { exact: true });
+    await expect(linked).toBeVisible();
+    await expect(connect).toHaveCount(0);
+    // Expire the client's cached token without changing the real IdP clock.
+    await pmPage.clock.setFixedTime(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const renewed = pmPage.waitForResponse(
+      (response) =>
+        response.url() === `${idp}/oauth2/token` &&
+        new URLSearchParams(response.request().postData() ?? "").get("grant_type") ===
+          "refresh_token"
+    );
+    await pmPage.getByRole("button", { name: "Sync now", exact: true }).click();
+    expect((await renewed).ok()).toBe(true);
+    await expect(pmPage.getByText("Sync complete.", { exact: true })).toBeVisible();
     expect(await databases()).toEqual(catalog);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
 
@@ -621,13 +640,12 @@ nodeTest(
     expect(await owner.json<{ id: string }>(lookup, read)).toMatchObject({ id: resourceId });
     const catalogWithDuplicateName = await databases();
     expect(catalogWithDuplicateName).toHaveLength(2);
-    await findRemote(pmPage).click();
-    await confirmRestore(pmPage).click();
-    await expect(pmPage.getByRole("alert").filter({ hasText: "Merge required" })).toBeVisible();
+    await expect(findRemote(pmPage)).toHaveCount(0);
     await expect(vault).toContainText(`ID: ${vaultId}`);
 
-    const restoredPage = await browser.newPage();
-    await passwordManagerSignin(
+    const restoredContext = await browser.newContext();
+    const restoredPage = await restoredContext.newPage();
+    const restoredSession = await passwordManagerSignin(
       restoredPage,
       { origin: pm, idp, storage, username, password },
       false,
@@ -640,14 +658,15 @@ nodeTest(
     await confirmRestore(restoredPage).click();
     const restoredVault = restoredPage.getByRole("button", { name: new RegExp(localVault) });
     await expect(restoredVault).toContainText(`ID: ${vaultId}`);
-    const binding = restoredPage.getByText(`Restored Storage Resource ID: ${resourceId}`, {
+    const binding = restoredPage.getByText(`Linked Storage Resource ID: ${resourceId}`, {
       exact: true,
     });
     await expect(binding).toBeVisible();
     await restoredPage.reload();
     await expect(binding).toBeVisible();
     await expect(restoredVault).toHaveCount(1);
-    await restoredPage.route(`${base}/**`, (route) => route.abort());
+    const offline = `${base}/**`;
+    await restoredPage.route(offline, (route) => route.abort());
     await restoredPage.reload();
     await restoredVault.click();
     await restoredPage.getByLabel("Master password", { exact: true }).fill(masterPassword);
@@ -667,6 +686,129 @@ nodeTest(
     ).toBeVisible();
     expect(await databases()).toEqual(catalogWithDuplicateName);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
+
+    await restoredPage.getByRole("button", { name: "Lock vault" }).click();
+    await restoredPage.unroute(offline);
+    await restoredPage.reload();
+    await expect(binding).toBeVisible();
+    const deselected = await owner.call(
+      `${device}/devices/${deviceId}/selection/${applicationId}/database/${resourceId}`,
+      pmDevice,
+      "DELETE"
+    );
+    expect(deselected.status, deselected.body).toBe(204);
+    const sync = restoredPage.getByRole("button", { name: "Sync now", exact: true });
+    await sync.click();
+    await expect(restoredPage.getByRole("alert")).toContainText("Your changes stay local");
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
+
+    // Keep the exchange on a real server but hold client messages to test cancellation.
+    const socketUrl = `${base.replace(/^http/, "ws")}/storage/sync/ws`;
+    const holds: { started: boolean; closed: boolean }[] = [];
+    function holdNextExchange() {
+      const hold = { started: false, closed: false };
+      holds.push(hold);
+      return hold;
+    }
+    await restoredPage.routeWebSocket(socketUrl, (socket) => {
+      const server = socket.connectToServer();
+      const hold = holds.shift();
+      if (hold) {
+        socket.onMessage(() => {
+          hold.started = true;
+        });
+        socket.onClose(() => {
+          hold.closed = true;
+          void server.close();
+        });
+      }
+    });
+    expect((await select()).status).toBe(204);
+    const detachedExchange = holdNextExchange();
+    await sync.click();
+    await expect.poll(() => detachedExchange.started).toBe(true);
+    await restoredPage.getByRole("button", { name: "Detach sync" }).click();
+    await expect.poll(() => detachedExchange.closed).toBe(true);
+    await expect(restoredPage.getByRole("button", { name: "Reattach sync" })).toBeVisible();
+    await restoredPage.reload();
+    await expect(binding).toBeVisible();
+    await expect(sync).toHaveCount(0);
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
+    await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
+    await sync.click();
+    await expect(restoredPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    const changedRemote = await remote();
+    expect(changedRemote.status, changedRemote.body).toBe(200);
+    expect(JSON.parse(changedRemote.body)).not.toEqual(JSON.parse(saved.body));
+    expect(changedRemote.body).not.toContain("Edited restored vault offline");
+    expect(await databases()).toEqual(catalogWithDuplicateName);
+
+    // A sign-out in one tab must cancel its exchange and lock another tab's open vault.
+    const unlocked = await restoredContext.newPage();
+    await unlocked.goto(pm);
+    await unlocked.getByRole("button", { name: new RegExp(localVault) }).click();
+    await unlocked.getByLabel("Master password", { exact: true }).fill(masterPassword);
+    await unlocked.getByRole("button", { name: "Unlock", exact: true }).click();
+    await expect(
+      unlocked.getByRole("button", { name: "Edited restored vault offline" })
+    ).toBeVisible();
+    const signedOutExchange = holdNextExchange();
+    await sync.click();
+    await expect.poll(() => signedOutExchange.started).toBe(true);
+    await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect.poll(() => signedOutExchange.closed).toBe(true);
+    await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+    await expect(unlocked).toHaveURL(`${pm}/`);
+    await expect(unlocked.getByRole("button", { name: new RegExp(localVault) })).toBeVisible();
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
+
+    const secondUser = "second@setup.test";
+    const idpAdmin = await owner.exchange(operator, idp);
+    await owner.json(`${idp}/users`, idpAdmin, "POST", {
+      name: "Second User",
+      email: secondUser,
+      password,
+    });
+    await unlocked.goto(app);
+    await unlocked.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(unlocked).toHaveURL(`${app}/signin`);
+    const storageWrites: string[] = [];
+    restoredPage.on("request", (request) => {
+      if (request.url().startsWith(`${storage}/`) && !["GET", "OPTIONS"].includes(request.method()))
+        storageWrites.push(request.method());
+    });
+    restoredPage.on("websocket", (socket) => {
+      if (socket.url() === socketUrl) storageWrites.push("sync");
+    });
+    const different = await passwordManagerSignin(
+      restoredPage,
+      { origin: pm, idp, storage, username: secondUser, password },
+      false,
+      false,
+      restoredSession.clientId
+    );
+    await expect(
+      restoredPage.getByText("This database is linked to another account", { exact: false })
+    ).toBeVisible();
+    await expect(sync).toHaveCount(0);
+    await expect(binding).toHaveCount(0);
+    await expect(restoredVault).toContainText(`ID: ${vaultId}`);
+    const differentUser = await owner.json<{ sub: string }>(
+      `${idp}/userinfo`,
+      different.accessToken
+    );
+    expect(differentUser.sub).not.toBe(user.sub);
+    const differentRead = await owner.exchange(different, "storage:databases", "read");
+    expect((await owner.call(`${storage}/databases`, differentRead)).status).toBe(401);
+    await restoredVault.click();
+    await restoredPage.getByLabel("Master password", { exact: true }).fill(masterPassword);
+    await restoredPage.getByRole("button", { name: "Unlock", exact: true }).click();
+    await expect(
+      restoredPage.getByRole("button", { name: "Edited restored vault offline" })
+    ).toBeVisible();
+    expect(storageWrites).toEqual([]);
+    expect(await databases()).toEqual(catalogWithDuplicateName);
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
 
     await pmPage.route(`${base}/**`, (route) => route.abort());
     await pmPage.reload();

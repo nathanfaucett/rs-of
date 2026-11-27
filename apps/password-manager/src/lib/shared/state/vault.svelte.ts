@@ -44,18 +44,10 @@ function getVaultData() {
   return null;
 }
 
-async function openMainDatabase() {
-  const databases = await syncStateModule.listDatabases();
-  const matching = databases.filter((entry) => entry.name === "password-manager-main");
-  if (matching.length > 1)
-    throw new Error("More than one Password Manager Resource exists. No vault data was changed.");
-  return matching[0] ? syncStateModule.openDatabase(matching[0].id) : null;
-}
-
 async function showSyncedVaults() {
   const previous = vaultState;
   if (previous.status !== "select-vault") return;
-  const handle = await openMainDatabase();
+  const handle = await syncStateModule.openLegacyDatabase();
   const synced = handle ? await listSyncVaults(handle).finally(() => handle.close()) : [];
   if (vaultState === previous) {
     vaultState = {
@@ -80,8 +72,8 @@ function activateVault(vault: VaultHandleLike, lockSettings: LockSettings, isSyn
 }
 
 async function createVault(password: string, name: string) {
-  const vault = await createVaultHandle(password, name.trim());
   const request = session;
+  const vault = await createVaultHandle(password, name.trim());
   const settings = await vault.loadLockSettings();
   if (request !== session) {
     await vault.close();
@@ -92,31 +84,28 @@ async function createVault(password: string, name: string) {
 }
 
 async function unlockExistingVault(password: string, { id, synced }: VaultChoice) {
-  if (synced) {
-    const handle = await openMainDatabase();
-    if (!handle) throw new Error("Failed to open sync database");
-    const vault = await unlockSyncVault(password, id, handle);
-    if (!vault) throw new Error("Wrong password or synced vault unavailable.");
-    const request = session;
-    const settings = await vault.loadLockSettings();
-    if (request !== session) {
-      await vault.close();
-      return;
-    }
-    await handle.sync({ direction: "bidirectional" });
-    activateVault(vault, settings, true);
-    await goto("/vault");
-    return;
-  }
-  const vault = await unlockVault(password, id);
   const request = session;
-  const settings = await vault.loadLockSettings();
-  if (request !== session) {
-    await vault.close();
-    return;
+  const handle = synced ? await syncStateModule.openLegacyDatabase() : null;
+  if (synced && !handle) throw new Error("Failed to open sync database");
+  let vault: VaultHandleLike | null = null;
+  let activated = false;
+  try {
+    vault = handle ? await unlockSyncVault(password, id, handle) : await unlockVault(password, id);
+    if (!vault) throw new Error("Wrong password or synced vault unavailable.");
+    if (request !== session) return;
+    const settings = await vault.loadLockSettings();
+    if (request !== session) return;
+    await handle?.sync({ direction: "bidirectional" });
+    if (request !== session) return;
+    activateVault(vault, settings, Boolean(handle));
+    activated = true;
+    await goto("/vault");
+  } finally {
+    if (!activated) {
+      if (vault) await vault.close();
+      else await handle?.close();
+    }
   }
-  activateVault(vault, settings, false);
-  await goto("/vault");
 }
 
 async function saveLockSettings(settings: LockSettings): Promise<boolean> {

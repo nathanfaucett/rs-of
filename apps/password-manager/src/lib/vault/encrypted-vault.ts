@@ -44,18 +44,23 @@ export interface VaultDatabase {
 export class VaultHandle implements VaultHandleLike {
   readonly sync?: NonNullable<VaultHandleLike["sync"]>;
   private readonly database: VaultDatabase;
-  private readonly key: CryptoKey;
+  private unlockedKey: CryptoKey | undefined;
   private readonly meta: VaultMeta;
 
   constructor(database: VaultDatabase, key: CryptoKey, meta: VaultMeta) {
     this.database = database;
-    this.key = key;
+    this.unlockedKey = key;
     this.meta = meta;
     if (database.sync) this.sync = database.sync;
   }
 
   get id(): string {
     return this.meta.id;
+  }
+
+  private get key(): CryptoKey {
+    if (!this.unlockedKey) throw new Error("Vault is locked.");
+    return this.unlockedKey;
   }
 
   private withItemLock<T>(action: () => Promise<T>): Promise<T> {
@@ -339,6 +344,7 @@ export class VaultHandle implements VaultHandleLike {
   }
 
   close(): Promise<void> {
+    this.unlockedKey = undefined;
     return this.database.close();
   }
 }

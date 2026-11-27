@@ -7,6 +7,47 @@ import { createOidcClient, type OidcAuthConfig } from "./oidc";
 
 let client: OidcClient | undefined;
 let startup: Promise<void> | undefined;
+let verifiedToken: string | undefined;
+const sessionListeners = new Set<(ended: boolean) => void>();
+
+function notifySession(ended: boolean) {
+  for (const listener of sessionListeners) listener(ended);
+}
+
+function endSession() {
+  session = null;
+  verifiedToken = undefined;
+  notifySession(true);
+}
+
+function watchSession(listener: (ended: boolean) => void) {
+  sessionListeners.add(listener);
+  return () => {
+    sessionListeners.delete(listener);
+  };
+}
+
+function checkStoredSession(event: StorageEvent) {
+  const expected = session;
+  const oidc = client;
+  if (!expected || !oidc || event.storageArea !== window.localStorage) return;
+  const current = oidc.getStoredTokenResponse()?.access_token;
+  if (current === verifiedToken) return;
+  // A token replacement may be a renewal or a different User. Stop transport before checking.
+  notifySession(false);
+  if (!current) {
+    endSession();
+    return;
+  }
+  void getAccessToken(expected).catch(() => {
+    if (
+      session === expected &&
+      current === oidc.getStoredTokenResponse()?.access_token &&
+      current !== verifiedToken
+    )
+      endSession();
+  });
+}
 let session = $state.raw<{
   user: OidcUserInfo;
   userEmail: string | undefined;
@@ -51,7 +92,8 @@ async function establishSession(
   oidc: OidcClient,
   { idp, storage, applicationUri }: OidcAuthConfig
 ) {
-  const { issuer, userInfo } = await oidc.getVerifiedIdentity();
+  const { issuer, userInfo, accessToken } = await oidc.getVerifiedIdentity();
+  verifiedToken = accessToken;
   const clientId = oidc.registeredClientId;
   if (!clientId) throw new Error("No verified OAuth Client ID");
   const { email } = userInfo;
@@ -83,8 +125,8 @@ async function login(): Promise<void> {
 async function logout(): Promise<void> {
   const oidc = client;
   client = undefined;
-  session = null;
-  await oidc?.signout();
+  endSession();
+  oidc?.clearStoredTokenResponse();
   await goto(resolve("/"));
 }
 
@@ -93,15 +135,16 @@ async function getAccessToken(expected: NonNullable<typeof session>): Promise<st
   if (!oidc || session !== expected) throw new Error("Sign in to sync first");
   // Another tab can replace a stored token without changing this tab's session.
   const identity = await oidc.getVerifiedIdentity();
+  if (client !== oidc || session !== expected) throw new Error("Sign-in session ended");
   if (
-    client !== oidc ||
-    session !== expected ||
     identity.issuer !== expected.issuer ||
     identity.subject !== expected.user.sub ||
     oidc.registeredClientId !== expected.clientId
   ) {
+    endSession();
     throw new Error("The signed-in account changed. Reload and confirm the destination again.");
   }
+  verifiedToken = identity.accessToken;
   return identity.accessToken;
 }
 
@@ -122,4 +165,6 @@ export const authState = {
   login,
   logout,
   getAccessToken,
+  checkStoredSession,
+  watchSession,
 };

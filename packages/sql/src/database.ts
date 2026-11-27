@@ -88,6 +88,18 @@ export class Database {
     }
   }
 
+  /** Replace the local-only replica tag if its current bytes match `expected`. */
+  async replaceInitialRestoreTag(
+    expected: Uint8Array | undefined,
+    tag: Uint8Array
+  ): Promise<boolean> {
+    try {
+      return await this.handle.run((wasm) => wasm.replace_initial_restore_tag(expected, tag));
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
+
   /** Receive into a transient stage and publish only into a pristine database. */
   async restoreHistory(
     transport: JsSqlSyncTransport,
