@@ -24,27 +24,33 @@ let confirmedSession = $state.raw<typeof authState.session>(null);
 let resourceId = $state("");
 let uploadError = $state("");
 let uploaded = $state(false);
+let destinationHasHistory = $state(false);
 
 function showDestination() {
     confirmedSession = authState.session;
     resourceId = "";
     uploadError = "";
     uploaded = false;
+    destinationHasHistory = false;
 }
 
 async function upload() {
     const session = confirmedSession;
-    if (!session || session !== authState.session || busy || uploaded) return;
+    if (!session || session !== authState.session || busy || uploaded || destinationHasHistory) return;
     uploadError = "";
+    resourceId = "";
     busy = true;
     try {
         await syncStateModule.uploadLocalDatabase(session, (id) => { resourceId = id; });
         uploaded = true;
     } catch (cause) {
         if (cause instanceof SyncError && cause.code === "destination-has-history") {
-            uploadError = "This Resource already has history. No merge was attempted. Keep using your local vaults.";
+            destinationHasHistory = true;
+            uploadError = "This Resource already has history. The app cannot verify an earlier upload. No merge was attempted. Keep using your local vaults.";
         } else if (cause instanceof SyncError && cause.code === "auth" && resourceId) {
-            uploadError = "Storage did not authorize the upload. Ask an Installation operator to check Selection for this Resource on the serving Node's approved Device, then retry.";
+            uploadError = "Storage did not authorize the upload. Check Selection with the serving Device owner. Only that owner can set Selection, with read access to this Resource and the devices.select permission for this Application. Once authorized, retry the first upload. It stops if the Resource has history.";
+        } else if (resourceId) {
+            uploadError = "Storage did not confirm publication. It may have saved the upload. You can keep using your local vaults. A retry uses the same Resource and stops if it has history.";
         } else {
             uploadError = cause instanceof Error ? cause.message : "First upload failed. Try again.";
         }
@@ -190,7 +196,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                                     {#if uploadError}<Alert tone="danger">{uploadError}</Alert>{/if}
                                     {#if uploaded}
                                         <p role="status">First upload complete. Your vaults stay on this browser.</p>
-                                    {:else}
+                                    {:else if !destinationHasHistory}
                                         <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={upload}>
                                             {busy ? "Uploading…" : uploadError ? "Retry first upload" : "Confirm and upload"}
                                         </button>

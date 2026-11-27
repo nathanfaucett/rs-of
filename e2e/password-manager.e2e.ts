@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { frame } from "../packages/storage-sync-client/src/protocol";
 import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
 import { frontendSession, signIn, storageClient } from "./session";
 
@@ -118,10 +119,7 @@ test("password-manager redirects to IdP, requests consent, and establishes a ses
   await expect(page.getByRole("button", { name: "Show synced vaults", exact: true })).toBeVisible();
 });
 
-test("first upload requires confirmation and can recover from an interrupted Storage connection", async ({
-  page,
-  request,
-}) => {
+test("first upload stays guarded after a lost publish receipt", async ({ page, request }) => {
   await signInToSync(page);
   const allow = page.getByRole("button", { name: "Allow", exact: true });
   const create = page.getByRole("button", { name: "Create new vault", exact: true });
@@ -170,12 +168,26 @@ test("first upload requires confirmation and can recover from an interrupted Sto
   const storage = storageClient("password-manager", session.access_token);
   const before = await storage.listDatabases();
   await page.unroute(tokenEndpoint);
+  // FirstUploadPublished has no body beyond its message tag.
+  const publishReceipt = Buffer.from(frame(Uint8Array.of(8)));
+  let receiptDropped = false;
+  await page.routeWebSocket(`${backendURL.replace(/^http/, "ws")}/storage/sync/ws`, (socket) => {
+    const server = socket.connectToServer();
+    server.onMessage((message) => {
+      if (!receiptDropped && typeof message !== "string" && message.equals(publishReceipt)) {
+        receiptDropped = true;
+        void socket.close();
+        return;
+      }
+      socket.send(message);
+    });
+  });
   await page.getByRole("button", { name: "Lock vault" }).click();
   await connect.click();
   await destination.getByRole("button", { name: "Confirm and upload" }).click();
-  await expect(destination.getByRole("status").or(destination.getByRole("alert"))).toContainText(
-    "First upload complete"
-  );
+  await expect(destination.getByRole("alert")).toContainText("Storage did not confirm publication");
+  expect(receiptDropped).toBe(true);
+  await expect(destination.getByRole("status")).toHaveCount(0);
   const after = await storage.listDatabases();
   const created = after.filter(({ id }) => !before.some((resource) => resource.id === id));
   expect(created).toHaveLength(1);
@@ -199,10 +211,16 @@ test("first upload requires confirmation and can recover from an interrupted Sto
   ]);
   expect(JSON.stringify(encrypted)).not.toContain(plaintext);
   expect(JSON.stringify(encrypted)).not.toContain(masterPassword);
-  await destination.getByRole("button", { name: "Done" }).click();
-  await connect.click();
-  await destination.getByRole("button", { name: "Confirm and upload" }).click();
+  const retry = destination.getByRole("button", { name: "Retry first upload" });
+  await retry.click();
   await expect(destination.getByRole("alert")).toContainText("already has history");
+  await expect(destination).toContainText(resourceId);
+  await expect(retry).toHaveCount(0);
   expect(await storage.listDatabases()).toEqual(after);
   expect(await read()).toEqual(encrypted);
+  await destination.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: /Local vault/ }).click();
+  await page.getByLabel("Master password", { exact: true }).fill(masterPassword);
+  await page.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Local note", exact: true })).toBeVisible();
 });
