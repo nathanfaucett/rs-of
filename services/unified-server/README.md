@@ -11,6 +11,8 @@ Use the protected Node code from the private file whose path the server prints. 
 
 Keep the data root and HTTPS origins unchanged on restart. `node-admission/state` contains only the Node code. Locks remain on disk, but setup state is in `unified.redb`.
 
+On restart or setup retry, Create adds the exact `storage:sync` introspection audience to a retained Storage service Client only if its old registration and credentials match. The Client ID, secret, and scopes stay unchanged. No administrator password or new data root is required for a completed Installation.
+
 The initial single-database layout could retain the database at `node-admission/unified.redb`. After acquiring the root lock, setup atomically moves that file to the data root. It rejects two retained database files as ambiguous.
 
 There is no in-place migration from the previous split-database layout, other earlier setup formats, or seeded roots. The server rejects them without modification. Preserve the old root and use `just unified --data-dir <fresh-private-path>` for a new Node.

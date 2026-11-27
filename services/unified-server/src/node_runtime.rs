@@ -15,8 +15,12 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     compose_router,
-    node_idp::{NodeIdp, build_node_idp},
+    node_idp::{NodeIdp, STORAGE_SYNC_AUDIENCE, build_node_idp},
 };
+
+#[cfg(test)]
+#[path = "node_runtime_tests.rs"]
+pub mod tests;
 
 #[derive(Deserialize, Serialize)]
 pub struct CreateRecord {
@@ -86,6 +90,11 @@ impl NodeRuntime {
         .map(|(relationship, (id, secret))| {
             let mut registration =
                 relationship.registration(*id, &idp_base, &device_base, &storage_base);
+            if relationship == SetupRelationship::StorageIdp {
+                registration
+                    .allowed_audiences
+                    .push(STORAGE_SYNC_AUDIENCE.into());
+            }
             registration.client_secret = Some(secret.clone());
             registration
         })
@@ -114,6 +123,7 @@ impl NodeRuntime {
                 password,
                 device_uri: &device_base,
                 storage_uri: &storage_base,
+                storage_introspection_client: record.clients[storage_idp].0,
                 clients: &registrations,
             },
         )

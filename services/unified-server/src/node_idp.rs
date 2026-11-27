@@ -18,6 +18,8 @@ use idp_server::{
 };
 use setup::operator_login_registration;
 
+pub const STORAGE_SYNC_AUDIENCE: &str = "storage:sync";
+
 /// Retained Create identifiers and the operator and service Client inputs.
 #[derive(Clone, Copy)]
 pub struct NodeIdp<'a> {
@@ -29,11 +31,13 @@ pub struct NodeIdp<'a> {
     /// The initial issuer key ID. Keep this value after issuer key rotation.
     pub key_id: Id,
     pub endpoint_id: EndpointId,
-    /// Supply a password to provision. Omit it to verify without creating or repairing records.
+    /// Supply a password to provision. Omit it to verify retained records.
     pub password: Option<&'a str>,
     /// Public Device and Storage API URIs used as operator token audiences.
     pub device_uri: &'a str,
     pub storage_uri: &'a str,
+    /// Only this Client can receive the retained Storage introspection audience upgrade.
+    pub storage_introspection_client: Id,
     /// Explicit least-privilege, shared-secret Client Credentials registrations.
     pub clients: &'a [ClientRegistration],
 }
@@ -91,9 +95,16 @@ pub async fn build_node_idp(
     let keys = PrivateKeyKeyringRepo::new_local(&storage).map_err(io::Error::other)?;
     let state = build_state_with_keys(&config, engine, None, None, Some(permissions), keys).await?;
     ensure_operator(&state, &spec).await?;
-    let application = ensure_registration(&state, login, provision).await?;
+    let application = ensure_registration(&state, login, provision, false).await?;
+    let storage_client = spec.storage_introspection_client.to_string();
     for registration in spec.clients {
-        ensure_registration(&state, registration.clone(), provision).await?;
+        ensure_registration(
+            &state,
+            registration.clone(),
+            provision,
+            registration.client_id.as_deref() == Some(storage_client.as_str()),
+        )
+        .await?;
     }
     Ok((
         openapi_router(state, config.server.prefix())
@@ -201,6 +212,7 @@ async fn ensure_registration(
     state: &RouterState,
     mut expected: ClientRegistration,
     provision: bool,
+    upgrade_storage_sync: bool,
 ) -> io::Result<Id> {
     let oauth = &state.oauth2_service;
     let id = expected
@@ -221,7 +233,7 @@ async fn ensure_registration(
             .map_err(io::Error::other)?,
         None => return Err(invalid("embedded IdP Client is missing or inactive")),
     };
-    let current = oauth
+    let mut current = oauth
         .get_client(id)
         .await
         .map_err(|error| io::Error::other(format!("embedded IdP Client: {error:?}")))?;
@@ -242,8 +254,12 @@ async fn ensure_registration(
         .application
         .name
         .get_or_insert_with(|| expected.client_name.clone());
-    if current != expected {
-        return Err(invalid("embedded IdP Client registration changed"));
+    let upgrade = current != expected;
+    if upgrade {
+        current.allowed_audiences.push(STORAGE_SYNC_AUDIENCE.into());
+        if !upgrade_storage_sync || current != expected {
+            return Err(invalid("embedded IdP Client registration changed"));
+        }
     }
     let root = oauth
         .key_service
@@ -253,6 +269,16 @@ async fn ensure_registration(
         .map_err(io::Error::other)?
         .ok_or_else(|| invalid("embedded IdP Client root is missing"))?;
     validate_metadata_root(&root, EntityType::Client, client.id)?;
+    if upgrade {
+        let mut client = client;
+        client.allowed_audiences = expected.allowed_audiences;
+        return oauth
+            .client_repo
+            .update_client(client, None)
+            .await
+            .map(|client| client.application_id)
+            .map_err(io::Error::other);
+    }
     Ok(client.application_id)
 }
 
@@ -269,12 +295,14 @@ mod tests {
         body::{Body, to_bytes},
         http::Request,
     };
+    use db::EmbeddedDatabase;
     use idp_service::setup_credentials::SetupRelationship;
     use iroh::SecretKey;
     use of_model::id::Id;
     use tower::ServiceExt;
 
     use super::{AppConfig, NodeIdp, build_node_idp};
+    use crate::node_runtime::tests::run_on_node_runtime;
 
     async fn assert_token(router: Router, form: String) {
         let response = router
@@ -293,8 +321,12 @@ mod tests {
         assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
     }
 
-    #[tokio::test]
-    async fn embedded_node_provisions_and_reopens_without_repairing_identity() {
+    #[test]
+    fn embedded_node_upgrades_only_the_exact_old_storage_client() {
+        run_on_node_runtime(check_retained_storage_upgrade());
+    }
+
+    async fn check_retained_storage_upgrade() {
         let dir = env::temp_dir().join(format!("idp-embedded-test-{}", Id::now_v7()));
         let mut config = AppConfig {
             data_dir: dir
@@ -327,17 +359,87 @@ mod tests {
             password: None,
             device_uri: device,
             storage_uri: storage,
+            storage_introspection_client: service_id,
             clients: &clients,
         };
-        let database = db::EmbeddedDatabase::open(&dir)
+        let database = EmbeddedDatabase::open(&dir)
             .await
             .expect("embedded database");
+        let application = provision_legacy(&config, &database, spec).await;
+        drop(database);
+
+        let database = EmbeddedDatabase::open(&dir)
+            .await
+            .expect("reopen embedded database");
+        let mut updated = clients[0].clone();
+        updated.allowed_audiences.push("storage:sync".into());
+        let mut changed = updated.clone();
+        changed.allowed_scopes.push("idp.user.lookup".into());
+        build_node_idp(
+            &config,
+            &database,
+            NodeIdp {
+                clients: &[changed],
+                ..spec
+            },
+        )
+        .await
+        .expect_err("an unrelated registration change must not be repaired");
+        let updated_clients = [updated];
+        let current = NodeIdp {
+            clients: &updated_clients,
+            ..spec
+        };
+        let (router, reopened) = build_node_idp(&config, &database, current)
+            .await
+            .expect("upgrade exact old Storage registration without a password");
         build_node_idp(&config, &database, spec)
+            .await
+            .expect_err("the old registration must no longer match after the upgrade");
+        assert_eq!(reopened, application);
+        assert_token(router, format!("grant_type=client_credentials&client_id={service_id}&client_secret=test-service-secret&scope=idp.token.validate&audience=https%3A%2F%2Fnode.test%2Fidp")).await;
+        for changed in [
+            NodeIdp {
+                endpoint_id: SecretKey::generate().public(),
+                ..current
+            },
+            NodeIdp {
+                login_id: Id::now_v7(),
+                ..current
+            },
+            NodeIdp {
+                user_id: Id::now_v7(),
+                ..current
+            },
+            NodeIdp {
+                key_id: Id::now_v7(),
+                ..current
+            },
+        ] {
+            build_node_idp(&config, &database, changed)
+                .await
+                .expect_err("reopen must reject changed identity");
+        }
+        let (_, retained) = build_node_idp(&config, &database, current)
+            .await
+            .expect("failed reopens must leave the original IdP intact");
+        assert_eq!(retained, application);
+        assert!(!Path::new(&config.data_dir).exists());
+        drop(database);
+        fs::remove_dir_all(dir).expect("remove test database");
+    }
+
+    async fn provision_legacy(
+        config: &AppConfig,
+        database: &EmbeddedDatabase,
+        spec: NodeIdp<'_>,
+    ) -> Id {
+        build_node_idp(config, database, spec)
             .await
             .expect_err("reopen cannot provision a missing signer");
         let (router, application) = build_node_idp(
-            &config,
-            &database,
+            config,
+            database,
             NodeIdp {
                 password: Some("test-operator-password"),
                 ..spec
@@ -347,44 +449,6 @@ mod tests {
         .expect("provision embedded IdP");
         assert!(!application.is_nil());
         assert_token(router, format!("grant_type=password&client_id={}&username=node-operator&password=test-operator-password&scope=openid", spec.login_id)).await;
-        drop(database);
-
-        let database = db::EmbeddedDatabase::open(&dir)
-            .await
-            .expect("reopen embedded database");
-        let (router, reopened) = build_node_idp(&config, &database, spec)
-            .await
-            .expect("verify retained IdP");
-        assert_eq!(reopened, application);
-        assert_token(router, format!("grant_type=client_credentials&client_id={service_id}&client_secret=test-service-secret&scope=idp.token.validate&audience=https%3A%2F%2Fnode.test%2Fidp")).await;
-        for changed in [
-            NodeIdp {
-                endpoint_id: SecretKey::generate().public(),
-                ..spec
-            },
-            NodeIdp {
-                login_id: Id::now_v7(),
-                ..spec
-            },
-            NodeIdp {
-                user_id: Id::now_v7(),
-                ..spec
-            },
-            NodeIdp {
-                key_id: Id::now_v7(),
-                ..spec
-            },
-        ] {
-            build_node_idp(&config, &database, changed)
-                .await
-                .expect_err("reopen must reject changed identity");
-        }
-        let (_, retained) = build_node_idp(&config, &database, spec)
-            .await
-            .expect("failed reopens must leave the original IdP intact");
-        assert_eq!(retained, application);
-        assert!(!Path::new(&config.data_dir).exists());
-        drop(database);
-        fs::remove_dir_all(dir).expect("remove test database");
+        application
     }
 }
