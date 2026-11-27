@@ -1010,3 +1010,9 @@ mod browser_history_session;
 #[cfg(feature = "validated-history")]
 #[path = "initial_restore.rs"]
 mod initial_restore;
+
+#[cfg(feature = "validated-history")]
+#[path = "staged_history.rs"]
+mod staged_history;
+#[cfg(feature = "validated-history")]
+pub use staged_history::{HistoryRecord, StagedHistory};

@@ -1192,6 +1192,11 @@ async fn index_schema_for<T: KernelTransaction, R: RowCodec<T>>(
     })
 }
 
+/// Lists the active table names in the supplied transaction.
+///
+/// # Errors
+///
+/// Returns an error if the catalog cannot be read or decoded.
 pub async fn active_table_names<T: KernelTransaction, R: RowCodec<T>>(
     transaction: &T,
     codec: &R,

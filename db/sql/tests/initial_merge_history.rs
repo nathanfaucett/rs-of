@@ -1,6 +1,37 @@
 #![cfg(all(feature = "sql", feature = "validated-history"))]
 
-use ofdb_sql::{Database, Row, Value, history::SyncKey};
+use ofdb_sql::{
+    Database, ErrorKind, HistoryRecord, Migration, Row, StagedHistory, Value, history::SyncKey,
+};
+
+const ATOMIC: &[HistoryRecord<'_>] = &[HistoryRecord {
+    table: "items",
+    identity: "id",
+    envelope: &["envelope"],
+}];
+const SPLIT: &[HistoryRecord<'_>] = &[HistoryRecord {
+    table: "items",
+    identity: "id",
+    envelope: &["ciphertext", "nonce"],
+}];
+
+const MIGRATED: &[HistoryRecord<'_>] = &[
+    ATOMIC[0],
+    HistoryRecord {
+        table: "_ofdb_migrations",
+        identity: "id",
+        envelope: &["version", "description", "fingerprint", "execution_time"],
+    },
+];
+
+async fn reopen(candidate: &StagedHistory) -> Database {
+    let fresh = Database::in_memory();
+    fresh
+        .import_history(candidate.units().to_vec())
+        .await
+        .expect("reopen staged history in a fresh database");
+    fresh
+}
 
 async fn execute(db: &Database, sql: &str) -> Vec<Row> {
     db.client()
@@ -35,6 +66,106 @@ async fn encrypted_rows() -> Database {
 }
 
 #[tokio::test]
+async fn rejects_independently_applied_migration_history() {
+    let plan = [Migration::new(
+        1,
+        "create items",
+        "CREATE TABLE items (id TEXT PRIMARY KEY, envelope TEXT)",
+    )];
+    let left = Database::in_memory();
+    let right = Database::in_memory();
+    for db in [&left, &right] {
+        assert_eq!(
+            db.client()
+                .migrate(&plan)
+                .await
+                .expect("apply migration")
+                .applied_versions,
+            [1]
+        );
+    }
+    let identity = "SELECT id FROM _ofdb_migrations";
+    assert_ne!(
+        execute(&left, identity).await,
+        execute(&right, identity).await
+    );
+    let definition = "SELECT version, description, fingerprint FROM _ofdb_migrations";
+    assert_eq!(
+        execute(&left, definition).await,
+        execute(&right, definition).await
+    );
+
+    let left_before = left.history_manifest().await.expect("left baseline");
+    let right_before = right.history_manifest().await.expect("right baseline");
+    for (first, second) in [(&left, &right), (&right, &left)] {
+        let error = first.stage_history(second, MIGRATED).await.expect_err(
+            "a repeated migration version under separate row identities is incompatible",
+        );
+        assert_eq!(error.kind, ErrorKind::Rejected);
+        assert!(
+            error.message.contains("Incompatible migration history"),
+            "{error}"
+        );
+    }
+    assert_eq!(
+        left.history_manifest().await.expect("left unchanged"),
+        left_before
+    );
+    assert_eq!(
+        right.history_manifest().await.expect("right unchanged"),
+        right_before
+    );
+
+    let shared = Database::in_memory();
+    stage(&left, &shared).await;
+    let candidate = left
+        .stage_history(&shared, MIGRATED)
+        .await
+        .expect("stage shared migration history");
+    let reopened = reopen(&candidate).await;
+    assert_eq!(
+        reopened
+            .client()
+            .migrate(&plan)
+            .await
+            .expect("validate staged migrations")
+            .applied_versions,
+        [] as [u32; 0]
+    );
+
+    execute(
+        &shared,
+        "UPDATE _ofdb_migrations SET description = 'diverged'",
+    )
+    .await;
+    assert_eq!(
+        execute(&shared, identity).await,
+        execute(&left, identity).await
+    );
+    let divergent = shared.history_manifest().await.expect("divergent baseline");
+    let error = left
+        .stage_history(&shared, MIGRATED)
+        .await
+        .expect_err("reject divergent history under the same UUID");
+    assert_eq!(error.kind, ErrorKind::Rejected);
+    assert!(
+        error.message.contains("Incompatible migration history"),
+        "{error}"
+    );
+    assert_eq!(
+        shared
+            .history_manifest()
+            .await
+            .expect("divergent history unchanged"),
+        divergent
+    );
+    assert_eq!(
+        left.history_manifest().await.expect("left unchanged"),
+        left_before
+    );
+}
+
+#[tokio::test]
 async fn a_single_envelope_has_the_same_conflict_winner_in_either_import_order() {
     let left = encrypted_rows().await;
     execute(
@@ -55,12 +186,16 @@ async fn a_single_envelope_has_the_same_conflict_winner_in_either_import_order()
     )
     .await;
 
-    let merge_left = Database::in_memory();
-    stage(&left, &merge_left).await;
-    stage(&right, &merge_left).await;
-    let merge_right = Database::in_memory();
-    stage(&right, &merge_right).await;
-    stage(&left, &merge_right).await;
+    let left_first = left
+        .stage_history(&right, ATOMIC)
+        .await
+        .expect("stage same logical row");
+    let right_first = right
+        .stage_history(&left, ATOMIC)
+        .await
+        .expect("stage reversed history");
+    let merge_left = reopen(&left_first).await;
+    let merge_right = reopen(&right_first).await;
 
     let projection = "SELECT envelope FROM items WHERE id = 'stable'";
     let winner = execute(&merge_left, projection).await;
@@ -82,7 +217,7 @@ async fn a_single_envelope_has_the_same_conflict_winner_in_either_import_order()
 }
 
 #[tokio::test]
-async fn per_column_history_can_mix_a_legacy_ciphertext_and_nonce() {
+async fn rejects_ciphertext_and_nonce_combined_from_different_sources() {
     let left = encrypted_rows().await;
     execute(
         &left,
@@ -94,17 +229,13 @@ async fn per_column_history_can_mix_a_legacy_ciphertext_and_nonce() {
     execute(&left, "UPDATE items SET ciphertext = 'cipher-left'").await;
     execute(&right, "UPDATE items SET nonce = 'nonce-right'").await;
 
-    let staged = Database::in_memory();
-    stage(&left, &staged).await;
-    stage(&right, &staged).await;
+    let error = left
+        .stage_history(&right, SPLIT)
+        .await
+        .expect_err("reject mixed tuple");
+    assert_eq!(error.kind, ErrorKind::Rejected);
+    assert!(error.message.contains("did not come from one source row"));
     let projection = "SELECT ciphertext, nonce FROM items WHERE id = 'stable'";
-    assert_eq!(
-        execute(&staged, projection).await,
-        [Row::new(vec![
-            Value::from("cipher-left"),
-            Value::from("nonce-right")
-        ])]
-    );
     assert_eq!(
         execute(&left, projection).await,
         [Row::new(vec![
@@ -133,32 +264,40 @@ async fn a_deleted_logical_row_survives_reimport_of_stale_history() {
     stage(&live, &deleted).await;
     execute(&deleted, "DELETE FROM items WHERE id = 'stable'").await;
 
-    let staged = Database::in_memory();
-    stage(&deleted, &staged).await;
-    stage(&live, &staged).await;
-    assert!(execute(&staged, "SELECT id FROM items").await.is_empty());
-    let retained = staged
-        .export_history()
-        .await
-        .expect("export staged history");
+    execute(&live, "UPDATE items SET envelope = 'concurrent-edit'").await;
+    for (first, second) in [(&deleted, &live), (&live, &deleted)] {
+        let candidate = first
+            .stage_history(second, ATOMIC)
+            .await
+            .expect("stage delete and edit");
+        let reopened = reopen(&candidate).await;
+        stage(&live, &reopened).await;
+        assert_eq!(execute(&reopened, "SELECT id FROM items").await, []);
+        assert_tombstone(&live, &candidate).await;
+    }
+    assert_eq!(
+        execute(&live, "SELECT id FROM items").await,
+        [Row::new(vec![Value::from("stable")])]
+    );
+    assert_eq!(execute(&deleted, "SELECT id FROM items").await, []);
+}
+
+async fn assert_tombstone(live: &Database, candidate: &StagedHistory) {
     let original = live.export_history().await.expect("export live history");
     let live_item = original
         .iter()
         .find(|unit| matches!(&unit.key, SyncKey::Row { table, .. } if table == "items"))
         .expect("item history");
-    let deleted_item = retained
+    let deleted_item = candidate
+        .units()
         .iter()
         .find(|unit| unit.key == live_item.key)
         .expect("same logical row retained");
     assert_ne!(deleted_item.metadata, live_item.metadata);
-    assert_eq!(
-        execute(&live, "SELECT id FROM items").await,
-        [Row::new(vec![Value::from("stable")])]
-    );
 }
 
 #[tokio::test]
-async fn an_independent_natural_key_collision_can_hide_a_logical_row() {
+async fn rejects_independent_identity_collisions_even_if_one_claim_is_deleted() {
     let left = encrypted_rows().await;
     let right = encrypted_rows().await;
     execute(
@@ -173,26 +312,177 @@ async fn an_independent_natural_key_collision_can_hide_a_logical_row() {
     .await;
     let projection = "SELECT envelope FROM items WHERE id = 'stable'";
 
-    let staged = Database::in_memory();
-    stage(&left, &staged).await;
-    stage(&right, &staged).await;
-    assert_eq!(execute(&staged, projection).await.len(), 1);
-    assert_eq!(
-        staged
-            .export_history()
-            .await
-            .expect("export staged history")
-            .iter()
-            .filter(|unit| matches!(&unit.key, SyncKey::Row { table, .. } if table == "items"))
-            .count(),
-        2
-    );
+    for delete in [false, true] {
+        if delete {
+            execute(&right, "DELETE FROM items WHERE id = 'stable'").await;
+        }
+        let before = right.history_manifest().await.expect("right baseline");
+        for (first, second) in [(&left, &right), (&right, &left)] {
+            let error = first
+                .stage_history(second, ATOMIC)
+                .await
+                .expect_err("reject collision");
+            assert!(error.message.contains("identity collision"), "{error}");
+        }
+        assert_eq!(
+            right.history_manifest().await.expect("right unchanged"),
+            before
+        );
+    }
     assert_eq!(
         execute(&left, projection).await,
         [Row::new(vec![Value::from("left")])]
     );
+    assert_eq!(execute(&right, projection).await, []);
+}
+
+#[tokio::test]
+async fn captures_independent_records_without_writing_or_following_either_source() {
+    let left = encrypted_rows().await;
+    let right = encrypted_rows().await;
+    execute(
+        &left,
+        "INSERT INTO items (id, ciphertext, nonce) VALUES ('left', 'left-cipher', 'left-nonce')",
+    )
+    .await;
+    execute(
+        &right,
+        "INSERT INTO items (id, ciphertext, nonce) VALUES ('right', 'right-cipher', 'right-nonce')",
+    )
+    .await;
+    let left_before = left.history_manifest().await.expect("left baseline");
+    let right_before = right.history_manifest().await.expect("right baseline");
+    let candidate = left
+        .stage_history(&right, SPLIT)
+        .await
+        .expect("stage independent records");
     assert_eq!(
-        execute(&right, projection).await,
-        [Row::new(vec![Value::from("right")])]
+        left.history_manifest().await.expect("left unchanged"),
+        left_before
+    );
+    assert_eq!(
+        right.history_manifest().await.expect("right unchanged"),
+        right_before
+    );
+    execute(&left, "DELETE FROM items WHERE id = 'left'").await;
+    execute(
+        &right,
+        "UPDATE items SET ciphertext = 'new-cipher', nonce = 'new-nonce'",
+    )
+    .await;
+    assert_eq!(
+        execute(
+            &reopen(&candidate).await,
+            "SELECT id, ciphertext, nonce FROM items ORDER BY id"
+        )
+        .await,
+        [
+            Row::new(vec![
+                Value::from("left"),
+                Value::from("left-cipher"),
+                Value::from("left-nonce")
+            ]),
+            Row::new(vec![
+                Value::from("right"),
+                Value::from("right-cipher"),
+                Value::from("right-nonce")
+            ])
+        ],
+    );
+}
+
+#[tokio::test]
+async fn rejects_ambiguous_split_envelopes_and_incompatible_schemas() {
+    let left = encrypted_rows().await;
+    execute(
+        &left,
+        "INSERT INTO items (id, ciphertext, nonce) VALUES ('stable', 'old-cipher', 'old-nonce')",
+    )
+    .await;
+    let right = Database::in_memory();
+    stage(&left, &right).await;
+    execute(
+        &left,
+        "UPDATE items SET ciphertext = 'left-cipher', nonce = 'left-nonce'",
+    )
+    .await;
+    execute(
+        &right,
+        "UPDATE items SET ciphertext = 'right-cipher', nonce = 'right-nonce'",
+    )
+    .await;
+    let error = left
+        .stage_history(&right, SPLIT)
+        .await
+        .expect_err("reject split conflicts");
+    assert!(error.message.contains("column conflict"), "{error}");
+    execute(&right, "CREATE TABLE unvalidated (id TEXT PRIMARY KEY)").await;
+    let error = left
+        .stage_history(&right, SPLIT)
+        .await
+        .expect_err("reject unlisted table");
+    assert!(
+        error.message.contains("do not match record policy"),
+        "{error}"
+    );
+    let incompatible = Database::in_memory();
+    execute(
+        &incompatible,
+        "CREATE TABLE items (id TEXT PRIMARY KEY, ciphertext TEXT, nonce TEXT)",
+    )
+    .await;
+    let error = left
+        .stage_history(&incompatible, SPLIT)
+        .await
+        .expect_err("reject a different layout");
+    assert!(
+        error.message.contains("Incompatible history table schemas"),
+        "{error}"
+    );
+}
+
+#[cfg(feature = "redb")]
+#[tokio::test]
+async fn includes_the_authentication_proof_context_in_envelope_provenance() {
+    let directory = tempfile::tempdir().expect("create test directory");
+    let path = directory.path().join("vault.redb");
+    let left = Database::open(&path).expect("open local vault database");
+    execute(&left, "CREATE TABLE vaults (id TEXT PRIMARY KEY, authentication TEXT, salt TEXT, iv TEXT, created_at TEXT)").await;
+    execute(
+        &left,
+        "INSERT INTO vaults VALUES ('vault', 'proof', 'salt', 'iv', 'original')",
+    )
+    .await;
+    let right = Database::in_memory();
+    stage(&left, &right).await;
+    execute(&left, "UPDATE vaults SET authentication = 'new-proof'").await;
+    execute(
+        &right,
+        "UPDATE vaults SET salt = 'other-salt', iv = 'other-iv', created_at = 'other-time'",
+    )
+    .await;
+
+    let records = [HistoryRecord {
+        table: "vaults",
+        identity: "id",
+        envelope: &["authentication", "salt", "iv", "created_at"],
+    }];
+    let before = left.history_manifest().await.expect("local baseline");
+    let error = left
+        .stage_history(&right, &records)
+        .await
+        .expect_err("reject a proof paired with context from another source");
+    assert!(
+        error.message.contains("did not come from one source row"),
+        "{error}"
+    );
+    drop(left);
+    let reopened = Database::open_existing(&path).expect("reopen local vault database");
+    assert_eq!(
+        reopened
+            .history_manifest()
+            .await
+            .expect("local history unchanged"),
+        before
     );
 }

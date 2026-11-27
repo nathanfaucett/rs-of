@@ -31,7 +31,7 @@ pub use engine::{Engine, EngineError, EngineResult, EngineTransaction, Timestamp
 pub use schema::{
     CatalogTable, ENGINE_INDEX_FIELDS_STORAGE, ENGINE_INDICES_STORAGE,
     ENGINE_INITIAL_RESTORE_STORAGE, ENGINE_TABLE_FIELDS_STORAGE, ENGINE_TABLES_STORAGE,
-    catalog_table_for_storage, validate_row_id,
+    active_table_names, catalog_table_for_storage, validate_row_id,
 };
 pub use uuid::Uuid;
 

@@ -14,8 +14,8 @@ use platform::{MaybeSend, MaybeSync};
 use engine::{
     DocumentSummary, ENGINE_INDEX_FIELDS_STORAGE, ENGINE_INDICES_STORAGE,
     ENGINE_INITIAL_RESTORE_STORAGE, ENGINE_TABLE_FIELDS_STORAGE, ENGINE_TABLES_STORAGE, Engine,
-    EngineError, Kernel, KernelTransaction, MutationSummary, Uuid, catalog_table_for_storage,
-    validate_row_id,
+    EngineError, Kernel, KernelTransaction, MutationSummary, Uuid, active_table_names,
+    catalog_table_for_storage, validate_row_id,
 };
 use futures::{FutureExt, StreamExt, pin_mut};
 use postcard::experimental::serialized_size;
@@ -1177,7 +1177,23 @@ where
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
 {
-    export_sync_state_limited(engine, usize::MAX, None).await
+    export_sync_state_bounded_for(engine, usize::MAX).await
+}
+
+/// Exports history from one read transaction, with a retained payload budget.
+///
+/// # Errors
+///
+/// Returns an error for storage, history reconstruction, or budget failure.
+pub async fn export_sync_state_bounded_for<K, R>(
+    engine: &Engine<K, R>,
+    max_bytes: usize,
+) -> Result<Vec<SyncStateUnit>, EngineError>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+{
+    export_sync_state_limited(engine, max_bytes, None).await
 }
 
 async fn export_sync_state_limited<K, R>(
@@ -1189,27 +1205,27 @@ where
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
 {
-    let mut tables = [
-        ENGINE_TABLES_STORAGE,
-        ENGINE_TABLE_FIELDS_STORAGE,
-        ENGINE_INDICES_STORAGE,
-        ENGINE_INDEX_FIELDS_STORAGE,
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect::<Vec<_>>();
-    if let Some(scope) = scope {
-        tables.extend(scope.names.iter().cloned());
-    } else {
-        tables.extend(sync_stage(|| engine.table_names()).await?);
-    }
-    tables.sort_unstable();
-    tables.dedup();
     let scope_for_rows = scope.map(|s| (s.names.clone(), s.keys.clone()));
     let candidate_tables = scope.and_then(TableScope::candidate_tables);
     let (mut units, view) = sync_stage(|| {
         engine.read_transaction(|codec, transaction| {
             sync_stage(|| async move {
+                let mut tables = [
+                    ENGINE_TABLES_STORAGE,
+                    ENGINE_TABLE_FIELDS_STORAGE,
+                    ENGINE_INDICES_STORAGE,
+                    ENGINE_INDEX_FIELDS_STORAGE,
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>();
+                if let Some((names, _)) = &scope_for_rows {
+                    tables.extend(names.iter().cloned());
+                } else {
+                    tables.extend(active_table_names(transaction, codec).await?);
+                }
+                tables.sort_unstable();
+                tables.dedup();
                 let mut used_bytes = 0;
                 let mut units = Vec::new();
                 for table_for_rows in tables {
