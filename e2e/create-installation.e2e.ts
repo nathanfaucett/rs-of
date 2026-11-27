@@ -1,7 +1,7 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { request } from "node:https";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -11,8 +11,12 @@ import { fileURLToPath } from "node:url";
 import { chromium, expect, type Page, test } from "@playwright/test";
 
 import {
+  localRecord,
+  localSecret,
+  localVault,
+  masterPassword,
+  passwordManagerOpensLegacyVault,
   passwordManagerSignin,
-  passwordManagerSyncedVaults,
   passwordManagerWhileWaiting,
 } from "./password-manager-setup";
 
@@ -208,7 +212,10 @@ async function launchNode(root: string) {
     const ready = (url: string) =>
       expect.poll(() => status(url, ca), { timeout: 60_000 }).toBe(200);
     const startBackend = async () => {
-      backend = launch("just", ["unified", "--data-dir", data]);
+      // Match the seeded runner's stack allowance for backend SQL workloads.
+      backend = launch("just", ["unified", "--data-dir", data], {
+        RUST_MIN_STACK: "67108864",
+      });
       await ready(`${base}/setup/node`);
     };
     await startBackend();
@@ -336,14 +343,14 @@ async function choose(
 }
 
 nodeTest(
-  "default Create sets up an Installation and keeps the new identity after restart",
+  "default Create retains the Installation and uploads the explicitly selected local vault",
   async ({ node }) => {
     const { app, base, browser, ca, data, pm } = node;
     const idp = `${base}/idp`;
     const storage = `${base}/storage`;
     const page = await browser.newPage();
     const pmPage = await browser.newPage();
-    await passwordManagerWhileWaiting(pmPage, pm, base, app);
+    const vaultId = await passwordManagerWhileWaiting(pmPage, pm, base, app);
     const nodeCode = await choose(page, node, "create");
     await expect(page.getByLabel("Administrator username", { exact: true })).toBeVisible();
     await expect(page.getByLabel(/setup code/i)).toHaveCount(0);
@@ -438,10 +445,10 @@ nodeTest(
       expect(new URLSearchParams(token.request().postData() ?? "").get("client_id")).toBe(
         ready.login_client.client_id
       );
-      return token.ok();
+      return token.ok() ? ((await token.json()).access_token as string) : null;
     };
-    expect(await signIn("admin@local.test", "password")).toBe(false);
-    expect(await signIn(username, password)).toBe(true);
+    expect(await signIn("admin@local.test", "password")).toBeNull();
+    expect(await signIn(username, password)).toEqual(expect.any(String));
     await expect(page).not.toHaveURL(`${app}/signin`);
     await page.goto(`${app}/clients/${ready.login_client.client_id}`);
     await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue(
@@ -457,7 +464,9 @@ nodeTest(
     await page.goto(app);
     await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
     await page.goto(`${app}/signin`);
-    expect(await signIn(username, password)).toBe(true);
+    const operatorToken = await signIn(username, password);
+    expect(operatorToken).toEqual(expect.any(String));
+    if (!operatorToken) throw new Error("Missing operator token");
     expect(await status(`${idp}/.well-known/openid-configuration`, ca)).toBe(200);
     for (const endpoint of [
       `${base}/setup/node`,
@@ -474,7 +483,144 @@ nodeTest(
       ).toBeUndefined();
     }
     expect(await descriptor(pmPage, base)).toEqual(ready);
-    await passwordManagerSignin(pmPage, { origin: pm, idp, storage, username, password }, true);
+    const pmSession = await passwordManagerSignin(
+      pmPage,
+      { origin: pm, idp, storage, username, password },
+      true
+    );
+    const owner = installationOwner(base, ca);
+    const operator = {
+      clientId: ready.login_client.client_id as string,
+      accessToken: operatorToken,
+    };
+    const read = await owner.exchange(pmSession, "storage:databases", "read");
+    const databases = () => owner.json<{ id: string }[]>(`${storage}/databases`, read);
+    const user = await owner.json<{ sub: string }>(`${idp}/userinfo`, pmSession.accessToken);
+
+    await pmPage.getByRole("button", { name: "Lock vault" }).click();
+    const vault = pmPage.getByRole("button", { name: new RegExp(localVault) });
+    await expect(vault).toContainText(`ID: ${vaultId}`);
+    const connect = pmPage.getByRole("button", { name: "Connect local database" });
+    const destination = pmPage.getByRole("region", { name: "Confirm sync destination" });
+    const confirm = destination.getByRole("button", { name: "Confirm and upload" });
+    const retry = destination.getByRole("button", { name: "Retry first upload" });
+    await connect.click();
+    await expect(destination).toContainText(idp);
+    await expect(destination).toContainText(user.sub);
+    await expect(destination).toContainText(pm);
+    await expect(destination).toContainText(storage);
+    expect(await databases()).toEqual([]);
+    await confirm.click();
+    await expect(destination.getByRole("alert")).toContainText("Selection");
+    const catalog = await databases();
+    expect(catalog).toHaveLength(1);
+    const resourceId = catalog[0]?.id;
+    if (!resourceId) throw new Error("Missing ensured Resource");
+    await expect(destination).toContainText(resourceId);
+    const resource = `${storage}/databases/${resourceId}`;
+    const query = (...statements: string[]) =>
+      owner.call(`${resource}/sql`, read, "POST", {
+        statements: statements.map((sql) => ({ sql, params: [] })),
+      });
+    expect((await query("SELECT id FROM vaults")).status).toBe(400);
+
+    // Only this fresh fixture has exactly one approved Device: the serving Node.
+    const device = `${base}/device`;
+    const operatorDevice = await owner.exchange(operator, device);
+    const devices = await owner.json<{ id: string; state: string }[]>(
+      `${device}/devices`,
+      operatorDevice
+    );
+    expect(devices).toEqual([
+      expect.objectContaining({ id: expect.any(String), state: "approved" }),
+    ]);
+    const deviceId = devices[0]?.id;
+    if (!deviceId) throw new Error("Missing serving Device");
+    const { applicationId } = await owner.json<{ applicationId: string }>(resource, read);
+    const management = await owner.exchange(operator, "idp-management");
+    const policy = `${base}/management/applications/${applicationId}`;
+    const role = await owner.json<{ id: string }>(`${policy}/roles`, management, "POST", {
+      name: "Select vault Resource",
+    });
+    const permission = await owner.json<{ id: string }>(
+      `${policy}/permissions`,
+      management,
+      "POST",
+      { name: "devices.select" }
+    );
+    for (const assignment of [
+      `${policy}/roles/${role.id}/permissions/${permission.id}`,
+      `${policy}/users/${user.sub}/roles/${role.id}`,
+    ]) {
+      const response = await owner.call(assignment, management, "POST");
+      expect(response.status, response.body).toBeLessThan(300);
+    }
+    const pmDevice = await owner.exchange(pmSession, device);
+    const selected = await owner.call(`${device}/devices/${deviceId}/selection`, pmDevice, "PUT", {
+      applicationId,
+      id: resourceId,
+      kind: "database",
+      storageAccessToken: read,
+    });
+    expect(selected.status, selected.body).toBe(204);
+
+    await retry.click();
+    const outcome = destination.getByRole("status").or(destination.getByRole("alert"));
+    await expect(outcome).toBeVisible();
+    expect(await outcome.innerText()).toContain("First upload complete");
+    expect(await databases()).toEqual(catalog);
+    const remote = () =>
+      query(
+        "SELECT id, authentication FROM vaults",
+        "SELECT vault_id, ciphertext, nonce FROM secrets"
+      );
+    const saved = await remote();
+    expect(saved.status, saved.body).toBe(200);
+    const { results } = JSON.parse(saved.body);
+    expect(results[0].rows).toEqual([
+      [
+        { type: "text", value: vaultId },
+        { type: "text", value: expect.any(String) },
+      ],
+    ]);
+    expect(JSON.parse(results[0].rows[0][1].value)).toEqual({
+      version: 1,
+      ciphertext: expect.stringMatching(/^[A-Za-z0-9+/]+=*$/),
+      nonce: expect.stringMatching(/^[A-Za-z0-9+/]{16}$/),
+    });
+    expect(results[1].rows).toEqual([
+      [
+        { type: "text", value: vaultId },
+        { type: "text", value: expect.stringMatching(/^[A-Za-z0-9+/]+=*$/) },
+        { type: "text", value: expect.stringMatching(/^[A-Za-z0-9+/]{16}$/) },
+      ],
+    ]);
+    for (const plaintext of [localRecord, localSecret, masterPassword])
+      expect(saved.body).not.toContain(plaintext);
+
+    await pmPage.reload();
+    await connect.click();
+    await confirm.click();
+    await expect(destination.getByRole("alert")).toContainText("already has history");
+    expect(await databases()).toEqual(catalog);
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
+
+    await pmPage.route(`${base}/**`, (route) => route.abort());
+    await pmPage.reload();
+    await expect(vault).toContainText(`ID: ${vaultId}`);
+    await vault.click();
+    await pmPage.getByLabel("Master password", { exact: true }).fill(masterPassword);
+    await pmPage.getByRole("button", { name: "Unlock", exact: true }).click();
+    await pmPage.getByRole("button", { name: localRecord, exact: true }).click();
+    await pmPage
+      .getByRole("region", { name: "Item details" })
+      .getByRole("button", { name: "Edit", exact: true })
+      .click();
+    await expect(pmPage.getByLabel("Notes", { exact: true })).toHaveValue(localSecret);
+    const changed = "Edited without Storage";
+    await pmPage.getByRole("textbox", { name: "Name", exact: true }).fill(changed);
+    await pmPage.getByRole("button", { name: "Save changes" }).click();
+    await expect(pmPage.getByRole("button", { name: changed, exact: true })).toBeVisible();
   }
 );
 
@@ -511,6 +657,47 @@ function api(
     req.on("timeout", () => req.destroy(new Error(`Timed out: ${url}`)));
     req.end(options.body);
   });
+}
+
+function installationOwner(base: string, ca: Buffer) {
+  function call(url: string, token: string, method = "GET", body?: object) {
+    return api(url, ca, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body && { "Content-Type": "application/json" }),
+      },
+      ...(body && { body: JSON.stringify(body) }),
+    });
+  }
+  async function json<T>(url: string, token: string, method?: string, body?: object): Promise<T> {
+    const response = await call(url, token, method, body);
+    expect(response.status, response.body).toBeLessThan(300);
+    return JSON.parse(response.body);
+  }
+  async function exchange(
+    session: { clientId: string; accessToken: string },
+    resource: string,
+    action?: "read" | "write"
+  ) {
+    const response = await api(`${base}/idp/oauth2/token`, ca, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+        subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
+        subject_token: session.accessToken,
+        client_id: session.clientId,
+        resource,
+        ...(action && {
+          authorization_details: JSON.stringify([{ type: "storage", actions: [action] }]),
+        }),
+      }).toString(),
+    });
+    expect(response.status, `Token exchange for ${resource}`).toBe(200);
+    return (JSON.parse(response.body) as { access_token: string }).access_token;
+  }
+  return { call, json, exchange };
 }
 
 async function remoteInstallation(node: Awaited<ReturnType<typeof launchNode>>) {
@@ -793,7 +980,7 @@ nodeTest(
         code: "ENOENT",
       });
     }
-    await passwordManagerSignin(
+    const pmSession = await passwordManagerSignin(
       pmPage,
       {
         origin: pm,
@@ -805,6 +992,17 @@ nodeTest(
       true
     );
     await pmPage.getByRole("button", { name: "Lock vault" }).click();
-    await passwordManagerSyncedVaults(pmPage, pm, remote.storage);
+    const owner = installationOwner(new URL(remote.storage).origin, node.ca);
+    const write = await owner.exchange(pmSession, "storage:databases", "write");
+    const legacy = await owner.json<{ id: string }>(
+      `${remote.storage}/databases/ensure`,
+      write,
+      "POST",
+      {
+        creationKey: "password-manager-main",
+        name: "password-manager-main",
+      }
+    );
+    await passwordManagerOpensLegacyVault(pmPage, pm, legacy.id);
   }
 );

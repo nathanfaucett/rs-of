@@ -1,8 +1,9 @@
 import { expect, type Page } from "@playwright/test";
 
-const name = "Local during setup";
-const masterPassword = "local-only-master-password";
-const localRecord = "Record saved before Node setup";
+export const localVault = "Local during setup";
+export const masterPassword = "local-only-master-password";
+export const localRecord = "Record saved before Node setup";
+export const localSecret = "A local record must survive setup.";
 
 export async function passwordManagerWhileWaiting(
   page: Page,
@@ -29,9 +30,11 @@ export async function passwordManagerWhileWaiting(
   );
   await expect(page).toHaveURL(`${origin}/login`);
   expect(oauth).toEqual([]);
+  const blockedNode = `${node}/**`;
+  await page.route(blockedNode, (route) => route.abort());
   await page.goto(origin);
   await page.getByRole("button", { name: "Create new vault", exact: true }).click();
-  await page.getByLabel("Vault name").fill(name);
+  await page.getByLabel("Vault name").fill(localVault);
   await page.getByLabel("Master password", { exact: true }).fill(masterPassword);
   await page.getByLabel("Confirm password").fill(masterPassword);
   await page.getByRole("button", { name: "Create vault", exact: true }).click();
@@ -39,10 +42,17 @@ export async function passwordManagerWhileWaiting(
   await page.getByRole("button", { name: "New item", exact: true }).click();
   await page.getByRole("menuitem", { name: "New secure note" }).click();
   await page.getByRole("textbox", { name: "Name", exact: true }).fill(localRecord);
-  await page.getByLabel("Notes", { exact: true }).fill("A local record must survive setup.");
+  await page.getByLabel("Notes", { exact: true }).fill(localSecret);
   await page.getByRole("button", { name: "Create item" }).click();
   await expect(page).toHaveURL(`${origin}/vault`);
   await expect(page.getByText(localRecord, { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Lock vault" }).click();
+  const vault = page.getByRole("button", { name: new RegExp(localVault) });
+  await expect(vault).toBeVisible();
+  const vaultId = (await vault.innerText()).split("ID: ")[1]?.trim();
+  expect(vaultId).toEqual(expect.stringMatching(/^[a-f0-9-]+$/));
+  await page.unroute(blockedNode);
+  return vaultId;
 }
 
 export async function passwordManagerSignin(
@@ -98,6 +108,7 @@ export async function passwordManagerSignin(
     page.getByRole("button", { name: "Allow", exact: true }).click({ timeout: 10_000 }),
   ]);
   expect(grant.ok()).toBe(true);
+  const { access_token: accessToken } = (await grant.json()) as { access_token: string };
   expect(clientId).toEqual(expect.any(String));
   expect(clientId).not.toBe("password-manager");
   expect(new URLSearchParams(grant.request().postData() ?? "").get("client_id")).toBe(clientId);
@@ -115,8 +126,8 @@ export async function passwordManagerSignin(
   expect(list.ok()).toBe(true);
 
   if (withLocalVault) {
-    await page.getByRole("button", { name: new RegExp(name) }).click();
-    await expect(page.getByRole("heading", { name: `Unlock vault: ${name}` })).toBeVisible();
+    await page.getByRole("button", { name: new RegExp(localVault) }).click();
+    await expect(page.getByRole("heading", { name: `Unlock vault: ${localVault}` })).toBeVisible();
     const passwordInput = page.getByLabel("Master password", { exact: true });
     const unlock = page.getByRole("button", { name: "Unlock", exact: true });
     await passwordInput.fill(password);
@@ -127,52 +138,28 @@ export async function passwordManagerSignin(
     await expect(page).toHaveURL(`${origin}/vault`);
     await expect(page.getByText(localRecord, { exact: true })).toBeVisible();
   }
+  return { clientId: clientId as string, accessToken };
 }
 
-export async function passwordManagerSyncedVaults(page: Page, origin: string, storage: string) {
-  const create = async (name: string) => {
-    await page.getByRole("button", { name: "Create synced vault" }).click();
-    await expect(page.getByLabel("Vault name")).toBeFocused();
-    await page.getByLabel("Vault name").fill(name);
-    await page.getByLabel("Master password", { exact: true }).fill(masterPassword);
-    await page.getByLabel("Confirm password").fill(masterPassword);
-    await page.getByRole("button", { name: "Create vault", exact: true }).click();
-    await expect(page)
-      .toHaveURL(`${origin}/vault`)
-      .catch(async (cause) => {
-        throw new Error(
-          (await page
-            .getByRole("alert")
-            .textContent({ timeout: 1000 })
-            .catch(() => null)) ?? "Synced vault did not open",
-          { cause }
-        );
-      });
-    await page.getByRole("button", { name: "Lock vault" }).click();
-    await expect(page).toHaveURL(`${origin}/`);
-  };
-  const created: string[] = [];
-  page.on("response", (response) => {
-    if (
-      response.url() === `${storage}/databases/ensure` &&
-      response.request().method() === "POST" &&
-      response.ok()
-    ) {
-      created.push(response.url());
-    }
-  });
-  await create("First synced vault");
-  await create("Second synced vault");
-  expect(created).toHaveLength(1);
+export async function passwordManagerOpensLegacyVault(
+  page: Page,
+  origin: string,
+  resourceId: string
+) {
+  const name = "Legacy synced vault";
+  await page.evaluate(
+    async ({ name, masterPassword, resourceId }) => {
+      const fixture = "/src/test/legacy-browser-fixture.ts";
+      const { createLegacyVault } = await import(fixture);
+      await createLegacyVault(resourceId, masterPassword, name);
+    },
+    { name, masterPassword, resourceId }
+  );
+  await page.reload();
   await page.getByRole("button", { name: "Show synced vaults" }).click();
-  await expect(page.getByRole("button", { name: /Second synced vault/ })).toBeVisible();
-  await page.getByRole("button", { name: /First synced vault/ }).click();
+  await page.getByRole("button", { name: new RegExp(name) }).click();
   await expect(page.getByLabel("Master password", { exact: true })).toBeFocused();
   await page.getByLabel("Master password", { exact: true }).fill(masterPassword);
-  const attached = page.waitForEvent("websocket", (socket) =>
-    new URL(socket.url()).pathname.startsWith("/storage/")
-  );
   await page.getByRole("button", { name: "Unlock", exact: true }).click();
-  await attached;
   await expect(page).toHaveURL(`${origin}/vault`);
 }

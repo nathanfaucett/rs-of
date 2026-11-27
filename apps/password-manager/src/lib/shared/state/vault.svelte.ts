@@ -1,6 +1,6 @@
 import { goto } from "$app/navigation";
 import { createInactivityLock, type LockSettings } from "$lib/vault/lock";
-import { createSyncVault, listSyncVaults, unlockSyncVault } from "$lib/vault/sync-vault";
+import { listSyncVaults, unlockSyncVault } from "$lib/vault/sync-vault";
 import type { VaultHandleLike } from "$lib/vault/types";
 import {
   createVault as createVaultHandle,
@@ -17,7 +17,7 @@ type VaultState =
   | { status: "error"; message: string }
   | { status: "locked" }
   | { status: "select-vault"; vaults: VaultChoice[] }
-  | { status: "create-vault"; synced?: boolean }
+  | { status: "create-vault" }
   | { status: "restore-vault" }
   | { status: "unlock-vault"; identity: VaultChoice }
   | {
@@ -56,7 +56,7 @@ async function showSyncedVaults() {
   const previous = vaultState;
   if (previous.status !== "select-vault") return;
   const handle = await openMainDatabase();
-  const synced = handle ? await listSyncVaults(handle) : [];
+  const synced = handle ? await listSyncVaults(handle).finally(() => handle.close()) : [];
   if (vaultState === previous) {
     vaultState = {
       ...previous,
@@ -79,22 +79,7 @@ function activateVault(vault: VaultHandleLike, lockSettings: LockSettings, isSyn
   inactivity.start(lockSettings);
 }
 
-async function createVault(password: string, name: string, synced = false) {
-  if (synced) {
-    const handle =
-      (await openMainDatabase()) ?? (await syncStateModule.createDatabase("password-manager-main"));
-    const vault = await createSyncVault(password, name.trim(), handle);
-    const request = session;
-    const settings = await vault.loadLockSettings();
-    if (request !== session) {
-      await vault.close();
-      return;
-    }
-    await handle.sync({ direction: "bidirectional" });
-    activateVault(vault, settings, true);
-    await goto("/vault");
-    return;
-  }
+async function createVault(password: string, name: string) {
   const vault = await createVaultHandle(password, name.trim());
   const request = session;
   const settings = await vault.loadLockSettings();

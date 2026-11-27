@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Eye, EyeOff } from "@lucide/svelte";
+import { SyncError } from "@ofsdk/sync-sdk/browser";
 import { isRedirect } from "@sveltejs/kit";
 import { onMount } from "svelte";
 import { resolve } from "$app/paths";
@@ -19,6 +20,38 @@ let vaultName = $state("");
 let error = $state("");
 let busy = $state(false);
 let notice = $state("");
+let confirmedSession = $state.raw<typeof authState.session>(null);
+let resourceId = $state("");
+let uploadError = $state("");
+let uploaded = $state(false);
+
+function showDestination() {
+    confirmedSession = authState.session;
+    resourceId = "";
+    uploadError = "";
+    uploaded = false;
+}
+
+async function upload() {
+    const session = confirmedSession;
+    if (!session || session !== authState.session || busy || uploaded) return;
+    uploadError = "";
+    busy = true;
+    try {
+        await syncStateModule.uploadLocalDatabase(session, (id) => { resourceId = id; });
+        uploaded = true;
+    } catch (cause) {
+        if (cause instanceof SyncError && cause.code === "destination-has-history") {
+            uploadError = "This Resource already has history. No merge was attempted. Keep using your local vaults.";
+        } else if (cause instanceof SyncError && cause.code === "auth" && resourceId) {
+            uploadError = "Storage did not authorize the upload. Ask an Installation operator to check Selection for this Resource on the serving Node's approved Device, then retry.";
+        } else {
+            uploadError = cause instanceof Error ? cause.message : "First upload failed. Try again.";
+        }
+    } finally {
+        busy = false;
+    }
+}
 
 onMount(() => {
     void vaultStateModule.init();
@@ -45,17 +78,14 @@ async function createVault() {
     }
     busy = true;
     const pwd = password;
-    const synced = vaultStateModule.state.status === "create-vault" && vaultStateModule.state.synced;
     try {
-        await vaultStateModule.createVault(pwd, vaultName.trim(), synced);
+        await vaultStateModule.createVault(pwd, vaultName.trim());
         password = "";
         confirmPassword = "";
         vaultName = "";
     } catch (cause) {
         if (isRedirect(cause)) throw cause;
-        const recovery = synced
-            ? "Return to the selector to recover an interrupted registration before retrying. Do not clear browser data."
-            : "Check browser storage and free space. Return to the selector to recover an interrupted registration before retrying. Do not clear browser data.";
+        const recovery = "Check browser storage and free space. Return to the selector to recover an interrupted registration before retrying. Do not clear browser data.";
         error = `${cause instanceof Error ? cause.message : "Failed to create vault."} ${recovery}`;
     } finally {
         busy = false;
@@ -90,12 +120,12 @@ function selectVault(identity: VaultIdentity & { synced?: boolean }) {
     vaultStateModule.state = { status: "unlock-vault", identity };
 }
 
-function showCreateVault(synced = false) {
+function showCreateVault() {
     error = "";
     password = "";
     confirmPassword = "";
     vaultName = "";
-    vaultStateModule.state = { status: "create-vault", synced };
+    vaultStateModule.state = { status: "create-vault" };
 }
 
 async function showSyncedVaults() {
@@ -141,13 +171,43 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                 <div class="flex flex-col gap-4">
                     {#if !authState.isAuthenticated}
                         <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
-                    {:else if syncStateModule.supportsReplication()}
-                        <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showSyncedVaults}>Show synced vaults</button>
-                        <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => showCreateVault(true)}>Create synced vault</button>
                     {:else}
-                        <p>Vault replication is not available with separate IdP and Storage bases. You can still use local vaults.</p>
+                        {#if vaultStateModule.state.vaults.some((vault) => !vault.synced)}
+                            {#if confirmedSession && confirmedSession === authState.session}
+                                <section class="flex flex-col gap-2" aria-labelledby="sync-destination">
+                                    <h2 id="sync-destination" class="font-medium">Confirm sync destination</h2>
+                                    <p>Upload all local vaults to this destination. Secret records are encrypted. Vault names and other metadata are not.</p>
+                                    <dl class="break-all">
+                                        <dt class="font-medium">Installation (issuer)</dt><dd>{confirmedSession.issuer}</dd>
+                                        <dt class="font-medium">User</dt>
+                                        <dd>{confirmedSession.userEmail ? `${confirmedSession.userEmail} (${confirmedSession.user.sub})` : confirmedSession.user.sub}</dd>
+                                        <dt class="font-medium">Application</dt><dd>{confirmedSession.applicationUri}</dd>
+                                        <dt class="font-medium">Storage</dt><dd>{confirmedSession.storage}</dd>
+                                        {#if resourceId}
+                                            <dt class="font-medium">Storage Resource ID</dt><dd>{resourceId}</dd>
+                                        {/if}
+                                    </dl>
+                                    {#if uploadError}<Alert tone="danger">{uploadError}</Alert>{/if}
+                                    {#if uploaded}
+                                        <p role="status">First upload complete. Your vaults stay on this browser.</p>
+                                    {:else}
+                                        <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={upload}>
+                                            {busy ? "Uploading…" : uploadError ? "Retry first upload" : "Confirm and upload"}
+                                        </button>
+                                    {/if}
+                                    <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => confirmedSession = null}>
+                                        {uploaded ? "Done" : "Cancel"}
+                                    </button>
+                                </section>
+                            {:else}
+                                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showDestination}>Connect local database</button>
+                            {/if}
+                        {/if}
+                        {#if syncStateModule.supportsReplication()}
+                            <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showSyncedVaults}>Show synced vaults</button>
+                        {/if}
                     {/if}
-                    <button class="btn btn-secondary btn-md" type="button" onclick={() => { notice = ""; vaultStateModule.state = { status: "restore-vault" }; }}>Restore encrypted backup</button>
+                    <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => { notice = ""; vaultStateModule.state = { status: "restore-vault" }; }}>Restore encrypted backup</button>
                     {#if vaultStateModule.state.vaults.length > 0}
                         <div class="flex flex-col gap-2">
                             <p class="text-sm font-medium text-muted-foreground">Existing vaults</p>
@@ -155,6 +215,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                                 <button
                                     class="btn btn-secondary btn-md text-left"
                                     type="button"
+                                    disabled={busy}
                                     onclick={() => selectVault(identity)}
                                 >
                                     <span class="vault-name">{identity.name}{identity.synced ? " (synced)" : ""}</span>
@@ -167,7 +228,8 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                     <button
                         class="btn btn-primary btn-md"
                         type="button"
-                        onclick={() => showCreateVault()}
+                        disabled={busy}
+                        onclick={showCreateVault}
                     >
                         Create new vault
                     </button>
@@ -182,7 +244,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
         <Page width="narrow">
             <PageHeader
                 title="Create your vault"
-                description={vaultStateModule.state.synced ? "Your vault is encrypted with your master password before sync." : "Your passwords are stored locally, encrypted with your master password. No account or server needed."}
+                description="Your passwords are stored locally, encrypted with your master password. No account or server needed."
             />
             <Card>
                 <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void createVault(); }}>
