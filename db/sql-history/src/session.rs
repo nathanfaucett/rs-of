@@ -13,9 +13,9 @@ use platform::{MaybeSend, MaybeSync};
 
 use engine::{
     DocumentSummary, ENGINE_INDEX_FIELDS_STORAGE, ENGINE_INDICES_STORAGE,
-    ENGINE_INITIAL_RESTORE_STORAGE, ENGINE_TABLE_FIELDS_STORAGE, ENGINE_TABLES_STORAGE, Engine,
-    EngineError, Kernel, KernelTransaction, MutationSummary, Uuid, active_table_names,
-    catalog_table_for_storage, validate_row_id,
+    ENGINE_INITIAL_RESTORE_STORAGE, ENGINE_PUBLISH_RECEIPTS_STORAGE, ENGINE_TABLE_FIELDS_STORAGE,
+    ENGINE_TABLES_STORAGE, Engine, EngineError, Kernel, KernelTransaction, MutationSummary, Uuid,
+    active_table_names, catalog_table_for_storage, validate_row_id,
 };
 use futures::{FutureExt, StreamExt, pin_mut};
 use postcard::experimental::serialized_size;
@@ -25,11 +25,12 @@ use value::Value;
 use crate::pre_apply::{ApplyError, Check, CheckFuture, check_apply, commit_apply};
 use crate::scope::TableScope;
 use crate::{
-    MemorySyncStageFactory, PROTOCOL_VERSION, SyncCandidateView, SyncHello, SyncIncrementalChange,
-    SyncKey, SyncManifest, SyncMessage, SyncRowCodec, SyncRowInventory, SyncSelection,
-    SyncSnapshotRequest, SyncStage, SyncStageFactory, SyncStateUnit, SyncTransport,
+    HistoryPublication, MemorySyncStageFactory, PROTOCOL_VERSION, SyncCandidateView, SyncHello,
+    SyncIncrementalChange, SyncKey, SyncManifest, SyncMessage, SyncRowCodec, SyncRowInventory,
+    SyncSelection, SyncSnapshotRequest, SyncStage, SyncStageFactory, SyncStateUnit, SyncTransport,
     SyncValidationDirection,
     candidate::{CandidateValidator, read_candidate_view},
+    history_revision,
 };
 
 // Construct outside the caller's poll frame without erasing conditional auto-Send.
@@ -83,6 +84,12 @@ pub enum SyncError<E> {
 
     #[error("destination already has retained history")]
     DestinationHasHistory,
+
+    #[error("destination history revision changed")]
+    DestinationChanged,
+
+    #[error("publication operation already used; check its receipt")]
+    PublicationAlreadyUsed,
 
     #[error("engine error: {0}")]
     Engine(#[from] EngineError),
@@ -991,9 +998,15 @@ where
     E: MaybeSend,
 {
     sync_stage(|| {
-        publish_initial_history_with(engine, staged, max_bytes, None, |transaction| {
-            transaction.commit_checked(|| async { check().await.map_err(SyncError::PreApply) })
-        })
+        publish_initial_history_with(
+            engine,
+            staged,
+            max_bytes,
+            Publication::Initial(None),
+            |transaction| {
+                transaction.commit_checked(|| async { check().await.map_err(SyncError::PreApply) })
+            },
+        )
     })
     .await
 }
@@ -1081,10 +1094,91 @@ where
     E: MaybeSend,
 {
     sync_stage(|| {
-        publish_initial_history_with(engine, staged, max_bytes, Some(tag), |transaction| async {
-            check().map_err(SyncError::PreApply)?;
-            transaction.commit().await.map_err(SyncError::Engine)
+        publish_initial_history_with(
+            engine,
+            staged,
+            max_bytes,
+            Publication::Initial(Some(tag)),
+            |transaction| async {
+                check().map_err(SyncError::PreApply)?;
+                transaction.commit().await.map_err(SyncError::Engine)
+            },
+        )
+    })
+    .await
+}
+
+enum Publication {
+    Initial(Option<Vec<u8>>),
+    Compare(HistoryPublication),
+}
+
+fn receipt_bytes(publication: HistoryPublication) -> Vec<u8> {
+    [publication.expected, publication.candidate].concat()
+}
+
+/// Looks up the exact publication without making any writes.
+///
+/// # Errors
+/// Returns an error if the read fails or the operation belongs to different revisions.
+pub async fn check_history_publication_for<K, R, E>(
+    engine: &Engine<K, R>,
+    publication: HistoryPublication,
+) -> Result<bool, SyncError<E>>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+{
+    let receipt = engine
+        .read_transaction(|_, transaction| {
+            Box::pin(async move {
+                transaction
+                    .get_bytes(
+                        ENGINE_PUBLISH_RECEIPTS_STORAGE,
+                        publication.operation.as_bytes(),
+                    )
+                    .await
+            })
         })
+        .await?;
+    match receipt {
+        None => Ok(false),
+        Some(bytes) if bytes == receipt_bytes(publication) => Ok(true),
+        Some(_) => Err(SyncError::PublicationAlreadyUsed),
+    }
+}
+
+/// Publishes only the exact candidate extending the expected destination history.
+/// The receipt and history share the same transaction and guarded commit.
+///
+/// # Errors
+/// Returns an error on mismatch, duplicate operation, invalid history, authorization or storage failure.
+pub async fn compare_publish_history_for<K, R, S, C, Q, U, E>(
+    engine: &Engine<K, R>,
+    staged: &Engine<S, C>,
+    max_bytes: usize,
+    publication: HistoryPublication,
+    check: Q,
+) -> Result<(), SyncError<E>>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+    S: Kernel,
+    C: SyncRowCodec<S::Transaction>,
+    Q: FnOnce() -> U + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
+    E: MaybeSend,
+{
+    sync_stage(|| {
+        publish_initial_history_with(
+            engine,
+            staged,
+            max_bytes,
+            Publication::Compare(publication),
+            |transaction| {
+                transaction.commit_checked(|| async { check().await.map_err(SyncError::PreApply) })
+            },
+        )
     })
     .await
 }
@@ -1093,7 +1187,7 @@ async fn publish_initial_history_with<K, R, S, C, Q, U, E>(
     engine: &Engine<K, R>,
     staged: &Engine<S, C>,
     max_bytes: usize,
-    tag: Option<Vec<u8>>,
+    publication: Publication,
     commit: Q,
 ) -> Result<(), SyncError<E>>
 where
@@ -1108,6 +1202,11 @@ where
     let units = sync_stage(|| export_sync_state_limited(staged, max_bytes, None)).await?;
     if units.is_empty() {
         return Err(EngineError::InvalidQuery("empty initial history").into());
+    }
+    if let Publication::Compare(spec) = &publication
+        && (spec.expected == spec.candidate || history_revision(&units) != spec.candidate)
+    {
+        return Err(EngineError::InvalidQuery("invalid publication candidate revision").into());
     }
     validate_state_batch(&units)?;
     validate_row_addresses(&units, &[])?;
@@ -1126,9 +1225,35 @@ where
             move |codec, transaction| {
                 Box::pin(async move {
                     let mut mutations = MutationSummary::default();
-                    if !catalog_history_is_empty(codec, transaction).await? {
-                        // Returning an error also rolls back table initialization done by mutate_tables.
-                        return Err(EngineError::InvalidQuery("destination has history"));
+                    match &publication {
+                        Publication::Initial(_) => {
+                            if !catalog_history_is_empty(codec, transaction).await? {
+                                return Err(EngineError::InvalidQuery("destination has history"));
+                            }
+                        }
+                        Publication::Compare(spec) => {
+                            if transaction
+                                .get_bytes(
+                                    ENGINE_PUBLISH_RECEIPTS_STORAGE,
+                                    spec.operation.as_bytes(),
+                                )
+                                .await?
+                                .is_some()
+                            {
+                                return Err(EngineError::InvalidQuery(
+                                    "publication operation already used",
+                                ));
+                            }
+                            let current = sync_stage(|| {
+                                export_transaction_history(codec, transaction, max_bytes, None)
+                            })
+                            .await?;
+                            if history_revision(&current) != spec.expected {
+                                return Err(EngineError::InvalidQuery(
+                                    "destination history changed",
+                                ));
+                            }
+                        }
                     }
                     for order in 0..=4 {
                         for unit in &units {
@@ -1142,12 +1267,33 @@ where
                             validate_catalog(codec, transaction, &units, &[], None).await?;
                         }
                     }
-                    if let Some(tag) = tag {
+                    if let Publication::Initial(Some(tag)) = &publication {
                         transaction
                             .ensure_table(ENGINE_INITIAL_RESTORE_STORAGE)
                             .await?;
                         transaction
-                            .put_bytes(ENGINE_INITIAL_RESTORE_STORAGE, Vec::new(), tag)
+                            .put_bytes(ENGINE_INITIAL_RESTORE_STORAGE, Vec::new(), tag.clone())
+                            .await?;
+                    }
+                    if let Publication::Compare(spec) = publication {
+                        let result = sync_stage(|| {
+                            export_transaction_history(codec, transaction, max_bytes, None)
+                        })
+                        .await?;
+                        if history_revision(&result) != spec.candidate {
+                            return Err(EngineError::InvalidQuery(
+                                "candidate does not extend destination history",
+                            ));
+                        }
+                        transaction
+                            .ensure_table(ENGINE_PUBLISH_RECEIPTS_STORAGE)
+                            .await?;
+                        transaction
+                            .put_bytes(
+                                ENGINE_PUBLISH_RECEIPTS_STORAGE,
+                                spec.operation.as_bytes().to_vec(),
+                                receipt_bytes(spec),
+                            )
                             .await?;
                     }
                     Ok(((), mutations))
@@ -1160,6 +1306,12 @@ where
         .map_err(|error| match error {
             SyncError::Engine(EngineError::InvalidQuery("destination has history")) => {
                 SyncError::DestinationHasHistory
+            }
+            SyncError::Engine(EngineError::InvalidQuery("destination history changed")) => {
+                SyncError::DestinationChanged
+            }
+            SyncError::Engine(EngineError::InvalidQuery("publication operation already used")) => {
+                SyncError::PublicationAlreadyUsed
             }
             error => error,
         })
@@ -1207,73 +1359,18 @@ where
 {
     let scope_for_rows = scope.map(|s| (s.names.clone(), s.keys.clone()));
     let candidate_tables = scope.and_then(TableScope::candidate_tables);
-    let (mut units, view) = sync_stage(|| {
+    let (units, view) = sync_stage(|| {
         engine.read_transaction(|codec, transaction| {
             sync_stage(|| async move {
-                let mut tables = [
-                    ENGINE_TABLES_STORAGE,
-                    ENGINE_TABLE_FIELDS_STORAGE,
-                    ENGINE_INDICES_STORAGE,
-                    ENGINE_INDEX_FIELDS_STORAGE,
-                ]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<_>>();
-                if let Some((names, _)) = &scope_for_rows {
-                    tables.extend(names.iter().cloned());
-                } else {
-                    tables.extend(active_table_names(transaction, codec).await?);
-                }
-                tables.sort_unstable();
-                tables.dedup();
-                let mut used_bytes = 0;
-                let mut units = Vec::new();
-                for table_for_rows in tables {
-                    let rows = codec.row_ids(transaction, &table_for_rows);
-                    pin_mut!(rows);
-                    while let Some(row) = rows.next().await {
-                        let row = row?;
-                        if scope_for_rows.as_ref().is_some_and(|(names, keys)| {
-                            !names.contains(&table_for_rows)
-                                && !keys.contains(&SyncKey::Row {
-                                    table: table_for_rows.clone(),
-                                    row,
-                                })
-                        }) {
-                            continue;
-                        }
-                        let state_budget = max_bytes
-                            .saturating_sub(used_bytes)
-                            .saturating_sub(table_for_rows.len())
-                            .saturating_sub(row.as_bytes().len())
-                            .saturating_sub(64);
-                        let state = codec
-                            .export_state(transaction, &table_for_rows, row, state_budget)
-                            .await?
-                            .unwrap_or_default();
-                        let metadata = codec
-                            .export_metadata(transaction, &table_for_rows, row)
-                            .await?;
-                        if !state.is_empty() || !metadata.is_empty() {
-                            let state_bytes = state
-                                .len()
-                                .saturating_add(metadata.len())
-                                .saturating_add(table_for_rows.len())
-                                .saturating_add(row.as_bytes().len())
-                                .saturating_add(64);
-                            used_bytes =
-                                account_engine_payload(used_bytes, state_bytes, max_bytes)?;
-                            units.push(SyncStateUnit::new(
-                                SyncKey::Row {
-                                    table: table_for_rows.clone(),
-                                    row,
-                                },
-                                state,
-                                metadata,
-                            ));
-                        }
-                    }
-                }
+                let units = sync_stage(|| {
+                    export_transaction_history(
+                        codec,
+                        transaction,
+                        max_bytes,
+                        scope_for_rows.as_ref(),
+                    )
+                })
+                .await?;
                 let view = read_candidate_view(
                     codec,
                     transaction,
@@ -1290,13 +1387,91 @@ where
     if let Some(scope) = scope {
         scope.validate_candidates(view.as_ref())?;
     }
-    units.sort_unstable_by(|left, right| left.key.cmp(&right.key));
     if let Some(scope) = scope {
         let mut scope = scope.clone();
         for unit in &units {
             sync_stage(|| scope.validate(engine, unit)).await?;
         }
     }
+    Ok(units)
+}
+
+type ExportScope = (Vec<String>, BTreeSet<SyncKey>);
+
+async fn export_transaction_history<T, R>(
+    codec: &R,
+    transaction: &T,
+    max_bytes: usize,
+    scope: Option<&ExportScope>,
+) -> Result<Vec<SyncStateUnit>, EngineError>
+where
+    T: KernelTransaction,
+    R: SyncRowCodec<T>,
+{
+    let mut tables = [
+        ENGINE_TABLES_STORAGE,
+        ENGINE_TABLE_FIELDS_STORAGE,
+        ENGINE_INDICES_STORAGE,
+        ENGINE_INDEX_FIELDS_STORAGE,
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect::<Vec<_>>();
+    if let Some((names, _)) = scope {
+        tables.extend(names.iter().cloned());
+    } else {
+        tables.extend(active_table_names(transaction, codec).await?);
+    }
+    tables.sort_unstable();
+    tables.dedup();
+    let mut used_bytes = 0;
+    let mut units = Vec::new();
+    for table_for_rows in tables {
+        let rows = codec.row_ids(transaction, &table_for_rows);
+        pin_mut!(rows);
+        while let Some(row) = rows.next().await {
+            let row = row?;
+            if scope.is_some_and(|(names, keys)| {
+                !names.contains(&table_for_rows)
+                    && !keys.contains(&SyncKey::Row {
+                        table: table_for_rows.clone(),
+                        row,
+                    })
+            }) {
+                continue;
+            }
+            let state_budget = max_bytes
+                .saturating_sub(used_bytes)
+                .saturating_sub(table_for_rows.len())
+                .saturating_sub(row.as_bytes().len())
+                .saturating_sub(64);
+            let state = codec
+                .export_state(transaction, &table_for_rows, row, state_budget)
+                .await?
+                .unwrap_or_default();
+            let metadata = codec
+                .export_metadata(transaction, &table_for_rows, row)
+                .await?;
+            if !state.is_empty() || !metadata.is_empty() {
+                let state_bytes = state
+                    .len()
+                    .saturating_add(metadata.len())
+                    .saturating_add(table_for_rows.len())
+                    .saturating_add(row.as_bytes().len())
+                    .saturating_add(64);
+                used_bytes = account_engine_payload(used_bytes, state_bytes, max_bytes)?;
+                units.push(SyncStateUnit::new(
+                    SyncKey::Row {
+                        table: table_for_rows.clone(),
+                        row,
+                    },
+                    state,
+                    metadata,
+                ));
+            }
+        }
+    }
+    units.sort_unstable_by(|left, right| left.key.cmp(&right.key));
     Ok(units)
 }
 

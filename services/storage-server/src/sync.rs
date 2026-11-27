@@ -17,7 +17,10 @@ use axum::{
     routing::get,
 };
 use of_model::{id::Id, storage::namespace::StorageNamespace};
-use ofdb_sql::{Database, SessionConfig, SyncRole, SyncTransport, history::SyncError};
+use ofdb_sql::{
+    Database, SessionConfig, SyncRole, SyncTransport,
+    history::{HistoryPublication, HistoryRevision, SyncError},
+};
 use serde::{Deserialize, Serialize};
 use storage_service::database_runtime::DatabaseRuntime;
 use tokio::time::timeout;
@@ -38,7 +41,8 @@ use crate::{
 pub const MAX_FRAME_PAYLOAD: u32 = 16 * 1024 * 1024;
 pub const MAX_SESSION_BYTES: u64 = 1024 * 1024 * 1024;
 pub const FRAMING_VERSION: u8 = 1;
-const FIRST_UPLOAD_AUTH_TIMEOUT: Duration = Duration::from_secs(30);
+const PUBLISH_AUTH_TIMEOUT: Duration = Duration::from_secs(30);
+const COMPARE_SESSION_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -99,6 +103,8 @@ pub enum AbortReason {
     MalformedMessage,
     InternalError(String),
     DestinationHasHistory,
+    DestinationChanged,
+    PublicationAlreadyUsed,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -116,6 +122,12 @@ pub enum SyncMessage {
     Pong,
     FirstUpload(AttachRequest),
     FirstUploadPublished,
+    RevisionedPull(AttachRequest),
+    SnapshotRevision(HistoryRevision),
+    ComparePublish(AttachRequest, HistoryPublication),
+    ComparePublished(HistoryPublication),
+    CheckPublication(AttachRequest, HistoryPublication),
+    PublicationStatus(bool),
 }
 
 impl SyncMessage {
@@ -544,6 +556,17 @@ impl WireSocket {
 struct WebSocketTransport<'a> {
     wire: &'a mut WireSocket,
     authorization: &'a SessionAuthorization<'a>,
+    compare: bool,
+}
+
+impl WebSocketTransport<'_> {
+    async fn check(&mut self) -> io::Result<()> {
+        if self.compare {
+            self.authorization.check_publish().await
+        } else {
+            self.authorization.check().await
+        }
+    }
 }
 
 impl SyncTransport for WebSocketTransport<'_> {
@@ -551,9 +574,9 @@ impl SyncTransport for WebSocketTransport<'_> {
 
     async fn receive(&mut self) -> io::Result<Vec<u8>> {
         loop {
-            self.authorization.check().await?;
+            self.check().await?;
             let message = self.wire.receive().await?;
-            self.authorization.check().await?;
+            self.check().await?;
             match message {
                 SyncMessage::OwnerMessage {
                     protocol_id: ProtocolId::OfdbSqlV7,
@@ -571,7 +594,7 @@ impl SyncTransport for WebSocketTransport<'_> {
     }
 
     async fn send(&mut self, payload: Vec<u8>) -> io::Result<()> {
-        self.authorization.check().await?;
+        self.check().await?;
         self.wire
             .send(SyncMessage::OwnerMessage {
                 protocol_id: ProtocolId::OfdbSqlV7,
@@ -585,6 +608,25 @@ async fn handle_socket(socket: WebSocket, state: Arc<SyncState>) {
     let mut wire = WireSocket { socket, bytes: 0 };
     if let Err(reason) = attach_and_sync(&mut wire, &state).await {
         let _ = wire.send(SyncMessage::Abort(reason)).await;
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Intent {
+    Exchange,
+    FirstUpload,
+    RevisionedPull,
+    Compare(HistoryPublication),
+    Check(HistoryPublication),
+}
+
+impl Intent {
+    fn direction_is_valid(self, direction: AttachDirection) -> bool {
+        match self {
+            Self::Exchange => direction != AttachDirection::Push,
+            Self::RevisionedPull => direction == AttachDirection::Pull,
+            _ => direction == AttachDirection::Bidirectional,
+        }
     }
 }
 
@@ -606,14 +648,20 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
     }))
     .await
     .map_err(|_| AbortReason::MalformedMessage)?;
-    let (request, first_upload) = match wire.receive().await {
-        Ok(SyncMessage::AttachRequest(request)) => (request, false),
-        Ok(SyncMessage::FirstUpload(request)) => (request, true),
+    let (request, intent) = match wire.receive().await {
+        Ok(SyncMessage::AttachRequest(request)) => (request, Intent::Exchange),
+        Ok(SyncMessage::FirstUpload(request)) => (request, Intent::FirstUpload),
+        Ok(SyncMessage::RevisionedPull(request)) => (request, Intent::RevisionedPull),
+        Ok(SyncMessage::ComparePublish(request, publication)) => {
+            (request, Intent::Compare(publication))
+        }
+        Ok(SyncMessage::CheckPublication(request, publication)) => {
+            (request, Intent::Check(publication))
+        }
         _ => return Err(AbortReason::MalformedMessage),
     };
     if request.store_identity != hello.store_identity
-        || request.direction == AttachDirection::Push
-        || (first_upload && request.direction != AttachDirection::Bidirectional)
+        || !intent.direction_is_valid(request.direction)
     {
         return Err(AbortReason::MalformedMessage);
     }
@@ -641,7 +689,9 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
         &request.store_identity,
         &state.router_state.endpoint_id,
         request.direction,
-        if request.direction == AttachDirection::Pull {
+        if request.direction == AttachDirection::Pull
+            || matches!(intent, Intent::Compare(_) | Intent::Check(_))
+        {
             AuthorityCheck::Snapshot { renew: true }
         } else {
             AuthorityCheck::Reconcile
@@ -667,18 +717,23 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
             .parse()
             .map_err(|_| AbortReason::Unauthorized)?,
     };
-    let database = if auth.direction == AttachDirection::Pull {
-        state
+    let database = match intent {
+        Intent::Check(_) => state
             .databases
-            .open_existing_for_pull(&namespace, auth.store_id.into())
-    } else {
-        state
+            .open_existing_for_receipt(&namespace, auth.store_id.into()),
+        Intent::RevisionedPull | Intent::Compare(_) => state
             .databases
-            .open_selected(&namespace, auth.store_id.into())
+            .open_existing_for_pull(&namespace, auth.store_id.into()),
+        Intent::Exchange if auth.direction == AttachDirection::Pull => state
+            .databases
+            .open_existing_for_pull(&namespace, auth.store_id.into()),
+        _ => state
+            .databases
+            .open_selected(&namespace, auth.store_id.into()),
     }
     .map_err(|_| AbortReason::BackendUnavailable)?
     .ok_or(AbortReason::BackendUnavailable)?;
-    let eligible = if first_upload {
+    let eligible = if matches!(intent, Intent::FirstUpload) {
         database
             .first_upload_is_eligible()
             .await
@@ -686,10 +741,12 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
     } else {
         true
     };
-    authorization
-        .check()
-        .await
-        .map_err(|_error| AbortReason::Unauthorized)?;
+    if matches!(intent, Intent::Compare(_) | Intent::Check(_)) {
+        authorization.check_publish().await
+    } else {
+        authorization.check().await
+    }
+    .map_err(|_error| AbortReason::Unauthorized)?;
     if !eligible {
         return Err(AbortReason::DestinationHasHistory);
     }
@@ -703,52 +760,105 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
     }))
     .await
     .map_err(|_| AbortReason::BackendUnavailable)?;
-    exchange_attached_history(
+    if let Intent::Check(publication) = intent {
+        let status = database.check_history_publication(publication).await;
+        authorization
+            .check_publish()
+            .await
+            .map_err(|_| AbortReason::Unauthorized)?;
+        let published = status.map_err(|error| match error {
+            SyncError::PublicationAlreadyUsed => AbortReason::PublicationAlreadyUsed,
+            _ => AbortReason::BackendUnavailable,
+        })?;
+        return wire
+            .send(SyncMessage::PublicationStatus(published))
+            .await
+            .map_err(|_| AbortReason::BackendUnavailable);
+    }
+    let exchange = exchange_attached_history(
         WebSocketTransport {
             wire,
             authorization: &authorization,
+            compare: matches!(intent, Intent::Compare(_)),
         },
         &database,
         &state.staging_dir,
-        first_upload,
-    )
-    .await
+        intent,
+    );
+    if matches!(intent, Intent::Compare(_) | Intent::RevisionedPull) {
+        timeout(COMPARE_SESSION_TIMEOUT, exchange)
+            .await
+            .map_err(|_| AbortReason::BackendUnavailable)?
+    } else {
+        exchange.await
+    }
 }
 
 async fn exchange_attached_history(
     mut transport: WebSocketTransport<'_>,
     database: &Database,
     staging_dir: &Path,
-    first_upload: bool,
+    intent: Intent,
 ) -> Result<(), AbortReason> {
     let authorization = transport.authorization;
     let check = || async {
-        authorization
-            .check()
-            .await
-            .map_err(|error| error.to_string())
+        if matches!(intent, Intent::Compare(_)) {
+            authorization.check_publish().await
+        } else {
+            authorization.check().await
+        }
+        .map_err(|error| error.to_string())
     };
     let config = SessionConfig::default();
-    if first_upload {
+    let check_publish = || async {
+        timeout(PUBLISH_AUTH_TIMEOUT, authorization.check_publish())
+            .await
+            .map_err(|_elapsed| "publish authorization timed out".to_owned())?
+            .map_err(|error| error.to_string())
+    };
+    if let Intent::Compare(publication) = intent {
         database
-            .receive_first_upload(&mut transport, &config, staging_dir, check, || async {
-                timeout(FIRST_UPLOAD_AUTH_TIMEOUT, authorization.check_publish())
-                    .await
-                    .map_err(|_elapsed| "first-upload authorization timed out".to_owned())?
-                    .map_err(|error| error.to_string())
-            })
+            .receive_history_publication(
+                &mut transport,
+                &config,
+                staging_dir,
+                publication,
+                check,
+                check_publish,
+            )
+            .await
+            .map_err(exchange_abort)?;
+        transport
+            .wire
+            .send(SyncMessage::ComparePublished(publication))
+            .await
+            .map_err(|_| AbortReason::BackendUnavailable)?;
+    } else if matches!(intent, Intent::FirstUpload) {
+        database
+            .receive_first_upload(&mut transport, &config, staging_dir, check, check_publish)
             .await
             .map_err(exchange_abort)?;
         transport
             .wire
             .send(SyncMessage::FirstUploadPublished)
             .await
-            .map_err(|_error| AbortReason::BackendUnavailable)?;
+            .map_err(|_| AbortReason::BackendUnavailable)?;
     } else if authorization.expected.direction == AttachDirection::Pull {
-        database
-            .serve_resource_history(&mut transport, &config, staging_dir)
+        let (_, revision) = database
+            .serve_revisioned_resource_history(&mut transport, &config, staging_dir)
             .await
             .map_err(exchange_abort)?;
+        if matches!(intent, Intent::RevisionedPull) {
+            authorization
+                .check_publish()
+                .await
+                .map_err(|_| AbortReason::Unauthorized)?;
+            transport
+                .wire
+                .send(SyncMessage::SnapshotRevision(revision))
+                .await
+                .map_err(|_| AbortReason::BackendUnavailable)?;
+        }
     } else {
         database
             .exchange_resource_history(
@@ -767,6 +877,8 @@ async fn exchange_attached_history(
 fn exchange_abort(error: SyncError<io::Error>) -> AbortReason {
     match error {
         SyncError::DestinationHasHistory => AbortReason::DestinationHasHistory,
+        SyncError::DestinationChanged => AbortReason::DestinationChanged,
+        SyncError::PublicationAlreadyUsed => AbortReason::PublicationAlreadyUsed,
         SyncError::PreApply(_) => AbortReason::Unauthorized,
         SyncError::Transport(error) if error.kind() == io::ErrorKind::PermissionDenied => {
             AbortReason::Unauthorized

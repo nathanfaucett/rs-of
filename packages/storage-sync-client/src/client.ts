@@ -1,16 +1,25 @@
 import { SyncError, serverAbort } from "./error.js";
 import {
+  type AttachTag,
   attach,
   frame,
+  type HistoryPublication,
   hello,
   MAX_FRAME_BYTES,
   MAX_SESSION_BYTES,
+  publicationBytes,
   response,
   type StoreIdentity,
   type SyncDirection,
   unframe,
 } from "./protocol.js";
-import { createSession, type FirstUploadSession, type SyncSession } from "./session.js";
+import {
+  type ComparePublishSession,
+  createSession,
+  type FirstUploadSession,
+  type RevisionedPullSession,
+  type SyncSession,
+} from "./session.js";
 
 export interface SyncClientOptions {
   storageApiUrl: string;
@@ -59,7 +68,7 @@ export class SyncClient {
     this.url = url.href;
   }
   attach(options: AttachOptions): Promise<SyncSession> {
-    return this.connect(options, false);
+    return this.connect(options, 1);
   }
 
   /** Attach for guarded initial publication, without falling back to normal sync. */
@@ -71,11 +80,47 @@ export class SyncClient {
         identity: { ...identity, schemaFingerprint: new Uint8Array(identity.schemaFingerprint) },
         direction: "Bidirectional",
       },
-      true
+      7
     );
   }
 
-  private connect(options: AttachOptions, firstUpload: boolean): Promise<FirstUploadSession> {
+  /** Pull one pinned snapshot. Read its revision after the SQL owner exchange. */
+  attachRevisionedPull(options: Omit<AttachOptions, "direction">): Promise<RevisionedPullSession> {
+    return this.connect({ ...options, direction: "Pull" }, 9);
+  }
+
+  /** Send only a disposable SQL candidate, never a live database. */
+  async attachComparePublish(
+    options: Omit<AttachOptions, "direction"> & { publication: HistoryPublication }
+  ): Promise<ComparePublishSession> {
+    return this.connect(
+      { ...options, direction: "Bidirectional" },
+      11,
+      publicationBytes(options.publication)
+    );
+  }
+
+  /** Check the exact operation after an ambiguous outcome. This cannot publish. */
+  async checkPublication(
+    options: Omit<AttachOptions, "direction"> & { publication: HistoryPublication }
+  ): Promise<boolean> {
+    const session = await this.connect(
+      { ...options, direction: "Bidirectional" },
+      13,
+      publicationBytes(options.publication)
+    );
+    try {
+      return await session.publicationStatus();
+    } finally {
+      session.close();
+    }
+  }
+
+  private connect(
+    options: AttachOptions,
+    intent: AttachTag,
+    publication?: Uint8Array
+  ): Promise<ReturnType<typeof createSession>> {
     return new Promise((resolve, reject) => {
       let socket: WebSocket | undefined;
       let settled = false;
@@ -118,7 +163,7 @@ export class SyncClient {
       const opened = () => {
         try {
           send(helloPayload);
-          if (!firstUpload) send(attachPayload);
+          if (intent === 1) send(attachPayload);
         } catch (error) {
           if (error instanceof SyncError) stop(error);
           else failed();
@@ -135,7 +180,7 @@ export class SyncClient {
             payload.every((b, i) => b === helloPayload[i])
           ) {
             echoedHello = true;
-            if (firstUpload) send(attachPayload);
+            if (intent !== 1) send(attachPayload);
             return;
           }
           const message = response(payload);
@@ -147,15 +192,15 @@ export class SyncClient {
             stop(serverAbort(message.reason));
             return;
           }
-          if (message.type !== "attach" || (firstUpload && !echoedHello))
+          if (message.type !== "attach" || (intent !== 1 && !echoedHello))
             throw new Error("Expected attach response");
           if (!message.accepted) {
             stop(new SyncError("auth", "Sync attach rejected"));
             return;
           }
           if (
-            options.direction === "Bidirectional"
-              ? message.grantedDirection !== "Bidirectional"
+            intent !== 1 || options.direction === "Bidirectional"
+              ? message.grantedDirection !== options.direction
               : message.grantedDirection !== options.direction &&
                 message.grantedDirection !== "Bidirectional"
           )
@@ -178,7 +223,14 @@ export class SyncClient {
           cleanup();
           settled = true;
           resolve(
-            createSession(socket, Object.freeze(result), options.signal, usedBytes, firstUpload)
+            createSession(
+              socket,
+              Object.freeze(result),
+              options.signal,
+              usedBytes,
+              intent,
+              publication
+            )
           );
         } catch (error) {
           stop(
@@ -213,7 +265,7 @@ export class SyncClient {
         }
         try {
           helloPayload = hello(options.identity);
-          attachPayload = attach(options.identity, token, options.direction, firstUpload);
+          attachPayload = attach(options.identity, token, options.direction, intent, publication);
         } catch {
           stop(new SyncError("protocol", "Invalid sync store identity or direction"));
           return;

@@ -18,6 +18,8 @@ protocol = source[
 # Keep the actual server types and codec, without its authentication code.
 protocol = protocol[: protocol.rfind("#[derive")]
 protocol = "\n".join(line for line in protocol.splitlines() if not line.startswith("const "))
+history = (package / "../../db/sql-history/src/state.rs").read_text()
+publication = history[history.index("pub type HistoryRevision") : history.index("/// Computes a revision")]
 main = r"""
 fn main() {
     let identity = StoreIdentity {
@@ -48,6 +50,16 @@ fn main() {
     }
     emit("firstUpload", SyncMessage::FirstUpload(AttachRequest {store_identity: identity.clone(), auth_token: AuthToken("idp-token-é".as_bytes().to_vec()), direction: AttachDirection::Bidirectional}));
     emit("firstUploadPublished", SyncMessage::FirstUploadPublished);
+    let request = |direction| AttachRequest {store_identity: identity.clone(), auth_token: AuthToken("idp-token-é".as_bytes().to_vec()), direction};
+    let publication = HistoryPublication {operation: Uuid::from_bytes([0x66; 16]), expected: [0x77; 32], candidate: [0x88; 32]};
+    emit("revisionedPull", SyncMessage::RevisionedPull(request(AttachDirection::Pull)));
+    emit("snapshotRevision", SyncMessage::SnapshotRevision(publication.expected));
+    emit("comparePublish", SyncMessage::ComparePublish(request(AttachDirection::Bidirectional), publication));
+    emit("comparePublished", SyncMessage::ComparePublished(publication));
+    emit("checkPublication", SyncMessage::CheckPublication(request(AttachDirection::Bidirectional), publication));
+    emit("publicationFound", SyncMessage::PublicationStatus(true));
+    emit("publicationNotFound", SyncMessage::PublicationStatus(false));
+    emit("destinationChanged", SyncMessage::Abort(AbortReason::DestinationChanged));
     emit("destinationHasHistory", SyncMessage::Abort(AbortReason::DestinationHasHistory));
     emit("rejected", SyncMessage::AttachResponse(AttachResponse {accepted: false, backend_replica_id: Uuid::nil(), session_id: Uuid::nil(), granted_direction: AttachDirection::Push, max_frame_bytes: MAX_FRAME_PAYLOAD, max_session_bytes: MAX_SESSION_BYTES}));
     emit("unauthorized", SyncMessage::Abort(AbortReason::Unauthorized));
@@ -75,6 +87,7 @@ crc32fast = { version = "1.0", default-features = false }
 """)
     (root / "src/main.rs").write_text(
         "use serde::{Deserialize, Serialize};\nuse uuid::Uuid;\n"
+        + publication
         + protocol
         + main
     )

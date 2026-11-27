@@ -15,7 +15,10 @@ use futures_util::{SinkExt, StreamExt};
 use of_model::id::Id;
 use ofdb_sql::{
     SessionConfig, SyncRole, SyncTransport,
-    history::{SyncError, SyncManifest, SyncMessage as SqlSyncMessage},
+    history::{
+        HistoryPublication, HistoryRevision, SyncError, SyncManifest,
+        SyncMessage as SqlSyncMessage, history_revision,
+    },
 };
 use serde_json::{Value, json};
 use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
@@ -1064,6 +1067,210 @@ async fn ws_first_upload_loses_to_sql_write_after_attach_without_merging_either_
             local
         );
     }
+}
+
+impl Fixture {
+    fn publication_request(&self, direction: AttachDirection) -> AttachRequest {
+        AttachRequest {
+            store_identity: self.identity.clone(),
+            auth_token: AuthToken(b"user-token".to_vec()),
+            direction,
+        }
+    }
+
+    async fn compare(&self, publication: HistoryPublication) -> Socket {
+        let mut socket = self.hello().await;
+        send(
+            &mut socket,
+            SyncMessage::ComparePublish(
+                self.publication_request(AttachDirection::Bidirectional),
+                publication,
+            ),
+        )
+        .await;
+        assert!(
+            matches!(receive(&mut socket).await, SyncMessage::AttachResponse(response) if response.accepted)
+        );
+        socket
+    }
+
+    async fn receipt(&self, publication: HistoryPublication) -> SyncMessage {
+        let mut socket = self.hello().await;
+        send(
+            &mut socket,
+            SyncMessage::CheckPublication(
+                self.publication_request(AttachDirection::Bidirectional),
+                publication,
+            ),
+        )
+        .await;
+        match receive(&mut socket).await {
+            SyncMessage::AttachResponse(response) if response.accepted => {
+                receive(&mut socket).await
+            }
+            abort => abort,
+        }
+    }
+
+    async fn revisioned_pull(&self, snapshot: &ofdb_sql::Database) -> HistoryRevision {
+        let mut socket = self.hello().await;
+        send(
+            &mut socket,
+            SyncMessage::RevisionedPull(self.publication_request(AttachDirection::Pull)),
+        )
+        .await;
+        assert!(
+            matches!(receive(&mut socket).await, SyncMessage::AttachResponse(response) if response.granted_direction == AttachDirection::Pull)
+        );
+        let mut transport = ClientTransport(socket);
+        snapshot
+            .restore_resource_history_memory(
+                &mut transport,
+                &SessionConfig::default(),
+                vec![],
+                || Ok(()),
+            )
+            .await
+            .expect("restore private snapshot");
+        let SyncMessage::SnapshotRevision(revision) = receive(&mut transport.0).await else {
+            panic!("expected revision for delivered snapshot");
+        };
+        assert_eq!(revision, revision_of(snapshot).await);
+        revision
+    }
+}
+
+async fn revision_of(database: &ofdb_sql::Database) -> HistoryRevision {
+    history_revision(&database.export_history().await.expect("snapshot history"))
+}
+
+#[tokio::test]
+async fn ws_compare_publish_rejects_stale_revision_and_checks_lost_receipt() {
+    for shared in [false, true] {
+        let fixture = Fixture::with_storage(shared).await;
+        let target = fixture
+            .databases
+            .open_selected(&fixture.namespace, fixture.identity.store_id)
+            .expect("open target")
+            .expect("selected target");
+        sql(&target, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('remote'), ('deleted'); DELETE FROM documents WHERE value = 'deleted'").await;
+        let source = ofdb_sql::Database::in_memory();
+        let expected = fixture.revisioned_pull(&source).await;
+        sql(&source, "INSERT INTO documents (value) VALUES ('local')").await;
+        let publication = HistoryPublication {
+            operation: uuid::Uuid::now_v7(),
+            expected,
+            candidate: revision_of(&source).await,
+        };
+        assert_eq!(
+            fixture.receipt(publication).await,
+            SyncMessage::PublicationStatus(false)
+        );
+
+        let socket = fixture.compare(publication).await;
+        sql(&target, "INSERT INTO documents (value) VALUES ('concurrent'); DELETE FROM documents WHERE value = 'concurrent'").await;
+        let changed = revision_of(&target).await;
+        assert_ne!(changed, expected);
+        let mut socket = stage_upload(&fixture, &source, socket).await;
+        assert_eq!(
+            receive(&mut socket).await,
+            SyncMessage::Abort(AbortReason::DestinationChanged)
+        );
+        assert_eq!(revision_of(&target).await, changed);
+        assert_eq!(
+            fixture.receipt(publication).await,
+            SyncMessage::PublicationStatus(false)
+        );
+
+        let source = ofdb_sql::Database::in_memory();
+        let expected = fixture.revisioned_pull(&source).await;
+        sql(&source, "INSERT INTO documents (value) VALUES ('local')").await;
+        let publication = HistoryPublication {
+            operation: uuid::Uuid::now_v7(),
+            expected,
+            candidate: revision_of(&source).await,
+        };
+        let socket = stage_upload(&fixture, &source, fixture.compare(publication).await).await;
+        // A control-plane response was lost to the caller. Wait for commit without reading it.
+        timeout(Duration::from_secs(10), async {
+            while revision_of(&target).await != publication.candidate {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("committed without reading original receipt");
+        drop(socket);
+        assert_eq!(
+            fixture.receipt(publication).await,
+            SyncMessage::PublicationStatus(true)
+        );
+        assert_eq!(
+            fixture
+                .receipt(HistoryPublication {
+                    candidate: [0; 32],
+                    ..publication
+                })
+                .await,
+            SyncMessage::Abort(AbortReason::PublicationAlreadyUsed)
+        );
+        let mut replay = stage_upload(&fixture, &source, fixture.compare(publication).await).await;
+        assert_eq!(
+            receive(&mut replay).await,
+            SyncMessage::Abort(AbortReason::PublicationAlreadyUsed)
+        );
+        sql(&target, "INSERT INTO documents (value) VALUES ('later')").await;
+        assert_eq!(
+            fixture.receipt(publication).await,
+            SyncMessage::PublicationStatus(true)
+        );
+        fixture.policy.lock().expect("policy lock")["resources"] = json!([]);
+        assert_eq!(
+            fixture.receipt(publication).await,
+            SyncMessage::Abort(AbortReason::Unauthorized)
+        );
+    }
+}
+
+#[tokio::test]
+async fn ws_compare_publish_denied_while_writer_is_held_leaves_no_receipt() {
+    let fixture = Fixture::new().await;
+    let target = fixture
+        .databases
+        .open_selected(&fixture.namespace, fixture.identity.store_id)
+        .expect("open target")
+        .expect("selected target");
+    sql(&target, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('remote')").await;
+    let source = ofdb_sql::Database::in_memory();
+    let expected = fixture.revisioned_pull(&source).await;
+    sql(&source, "INSERT INTO documents (value) VALUES ('local')").await;
+    let publication = HistoryPublication {
+        operation: uuid::Uuid::now_v7(),
+        expected,
+        candidate: revision_of(&source).await,
+    };
+    let socket = fixture.compare(publication).await;
+    let client = target.client();
+    let writer = client
+        .transaction()
+        .await
+        .expect("hold writer until after SQL exchange");
+    let mut socket = stage_upload(&fixture, &source, socket).await;
+    let original = fixture.policy.lock().expect("policy lock").clone();
+    fixture.policy.lock().expect("policy lock")["resources"] = json!([]);
+    writer
+        .rollback()
+        .await
+        .expect("release writer without changes");
+    assert_eq!(
+        receive(&mut socket).await,
+        SyncMessage::Abort(AbortReason::Unauthorized)
+    );
+    *fixture.policy.lock().expect("policy lock") = original;
+    assert_eq!(revision_of(&target).await, expected);
+    assert_eq!(
+        fixture.receipt(publication).await,
+        SyncMessage::PublicationStatus(false)
+    );
 }
 
 struct DisconnectBeforeRecovery {

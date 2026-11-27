@@ -41,6 +41,34 @@ impl SyncStateUnit {
     }
 }
 
+/// SHA-256 revision of the ordered catalog and row history, not of the visible SQL rows.
+pub type HistoryRevision = [u8; 32];
+
+/// Identifies an exact publication within one destination database.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HistoryPublication {
+    pub operation: Uuid,
+    pub expected: HistoryRevision,
+    pub candidate: HistoryRevision,
+}
+
+/// Computes a revision for history units in canonical key order.
+#[must_use]
+pub fn history_revision(units: &[SyncStateUnit]) -> HistoryRevision {
+    use sha2::{Digest, Sha256};
+
+    let mut hash = Sha256::new();
+    hash.update(b"ofdb-sql-history-revision-v1");
+    for unit in units {
+        let SyncKey::Row { table, row } = &unit.key;
+        hash.update((table.len() as u64).to_le_bytes());
+        hash.update(table.as_bytes());
+        hash.update(row.as_bytes());
+        hash.update(unit.digest.0);
+    }
+    hash.finalize().into()
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::{string::String, vec};

@@ -233,6 +233,27 @@ impl DatabaseRuntime {
         scope: &S,
         id: DatabaseId,
     ) -> io::Result<Option<Arc<Database>>> {
+        self.open_provisioned(scope, id, false)
+    }
+
+    /// Opens an existing SQL copy for receipt lookup, including after a standalone restart.
+    /// A cold standalone open updates the Redb header but does not change logical data.
+    /// # Errors
+    /// Returns an error for a fenced copy or storage failure.
+    pub fn open_existing_for_receipt<S: StorageNamespace>(
+        &self,
+        scope: &S,
+        id: DatabaseId,
+    ) -> io::Result<Option<Arc<Database>>> {
+        self.open_provisioned(scope, id, true)
+    }
+
+    fn open_provisioned<S: StorageNamespace>(
+        &self,
+        scope: &S,
+        id: DatabaseId,
+        allow_cold_open: bool,
+    ) -> io::Result<Option<Arc<Database>>> {
         let mut open = self
             .open
             .lock()
@@ -247,13 +268,19 @@ impl DatabaseRuntime {
         let Some(host) = &self.shared else {
             // A cold Redb writer open updates the file header. The read-only handle would
             // prevent an ordinary writer from opening the same file while Pull is active.
-            let Some(database) = open.get(&key) else {
+            let path = self.copy_path(scope, id)?;
+            if !path.try_exists()? {
                 return Ok(None);
-            };
-            return Ok(self
-                .copy_path(scope, id)?
-                .try_exists()?
-                .then(|| Arc::clone(database)));
+            }
+            if let Some(database) = open.get(&key) {
+                return Ok(Some(Arc::clone(database)));
+            }
+            if !allow_cold_open {
+                return Ok(None);
+            }
+            let database = Arc::new(Database::open_existing(path).map_err(error)?);
+            open.insert(key, Arc::clone(&database));
+            return Ok(Some(database));
         };
         let database = Database::open_shared_existing(host, &self.resource_namespace(scope, id)?)
             .map_err(error)?;
