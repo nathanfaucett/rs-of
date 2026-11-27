@@ -1,7 +1,8 @@
 #![cfg(all(feature = "sql", feature = "validated-history"))]
 
 use ofdb_sql::{
-    Database, ErrorKind, HistoryRecord, Migration, Row, StagedHistory, Value, history::SyncKey,
+    Database, ErrorKind, HistoryRecord, Migration, Row, StagedHistory, Value,
+    history::{SyncKey, history_revision},
 };
 
 const ATOMIC: &[HistoryRecord<'_>] = &[HistoryRecord {
@@ -9,12 +10,14 @@ const ATOMIC: &[HistoryRecord<'_>] = &[HistoryRecord {
     identity: "id",
     stable: &[],
     envelope: &["envelope"],
+    resolve_by: &[],
 }];
 const SPLIT: &[HistoryRecord<'_>] = &[HistoryRecord {
     table: "items",
     identity: "id",
     stable: &[],
     envelope: &["ciphertext", "nonce"],
+    resolve_by: &[],
 }];
 
 const MIGRATED: &[HistoryRecord<'_>] = &[
@@ -24,6 +27,7 @@ const MIGRATED: &[HistoryRecord<'_>] = &[
         identity: "id",
         stable: &[],
         envelope: &["version", "description", "fingerprint", "execution_time"],
+        resolve_by: &[],
     },
 ];
 
@@ -320,6 +324,7 @@ async fn rejects_reassigned_encrypted_record_even_after_owner_is_restored() {
         identity: "id",
         stable: &["vault_id"],
         envelope: &["ciphertext", "nonce"],
+        resolve_by: &[],
     }];
     let left = Database::in_memory();
     execute(
@@ -407,6 +412,138 @@ async fn a_single_envelope_has_the_same_conflict_winner_in_either_import_order()
             .expect("read conflicts")
             .contains(&String::from("envelope"))
     );
+}
+
+const RESOLVE_SPLIT: &[HistoryRecord<'_>] = &[HistoryRecord {
+    envelope: &["ciphertext", "nonce", "updated_at"],
+    resolve_by: &["ciphertext", "nonce"],
+    ..SPLIT[0]
+}];
+
+async fn shared_envelope() -> (Database, Database) {
+    let left = encrypted_rows().await;
+    execute(&left, "INSERT INTO items (id, ciphertext, nonce, updated_at) VALUES ('stable', 'original', 'nonce-old', '2000')").await;
+    let right = Database::in_memory();
+    stage(&left, &right).await;
+    (left, right)
+}
+
+#[tokio::test]
+async fn selects_and_retains_the_complete_canonical_payload_history() {
+    let (left, right) = shared_envelope().await;
+    execute(
+        &left,
+        "UPDATE items SET ciphertext = 'left', nonce = 'nonce-left', updated_at = '2099'",
+    )
+    .await;
+    execute(
+        &right,
+        "UPDATE items SET ciphertext = 'right', nonce = 'nonce-right', updated_at = '1900'",
+    )
+    .await;
+    let projection = "SELECT ciphertext, nonce, updated_at FROM items";
+    let canonical = Database::in_memory();
+    stage(&left, &canonical).await;
+    stage(&right, &canonical).await;
+    let ciphertext = execute(&canonical, "SELECT ciphertext FROM items").await;
+    let winner = if ciphertext == execute(&left, "SELECT ciphertext FROM items").await {
+        &left
+    } else {
+        &right
+    };
+    let expected = execute(winner, projection).await;
+
+    let forward = left
+        .stage_history(&right, RESOLVE_SPLIT)
+        .await
+        .expect("resolve envelope");
+    let reversed = right
+        .stage_history(&left, RESOLVE_SPLIT)
+        .await
+        .expect("resolve in reverse order");
+    assert_eq!(
+        history_revision(forward.units()),
+        history_revision(reversed.units())
+    );
+    let reopened = reopen(&forward).await;
+    assert_eq!(execute(&reopened, projection).await, expected);
+    let resolved = reopened
+        .history_manifest()
+        .await
+        .expect("resolved manifest");
+    for source in [&left, &right] {
+        stage(source, &reopened).await;
+        assert_eq!(
+            reopened
+                .history_manifest()
+                .await
+                .expect("history after replay"),
+            resolved
+        );
+    }
+    let candidate_revision = reopened
+        .history_revision()
+        .await
+        .expect("candidate revision");
+    for source in [&left, &right] {
+        source
+            .publish_local_history(
+                &reopened,
+                source.history_revision().await.expect("source revision"),
+                candidate_revision,
+                vec![1],
+                || Ok(()),
+            )
+            .await
+            .expect("publish exact candidate over either branch");
+        assert_eq!(execute(source, projection).await, expected);
+        assert_eq!(
+            source.history_revision().await.expect("published revision"),
+            candidate_revision
+        );
+    }
+    let key = Row::new(vec![Value::from("stable")]);
+    assert_eq!(
+        reopened
+            .client()
+            .row_conflicts("items", &key)
+            .await
+            .expect("read conflicts"),
+        [] as [String; 0]
+    );
+}
+
+#[tokio::test]
+async fn rejects_partial_or_ambiguous_source_groups() {
+    for (left_edit, right_edit, reason) in [
+        (
+            "ciphertext = 'left'",
+            "ciphertext = 'right', nonce = 'nonce-right'",
+            "Incomplete source",
+        ),
+        (
+            "ciphertext = 'same', nonce = 'nonce-left'",
+            "ciphertext = 'same', nonce = 'nonce-right'",
+            "Ambiguous canonical source",
+        ),
+        (
+            "ciphertext = 'left', nonce = NULL",
+            "ciphertext = 'right', nonce = 'nonce-right'",
+            "Incomplete source",
+        ),
+    ] {
+        let (left, right) = shared_envelope().await;
+        execute(&left, &format!("UPDATE items SET {left_edit}")).await;
+        execute(&right, &format!("UPDATE items SET {right_edit}")).await;
+        for (first, second) in [(&left, &right), (&right, &left)] {
+            let error = first
+                .stage_history(second, RESOLVE_SPLIT)
+                .await
+                .expect_err("reject unverifiable envelope");
+            assert_eq!(error.kind, ErrorKind::Rejected);
+            assert!(error.message.contains(reason), "{error}");
+        }
+    }
 }
 
 #[tokio::test]
@@ -660,6 +797,7 @@ async fn includes_the_authentication_proof_context_in_envelope_provenance() {
         identity: "id",
         stable: &[],
         envelope: &["authentication", "salt", "iv", "created_at"],
+        resolve_by: &[],
     }];
     let before = left.history_manifest().await.expect("local baseline");
     let error = left

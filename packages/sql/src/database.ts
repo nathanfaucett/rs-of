@@ -23,6 +23,8 @@ export interface HistoryRecord {
   readonly stable?: readonly string[];
   /** Fields that must come from one live source together. */
   readonly envelope: readonly string[];
+  /** Co-written fields. The first selects the unique source with the canonical value. */
+  readonly resolveBy?: readonly string[];
 }
 
 /** Embedded SQL database handle. Opens the store and creates query handles. */
@@ -111,11 +113,12 @@ export class Database {
   async stageHistory(other: Database, records: readonly HistoryRecord[]): Promise<Database> {
     try {
       const policy = JSON.stringify(
-        records.map(({ table, identity, stable, envelope }) => [
+        records.map(({ table, identity, stable, envelope, resolveBy }) => [
           table,
           identity,
           stable ?? [],
           envelope,
+          resolveBy ?? [],
         ])
       );
       return await this.handle.run((left) =>

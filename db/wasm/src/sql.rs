@@ -107,29 +107,31 @@ impl SqlDatabase {
         other: &SqlDatabase,
         policy: String,
     ) -> Result<SqlDatabase, JsError> {
-        type Policy = Vec<(String, String, Vec<String>, Vec<String>)>;
+        type Policy = Vec<(String, String, Vec<String>, Vec<String>, Vec<String>)>;
         let policy: Policy = serde_json::from_str(&policy)
             .map_err(|_error| JsError::new("Invalid history record policy"))?;
         let columns = policy
             .iter()
-            .map(|(_, _, stable, envelope)| {
+            .map(|(_, _, stable, envelope, resolve_by)| {
                 (
                     stable.iter().map(String::as_str).collect::<Vec<_>>(),
                     envelope.iter().map(String::as_str).collect::<Vec<_>>(),
+                    resolve_by.iter().map(String::as_str).collect::<Vec<_>>(),
                 )
             })
             .collect::<Vec<_>>();
         let records = policy
             .iter()
             .zip(&columns)
-            .map(
-                |((table, identity, _, _), (stable, envelope))| ofdb_sql::HistoryRecord {
+            .map(|((table, identity, ..), (stable, envelope, resolve_by))| {
+                ofdb_sql::HistoryRecord {
                     table,
                     identity,
                     stable,
                     envelope,
-                },
-            )
+                    resolve_by,
+                }
+            })
             .collect::<Vec<_>>();
         let staged = self
             .database

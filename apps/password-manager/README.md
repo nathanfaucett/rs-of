@@ -104,7 +104,7 @@ On a browser with local vaults, select **Find remote database**. Check the Insta
 
 **Approve and merge** reconciles the whole shared database, including all vaults and retained deletions. An item whose folder was deleted appears as Unfiled, including in backups. The app applies this rule after decryption and does not rewrite encrypted history to make the item visible.
 
-`ofdb` selects the canonical value of a supported atomic envelope, such as a single SQL field that contains both ciphertext and nonce. It does not use timestamps to select the winner. Password Manager items, folders, and lock settings still use separate ciphertext and nonce columns. If concurrent edits leave unresolved conflicts in that protected tuple, the app rejects the candidate before publication. A winning ciphertext alone does not prove which nonce and vault context belong to it. Non-conflicting split envelopes still merge. Incompatible history or unmigrated legacy vaults stop the operation.
+For concurrent edits to the same item, folder, or lock settings record, `ofdb` selects its canonical ciphertext. It copies the nonce and update metadata from the unique live source that holds that ciphertext. The ciphertext and nonce must have been written together, and the vault identity must agree. Timestamps do not select the winner. The merge keeps both edits in history. Ambiguous or incomplete encrypted records, incompatible history, and unmigrated legacy vaults stop the operation.
 
 Storage must confirm the exact candidate before the app can publish it locally. Local publication checks the original local revision and saves one binding in the same transaction. A completed merge leaves sync detached.
 

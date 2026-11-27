@@ -54,22 +54,7 @@ it("reopens independent same-name Vaults with their original encrypted records a
     }
     const [left, right] = sources;
     if (!left || !right) throw new Error("Two source databases required");
-    const pending = await retainCandidate(
-      left,
-      right,
-      {
-        version: 1,
-        namespace: "fixture namespace",
-        loginState: "fixture login",
-        clientId: "fixture client",
-        id: crypto.randomUUID(),
-        local: encodeRevision(await left.historyRevision()),
-        remote: encodeRevision(await right.historyRevision()),
-        operation: crypto.randomUUID(),
-        committed: false,
-      },
-      () => true
-    );
+    const pending = await retainFixture(left, right);
     expect(readPendingMerge()).toEqual(pending);
     const candidate = await reopenCandidate(pending);
     try {
@@ -126,6 +111,25 @@ it("reopens independent same-name Vaults with their original encrypted records a
   }
 });
 
+async function retainFixture(left: Database, right: Database) {
+  return retainCandidate(
+    left,
+    right,
+    {
+      version: 1,
+      namespace: "fixture namespace",
+      loginState: "fixture login",
+      clientId: "fixture client",
+      id: crypto.randomUUID(),
+      local: encodeRevision(await left.historyRevision()),
+      remote: encodeRevision(await right.historyRevision()),
+      operation: crypto.randomUUID(),
+      committed: false,
+    },
+    () => true
+  );
+}
+
 async function withVault<T>(
   db: Database,
   id: string,
@@ -173,17 +177,27 @@ it.each(["folder deletion", "split envelope conflict"])(
         history: [],
         folderId: folder.id,
       };
-      if (scenario === "split envelope conflict") await original.mutateItems({ upsert: [note] });
+      const conflict = scenario === "split envelope conflict";
+      if (conflict) {
+        await original.mutateItems({ upsert: [note] });
+        await original.saveLockSettings({ timeoutMinutes: 5 });
+      }
       await original.close();
       const right = await left.stageHistory(left, vaultHistoryRecords);
       try {
-        await withVault(left, vaultId, (vault) =>
-          vault.mutateItems({ upsert: [{ ...note, notes: "Left edit" }] })
-        );
-        if (scenario === "split envelope conflict") {
-          await withVault(right, vaultId, (vault) =>
-            vault.mutateItems({ upsert: [{ ...note, notes: "Right edit" }] })
-          );
+        await withVault(left, vaultId, async (vault) => {
+          await vault.mutateItems({ upsert: [{ ...note, notes: "Left edit" }] });
+          if (conflict) {
+            await vault.renameFolder(folder.id, "Left folder");
+            await vault.saveLockSettings({ timeoutMinutes: 1 });
+          }
+        });
+        if (conflict) {
+          await withVault(right, vaultId, async (vault) => {
+            await vault.mutateItems({ upsert: [{ ...note, notes: "Right edit" }] });
+            await vault.renameFolder(folder.id, "Right folder");
+            await vault.saveLockSettings({ timeoutMinutes: 15 });
+          });
         } else {
           const remote = right.client();
           try {
@@ -193,33 +207,44 @@ it.each(["folder deletion", "split envelope conflict"])(
           }
         }
         const revisions = await Promise.all([left.historyRevision(), right.historyRevision()]);
+        const candidates: string[] = [];
         for (const [first, second] of [
           [left, right],
           [right, left],
         ] as const) {
-          if (scenario === "split envelope conflict") {
-            await expect(first.stageHistory(second, vaultHistoryRecords)).rejects.toThrow(
-              /column conflict/
-            );
-            expect(readPendingMerge()).toBeUndefined();
-          } else {
-            const merged = await first.stageHistory(second, vaultHistoryRecords);
-            const reopened = await merged.stageHistory(merged, vaultHistoryRecords);
+          const pending = await retainFixture(first, second);
+          try {
+            const reopened = await reopenCandidate(pending);
             try {
+              candidates.push(pending.candidate);
               await withVault(reopened, vaultId, async (vault) => {
-                const rooted = { ...note, notes: "Left edit", folderId: null };
-                expect(await vault.readItems()).toEqual({ items: [rooted], folders: [] });
-                const backup = await vault.exportBackup();
-                expect(typeof backup).toBe("string");
-                await vault.mutateItems({ upsert: [{ ...rooted, notes: "Edited again" }] });
+                const { items, folders } = await vault.readItems();
+                expect(items).toHaveLength(1);
+                const item = items[0];
+                if (!item) throw new Error("Missing merged note");
+                if (conflict) {
+                  expect(["Left edit", "Right edit"]).toContain(item.notes);
+                  expect(item).toEqual({ ...note, notes: item.notes });
+                  expect(folders).toHaveLength(1);
+                  expect(folders[0]?.id).toBe(folder.id);
+                  expect(["Left folder", "Right folder"]).toContain(folders[0]?.name);
+                  expect([1, 15]).toContain((await vault.loadLockSettings()).timeoutMinutes);
+                } else {
+                  expect(item).toEqual({ ...note, notes: "Left edit", folderId: null });
+                  expect(folders).toEqual([]);
+                }
+                expect(typeof (await vault.exportBackup())).toBe("string");
+                await vault.mutateItems({ upsert: [{ ...item, notes: "Edited again" }] });
                 expect((await vault.readItems()).items[0]?.notes).toBe("Edited again");
               });
             } finally {
               reopened.close();
-              merged.close();
             }
+          } finally {
+            clearMerge(pending);
           }
         }
+        expect(candidates[0]).toBe(candidates[1]);
         expect(await Promise.all([left.historyRevision(), right.historyRevision()])).toEqual(
           revisions
         );
