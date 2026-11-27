@@ -119,6 +119,7 @@ struct OwnerCalls {
     tokens: AtomicUsize,
     selection_reads_with_repair: AtomicUsize,
     snapshots: AtomicUsize,
+    snapshot_admissions: AtomicUsize,
 }
 
 struct Fixture {
@@ -191,6 +192,8 @@ impl Fixture {
         let tokens = owner_calls.clone();
         let repairs = owner_calls.clone();
         let snapshots = owner_calls.clone();
+        let admissions = owner_calls.clone();
+        let admission_policy = policy.clone();
         let owners = Router::new()
             .route("/idp/oauth2/token", post(move || {
                 tokens.tokens.fetch_add(1, Ordering::Relaxed);
@@ -203,6 +206,11 @@ impl Fixture {
                 repairs.selection_reads_with_repair.fetch_add(1, Ordering::Relaxed);
                 let selected = selected.clone();
                 async move { Json(selected.lock().expect("policy lock").clone()) }
+            }))
+            .route("/device/replication/selection-snapshots/test-endpoint/admission", post(move || {
+                admissions.snapshot_admissions.fetch_add(1, Ordering::Relaxed);
+                let policy = admission_policy.clone();
+                async move { Json(policy.lock().expect("policy lock").clone()) }
             }))
             .route("/device/replication/selection-snapshots/test-endpoint", get(move || {
                 snapshots.snapshots.fetch_add(1, Ordering::Relaxed);
@@ -835,6 +843,13 @@ async fn ws_pull_needs_read_and_never_accepts_incoming_sql_history() {
         0
     );
     assert!(fixture.owner_calls.snapshots.load(Ordering::Relaxed) > 4);
+    assert_eq!(
+        fixture
+            .owner_calls
+            .snapshot_admissions
+            .load(Ordering::Relaxed),
+        3
+    );
     assert_eq!(fixture.owner_calls.tokens.load(Ordering::Relaxed), 1);
 }
 

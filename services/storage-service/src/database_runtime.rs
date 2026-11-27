@@ -225,6 +225,7 @@ impl DatabaseRuntime {
     }
 
     /// Opens a live, provisioned SQL copy without registering, initializing, or updating it.
+    /// A standalone copy must already have an open owner in this runtime.
     /// # Errors
     /// Returns an error for an invalid namespace, fenced copy, or storage failure.
     pub fn open_existing_for_pull<S: StorageNamespace>(
@@ -242,25 +243,22 @@ impl DatabaseRuntime {
         {
             return Ok(None);
         }
-        let database = if let Some(host) = &self.shared {
-            Database::open_shared_existing(host, &self.resource_namespace(scope, id)?)
-                .map_err(error)?
-        } else {
-            let path = self.copy_path(scope, id)?;
-            if !path.try_exists()? {
+        let key = database_key(scope, id);
+        let Some(host) = &self.shared else {
+            // A cold Redb writer open updates the file header. The read-only handle would
+            // prevent an ordinary writer from opening the same file while Pull is active.
+            let Some(database) = open.get(&key) else {
                 return Ok(None);
-            }
-            if let Some(database) = open.get(&database_key(scope, id)) {
-                return Ok(Some(Arc::clone(database)));
-            }
-            Some(Database::open_existing(path).map_err(error)?)
+            };
+            return Ok(self
+                .copy_path(scope, id)?
+                .try_exists()?
+                .then(|| Arc::clone(database)));
         };
-        Ok(database.map(|database| {
-            Arc::clone(
-                open.entry(database_key(scope, id))
-                    .or_insert_with(|| Arc::new(database)),
-            )
-        }))
+        let database = Database::open_shared_existing(host, &self.resource_namespace(scope, id)?)
+            .map_err(error)?;
+        Ok(database
+            .map(|database| Arc::clone(open.entry(key).or_insert_with(|| Arc::new(database)))))
     }
 
     /// Lists live database Resources in `scope`.
@@ -1026,6 +1024,46 @@ mod tests {
                 .register_selected(&scope, id)
                 .expect("deny later provisioning")
         );
+    }
+
+    #[test]
+    fn standalone_pull_requires_a_warm_owner_and_does_not_touch_the_cold_file() {
+        let root = env::temp_dir().join(format!("pull-standalone-{}", Id::now_v7()));
+        let scope = Scope {
+            subject: "owner",
+            application: Id::now_v7(),
+        };
+        let runtime = DatabaseRuntime::new(root.clone()).expect("runtime");
+        let resource = runtime
+            .ensure(&scope, "first-upload", None)
+            .expect("provision through authorized path");
+        let path = runtime
+            .copy_path(&scope, resource.id)
+            .expect("physical copy path");
+        drop(runtime);
+        let before = fs::read(&path).expect("cold file");
+
+        let runtime = DatabaseRuntime::new(root.clone()).expect("reopen catalog");
+        assert!(
+            runtime
+                .open_existing_for_pull(&scope, resource.id)
+                .expect("cold Pull lookup")
+                .is_none()
+        );
+        assert_eq!(fs::read(&path).expect("file unchanged"), before);
+        let ordinary = runtime
+            .open_existing(&scope, resource.id)
+            .expect("ordinary open")
+            .expect("live copy");
+        let pull = runtime
+            .open_existing_for_pull(&scope, resource.id)
+            .expect("warm Pull")
+            .expect("open copy");
+        assert!(std::sync::Arc::ptr_eq(&ordinary, &pull));
+        drop(pull);
+        drop(ordinary);
+        drop(runtime);
+        fs::remove_dir_all(root).expect("remove test data");
     }
 
     #[tokio::test]
