@@ -2,6 +2,8 @@ import { Database } from "@ofsdk/sql";
 import { type StoreIdentity, type SyncClientOptions } from "@ofsdk/storage-sync-client";
 import { type Observable } from "rxjs";
 import type { DatabaseHandle, FilesystemHandle, KvStoreHandle, SyncConfig, SyncSDK, SyncState } from "./core";
+export { SyncError } from "@ofsdk/storage-sync-client";
+export { createSqlResourceSync, type SqlResourceSync, type SqlResourceSyncOptions, } from "./sql-sync-lifecycle";
 /** Browser sync SDK implementation */
 export declare class BrowserSyncSDK implements SyncSDK {
     private storageClient;

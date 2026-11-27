@@ -49,7 +49,8 @@ export function hello(identity: StoreIdentity): Uint8Array {
 export function attach(
   identity: StoreIdentity,
   token: string,
-  direction: SyncDirection
+  direction: SyncDirection,
+  firstUpload: boolean
 ): Uint8Array {
   const tag = directions.indexOf(direction);
   if (tag < 0) throw new Error("Invalid sync direction");
@@ -60,7 +61,7 @@ export function attach(
     MAX_FRAME_BYTES
   )
     throw new Error("Sync attach exceeds frame limit");
-  return Uint8Array.from([1, ...identityBytes, ...vector(tokenBytes), tag]);
+  return Uint8Array.from([firstUpload ? 7 : 1, ...identityBytes, ...vector(tokenBytes), tag]);
 }
 export function owner(payload: Uint8Array): Uint8Array {
   if (payload.length + uint(BigInt(payload.length)).length + 2 > MAX_FRAME_BYTES)
@@ -177,7 +178,7 @@ export function response(payload: Uint8Array) {
     return { type: "owner" as const, data };
   }
   if (tag === 4) {
-    const reason = Number(reader.uint(3n));
+    const reason = Number(reader.uint(4n));
     if (reason === 3) reader.vector();
     reader.done();
     return { type: "abort" as const, reason };
@@ -185,6 +186,10 @@ export function response(payload: Uint8Array) {
   if (tag === 5 || tag === 6) {
     reader.done();
     return { type: tag === 5 ? ("ping" as const) : ("pong" as const) };
+  }
+  if (tag === 8) {
+    reader.done();
+    return { type: "published" as const };
   }
   throw new Error("Unexpected sync message");
 }

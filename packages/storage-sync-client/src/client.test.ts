@@ -443,3 +443,34 @@ test("reports malformed API URLs as a protocol error", () => {
       })
   ).toThrowError(expect.objectContaining({ name: "SyncError", code: "protocol" }));
 });
+
+test("uses the server FirstUpload envelope and keeps SQL bytes opaque until the publish receipt", async () => {
+  const session = await client().attachFirstUpload({ identity });
+  const socket = TestSocket.latest;
+  expect(socket.sent).toEqual([bytes(fixtures.hello), bytes(fixtures.firstUpload)]);
+  session.send(Uint8Array.of(7, 8, 9));
+  expect(socket.sent[2]).toEqual(bytes(fixtures.owner));
+  socket.receive(fixtures.owner);
+  socket.receive(fixtures.firstUploadPublished);
+  await expect(session.receive()).resolves.toEqual(Uint8Array.of(7, 8, 9));
+  socket.close();
+  await expect(session.waitForPublish()).resolves.toBeUndefined();
+  session.close();
+});
+
+test("exposes a populated destination at attach without sending SQL or falling back", async () => {
+  TestSocket.reply = fixtures.destinationHasHistory;
+  await expect(client().attachFirstUpload({ identity })).rejects.toMatchObject({
+    code: "destination-has-history",
+  });
+  expect(TestSocket.latest.sent).toEqual([bytes(fixtures.hello), bytes(fixtures.firstUpload)]);
+  expect(TestSocket.latest.readyState).toBe(3);
+});
+
+test("rejects a publish receipt delivered in place of an SQL message", async () => {
+  const session = await client().attachFirstUpload({ identity });
+  const pending = session.receive();
+  TestSocket.latest.receive(fixtures.firstUploadPublished);
+  await expect(pending).rejects.toMatchObject({ code: "protocol" });
+  await expect(session.waitForPublish()).rejects.toMatchObject({ code: "protocol" });
+});

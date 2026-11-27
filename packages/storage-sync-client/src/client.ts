@@ -10,7 +10,7 @@ import {
   type SyncDirection,
   unframe,
 } from "./protocol.js";
-import { createSession, type SyncSession } from "./session.js";
+import { createSession, type FirstUploadSession, type SyncSession } from "./session.js";
 
 export interface SyncClientOptions {
   storageApiUrl: string;
@@ -34,7 +34,7 @@ export class SyncClient {
   private readonly url: string;
   private readonly options: SyncClientOptions;
   constructor(options: SyncClientOptions) {
-    this.options = options;
+    this.options = { storageApiUrl: options.storageApiUrl, tokenProvider: options.tokenProvider };
     let url: URL;
     try {
       url = new URL(options.storageApiUrl);
@@ -57,6 +57,23 @@ export class SyncClient {
     this.url = url.href;
   }
   attach(options: AttachOptions): Promise<SyncSession> {
+    return this.connect(options, false);
+  }
+
+  /** Attach for guarded initial publication, without falling back to normal sync. */
+  attachFirstUpload(options: Omit<AttachOptions, "direction">): Promise<FirstUploadSession> {
+    const { identity } = options;
+    return this.connect(
+      {
+        ...options,
+        identity: { ...identity, schemaFingerprint: new Uint8Array(identity.schemaFingerprint) },
+        direction: "Bidirectional",
+      },
+      true
+    );
+  }
+
+  private connect(options: AttachOptions, firstUpload: boolean): Promise<FirstUploadSession> {
     return new Promise((resolve, reject) => {
       let socket: WebSocket | undefined;
       let settled = false;
@@ -90,7 +107,7 @@ export class SyncClient {
       const opened = () => {
         try {
           send(helloPayload);
-          send(attachPayload);
+          if (!firstUpload) send(attachPayload);
         } catch {
           failed();
         }
@@ -106,6 +123,7 @@ export class SyncClient {
             payload.every((b, i) => b === helloPayload[i])
           ) {
             echoedHello = true;
+            if (firstUpload) send(attachPayload);
             return;
           }
           const message = response(payload);
@@ -117,7 +135,8 @@ export class SyncClient {
             stop(serverAbort(message.reason));
             return;
           }
-          if (message.type !== "attach") throw new Error("Expected attach response");
+          if (message.type !== "attach" || (firstUpload && !echoedHello))
+            throw new Error("Expected attach response");
           if (!message.accepted) {
             stop(new SyncError("auth", "Sync attach rejected"));
             return;
@@ -146,7 +165,9 @@ export class SyncClient {
           if (!socket) throw new Error("Missing attached socket");
           cleanup();
           settled = true;
-          resolve(createSession(socket, Object.freeze(result), options.signal, usedBytes));
+          resolve(
+            createSession(socket, Object.freeze(result), options.signal, usedBytes, firstUpload)
+          );
         } catch (error) {
           stop(
             new SyncError(
@@ -178,7 +199,7 @@ export class SyncClient {
         }
         try {
           helloPayload = hello(options.identity);
-          attachPayload = attach(options.identity, token, options.direction);
+          attachPayload = attach(options.identity, token, options.direction, firstUpload);
         } catch {
           stop(new SyncError("protocol", "Invalid sync store identity or direction"));
           return;

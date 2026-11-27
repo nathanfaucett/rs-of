@@ -1,10 +1,17 @@
 import { readFile } from "node:fs/promises";
-import { Database } from "@ofsdk/sql";
+import { Database, JsSqlSyncTransport, SqlHistoryRole } from "@ofsdk/sql";
 import { indexedDB } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initSync } from "../../sql/pkg/ofdb_wasm.js";
+import {
+  frame,
+  MAX_FRAME_BYTES,
+  owner,
+  response,
+  unframe,
+} from "../../storage-sync-client/src/protocol";
 import fixtures from "../../storage-sync-client/src/wire-fixtures.json";
-import { BrowserSyncSDK, createEstablishedSqlHandle } from "../src/browser";
+import { BrowserSyncSDK, createEstablishedSqlHandle, createSqlResourceSync } from "../src/browser";
 import type { SyncConfig, SyncSDK } from "../src/core";
 import { NodeSyncSDK } from "../src/node";
 
@@ -290,3 +297,131 @@ describe.each(["browser", "node"] as const)("%s SQL sync lifecycle", (kind) => {
     expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
   });
 });
+
+it.each(["published", "lost receipt", "destination has history"] as const)(
+  "first upload on the already-open database: %s",
+  async (result) => {
+    vi.stubGlobal("indexedDB", indexedDB);
+    const source = await Database.open(`sdk-first-upload-source-${result}`);
+    const stage = await Database.open(`sdk-first-upload-stage-${result}`);
+    const local = source.client();
+    const staged = stage.client();
+    const open = vi.spyOn(indexedDB, "open");
+    let finishExchange!: () => void;
+    let failExchange!: (reason: unknown) => void;
+    const stagedExchange = new Promise<void>((resolve, reject) => {
+      finishExchange = resolve;
+      failExchange = reject;
+    });
+    let attempts = 0;
+    vi.stubGlobal(
+      "WebSocket",
+      class extends StalledSocket {
+        private readonly attempt = ++attempts;
+        private readonly inbox = new TransformStream<Uint8Array, Uint8Array>();
+        private readonly writer = this.inbox.writable.getWriter();
+
+        override send(data: Uint8Array) {
+          if (this.attempt > 1 && this.sent.length === 1) {
+            this.sent.push(data);
+            this.receive(fixtures.destinationHasHistory);
+            return;
+          }
+          super.send(data);
+          if (this.sent.length === 2) {
+            const reader = this.inbox.readable.getReader();
+            void stage
+              .synchronizeHistory(
+                new JsSqlSyncTransport({
+                  send: async (payload: Uint8Array) => this.receiveBytes(frame(owner(payload))),
+                  receive: async () => {
+                    const { value } = await reader.read();
+                    if (!value) throw new Error("Test socket closed");
+                    return value;
+                  },
+                }),
+                SqlHistoryRole.Responder
+              )
+              .then(finishExchange, failExchange);
+          } else if (this.sent.length > 2) {
+            const message = response(unframe(data.slice().buffer, MAX_FRAME_BYTES));
+            if (message.type !== "owner") throw new Error("Expected SQL owner data");
+            void this.writer.write(message.data).catch(() => {});
+          }
+        }
+
+        override close() {
+          super.close();
+          void this.writer.abort().catch(() => {});
+        }
+      }
+    );
+    try {
+      await local.executeRaw("CREATE TABLE items (id UUID PRIMARY KEY, value TEXT)");
+      await local.executeRaw("INSERT INTO items (value) VALUES ('local data')");
+      const identity = {
+        storeId: "11111111-1111-1111-1111-111111111111",
+        replicaId: "22222222-2222-2222-2222-222222222222",
+        creationEpoch: 300n,
+        schemaFingerprint: new Uint8Array(32).fill(0x33),
+      };
+      const options = {
+        storageApiUrl: "https://node.test/storage",
+        tokenProvider: () => "idp-token-é",
+        mode: "first-upload" as const,
+      };
+      const sync = createSqlResourceSync(source, identity, options);
+      identity.storeId = "44444444-4444-4444-4444-444444444444";
+      identity.schemaFingerprint.fill(0xff);
+      options.storageApiUrl = "https://other.test/storage";
+      options.tokenProvider = () => "different-token";
+      try {
+        const pending = sync.sync();
+        const onSuccess = vi.fn();
+        void pending.then(onSuccess, () => {});
+        await stagedExchange;
+        const socket = StalledSocket.latest;
+        expect(socket.url).toBe("wss://node.test/storage/sync/ws");
+        expect(socket.sent.slice(0, 2)).toEqual([
+          bytes(fixtures.hello),
+          bytes(fixtures.firstUpload),
+        ]);
+        await expect(staged.executeRaw("SELECT value FROM items")).resolves.toMatchObject([
+          { rows: [[{ type: "text", value: "local data" }]] },
+        ]);
+        expect(onSuccess).not.toHaveBeenCalled();
+        if (result === "published") {
+          socket.receive(fixtures.firstUploadPublished);
+          await expect(pending).resolves.toBeUndefined();
+        } else if (result === "lost receipt") {
+          socket.close();
+          await expect(pending).rejects.toMatchObject({ code: "transport" });
+          await expect(sync.sync()).rejects.toMatchObject({ code: "destination-has-history" });
+          expect(attempts).toBe(2);
+          expect(StalledSocket.latest.url).toBe(socket.url);
+          expect(StalledSocket.latest.sent).toEqual([
+            bytes(fixtures.hello),
+            bytes(fixtures.firstUpload),
+          ]);
+        } else {
+          socket.receive(fixtures.destinationHasHistory);
+          await expect(pending).rejects.toMatchObject({ code: "destination-has-history" });
+          expect(attempts).toBe(1);
+        }
+      } finally {
+        await sync.close();
+      }
+      await expect(local.executeRaw("SELECT value FROM items")).resolves.toMatchObject([
+        { rows: [[{ type: "text", value: "local data" }]] },
+      ]);
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      open.mockRestore();
+      local.close();
+      staged.close();
+      source.close();
+      stage.close();
+      vi.unstubAllGlobals();
+    }
+  }
+);
