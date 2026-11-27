@@ -55,7 +55,7 @@ async fn selection_snapshot(
     Path(endpoint_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<SelectedResourcesResponse>, ErrorResponse> {
-    authorize_storage(&state, &headers, MANAGEMENT_REPLICATION_READ_SCOPE).await?;
+    authorize_storage_actor(&state, &headers, MANAGEMENT_REPLICATION_READ_SCOPE, false).await?;
     crate::authority::DeviceAuthority::from_parts(state.control_plane, state.selection_policies)
         .selected_resources_read_only(&endpoint_id)
         .await
@@ -172,23 +172,36 @@ async fn authorize_storage(
     headers: &HeaderMap,
     required_scope: &str,
 ) -> Result<(), ErrorResponse> {
+    authorize_storage_actor(state, headers, required_scope, true).await
+}
+
+async fn authorize_storage_actor(
+    state: &RouterState,
+    headers: &HeaderMap,
+    required_scope: &str,
+    renew: bool,
+) -> Result<(), ErrorResponse> {
     let token = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .filter(|token| !token.is_empty())
         .ok_or_else(|| ErrorResponse::new(ErrorCode::NotAuthorized))?;
-    let (claims, _) = state
-        .control_plane
-        .validate_actor_token(token)
-        .await
-        .map_err(|error| {
-            if error == "actor token was rejected by IdP" {
-                ErrorResponse::new(ErrorCode::NotAuthorized)
-            } else {
-                unavailable()
-            }
-        })?;
+    let (claims, _) = if renew {
+        state.control_plane.validate_actor_token(token).await
+    } else {
+        state
+            .control_plane
+            .validate_actor_token_read_only(token)
+            .await
+    }
+    .map_err(|error| {
+        if error == "actor token was rejected by IdP" {
+            ErrorResponse::new(ErrorCode::NotAuthorized)
+        } else {
+            unavailable()
+        }
+    })?;
     if !replication_client_authorized(&claims, &state.storage_audience, required_scope) {
         return Err(denied());
     }

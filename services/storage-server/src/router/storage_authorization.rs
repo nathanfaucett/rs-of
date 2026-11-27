@@ -43,15 +43,27 @@ pub async fn authorize_storage_token(
     idp_client: &IdpClient,
     token: &str,
 ) -> Result<StorageAuthorization, StorageAuthorizationError> {
-    let response = idp_client
-        .introspect(token)
-        .await
-        .map_err(|error| match error {
-            IdpIntrospectionError::InvalidToken => StorageAuthorizationError::InvalidToken,
-            IdpIntrospectionError::ServiceUnavailable => {
-                StorageAuthorizationError::ServiceUnavailable
-            }
-        })?;
+    authorize_inspected_token(idp_client.introspect(token).await)
+}
+
+#[cfg(feature = "sync")]
+pub async fn authorize_storage_token_read_only(
+    idp_client: &IdpClient,
+    token: &str,
+) -> Result<StorageAuthorization, StorageAuthorizationError> {
+    if idp_client.has_local_device_policy() {
+        return Err(StorageAuthorizationError::InvalidToken);
+    }
+    authorize_inspected_token(idp_client.inspect_identity_read_only(token).await)
+}
+
+fn authorize_inspected_token(
+    response: Result<IntrospectionResponse, IdpIntrospectionError>,
+) -> Result<StorageAuthorization, StorageAuthorizationError> {
+    let response = response.map_err(|error| match error {
+        IdpIntrospectionError::InvalidToken => StorageAuthorizationError::InvalidToken,
+        IdpIntrospectionError::ServiceUnavailable => StorageAuthorizationError::ServiceUnavailable,
+    })?;
     storage_authorization(response)
 }
 

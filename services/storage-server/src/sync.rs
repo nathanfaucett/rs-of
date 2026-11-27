@@ -248,7 +248,7 @@ async fn authorize_device_sync(
 ) -> Result<SyncAuth, SyncAuthError> {
     let introspection = if read_only {
         // The snapshot below validates the owner binding without IdP's reconciling Device hook.
-        idp.inspect_identity(token).await
+        idp.inspect_identity_read_only(token).await
     } else {
         idp.introspect(token).await
     }
@@ -304,16 +304,28 @@ async fn authorize_session(
     if let Some(device) = device {
         return authorize_sync(idp, device, token, identity, endpoint_id).await;
     }
-    let authorization = crate::router::storage_authorization::authorize_storage_token(idp, token)
-        .await
-        .map_err(|error| match error {
-            crate::router::storage_authorization::StorageAuthorizationError::InvalidToken => {
-                SyncAuthError::Unauthorized
-            }
-            crate::router::storage_authorization::StorageAuthorizationError::ServiceUnavailable => {
-                SyncAuthError::BackendUnavailable
-            }
-        })?;
+    authorize_local_session(idp, token, identity, false).await
+}
+
+async fn authorize_local_session(
+    idp: &IdpClient,
+    token: &str,
+    identity: &StoreIdentity,
+    read_only: bool,
+) -> Result<SyncAuth, SyncAuthError> {
+    use crate::router::storage_authorization::{
+        StorageAuthorizationError, authorize_storage_token, authorize_storage_token_read_only,
+    };
+
+    let authorization = if read_only {
+        authorize_storage_token_read_only(idp, token).await
+    } else {
+        authorize_storage_token(idp, token).await
+    }
+    .map_err(|error| match error {
+        StorageAuthorizationError::InvalidToken => SyncAuthError::Unauthorized,
+        StorageAuthorizationError::ServiceUnavailable => SyncAuthError::BackendUnavailable,
+    })?;
     if authorization.resource != "storage:sync"
         || !authorization.can_read
         || !authorization.can_write
@@ -424,8 +436,7 @@ impl SessionAuthorization<'_> {
                 )
                 .await
             }
-            None if !self.idp.has_local_device_policy() => return self.check().await,
-            None => Err(SyncAuthError::Unauthorized),
+            None => authorize_local_session(self.idp, self.token, self.identity, true).await,
         };
         self.require_current(result)
     }

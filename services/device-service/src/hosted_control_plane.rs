@@ -131,7 +131,7 @@ impl HostedControlPlane {
         })
     }
 
-    /// Callbacks must validate against the current local `IdP` owner on every call.
+    /// Callbacks must read current `IdP` authority on every call without writing.
     #[must_use]
     pub fn with_local_idp<F, T, U, V>(mut self, inspect: F, active_user: U) -> Self
     where
@@ -183,13 +183,17 @@ impl HostedControlPlane {
     ///
     /// Returns an error when the User is invalid, inactive, or cannot be checked.
     pub async fn active_user(&self, user: Id) -> Result<(), String> {
+        self.check_active_user(user, true).await
+    }
+
+    async fn check_active_user(&self, user: Id, renew: bool) -> Result<(), String> {
         if user.is_nil() {
             return Err("invalid User ID".into());
         }
         if let Some(local) = &self.local_idp {
             return (local.active_user)(user).await;
         }
-        let token = self.idp_service_access_token().await?;
+        let token = self.idp_reader_token(renew).await?;
         active_user(
             &self.idp_configuration(Some(token)),
             ActiveUserParams {
@@ -271,7 +275,7 @@ impl HostedControlPlane {
         Ok(self)
     }
 
-    pub(crate) async fn idp_service_access_token(&self) -> Result<String, String> {
+    async fn idp_reader_token(&self, renew: bool) -> Result<String, String> {
         const RENEWAL_MARGIN: Duration = Duration::from_secs(15);
 
         let token_client = self
@@ -295,6 +299,9 @@ impl HostedControlPlane {
         };
         if let Some(token) = cached_token {
             return Ok(token);
+        }
+        if !renew {
+            return Err("IdP reader service token is not current".into());
         }
 
         let configuration = self.idp_configuration(None);
@@ -357,9 +364,28 @@ impl HostedControlPlane {
         &self,
         actor_token: &str,
     ) -> Result<(StandardClaims, Id), String> {
+        self.inspect_actor_token(actor_token, true).await
+    }
+
+    /// Validates current authority without renewing the `IdP` service credential.
+    ///
+    /// # Errors
+    /// Returns an error when the credential is not current or actor validation fails.
+    pub async fn validate_actor_token_read_only(
+        &self,
+        actor_token: &str,
+    ) -> Result<(StandardClaims, Id), String> {
+        self.inspect_actor_token(actor_token, false).await
+    }
+
+    async fn inspect_actor_token(
+        &self,
+        actor_token: &str,
+        renew: bool,
+    ) -> Result<(StandardClaims, Id), String> {
         let response = match &self.local_idp {
             Some(local) => (local.inspect)(actor_token.to_owned()).await?,
-            None => self.introspect_actor_token(actor_token).await?,
+            None => self.introspect_actor_token(actor_token, renew).await?,
         };
         self.validate_actor_response(response)
     }
@@ -367,8 +393,9 @@ impl HostedControlPlane {
     async fn introspect_actor_token(
         &self,
         actor_token: &str,
+        renew: bool,
     ) -> Result<IntrospectionResponse, String> {
-        let service_token = self.idp_service_access_token().await?;
+        let service_token = self.idp_reader_token(renew).await?;
         let response = introspect(
             &self.idp_configuration(Some(service_token)),
             IntrospectParams {
@@ -430,6 +457,28 @@ impl HostedControlPlane {
         &self,
         endpoint_id: &str,
     ) -> Result<DeviceEndpointIdentity, String> {
+        self.read_storage_endpoint_identity(endpoint_id, true).await
+    }
+
+    /// Checks the approved Device and active owner without renewing the `IdP` service credential.
+    ///
+    /// # Errors
+    /// Returns an error when the current Device and owner cannot be confirmed without renewal.
+    pub async fn get_storage_endpoint_identity_read_only(
+        &self,
+        endpoint_id: &str,
+    ) -> Result<DeviceEndpointIdentity, String> {
+        self.read_storage_endpoint_identity(endpoint_id, false)
+            .await
+    }
+
+    async fn read_storage_endpoint_identity(
+        &self,
+        endpoint_id: &str,
+        renew: bool,
+    ) -> Result<DeviceEndpointIdentity, String> {
+        #[cfg(not(feature = "ofdb"))]
+        let _ = renew;
         let endpoint = endpoint_id
             .parse::<EndpointId>()
             .map_err(|_error| "invalid endpoint ID")?;
@@ -451,7 +500,7 @@ impl HostedControlPlane {
             if device.id.is_nil() || owner.is_nil() || owner.to_string() != device.owner_subject {
                 return Err("invalid Device owner binding".into());
             }
-            self.active_user(owner).await?;
+            self.check_active_user(owner, renew).await?;
             Ok(DeviceEndpointIdentity {
                 device_id: device.id,
                 owner_subject: device.owner_subject,

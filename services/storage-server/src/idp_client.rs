@@ -113,7 +113,7 @@ impl IdpClient {
         })
     }
 
-    /// The callback must query the current local IdP owner on every invocation.
+    /// The callback must read current local IdP authority without writing on every invocation.
     pub fn local<F, U>(inspect: F) -> Self
     where
         F: Fn(String) -> U + Send + Sync + 'static,
@@ -173,7 +173,22 @@ impl IdpClient {
     ) -> Result<IntrospectionResponse, IdpIntrospectionError> {
         match &self.backend {
             IdpBackend::Local { inspect } => inspect(token.to_owned()).await,
-            IdpBackend::Http(http) => http.introspect(token).await,
+            IdpBackend::Http(http) => http.introspect(token, true).await,
+        }
+    }
+
+    /// Inspects current identity with no Device reconciliation or service credential renewal.
+    ///
+    /// # Errors
+    /// Returns an error if the `IdP` rejects the token, is unavailable, or needs credential renewal.
+    #[cfg(feature = "sync")]
+    pub async fn inspect_identity_read_only(
+        &self,
+        token: &str,
+    ) -> Result<IntrospectionResponse, IdpIntrospectionError> {
+        match &self.backend {
+            IdpBackend::Local { inspect } => inspect(token.to_owned()).await,
+            IdpBackend::Http(http) => http.introspect(token, false).await,
         }
     }
 }
@@ -189,7 +204,7 @@ impl HttpIdpClient {
         }
     }
 
-    async fn service_access_token(&self) -> Result<String, String> {
+    async fn service_access_token(&self, renew: bool) -> Result<String, String> {
         if let Some(token) = self
             .cached_token
             .lock()
@@ -204,6 +219,9 @@ impl HttpIdpClient {
             .map(|token| token.value.clone())
         {
             return Ok(token);
+        }
+        if !renew {
+            return Err("IdP reader service token is not current".into());
         }
 
         let configuration = self.configuration(None);
@@ -258,10 +276,11 @@ impl HttpIdpClient {
     async fn introspect(
         &self,
         token: &str,
+        renew: bool,
     ) -> Result<IntrospectionResponse, IdpIntrospectionError> {
         let started = std::time::Instant::now();
         let caller_token = self
-            .service_access_token()
+            .service_access_token(renew)
             .await
             .map_err(|_| IdpIntrospectionError::ServiceUnavailable)?;
         log::debug!(
@@ -607,14 +626,14 @@ mod tests {
 
         assert_eq!(
             http(&client)
-                .service_access_token()
+                .service_access_token(true)
                 .await
                 .expect("first token"),
             "service-token"
         );
         assert_eq!(
             http(&client)
-                .service_access_token()
+                .service_access_token(true)
                 .await
                 .expect("renewed token"),
             "service-token"
@@ -651,7 +670,7 @@ mod tests {
         )
         .expect("create test IdP client");
 
-        assert!(http(&client).service_access_token().await.is_err());
+        assert!(http(&client).service_access_token(true).await.is_err());
         server.join().expect("join test HTTP server");
         assert!(matches!(
             redirect_listener.accept(),
@@ -680,7 +699,7 @@ mod tests {
         )
         .expect("create test IdP client");
 
-        assert!(http(&client).service_access_token().await.is_err());
+        assert!(http(&client).service_access_token(true).await.is_err());
         assert!(
             http(&client)
                 .cached_token
@@ -710,7 +729,7 @@ mod tests {
         )
         .expect("create test IdP client");
 
-        assert!(http(&client).service_access_token().await.is_err());
+        assert!(http(&client).service_access_token(true).await.is_err());
         assert!(
             http(&client)
                 .cached_token

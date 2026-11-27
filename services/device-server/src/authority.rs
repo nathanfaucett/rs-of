@@ -63,11 +63,19 @@ impl DeviceAuthority {
         endpoint_id: &str,
         reconcile: bool,
     ) -> Result<SelectedResourcesResponse, ErrorResponse> {
-        let identity = self
-            .control
-            .get_storage_endpoint_identity(endpoint_id)
-            .await
-            .map_err(|_| unavailable())?;
+        let endpoint_identity = async || {
+            if reconcile {
+                self.control
+                    .get_storage_endpoint_identity(endpoint_id)
+                    .await
+            } else {
+                self.control
+                    .get_storage_endpoint_identity_read_only(endpoint_id)
+                    .await
+            }
+            .map_err(|_error| unavailable())
+        };
+        let identity = endpoint_identity().await?;
         let observation = if reconcile {
             self.policies
                 .observe_owner_prevalidated(identity.device_id, &identity.owner_subject)
@@ -100,13 +108,7 @@ impl DeviceAuthority {
                 (None, allowed, resources)
             }
         };
-        if self
-            .control
-            .get_storage_endpoint_identity(endpoint_id)
-            .await
-            .map_err(|_| unavailable())?
-            != identity
-        {
+        if endpoint_identity().await? != identity {
             return Err(denied());
         }
         Ok(SelectedResourcesResponse {
