@@ -4,7 +4,7 @@ use std::{
     io,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
@@ -213,6 +213,7 @@ pub struct SyncAuth {
     pub application_id: String,
     pub store_id: Uuid,
     pub direction: AttachDirection,
+    pub expires_at: i64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -228,14 +229,35 @@ pub async fn authorize_sync(
     identity: &StoreIdentity,
     endpoint_id: &str,
 ) -> Result<SyncAuth, SyncAuthError> {
-    let introspection = idp.introspect(token).await.map_err(|error| match error {
+    authorize_device_sync(idp, device, token, identity, endpoint_id, false).await
+}
+
+fn unix_time_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64)
+}
+
+async fn authorize_device_sync(
+    idp: &IdpClient,
+    device: &DeviceClient,
+    token: &str,
+    identity: &StoreIdentity,
+    endpoint_id: &str,
+    read_only: bool,
+) -> Result<SyncAuth, SyncAuthError> {
+    let introspection = if read_only {
+        // The snapshot below validates the owner binding without IdP's reconciling Device hook.
+        idp.inspect_identity(token).await
+    } else {
+        idp.introspect(token).await
+    }
+    .map_err(|error| match error {
         IdpIntrospectionError::InvalidToken => SyncAuthError::Unauthorized,
         IdpIntrospectionError::ServiceUnavailable => SyncAuthError::BackendUnavailable,
     })?;
     let claims = &introspection.claims;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64);
+    let now = unix_time_seconds();
     if claims.exp <= now
         || claims.nbf > now
         || claims.r#use != of_model::contract::token_use::TokenUse::Access
@@ -243,11 +265,14 @@ pub async fn authorize_sync(
     {
         return Err(SyncAuthError::Unauthorized);
     }
-    let selected = device
-        .selected_resources(endpoint_id)
-        .await
-        .map_err(|_| SyncAuthError::BackendUnavailable)?;
-    if selected.endpoint_id != endpoint_id
+    let selected = if read_only {
+        device.selection_snapshot(endpoint_id).await
+    } else {
+        device.selected_resources(endpoint_id).await
+    }
+    .map_err(|_error| SyncAuthError::BackendUnavailable)?;
+    if claims.exp <= unix_time_seconds()
+        || selected.endpoint_id != endpoint_id
         || selected.owner_subject != claims.sub
         || !selected.admin_allowed
         || selected.pending_cleanup.is_some()
@@ -265,6 +290,7 @@ pub async fn authorize_sync(
         application_id: introspection.application_id,
         store_id: identity.store_id,
         direction: AttachDirection::Bidirectional,
+        expires_at: claims.exp,
     })
 }
 
@@ -299,6 +325,7 @@ async fn authorize_session(
         application_id: authorization.application_id,
         store_id: identity.store_id,
         direction: AttachDirection::Bidirectional,
+        expires_at: authorization.expires_at,
     })
 }
 
@@ -372,16 +399,44 @@ struct SessionAuthorization<'a> {
 
 impl SessionAuthorization<'_> {
     async fn check(&self) -> io::Result<()> {
-        match authorize_session(
-            self.idp,
-            self.device,
-            self.token,
-            self.identity,
-            self.endpoint_id,
+        self.require_current(
+            authorize_session(
+                self.idp,
+                self.device,
+                self.token,
+                self.identity,
+                self.endpoint_id,
+            )
+            .await,
         )
-        .await
-        {
-            Ok(current) if &current == self.expected => Ok(()),
+    }
+
+    async fn check_publish(&self) -> io::Result<()> {
+        let result = match self.device {
+            Some(device) => {
+                authorize_device_sync(
+                    self.idp,
+                    device,
+                    self.token,
+                    self.identity,
+                    self.endpoint_id,
+                    true,
+                )
+                .await
+            }
+            None if !self.idp.has_local_device_policy() => return self.check().await,
+            None => Err(SyncAuthError::Unauthorized),
+        };
+        self.require_current(result)
+    }
+
+    fn require_current(&self, result: Result<SyncAuth, SyncAuthError>) -> io::Result<()> {
+        match result {
+            Ok(current)
+                if &current == self.expected && current.expires_at > unix_time_seconds() =>
+            {
+                Ok(())
+            }
             _ => Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "sync authorization unavailable or revoked",
@@ -630,10 +685,11 @@ async fn exchange_attached_history(
     let config = SessionConfig::default();
     if first_upload {
         database
-            .receive_first_upload(&mut transport, &config, staging_dir, || async {
-                timeout(FIRST_UPLOAD_AUTH_TIMEOUT, check())
+            .receive_first_upload(&mut transport, &config, staging_dir, check, || async {
+                timeout(FIRST_UPLOAD_AUTH_TIMEOUT, authorization.check_publish())
                     .await
                     .map_err(|_elapsed| "first-upload authorization timed out".to_owned())?
+                    .map_err(|error| error.to_string())
             })
             .await
             .map_err(exchange_abort)?;

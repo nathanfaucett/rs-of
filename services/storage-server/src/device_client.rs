@@ -83,11 +83,11 @@ impl DeviceClient {
         })
     }
 
-    async fn service_access_token(&self) -> Result<String, String> {
-        if let Some(token) = self
+    fn cached_service_token(&self) -> Result<Option<String>, String> {
+        Ok(self
             .cached_token
             .lock()
-            .map_err(|_| "Management service token cache is unavailable".to_owned())?
+            .map_err(|_error| "Management service token cache is unavailable".to_owned())?
             .as_ref()
             .filter(|token| {
                 token
@@ -95,8 +95,11 @@ impl DeviceClient {
                     .duration_since(SystemTime::now())
                     .is_ok_and(|remaining| remaining > RENEWAL_MARGIN)
             })
-            .map(|token| token.value.clone())
-        {
+            .map(|token| token.value.clone()))
+    }
+
+    async fn service_access_token(&self) -> Result<String, String> {
+        if let Some(token) = self.cached_service_token()? {
             return Ok(token);
         }
         let configuration = of_idp_client::apis::configuration::Configuration {
@@ -175,6 +178,33 @@ impl DeviceClient {
             }
         }
         Ok(response.endpoint_ids)
+    }
+
+    pub async fn selection_snapshot(
+        &self,
+        endpoint_id: &str,
+    ) -> Result<SelectedResourcesResponse, String> {
+        // The ordinary pre-apply check refreshes the token before writer admission.
+        let service_token = self
+            .cached_service_token()?
+            .ok_or("Device Selection service token is not current")?;
+        let mut url = self.device_base_url.clone();
+        url.path_segments_mut()
+            .map_err(|()| "invalid Device endpoint URL")?
+            .pop_if_empty()
+            .extend(["replication", "selection-snapshots", endpoint_id]);
+        let response = self
+            .client
+            .get(url)
+            .bearer_auth(service_token)
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .map_err(|_error| "Device Selection snapshot unavailable or denied")?;
+        let text = of_device_client::apis::configuration::bounded_text(response, MAX_RESPONSE_SIZE)
+            .await
+            .map_err(|_error| "invalid Device Selection snapshot")?;
+        serde_json::from_str(&text).map_err(|_error| "invalid Device Selection snapshot".into())
     }
 
     pub async fn selected_resources(

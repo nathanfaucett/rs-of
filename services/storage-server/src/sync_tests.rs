@@ -1,6 +1,9 @@
 use std::{
     io,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicI64, Ordering},
+    },
     time::Duration,
 };
 
@@ -25,7 +28,7 @@ use super::{
 };
 use crate::{
     device_client::DeviceClient,
-    execution_test_support::{TestDirectory, sql},
+    execution_test_support::{Gate, TestDirectory, sql},
     idp_client::IdpClient,
 };
 
@@ -116,6 +119,8 @@ struct Fixture {
     identity: StoreIdentity,
     namespace: WsNamespace,
     policy: Arc<Mutex<Value>>,
+    expires_at: Arc<AtomicI64>,
+    snapshot_gate: Arc<Mutex<Option<Gate>>>,
     databases: Arc<storage_service::database_runtime::DatabaseRuntime>,
     state: RouterState,
     tasks: Vec<JoinHandle<()>>,
@@ -144,6 +149,34 @@ impl Fixture {
             "deviceId": "device", "endpointId": "test-endpoint", "ownerSubject": "alice", "adminAllowed": true,
             "resources": [{ "ownerSubject": "alice", "applicationId": application.to_string(), "kind": "database", "resourceId": identity.store_id.to_string() }]
         })));
+        let (databases, control) = if shared {
+            use db::adapters::EmbeddedDatabase;
+            let database = EmbeddedDatabase::open(directory.0.join("server"))
+                .await
+                .expect("shared host");
+            let client = database.client();
+            client.execute_sql("CREATE TABLE snapshot_control (id UUID PRIMARY KEY); INSERT INTO snapshot_control DEFAULT VALUES", None).await.expect("read-only owner fixture");
+            (
+                storage_service::database_runtime::DatabaseRuntime::with_shared(
+                    database.storage(),
+                    client.clone(),
+                )
+                .expect("shared runtime"),
+                Some(client),
+            )
+        } else {
+            (
+                storage_service::database_runtime::DatabaseRuntime::new(directory.0.join("server"))
+                    .expect("server databases"),
+                None,
+            )
+        };
+        let databases = Arc::new(databases);
+        let snapshot_gate: Arc<Mutex<Option<Gate>>> = Arc::new(Mutex::new(None));
+        let gate = snapshot_gate.clone();
+        let snapshot = policy.clone();
+        let expires_at = Arc::new(AtomicI64::new(i64::MAX));
+        let expiry = expires_at.clone();
         let selected = policy.clone();
         let owners = Router::new()
             .route("/idp/oauth2/token", post(|| async { Json(json!({
@@ -153,6 +186,21 @@ impl Fixture {
             .route("/device/replication/devices/test-endpoint/selections", get(move || {
                 let selected = selected.clone();
                 async move { Json(selected.lock().expect("policy lock").clone()) }
+            }))
+            .route("/device/replication/selection-snapshots/test-endpoint", get(move || {
+                let control = control.clone();
+                let policy = snapshot.clone();
+                let gate = gate.lock().expect("snapshot gate").clone();
+                async move {
+                    if let Some(control) = control {
+                        let rows = control.execute_sql("SELECT id FROM snapshot_control", None).await.expect("read selection evidence from the same shared host");
+                        assert_eq!(rows[0].rows.len(), 1);
+                    }
+                    if let Some(gate) = gate {
+                        gate.pause().await;
+                    }
+                    Json(policy.lock().expect("policy lock").clone())
+                }
             }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -170,33 +218,22 @@ impl Fixture {
             "idp-management",
         )
         .expect("Device client");
-        let idp = IdpClient::local(move |_| async move {
-            let mut response = json!({
-                "claims": { "type": "Bearer", "use": "Access", "exp": i64::MAX, "iat": 0, "nbf": 0,
-                    "iss": "https://idp.example", "aud": "storage:sync", "client_id": "client", "sub": "alice", "principal_type": "user", "scope": "" },
-                "applicationId": application.to_string()
-            });
-            if local {
-                response["claims"]["aud"] = json!("storage:sync");
-                response["claims"]["resource"] = json!("storage:sync");
-                response["claims"]["authorization_details"] =
-                    json!([{ "type": "storage", "actions": ["read", "write"] }]);
+        let idp = IdpClient::local(move |_| {
+            let exp = expiry.load(Ordering::Relaxed);
+            async move {
+                let mut response = json!({
+                    "claims": { "type": "Bearer", "use": "Access", "exp": exp, "iat": 0, "nbf": 0,
+                        "iss": "https://idp.example", "aud": "storage:sync", "client_id": "client", "sub": "alice", "principal_type": "user", "scope": "" },
+                    "applicationId": application.to_string()
+                });
+                if local {
+                    response["claims"]["aud"] = json!("storage:sync");
+                    response["claims"]["resource"] = json!("storage:sync");
+                    response["claims"]["authorization_details"] =
+                        json!([{ "type": "storage", "actions": ["read", "write"] }]);
+                }
+                Ok(serde_json::from_value(response).expect("introspection"))
             }
-            Ok(serde_json::from_value(response).expect("introspection"))
-        });
-        let databases = Arc::new(if shared {
-            use db::adapters::EmbeddedDatabase;
-            let database = EmbeddedDatabase::open(directory.0.join("server"))
-                .await
-                .expect("shared host");
-            storage_service::database_runtime::DatabaseRuntime::with_shared(
-                database.storage(),
-                database.client(),
-            )
-            .expect("shared runtime")
-        } else {
-            storage_service::database_runtime::DatabaseRuntime::new(directory.0.join("server"))
-                .expect("server databases")
         });
         let state = RouterState::new("http://localhost", "test-endpoint")
             .with_idp_client(idp)
@@ -232,6 +269,8 @@ impl Fixture {
                 application_id: application,
             },
             policy,
+            expires_at,
+            snapshot_gate,
             databases,
             state,
             tasks: vec![owner_task, task],
@@ -930,6 +969,52 @@ async fn ws_first_upload_aborts_unauthorized_if_selection_is_revoked_while_write
     );
     assert_eq!(
         source.history_manifest().await.expect("source history"),
+        before
+    );
+}
+
+#[tokio::test]
+async fn ws_first_upload_rejects_token_expiring_during_shared_selection_snapshot() {
+    let fixture = Fixture::with_storage(true).await;
+    let source = ofdb_sql::Database::in_memory();
+    sql(&source, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('local')").await;
+    let before = source.history_manifest().await.expect("source history");
+    let target = fixture
+        .databases
+        .open_selected(&fixture.namespace, fixture.identity.store_id)
+        .expect("open target")
+        .expect("selected target");
+    let gate = Gate::default();
+    *fixture.snapshot_gate.lock().expect("snapshot gate") = Some(gate.clone());
+    let expires_at = super::unix_time_seconds() + 4;
+    fixture.expires_at.store(expires_at, Ordering::Relaxed);
+    let (socket, response) = fixture.first_upload().await;
+    assert!(matches!(response, SyncMessage::AttachResponse(response) if response.accepted));
+    let mut socket = stage_upload(&fixture, &source, socket).await;
+    timeout(Duration::from_secs(5), gate.reached())
+        .await
+        .expect("read-only snapshot under the shared writer");
+    assert!(
+        super::unix_time_seconds() < expires_at,
+        "snapshot must start before expiry"
+    );
+    while super::unix_time_seconds() < expires_at {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    gate.release();
+    assert_eq!(
+        receive(&mut socket).await,
+        SyncMessage::Abort(AbortReason::Unauthorized)
+    );
+    assert_eq!(
+        target
+            .history_manifest()
+            .await
+            .expect("destination history"),
+        SyncManifest::default()
+    );
+    assert_eq!(
+        source.history_manifest().await.expect("unchanged source"),
         before
     );
 }

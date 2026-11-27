@@ -31,6 +31,14 @@ fn shared_stages_store_ordered_records_in_the_host_only() {
         );
         assert_eq!(stage.next_record().await.expect("end"), None);
         drop(stage);
+        let mut stages = Vec::new();
+        for _ in 0..128 {
+            stages.push(factory.create().await.expect("available shared stage slot"));
+        }
+        assert!(factory.create().await.is_err());
+        drop(stages.pop());
+        assert!(factory.create().await.is_ok());
+        drop(stages);
         drop(factory);
         drop(host);
         fs::remove_file(path).expect("remove single host file");

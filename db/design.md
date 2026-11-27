@@ -89,3 +89,5 @@ SQL-specific crate directories use `sql-*`; their Cargo package names use `ofdb-
 ### Apply authorization and staging
 
 Database open, write and sync invocation require validated Installation tokens. `of` enforces token audience, scope and expiration; `ofdb` receives a caller-validated `Client` and executes without further policy checks. Staging (memory, caller-provided, optional native Redb) is an `ofdb` implementation detail, not an `of` policy surface.
+
+Shared SQL sync staging permits at most 128 live stages and pending cleanups per process. One worker removes tables when a stage cannot acquire writer admission immediately; dropping a stage does not wait for an authorizing writer.

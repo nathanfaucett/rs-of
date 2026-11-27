@@ -157,7 +157,17 @@ impl IdpClient {
         Ok(response)
     }
 
-    async fn inspect_identity(
+    #[cfg(feature = "sync")]
+    pub fn has_local_device_policy(&self) -> bool {
+        self.local_device_policy.is_some()
+    }
+
+    /// Inspects the IdP identity only. The caller must separately authorize Device and Resource access.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the IdP rejects the token or is unavailable.
+    pub async fn inspect_identity(
         &self,
         token: &str,
     ) -> Result<IntrospectionResponse, IdpIntrospectionError> {

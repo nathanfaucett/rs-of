@@ -412,6 +412,27 @@ impl DbSelectionPolicyRepo {
     /// # Errors
     ///
     /// Returns an error when the snapshot is conflicted, invalid, or cannot be read.
+    pub async fn observe_owner_prevalidated(
+        &self,
+        device_id: Uuid,
+        owner_subject: &str,
+    ) -> DeviceResult<OwnerPolicyObservation> {
+        self.observe_owner(device_id, owner_subject, true).await
+    }
+
+    /// Reads current policy without resolving conflicts or recording an owner transition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the policy cannot be read or safe use needs cleanup or repair.
+    pub async fn observe_owner_read_only(
+        &self,
+        device_id: Uuid,
+        owner_subject: &str,
+    ) -> DeviceResult<OwnerPolicyObservation> {
+        self.observe_owner(device_id, owner_subject, false).await
+    }
+
     #[allow(
         clippy::significant_drop_tightening,
         reason = "commit consumes the transaction and releases its resources"
@@ -420,15 +441,18 @@ impl DbSelectionPolicyRepo {
         clippy::too_many_lines,
         reason = "keep the owner transition and retirement fence in one auditable transaction"
     )]
-    pub async fn observe_owner_prevalidated(
+    async fn observe_owner(
         &self,
         device_id: Uuid,
         owner_subject: &str,
+        reconcile: bool,
     ) -> DeviceResult<OwnerPolicyObservation> {
         if device_id.is_nil() || owner_subject.trim().is_empty() {
             return Err(invalid("invalid Device owner binding"));
         }
-        self.resolve_convergent_conflicts(device_id).await?;
+        if reconcile {
+            self.resolve_convergent_conflicts(device_id).await?;
+        }
         let mut transaction = self.engine.transaction().await.map_err(db_error)?;
         if !transaction
             .row_conflicts(TABLE, &key(device_id))
@@ -537,6 +561,9 @@ impl DbSelectionPolicyRepo {
                 }
             }
             return Ok(OwnerPolicyObservation::Ready { policy, resources });
+        }
+        if !reconcile {
+            return Err(invalid("Device owner cleanup required"));
         }
         let cleanup_id = if pending {
             let value = retained

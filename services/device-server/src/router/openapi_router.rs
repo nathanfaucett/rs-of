@@ -103,11 +103,13 @@ pub fn openapi_router(router_state: RouterState, prefix: &str) -> OpenApiRouter 
     let openapi_spec =
         server_common::canonical_openapi("device", &router_state.api_base_uri, prefix);
     let prefix = if prefix == "/" { "" } else { prefix };
+    let runtime = routes()
+        .merge(super::routes::replication::selection_snapshot_router().into())
+        .with_state(router_state);
     let runtime_router = if prefix.is_empty() {
-        OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(routes().with_state(router_state))
+        OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(runtime)
     } else {
-        OpenApiRouter::with_openapi(ApiDoc::openapi())
-            .nest(prefix, routes().with_state(router_state))
+        OpenApiRouter::with_openapi(ApiDoc::openapi()).nest(prefix, runtime)
     };
 
     let openapi_json_routes = OpenApiRouter::new()
