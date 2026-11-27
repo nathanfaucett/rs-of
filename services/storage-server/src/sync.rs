@@ -4,7 +4,7 @@ use std::{
     io,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
@@ -25,8 +25,14 @@ use uuid::Uuid;
 
 use crate::{
     device_client::DeviceClient,
-    idp_client::{IdpClient, IdpIntrospectionError},
-    router::state::RouterState,
+    idp_client::IdpClient,
+    router::{
+        state::RouterState,
+        storage_authorization::{
+            StorageAuthorization, StorageAuthorizationError, authorize_inspected_token,
+            authorize_storage_token, authorize_storage_token_read_only,
+        },
+    },
 };
 
 pub const MAX_FRAME_PAYLOAD: u32 = 16 * 1024 * 1024;
@@ -213,6 +219,7 @@ pub struct SyncAuth {
     pub application_id: String,
     pub store_id: Uuid,
     pub direction: AttachDirection,
+    pub expires_at: i64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -228,44 +235,57 @@ pub async fn authorize_sync(
     identity: &StoreIdentity,
     endpoint_id: &str,
 ) -> Result<SyncAuth, SyncAuthError> {
-    let introspection = idp.introspect(token).await.map_err(|error| match error {
-        IdpIntrospectionError::InvalidToken => SyncAuthError::Unauthorized,
-        IdpIntrospectionError::ServiceUnavailable => SyncAuthError::BackendUnavailable,
-    })?;
-    let claims = &introspection.claims;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64);
-    if claims.exp <= now
-        || claims.nbf > now
-        || claims.r#use != of_model::contract::token_use::TokenUse::Access
-        || claims.aud != "storage:sync"
+    authorize_device_sync(idp, device, token, identity, endpoint_id, false).await
+}
+
+fn unix_time_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs().min(i64::MAX as u64) as i64)
+}
+
+async fn authorize_device_sync(
+    idp: &IdpClient,
+    device: &DeviceClient,
+    token: &str,
+    identity: &StoreIdentity,
+    endpoint_id: &str,
+    read_only: bool,
+) -> Result<SyncAuth, SyncAuthError> {
+    let introspection = if read_only {
+        // The snapshot below validates the owner binding without IdP's reconciling Device hook.
+        idp.inspect_identity_read_only(token).await
+    } else {
+        idp.introspect(token).await
+    };
+    if introspection
+        .as_ref()
+        .is_ok_and(|response| response.claims.nbf > unix_time_seconds())
     {
         return Err(SyncAuthError::Unauthorized);
     }
-    let selected = device
-        .selected_resources(endpoint_id)
-        .await
-        .map_err(|_| SyncAuthError::BackendUnavailable)?;
-    if selected.endpoint_id != endpoint_id
-        || selected.owner_subject != claims.sub
+    let auth = authorize_bidirectional(authorize_inspected_token(introspection), identity)?;
+    let selected = if read_only {
+        device.selection_snapshot(endpoint_id).await
+    } else {
+        device.selected_resources(endpoint_id).await
+    }
+    .map_err(|_error| SyncAuthError::BackendUnavailable)?;
+    if auth.expires_at <= unix_time_seconds()
+        || selected.endpoint_id != endpoint_id
+        || selected.owner_subject != auth.subject
         || !selected.admin_allowed
         || selected.pending_cleanup.is_some()
         || !selected.resources.iter().any(|resource| {
-            resource.owner_subject == claims.sub
-                && resource.application_id == introspection.application_id
+            resource.owner_subject == auth.subject
+                && resource.application_id == auth.application_id
                 && resource.resource_id == identity.store_id.to_string()
                 && resource.kind == "database"
         })
     {
         return Err(SyncAuthError::Unauthorized);
     }
-    Ok(SyncAuth {
-        subject: claims.sub.clone(),
-        application_id: introspection.application_id,
-        store_id: identity.store_id,
-        direction: AttachDirection::Bidirectional,
-    })
+    Ok(auth)
 }
 
 async fn authorize_session(
@@ -278,16 +298,31 @@ async fn authorize_session(
     if let Some(device) = device {
         return authorize_sync(idp, device, token, identity, endpoint_id).await;
     }
-    let authorization = crate::router::storage_authorization::authorize_storage_token(idp, token)
-        .await
-        .map_err(|error| match error {
-            crate::router::storage_authorization::StorageAuthorizationError::InvalidToken => {
-                SyncAuthError::Unauthorized
-            }
-            crate::router::storage_authorization::StorageAuthorizationError::ServiceUnavailable => {
-                SyncAuthError::BackendUnavailable
-            }
-        })?;
+    authorize_local_session(idp, token, identity, false).await
+}
+
+async fn authorize_local_session(
+    idp: &IdpClient,
+    token: &str,
+    identity: &StoreIdentity,
+    read_only: bool,
+) -> Result<SyncAuth, SyncAuthError> {
+    let authorization = if read_only {
+        authorize_storage_token_read_only(idp, token).await
+    } else {
+        authorize_storage_token(idp, token).await
+    };
+    authorize_bidirectional(authorization, identity)
+}
+
+fn authorize_bidirectional(
+    authorization: Result<StorageAuthorization, StorageAuthorizationError>,
+    identity: &StoreIdentity,
+) -> Result<SyncAuth, SyncAuthError> {
+    let authorization = authorization.map_err(|error| match error {
+        StorageAuthorizationError::InvalidToken => SyncAuthError::Unauthorized,
+        StorageAuthorizationError::ServiceUnavailable => SyncAuthError::BackendUnavailable,
+    })?;
     if authorization.resource != "storage:sync"
         || !authorization.can_read
         || !authorization.can_write
@@ -299,6 +334,7 @@ async fn authorize_session(
         application_id: authorization.application_id,
         store_id: identity.store_id,
         direction: AttachDirection::Bidirectional,
+        expires_at: authorization.expires_at,
     })
 }
 
@@ -372,16 +408,43 @@ struct SessionAuthorization<'a> {
 
 impl SessionAuthorization<'_> {
     async fn check(&self) -> io::Result<()> {
-        match authorize_session(
-            self.idp,
-            self.device,
-            self.token,
-            self.identity,
-            self.endpoint_id,
+        self.require_current(
+            authorize_session(
+                self.idp,
+                self.device,
+                self.token,
+                self.identity,
+                self.endpoint_id,
+            )
+            .await,
         )
-        .await
-        {
-            Ok(current) if &current == self.expected => Ok(()),
+    }
+
+    async fn check_publish(&self) -> io::Result<()> {
+        let result = match self.device {
+            Some(device) => {
+                authorize_device_sync(
+                    self.idp,
+                    device,
+                    self.token,
+                    self.identity,
+                    self.endpoint_id,
+                    true,
+                )
+                .await
+            }
+            None => authorize_local_session(self.idp, self.token, self.identity, true).await,
+        };
+        self.require_current(result)
+    }
+
+    fn require_current(&self, result: Result<SyncAuth, SyncAuthError>) -> io::Result<()> {
+        match result {
+            Ok(current)
+                if &current == self.expected && current.expires_at > unix_time_seconds() =>
+            {
+                Ok(())
+            }
             _ => Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "sync authorization unavailable or revoked",
@@ -630,10 +693,11 @@ async fn exchange_attached_history(
     let config = SessionConfig::default();
     if first_upload {
         database
-            .receive_first_upload(&mut transport, &config, staging_dir, || async {
-                timeout(FIRST_UPLOAD_AUTH_TIMEOUT, check())
+            .receive_first_upload(&mut transport, &config, staging_dir, check, || async {
+                timeout(FIRST_UPLOAD_AUTH_TIMEOUT, authorization.check_publish())
                     .await
                     .map_err(|_elapsed| "first-upload authorization timed out".to_owned())?
+                    .map_err(|error| error.to_string())
             })
             .await
             .map_err(exchange_abort)?;

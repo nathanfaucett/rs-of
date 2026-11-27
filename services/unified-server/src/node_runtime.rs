@@ -259,3 +259,7 @@ impl NodeRuntime {
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "node_publish_tests.rs"]
+mod publish_tests;

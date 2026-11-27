@@ -42,6 +42,26 @@ pub(crate) async fn selected_resources(
         .map(Json)
 }
 
+// Dedicated internal route: old owners must reject it, not run the reconciling GET.
+pub fn selection_snapshot_router() -> axum::Router<RouterState> {
+    axum::Router::new().route(
+        "/replication/selection-snapshots/{endpoint_id}",
+        axum::routing::get(selection_snapshot),
+    )
+}
+
+async fn selection_snapshot(
+    State(state): State<RouterState>,
+    Path(endpoint_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<SelectedResourcesResponse>, ErrorResponse> {
+    authorize_storage_actor(&state, &headers, MANAGEMENT_REPLICATION_READ_SCOPE, false).await?;
+    crate::authority::DeviceAuthority::from_parts(state.control_plane, state.selection_policies)
+        .selected_resources_read_only(&endpoint_id)
+        .await
+        .map(Json)
+}
+
 #[utoipa::path(
     post,
     path = "/replication/admission",
@@ -152,23 +172,36 @@ async fn authorize_storage(
     headers: &HeaderMap,
     required_scope: &str,
 ) -> Result<(), ErrorResponse> {
+    authorize_storage_actor(state, headers, required_scope, true).await
+}
+
+async fn authorize_storage_actor(
+    state: &RouterState,
+    headers: &HeaderMap,
+    required_scope: &str,
+    renew: bool,
+) -> Result<(), ErrorResponse> {
     let token = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .filter(|token| !token.is_empty())
         .ok_or_else(|| ErrorResponse::new(ErrorCode::NotAuthorized))?;
-    let (claims, _) = state
-        .control_plane
-        .validate_actor_token(token)
-        .await
-        .map_err(|error| {
-            if error == "actor token was rejected by IdP" {
-                ErrorResponse::new(ErrorCode::NotAuthorized)
-            } else {
-                unavailable()
-            }
-        })?;
+    let (claims, _) = if renew {
+        state.control_plane.validate_actor_token(token).await
+    } else {
+        state
+            .control_plane
+            .validate_actor_token_read_only(token)
+            .await
+    }
+    .map_err(|error| {
+        if error == "actor token was rejected by IdP" {
+            ErrorResponse::new(ErrorCode::NotAuthorized)
+        } else {
+            unavailable()
+        }
+    })?;
     if !replication_client_authorized(&claims, &state.storage_audience, required_scope) {
         return Err(denied());
     }
@@ -277,9 +310,9 @@ mod tests {
         let resource = Id::now_v7();
         let endpoint =
             "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_owned();
-        let root =
-            std::env::temp_dir().join(format!("device-current-policy-{}.redb", Id::now_v7()));
-        let engine = Arc::new(ofdb_sql::Database::open(&root).expect("open policy"));
+        let host = ofdb_sql::SharedDatabase::in_memory().expect("shared owner host");
+        let engine =
+            Arc::new(ofdb_sql::Database::open_shared(&host, "device-owner").expect("open policy"));
         up(&engine).await.expect("initialize policy");
         let inserted = engine.client().translate_and_execute(&format!("INSERT INTO devices (owner_subject, name, public_key, address, state, approved_at, revoked_at, created_at, updated_at) VALUES ('{owner}', 'test', '{endpoint}', '', 1, 1, NULL, 1, 1) RETURNING id"), &ofdb_sql::SqlTranslator).await.expect("Management Device");
         let device: Id =
@@ -433,6 +466,53 @@ mod tests {
                 }
                 _ => {}
             }
+            if matches!(step, 0 | 4) {
+                let writer = host
+                    .namespace("publish")
+                    .expect("publish namespace")
+                    .database();
+                let transaction = writer.transaction().await.expect("publish transaction");
+                transaction
+                    .create_table::<u64, u64>(&format!("publish-{step}"))
+                    .expect("force a physical write before the owner check");
+                transaction
+                    .commit_checked(|| async {
+                        let request = Request::builder()
+                            .uri(format!("/replication/selection-snapshots/{endpoint}"))
+                            .header(AUTHORIZATION, "Bearer storage-token")
+                            .body(Body::empty())
+                            .expect("snapshot request");
+                        let response = tokio::time::timeout(
+                            std::time::Duration::from_secs(5),
+                            router.clone().oneshot(request),
+                        )
+                        .await
+                        .expect("snapshot must not wait for the shared writer")
+                        .expect("snapshot response");
+                        if step == 0 {
+                            assert_eq!(response.status(), StatusCode::OK);
+                            let body = to_bytes(response.into_body(), 65536)
+                                .await
+                                .expect("snapshot body");
+                            let policy: SelectedResourcesResponse =
+                                serde_json::from_slice(&body).expect("snapshot policy");
+                            assert!(policy.admin_allowed);
+                            assert_eq!(policy.resources[0].resource_id, resource.to_string());
+                        } else {
+                            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                        }
+                        Ok::<(), String>(())
+                    })
+                    .await
+                    .expect("commit test writer")
+                    .expect("snapshot check");
+                assert!(
+                    !policies
+                        .local_cleanup_pending(device)
+                        .await
+                        .expect("snapshot did not create cleanup")
+                );
+            }
             let response = router
                 .clone()
                 .oneshot(
@@ -508,7 +588,6 @@ mod tests {
         drop(router);
         drop(policies);
         drop(engine);
-        fs::remove_file(root).expect("remove isolated policy database");
     }
 
     #[test]

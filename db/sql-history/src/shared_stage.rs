@@ -1,5 +1,17 @@
-use alloc::{format, string::String, vec::Vec};
-use std::{io, thread};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
+use std::{
+    io,
+    sync::{
+        OnceLock,
+        atomic::{AtomicUsize, Ordering},
+        mpsc::{SyncSender, sync_channel},
+    },
+    thread,
+};
 
 use futures::executor::block_on;
 
@@ -7,6 +19,64 @@ use btree::{BTree, BTreeRead, BTreeTransaction};
 use btree_redb::SharedNamespace;
 
 use crate::{FileSyncStage, FileSyncStageFactory, SyncStage, SyncStageFactory};
+
+const MAX_SHARED_STAGES: usize = 128;
+static ACTIVE_SHARED_STAGES: AtomicUsize = AtomicUsize::new(0);
+static CLEANUP: OnceLock<io::Result<SyncSender<Cleanup>>> = OnceLock::new();
+
+#[derive(Debug)]
+struct StageSlot;
+
+impl StageSlot {
+    fn reserve() -> io::Result<Self> {
+        cleanup_sender()?;
+        let mut active = ACTIVE_SHARED_STAGES.load(Ordering::Relaxed);
+        loop {
+            if active >= MAX_SHARED_STAGES {
+                return Err(io::Error::other("shared SQL stage limit reached"));
+            }
+            match ACTIVE_SHARED_STAGES.compare_exchange_weak(
+                active,
+                active + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(current) => active = current,
+            }
+        }
+        Ok(Self)
+    }
+}
+
+impl Drop for StageSlot {
+    fn drop(&mut self) {
+        ACTIVE_SHARED_STAGES.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+struct Cleanup {
+    namespace: SharedNamespace,
+    table: String,
+    _slot: StageSlot,
+}
+
+fn cleanup_sender() -> io::Result<&'static SyncSender<Cleanup>> {
+    CLEANUP
+        .get_or_init(|| {
+            let (send, receive) = sync_channel::<Cleanup>(MAX_SHARED_STAGES);
+            thread::Builder::new()
+                .name("ofdb-sql-stage-cleanup".into())
+                .spawn(move || {
+                    for job in receive {
+                        let _ = block_on(job.namespace.remove_table(&job.table));
+                    }
+                })?;
+            Ok(send)
+        })
+        .as_ref()
+        .map_err(|error| io::Error::new(error.kind(), error.to_string()))
+}
 
 #[derive(Debug)]
 pub enum NativeSyncStageFactory {
@@ -48,6 +118,7 @@ impl SyncStageFactory for NativeSyncStageFactory {
                     count: 0,
                     next: 0,
                     finished: false,
+                    slot: Some(StageSlot::reserve()?),
                 }))
             }
         }
@@ -61,6 +132,7 @@ pub struct SharedSyncStage {
     count: u64,
     next: u64,
     finished: bool,
+    slot: Option<StageSlot>,
 }
 
 impl SyncStage for NativeSyncStage {
@@ -139,11 +211,17 @@ impl SyncStage for NativeSyncStage {
 
 impl Drop for SharedSyncStage {
     fn drop(&mut self) {
-        if let Ok(false) = self.namespace.try_remove_table(&self.table) {
-            // A checked writer may be awaiting authorization on this executor.
-            let namespace = self.namespace.clone();
-            let table = core::mem::take(&mut self.table);
-            let _ = thread::Builder::new().spawn(move || block_on(namespace.remove_table(&table)));
+        if self.count != 0
+            && let Ok(false) = self.namespace.try_remove_table(&self.table)
+        {
+            // Each live stage or queued cleanup owns a slot, so cleanup cannot fill the queue.
+            let sender = cleanup_sender().expect("stage creation initialized the cleanup worker");
+            let job = Cleanup {
+                namespace: self.namespace.clone(),
+                table: core::mem::take(&mut self.table),
+                _slot: self.slot.take().expect("stage owns one cleanup slot"),
+            };
+            let _ = sender.try_send(job);
         }
     }
 }

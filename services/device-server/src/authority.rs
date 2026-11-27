@@ -43,16 +43,49 @@ impl DeviceAuthority {
         &self,
         endpoint_id: &str,
     ) -> Result<SelectedResourcesResponse, ErrorResponse> {
-        let identity = self
-            .control
-            .get_storage_endpoint_identity(endpoint_id)
-            .await
-            .map_err(|_| unavailable())?;
-        let observation = self
-            .policies
-            .observe_owner_prevalidated(identity.device_id, &identity.owner_subject)
-            .await
-            .map_err(|_| unavailable())?;
+        self.observe_selected_resources(endpoint_id, true).await
+    }
+
+    /// Reads current Selection without repairing conflicts or starting owner cleanup.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Device, owner or policy cannot be confirmed without writes.
+    pub async fn selected_resources_read_only(
+        &self,
+        endpoint_id: &str,
+    ) -> Result<SelectedResourcesResponse, ErrorResponse> {
+        self.observe_selected_resources(endpoint_id, false).await
+    }
+
+    async fn observe_selected_resources(
+        &self,
+        endpoint_id: &str,
+        reconcile: bool,
+    ) -> Result<SelectedResourcesResponse, ErrorResponse> {
+        let endpoint_identity = async || {
+            if reconcile {
+                self.control
+                    .get_storage_endpoint_identity(endpoint_id)
+                    .await
+            } else {
+                self.control
+                    .get_storage_endpoint_identity_read_only(endpoint_id)
+                    .await
+            }
+            .map_err(|_error| unavailable())
+        };
+        let identity = endpoint_identity().await?;
+        let observation = if reconcile {
+            self.policies
+                .observe_owner_prevalidated(identity.device_id, &identity.owner_subject)
+                .await
+        } else {
+            self.policies
+                .observe_owner_read_only(identity.device_id, &identity.owner_subject)
+                .await
+        }
+        .map_err(|_error| unavailable())?;
         let (pending_cleanup, admin_allowed, resources) = match observation {
             OwnerPolicyObservation::PendingCleanup {
                 cleanup_id,
@@ -75,13 +108,7 @@ impl DeviceAuthority {
                 (None, allowed, resources)
             }
         };
-        if self
-            .control
-            .get_storage_endpoint_identity(endpoint_id)
-            .await
-            .map_err(|_| unavailable())?
-            != identity
-        {
+        if endpoint_identity().await? != identity {
             return Err(denied());
         }
         Ok(SelectedResourcesResponse {

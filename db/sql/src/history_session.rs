@@ -194,18 +194,21 @@ impl Database {
     ///
     /// Returns an error for transport, validation, authorization, staging, or publish failure.
     #[cfg(feature = "redb")]
-    pub async fn receive_first_upload<T, Q, U>(
+    pub async fn receive_first_upload<T, Q, U, P, V>(
         &self,
         transport: &mut T,
         config: &SessionConfig,
         directory: impl AsRef<Path>,
         mut check: Q,
+        publish: P,
     ) -> Result<(), SyncError<T::Error>>
     where
         T: SyncTransport + platform::MaybeSend,
         T::Error: Display + platform::MaybeSend,
         Q: FnMut() -> U + platform::MaybeSend,
         U: Future<Output = Result<(), String>> + platform::MaybeSend,
+        P: FnOnce() -> V + platform::MaybeSend,
+        V: Future<Output = Result<(), String>> + platform::MaybeSend,
     {
         let DatabaseBackend::File(resource) = &self.backend else {
             return Err(engine::EngineError::Unsupported("native first upload").into());
@@ -238,7 +241,7 @@ impl Database {
                         &*engine,
                         &staged,
                         config.max_session_bytes,
-                        check,
+                        publish,
                     )
                 })
                 .await

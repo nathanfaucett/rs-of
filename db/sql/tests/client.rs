@@ -515,12 +515,17 @@ async fn first_upload_rechecks_authorization_after_waiting_for_destination_write
     let (target_send, source_receive) = unbounded_channel();
     let mut initiator = Channel(source_send, source_receive);
     let mut responder = Channel(target_send, target_receive);
+    let check = || {
+        ready(if allowed.load(Ordering::Relaxed) {
+            Ok(())
+        } else {
+            Err("revoked".into())
+        })
+    };
     let (result, ()) = timeout(Duration::from_secs(10), async {
         tokio::join!(
             biased;
-            target.receive_first_upload(&mut responder, &config, directory.path(), || {
-                ready(if allowed.load(Ordering::Relaxed) { Ok(()) } else { Err("revoked".into()) })
-            }),
+            target.receive_first_upload(&mut responder, &config, directory.path(), check, check),
             async {
                 source.exchange_resource_history(&mut initiator, &config, SyncRole::Initiator, directory.path(), || ready(Ok(()))).await.expect("SQL exchange with staged destination");
                 // The responder runs first and the channel sends never suspend. Once SQL
@@ -640,7 +645,7 @@ async fn shared_first_upload_rechecks_after_host_writer_and_allows_control_reads
         check: Q,
     ) -> Result<(), SyncError<&'static str>>
     where
-        Q: FnMut() -> U + Send,
+        Q: FnMut() -> U + Send + Copy,
         U: Future<Output = Result<(), String>> + Send,
     {
         let config = SessionConfig::default();
@@ -656,7 +661,7 @@ async fn shared_first_upload_rechecks_after_host_writer_and_allows_control_reads
                 directory,
                 || ready(Ok(()))
             ),
-            target.receive_first_upload(&mut responder, &config, directory, check),
+            target.receive_first_upload(&mut responder, &config, directory, check, check),
         );
         exchange.expect("SQL exchange with private candidate");
         publish
