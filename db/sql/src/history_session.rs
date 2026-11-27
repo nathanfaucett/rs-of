@@ -96,7 +96,9 @@ impl Database {
             }
         }
     }
-    /// Atomically restores a trusted catalog and its rows, without an untrusted peer admission policy.
+    /// Imports trusted catalog and row history in separate validated batches.
+    /// A later batch can fail after an earlier batch commits. Use a private stage if
+    /// a failure must leave the destination unchanged. This is not peer admission.
     ///
     /// # Errors
     ///
