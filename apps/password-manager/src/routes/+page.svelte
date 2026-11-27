@@ -91,7 +91,7 @@ async function retryLocalSave() {
     try {
         await syncStateModule.retryBindingSave(session);
         await readBinding(session);
-        if (session === authState.session) notice = "Storage binding saved. Your vaults stay on this browser.";
+        if (session === authState.session) notice = "Storage binding saved. Sync is detached. Your vaults stay on this browser.";
     } catch (cause) {
         error = cause instanceof Error ? cause.message : "Could not save the Storage binding.";
         await readBinding(session);
@@ -121,11 +121,12 @@ async function syncNow() {
 
 async function signOut() {
     const session = authState.session;
-    if (!session || signingOut) return;
+    if ((!session && !authState.logoutError) || signingOut) return;
     signingOut = true;
     error = "";
     try {
-        await syncStateModule.signOut(session);
+        if (session) await syncStateModule.signOut(session);
+        else await authState.logout();
     } catch (cause) {
         error = cause instanceof Error ? cause.message : "Could not detach Storage and sign out.";
     } finally {
@@ -296,10 +297,13 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                 description="Select a vault to unlock, or create a new one."
             />
             {#if notice}<p role="status">{notice}</p>{/if}
-            {#if error}<Alert tone="danger">{error}</Alert>{/if}
+            {#if authState.logoutError}<Alert tone="danger">{authState.logoutError}</Alert>
+            {:else if error}<Alert tone="danger">{error}</Alert>{/if}
             <Card>
                 <div class="flex flex-col gap-4">
-                    {#if !authState.isAuthenticated}
+                    {#if authState.logoutError}
+                        <button class="btn btn-secondary btn-md" type="button" disabled={signingOut} onclick={signOut}>Retry sign-out</button>
+                    {:else if !authState.isAuthenticated}
                         <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
                     {:else}
                         {#if currentBinding?.status === "unbound" && vaultStateModule.state.vaults.some((vault) => !vault.synced)}

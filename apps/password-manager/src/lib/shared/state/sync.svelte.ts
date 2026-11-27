@@ -21,7 +21,7 @@ const receiptKey = `${bindingLock}:receipt`;
 let receiptInMemory: Receipt | null | undefined;
 
 type Binding = { namespace: string; id: string; confirmationId: string };
-type Receipt = Binding & { expected: null };
+type Receipt = Binding & { version: 1; loginState: string; expected: null };
 type Database = Awaited<ReturnType<typeof openSharedDatabase>>;
 
 function storageAccess(session = authState.session) {
@@ -105,19 +105,17 @@ async function readBinding(database: Database) {
 
 async function getBinding(expected: Session) {
   const owner = namespace(expected);
-  const pending = readReceipt();
-  if (pending && pending.namespace !== owner && authState.session === expected) clearReceipt();
   const database = await openSharedDatabase();
   try {
     const record = await readBinding(database);
     if (!record) {
-      const receipt = readReceipt();
-      return receipt?.namespace === owner
+      const receipt = readReceipt(expected);
+      return receipt
         ? ({ status: "pending-save", id: receipt.id } as const)
         : ({ status: "unbound" } as const);
     }
     if (record.namespace !== owner) return { status: "different-account" } as const;
-    return { status: "bound", id: record.id, detached: !isAttached(record) } as const;
+    return { status: "bound", id: record.id, detached: !isAttached(record, expected) } as const;
   } finally {
     database.close();
   }
@@ -134,12 +132,16 @@ async function findRestoreResource(expected: Session, signal?: AbortSignal) {
 
 export class BindingSaveError extends Error {}
 
-function readReceipt(): Receipt | undefined {
-  if (receiptInMemory !== undefined) return receiptInMemory ?? undefined;
+function readReceipt(expected: Session): Receipt | undefined {
   try {
-    const value = JSON.parse(localStorage.getItem(receiptKey) ?? "null");
+    const value =
+      receiptInMemory === undefined
+        ? JSON.parse(localStorage.getItem(receiptKey) ?? "null")
+        : receiptInMemory;
     if (
-      typeof value?.namespace === "string" &&
+      value?.version === 1 &&
+      value.loginState === expected.loginState &&
+      value.namespace === namespace(expected) &&
       typeof value.id === "string" &&
       value.id &&
       typeof value.confirmationId === "string" &&
@@ -180,25 +182,27 @@ function clearReceipt() {
 }
 
 function clearPendingConfirmation(expected: Session) {
-  if (readReceipt()?.namespace === namespace(expected)) clearReceipt();
+  if (readReceipt(expected)) clearReceipt();
 }
 
-async function savePublishedBinding(database: Database, expected: Session) {
+async function savePublishedBinding(database: Database, expected: Session, activate: boolean) {
   try {
     const record = await readBinding(database);
-    const receipt = readReceipt();
-    if (!authState.hasVerifiedToken(expected) || receipt?.namespace !== namespace(expected))
-      throw new BindingSaveError("There is no verified upload to save for this account.");
+    const receipt = readReceipt(expected);
+    if (!authState.hasVerifiedToken(expected) || !receipt)
+      throw new BindingSaveError("There is no verified upload to save for this login session.");
     if (record)
       throw new BindingSaveError(
         "Storage confirmed publication, but a competing local binding was kept."
       );
     // Grant permission before the CAS so a detach during the write cannot be undone by it.
-    attach(receipt.namespace, receipt.confirmationId);
+    if (activate) attach(expected, receipt.confirmationId);
+    // A retry must not match permission saved before the failed database write.
+    const binding = activate ? receipt : { ...receipt, confirmationId: crypto.randomUUID() };
     if (
-      await database.replaceInitialRestoreTag(receipt.expected ?? undefined, encodeBinding(receipt))
+      await database.replaceInitialRestoreTag(receipt.expected ?? undefined, encodeBinding(binding))
     ) {
-      if (readReceipt()?.confirmationId === receipt.confirmationId) clearReceipt();
+      if (readReceipt(expected)?.confirmationId === receipt.confirmationId) clearReceipt();
       return;
     }
   } catch (cause) {
@@ -219,7 +223,7 @@ async function retryBindingSave(expected: Session) {
     const database = await openSharedDatabase();
     try {
       signal.throwIfAborted();
-      await savePublishedBinding(database, expected);
+      await savePublishedBinding(database, expected, false);
     } finally {
       database.close();
     }
@@ -252,7 +256,7 @@ async function exchange(expected: Session, intent: Intent) {
         const confirmationId = crypto.randomUUID();
         let id: string;
         if (intent.mode === "established") {
-          if (!record || record.namespace !== owner || !isAttached(record))
+          if (!record || record.namespace !== owner || !isAttached(record, expected))
             throw new Error("There is no active Storage binding for this account.");
           id = record.id;
         } else {
@@ -270,7 +274,7 @@ async function exchange(expected: Session, intent: Intent) {
           } else {
             if (empty) throw new Error("There is no local database to upload.");
             requireSession();
-            if (readReceipt()?.namespace === owner)
+            if (readReceipt(expected))
               throw new BindingSaveError("Storage confirmed publication. Retry the local save.");
             const resource = await client.ensureDatabase(
               { creationKey, name: resourceName },
@@ -283,7 +287,7 @@ async function exchange(expected: Session, intent: Intent) {
         }
         requireSession();
         const binding = { namespace: owner, id, confirmationId };
-        if (intent.mode === "first-restore") attach(owner, confirmationId);
+        if (intent.mode === "first-restore") attach(expected, confirmationId);
         pending.sync = createSqlResourceSync(
           database,
           {
@@ -313,8 +317,13 @@ async function exchange(expected: Session, intent: Intent) {
         requireSession();
         if (intent.mode === "first-upload") {
           if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session ended");
-          retainReceipt({ ...binding, expected: null });
-          await savePublishedBinding(database, expected);
+          retainReceipt({
+            ...binding,
+            version: 1,
+            loginState: expected.loginState,
+            expected: null,
+          });
+          await savePublishedBinding(database, expected, true);
         }
       } finally {
         await pending.sync?.close();
@@ -341,18 +350,25 @@ function attachmentKey(owner: string) {
   return `${bindingLock}:attached:${owner}`;
 }
 
-function isAttached(binding: { namespace: string; revision: string }) {
+function attachmentPermission(expected: Session, revision: string) {
+  return JSON.stringify([1, expected.loginState, revision]);
+}
+
+function isAttached(binding: { namespace: string; revision: string }, expected: Session) {
   const key = attachmentKey(binding.namespace);
   try {
-    return !revoked.has(key) && localStorage.getItem(key) === binding.revision;
+    return (
+      !revoked.has(key) &&
+      localStorage.getItem(key) === attachmentPermission(expected, binding.revision)
+    );
   } catch {
     return false;
   }
 }
 
-function attach(owner: string, revision: string) {
-  const key = attachmentKey(owner);
-  localStorage.setItem(key, revision);
+function attach(expected: Session, revision: string) {
+  const key = attachmentKey(namespace(expected));
+  localStorage.setItem(key, attachmentPermission(expected, revision));
   revoked.delete(key);
 }
 
@@ -368,13 +384,14 @@ function detach(expected: Session) {
   } finally {
     channel.close();
   }
-  if (!cleared) throw new Error("Could not save detachment. Sync stays disabled in this tab.");
+  return cleared;
 }
 
 async function setDetached(expected: Session, detached: boolean) {
   if (authState.session !== expected) throw new Error("Sign-in session changed.");
   if (detached) {
-    detach(expected);
+    if (!detach(expected))
+      throw new Error("Could not save detachment. Sync stays disabled in this tab.");
     return;
   }
   const signal = AbortSignal.timeout(bindingTimeout);
@@ -386,7 +403,7 @@ async function setDetached(expected: Session, detached: boolean) {
       if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session changed.");
       if (!record || record.namespace !== namespace(expected))
         throw new Error("There is no Storage binding for this account.");
-      attach(record.namespace, record.revision);
+      attach(expected, record.revision);
     } finally {
       database.close();
     }

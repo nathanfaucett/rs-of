@@ -366,6 +366,30 @@ async function rejectNextBindingWrite(page: Page) {
   });
 }
 
+async function rejectStorageChanges(page: Page, keys: string[] | "all") {
+  await page.evaluate((keys) => {
+    const remove = Storage.prototype.removeItem;
+    const set = Storage.prototype.setItem;
+    const clear = Storage.prototype.clear;
+    function reject(storage: Storage, key: string) {
+      if (storage === localStorage && (keys === "all" || keys.includes(key)))
+        throw new DOMException("Injected localStorage failure", "SecurityError");
+    }
+    Storage.prototype.removeItem = function (key) {
+      reject(this, key);
+      remove.call(this, key);
+    };
+    Storage.prototype.setItem = function (key, value) {
+      reject(this, key);
+      set.call(this, key, value);
+    };
+    Storage.prototype.clear = function () {
+      reject(this, "");
+      clear.call(this);
+    };
+  }, keys);
+}
+
 nodeTest(
   "default Create retains the Installation and supports guarded vault upload and restore",
   async ({ node }) => {
@@ -611,7 +635,10 @@ nodeTest(
     pmPage.on("websocket", (socket) => blockedSockets.push(socket.url()));
     const receiptKey = "password-manager-v1:storage-binding:receipt";
     const receipt = await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey);
-    expect(JSON.parse(receipt ?? "null")).toMatchObject({
+    if (!receipt) throw new Error("Missing pending upload receipt");
+    expect(JSON.parse(receipt)).toMatchObject({
+      version: 1,
+      loginState: expect.any(String),
       id: resourceId,
       confirmationId: expect.any(String),
       expected: null,
@@ -646,6 +673,8 @@ nodeTest(
     expect(blockedRequests).toEqual([]);
     expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBeNull();
     await pmPage.unroute(backendRoutes);
+    await expect(pmPage.getByRole("button", { name: "Sync now", exact: true })).toHaveCount(0);
+    await pmPage.getByRole("button", { name: "Reattach sync" }).click();
     expect(await databases()).toEqual(catalog);
     const remote = () =>
       query(
@@ -693,6 +722,8 @@ nodeTest(
     await pmPage.getByRole("button", { name: "Sync now", exact: true }).click();
     expect((await renewed).ok()).toBe(true);
     await expect(pmPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    await pmPage.reload();
+    await expect(pmPage.getByRole("button", { name: "Sync now", exact: true })).toBeVisible();
     expect(await databases()).toEqual(catalog);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
 
@@ -864,26 +895,24 @@ nodeTest(
     const signedOutExchange = holdNextExchange();
     await sync.click();
     await expect.poll(() => signedOutExchange.started).toBe(true);
-    await restoredPage.evaluate(
-      ({ receiptKey, receipt }) => {
-        // A stale pending confirmation must not survive this sign-out either.
-        if (receipt) localStorage.setItem(receiptKey, receipt);
-        IDBFactory.prototype.open = () => {
-          throw new DOMException("Injected database failure", "InvalidStateError");
-        };
-        const remove = Storage.prototype.removeItem;
-        Storage.prototype.removeItem = function (key) {
-          if (key.startsWith("password-manager-v1:storage-binding:attached:"))
-            throw new DOMException("Injected attachment removal failure", "SecurityError");
-          remove.call(this, key);
-        };
-      },
-      { receiptKey, receipt }
+    const attachmentKey = `password-manager-v1:storage-binding:attached:${JSON.parse(receipt).namespace}`;
+    const attachment = await restoredPage.evaluate(
+      (key) => localStorage.getItem(key),
+      attachmentKey
     );
+    expect(attachment).not.toBeNull();
+    await rejectStorageChanges(restoredPage, [attachmentKey]);
+    await restoredPage.evaluate(() => {
+      IDBFactory.prototype.open = () => {
+        throw new DOMException("Injected database failure", "InvalidStateError");
+      };
+    });
     await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect.poll(() => signedOutExchange.closed).toBe(true);
     expect(await restoredPage.evaluate((key) => localStorage.getItem(key), tokenKey)).toBeNull();
-    expect(await restoredPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBeNull();
+    expect(await restoredPage.evaluate((key) => localStorage.getItem(key), attachmentKey)).toBe(
+      attachment
+    );
     await restoredPage.reload();
     await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
     await expect(unlocked).toHaveURL(`${pm}/`);
@@ -899,6 +928,34 @@ nodeTest(
     await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
     await sync.click();
     await expect(restoredPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    // Old permission formats also keep the destination but require explicit reattachment.
+    await restoredPage.evaluate((key) => {
+      const permission = JSON.parse(localStorage.getItem(key) ?? "null");
+      localStorage.setItem(key, permission[2]);
+    }, attachmentKey);
+    await restoredPage.reload();
+    await expect(binding).toBeVisible();
+    await expect(sync).toHaveCount(0);
+    await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
+    await expect(sync).toBeVisible();
+
+    // Failed credential cleanup stops sync here, but cannot make sign-out durable.
+    await rejectStorageChanges(restoredPage, "all");
+    await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(restoredPage.getByRole("alert")).toContainText("Sign-out is incomplete");
+    await expect(restoredPage.getByRole("button", { name: "Retry sign-out" })).toBeVisible();
+    await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toHaveCount(0);
+    await expect(sync).toHaveCount(0);
+    expect(
+      await restoredPage.evaluate((key) => localStorage.getItem(key), tokenKey)
+    ).not.toBeNull();
+    const reloadSockets: string[] = [];
+    restoredPage.on("websocket", (socket) => reloadSockets.push(socket.url()));
+    await restoredPage.reload();
+    await expect(sync).toBeVisible();
+    expect(reloadSockets).not.toContain(socketUrl);
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
+
     // Sign-out must finish while another tab still holds the binding lock.
     await unlocked.evaluate(
       () =>
@@ -925,6 +982,42 @@ nodeTest(
     await expect(sync).toHaveCount(0);
     await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+
+    // Recreate the pending-save state with the real receipt from the original login.
+    await pmPage.clock.setFixedTime(Date.now());
+    await pmPage.evaluate(
+      async ({ receiptKey, receipt }) => {
+        const fixture = "/src/test/binding-browser-fixture.ts";
+        await (await import(fixture)).removeCompetingBinding();
+        const unversioned = JSON.parse(receipt);
+        unversioned.version = undefined;
+        localStorage.setItem(receiptKey, JSON.stringify(unversioned));
+      },
+      { receiptKey, receipt }
+    );
+    await pmPage.reload();
+    await expect(connect).toBeVisible();
+    await expect(retrySave).toHaveCount(0);
+    await pmPage.evaluate(({ receiptKey, receipt }) => localStorage.setItem(receiptKey, receipt), {
+      receiptKey,
+      receipt,
+    });
+    await pmPage.reload();
+    await expect(retrySave).toBeVisible();
+    await rejectStorageChanges(pmPage, [receiptKey]);
+    await pmPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(pmPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+    expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBe(receipt);
+    // The IdP session is still for the same User; this is a fresh Password Manager login.
+    await pmPage.getByRole("link", { name: "Sign in to sync" }).click();
+    await pmPage.getByRole("button", { name: "Sign in with IdP" }).click();
+    await expect(connect).toBeVisible();
+    await expect(retrySave).toHaveCount(0);
+    await pmPage.reload();
+    await expect(connect).toBeVisible();
+    await expect(retrySave).toHaveCount(0);
+    expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBe(receipt);
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
 
     const secondUser = "second@setup.test";
     const idpAdmin = await owner.exchange(operator, idp);

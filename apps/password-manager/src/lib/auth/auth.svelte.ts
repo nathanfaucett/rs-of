@@ -6,6 +6,7 @@ import { authConfig, NodeSetupRequiredError } from "./installation";
 import { createOidcClient, type OidcAuthConfig } from "./oidc";
 
 let client: OidcClient | undefined;
+let logoutPending: OidcClient | undefined;
 let startup: Promise<void> | undefined;
 let verifiedToken: string | undefined;
 type SessionListener = (ended: boolean, previous: typeof session) => void;
@@ -40,9 +41,10 @@ function checkStoredSession(event: StorageEvent) {
     return;
   }
   if (!expected) return;
-  const current = oidc.getStoredTokenResponse()?.access_token;
-  if (current === verifiedToken) return;
-  // A token replacement may be a renewal or a different User. Stop transport before checking.
+  const stored = oidc.getStoredTokenResponse();
+  const current = stored?.access_token;
+  if (current === verifiedToken && stored?.state === expected.loginState) return;
+  // A token replacement may be a renewal or a new login. Stop transport before checking.
   notifySession(false, expected);
   if (!current) {
     endSession();
@@ -65,8 +67,10 @@ let session = $state.raw<{
   idp: string;
   storage: string;
   clientId: string;
+  loginState: string;
 } | null>(null);
 let error = $state<string | null>(null);
+let logoutError = $state<string | null>(null);
 let setupUrl = $state<string | null>(null);
 
 function config() {
@@ -101,14 +105,24 @@ async function establishSession(
   oidc: OidcClient,
   { idp, storage, applicationUri }: OidcAuthConfig
 ) {
-  const { issuer, userInfo, accessToken } = await oidc.getVerifiedIdentity();
+  const { issuer, userInfo, accessToken, loginState } = await oidc.getVerifiedIdentity();
   if (client !== oidc) return;
   verifiedToken = accessToken;
   const clientId = oidc.registeredClientId;
-  if (!clientId) throw new Error("No verified OAuth Client ID");
+  if (!clientId || !loginState)
+    throw new Error("No verified login session. Sign in again to use Storage.");
   const { email } = userInfo;
   const userEmail = typeof email === "string" ? email : undefined;
-  session = { user: userInfo, userEmail, issuer, applicationUri, idp, storage, clientId };
+  session = {
+    user: userInfo,
+    userEmail,
+    issuer,
+    applicationUri,
+    idp,
+    storage,
+    clientId,
+    loginState,
+  };
 }
 
 function initialize(): Promise<void> {
@@ -121,6 +135,7 @@ async function login(): Promise<void> {
   error = null;
   setupUrl = null;
   try {
+    if (logoutPending) throw new Error(logoutError ?? "Finish signing out first.");
     if (session) {
       await goto(resolve("/"));
       return;
@@ -133,21 +148,29 @@ async function login(): Promise<void> {
 }
 
 async function logout(): Promise<void> {
-  const oidc = client;
+  const oidc = client ?? logoutPending;
   client = undefined;
+  endSession();
   try {
-    endSession();
-  } finally {
     oidc?.clearStoredTokenResponse();
+  } catch {
+    logoutPending = oidc;
+    logoutError =
+      "Sign-out is incomplete. This tab stopped sync, but the browser could not clear saved credentials. Reloading may sign you back in. Fix browser storage and retry sign-out.";
+    return;
   }
+  logoutPending = undefined;
+  logoutError = null;
   await goto(resolve("/"));
 }
 
 function hasVerifiedToken(expected: NonNullable<typeof session>): boolean {
+  const stored = client?.getStoredTokenResponse();
   return (
     session === expected &&
     verifiedToken !== undefined &&
-    client?.getStoredTokenResponse()?.access_token === verifiedToken
+    stored?.access_token === verifiedToken &&
+    stored.state === expected.loginState
   );
 }
 
@@ -160,10 +183,11 @@ async function getAccessToken(expected: NonNullable<typeof session>): Promise<st
   if (
     identity.issuer !== expected.issuer ||
     identity.subject !== expected.user.sub ||
+    identity.loginState !== expected.loginState ||
     oidc.registeredClientId !== expected.clientId
   ) {
     endSession();
-    throw new Error("The signed-in account changed. Reload and confirm the destination again.");
+    throw new Error("The sign-in session changed. Reload and confirm the destination again.");
   }
   verifiedToken = identity.accessToken;
   return identity.accessToken;
@@ -178,6 +202,9 @@ export const authState = {
   },
   get error() {
     return error;
+  },
+  get logoutError() {
+    return logoutError;
   },
   get setupUrl() {
     return setupUrl;
