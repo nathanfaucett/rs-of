@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work status: resolved
+
 Milestone: M2 — Single-Node encrypted synchronization
 
 ## Scope and non-goals
@@ -19,19 +21,15 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 ## Acceptance checks
 
-- [ ] A vault created and edited offline retains its ID and master password after sign-in and attachment.
-- [ ] The confirmation identifies the exact Installation and User/Application destination before any local change is sent.
-- [ ] Initial reconciliation runs `ofdb` SQL history exchange on the existing local database through the authorized WebSocket transport for the selected Resource.
-- [ ] Storage contains ciphertext and no known plaintext secret, master password, or unwrapped key.
-- [ ] Repeated registration and attachment attempts do not create a duplicate Resource or browser database.
-- [ ] The vault remains readable and editable locally after network loss or sign-out.
-- [ ] An existing remote Resource with data is not overwritten or silently merged with populated local data.
-- [ ] The flow passes through the Password Manager UI and public Storage contract on a real, non-seeded unified backend.
+- [x] A vault created and edited offline retains its ID and master password after sign-in and attachment.
+- [x] The confirmation identifies the exact Installation and User/Application destination before any local change is sent.
+- [x] Initial reconciliation runs `ofdb` SQL history exchange on the existing local database through the authorized WebSocket transport for the selected Resource.
+- [x] Storage contains ciphertext and no known plaintext secret, master password, or unwrapped key.
+- [x] Repeated registration and attachment attempts do not create a duplicate Resource or browser database.
+- [x] The vault remains readable and editable locally after network loss or sign-out.
+- [x] An existing remote Resource with data is not overwritten or silently merged with populated local data.
+- [x] The flow passes through the Password Manager UI and public Storage contract on a real, non-seeded unified backend.
 
 ## Current evidence and qualification limits
 
-The legacy synced path still opens a separate browser database. The SDK has an established-replica helper that reuses an existing database and fixes the destination at construction. This is groundwork, not the target app interface or a first-attachment mechanism. Reuse its transport and lifecycle where applicable; do not base first attachment on the helper's unguarded bidirectional exchange.
-
-## Comments
-
-First upload still needs a Storage-side guard. The current WebSocket exchange is bidirectional and can apply batches before completion. A browser preflight does not prevent a concurrent SQL or replica write. Reject independent history before either side changes, and keep retries on the same Resource without treating an incomplete upload as an established binding. The non-seeded browser flow must also obtain the serving Node's exact Resource Selection through the authorized Device contract. Do not infer Selection or browser Device approval from sign-in.
+Fresh non-seeded Chromium passed guarded first upload after the serving Device owner granted exact Resource Selection. A lost publish receipt does not establish a binding: retry uses the same Resource and stops if it contains history. Legacy discovery and unlock remain available.

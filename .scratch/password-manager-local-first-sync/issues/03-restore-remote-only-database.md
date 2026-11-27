@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work status: resolved
+
 Milestone: M2 — Single-Node encrypted synchronization
 
 ## Scope and non-goals
@@ -17,14 +19,14 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 ## Acceptance checks
 
-- [ ] A fresh browser with no local vault data receives the selected remote database through the authorized SQL transport.
-- [ ] Remote vaults appear in the normal selector and unlock with their existing master passwords.
-- [ ] Attachment does not create another Resource or require the legacy synced-vault selector.
-- [ ] After the initial exchange, the User can reload offline and unlock and edit the retained local copy.
-- [ ] Reopening the same account reuses the same Resource and does not duplicate vaults.
-- [ ] If both sides contain independently created data, the app stops at an explicit merge-required state without changing either side.
-- [ ] The behavior passes against a real, non-seeded unified backend.
+- [x] A fresh browser with no local vault data receives the selected remote database through the authorized SQL transport.
+- [x] Remote vaults appear in the normal selector and unlock with their existing master passwords.
+- [x] Attachment does not create another Resource or require the legacy synced-vault selector.
+- [x] After the initial exchange, the User can reload offline and unlock and edit the retained local copy.
+- [x] Reopening the same account reuses the same Resource and does not duplicate vaults.
+- [x] If both sides contain independently created data, the app stops at an explicit merge-required state without changing either side.
+- [x] The behavior passes against a real, non-seeded unified backend.
 
 ## Current evidence and qualification limits
 
-The current legacy path can open a remote-backed browser database, but it does not reconcile that data into the one active local database used by the unified workflow.
+Fresh non-seeded Chromium passed restore by exact creation key, reload, offline unlock, and offline edit. A competing browser write prevents publication. Pull requires existing Resource history and read-only authorization. Cold standalone Pull refuses to open a Redb file; unified Storage does not have this limit. Full OpenAPI qualification timed out; focused Storage client tests passed.
