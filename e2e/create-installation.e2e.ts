@@ -511,7 +511,10 @@ nodeTest(
     await expect(destination).toContainText(storage);
     expect(await databases()).toEqual([]);
     await confirm.click();
-    await expect(destination.getByRole("alert")).toContainText("Selection");
+    const selectionError = destination.getByRole("alert");
+    await expect(selectionError).toContainText("Only that owner can set Selection");
+    await expect(selectionError).toContainText("read access to this Resource");
+    await expect(selectionError).toContainText("devices.select permission for this Application");
     const catalog = await databases();
     expect(catalog).toHaveLength(1);
     const resourceId = catalog[0]?.id;
