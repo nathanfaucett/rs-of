@@ -1650,6 +1650,7 @@ async function remoteInstallation(node: Awaited<ReturnType<typeof launchNode>>) 
   const application = `${app}/join-fixture`;
   const username = "admin@local.test";
   const password = "password";
+  const { E2E_BACKEND_BIN: binary } = process.env;
   node.launch(
     "pnpm",
     [
@@ -1658,12 +1659,7 @@ async function remoteInstallation(node: Awaited<ReturnType<typeof launchNode>>) 
       "run",
       "--name",
       "remote",
-      "cargo",
-      "run",
-      "--locked",
-      "-p",
-      "unified-server",
-      "--",
+      ...(binary ? [binary] : ["cargo", "run", "--locked", "-p", "unified-server", "--"]),
       "seeded",
       "--data-dir",
       resolve(data, "../remote"),
@@ -1943,6 +1939,24 @@ nodeTest(
         name: "password-manager-main",
       }
     );
-    await passwordManagerOpensLegacyVault(pmPage, pm, legacy.id);
+    const decoy = await owner.json<{ id: string }>(`${remote.storage}/databases/ensure`, write, "POST", {
+      creationKey: "legacy-name-decoy",
+      name: "password-manager-main",
+    });
+    expect(decoy.id).not.toBe(legacy.id);
+    const read = await owner.exchange(pmSession, "storage:databases", "read");
+    const catalog = () => owner.json<{ id: string }[]>(`${remote.storage}/databases`, read);
+    const before = await catalog();
+    const { itemId, deletedId, vaultId } = await passwordManagerOpensLegacyVault(pmPage, pm, legacy.id);
+    expect(await catalog()).toEqual(before);
+    const saved = await owner.call(`${remote.storage}/databases/${legacy.id}/sql`, read, "POST", {
+      statements: [{ sql: "SELECT id, ciphertext, nonce FROM secrets WHERE vault_id = ?", params: [{ type: "text", value: vaultId }] }],
+    });
+    expect(saved.status, saved.body).toBe(200);
+    expect(JSON.parse(saved.body).results[0].rows).toEqual([
+      [{ type: "text", value: itemId }, { type: "text", value: expect.any(String) }, { type: "text", value: expect.any(String) }],
+    ]);
+    expect(saved.body).not.toContain(deletedId);
+    expect(saved.body).not.toContain("Kept encrypted across upgrade");
   }
 );

@@ -126,7 +126,7 @@ function wrapDrawerTab(event: KeyboardEvent) {
 
 	{#if isUnlocked}
 		<div class="grid gap-2 border-t border-line p-3">
-			{#if !authState.isAuthenticated && !vaultStateModule.vaultData?.isSynced}
+			{#if !authState.isAuthenticated}
 				<a class={['btn btn-secondary btn-md w-full min-w-0', compact && 'px-0']}
 					href={resolve("/login")} aria-label="Sign in to sync" title={compact ? "Sign in to sync" : undefined}>
 					<LogIn class="w-5 h-5 shrink-0" />

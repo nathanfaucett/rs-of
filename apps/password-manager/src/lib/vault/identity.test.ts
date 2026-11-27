@@ -166,6 +166,10 @@ it("migrates legacy vault on first unlock and verifies password", async () => {
     request.onerror = () => reject(request.error);
   });
 
+  const local = await createVault("already-local-password", "Already local");
+  await local.close();
+  expect(await listVaults()).toContainEqual(expect.objectContaining({ id, name }));
+
   // First unlock with wrong password: migration happens, then password verification fails
   await expect(unlockVault("wrong-password", id)).rejects.toThrow("Wrong password");
 
@@ -179,10 +183,10 @@ it("migrates legacy vault on first unlock and verifies password", async () => {
     await upgraded.close();
   }
 
-  // Verify legacy DB and registry are deleted
+  // Retain the original encrypted database and its registry.
   const databases = await indexedDB.databases();
-  expect(databases.some((db) => db.name === oldDbName)).toBe(false);
-  expect(databases.some((db) => db.name === REGISTRY_DB_NAME)).toBe(false);
+  expect(databases.some((db) => db.name === `ofdb:sql:${oldDbName}`)).toBe(true);
+  expect(databases.some((db) => db.name === REGISTRY_DB_NAME)).toBe(true);
 
   // Verify data in shared tables
   const { client } = await getStorageClient();
@@ -450,7 +454,7 @@ it("does not upgrade a legacy vault if any encrypted record is damaged", async (
   await expect(unlockVault("fixture-password", id)).rejects.toThrow(
     "Wrong password or damaged legacy records"
   );
-  // Legacy database is deleted after successful migration verification, even though unlock fails
+  // A damaged vault must not cause removal of the original.
   const databases = await indexedDB.databases();
-  expect(databases.some((db) => db.name === oldDbName)).toBe(false);
+  expect(databases.some((db) => db.name === `ofdb:sql:${oldDbName}`)).toBe(true);
 }, 15000);

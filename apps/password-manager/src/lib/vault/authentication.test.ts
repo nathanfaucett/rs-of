@@ -175,10 +175,10 @@ it("migrates legacy vault on first unlock attempt, then verifies password", asyn
   expect(await reopened.decryptSecret(records[0])).toBe(fixturePlaintext);
   await reopened.close();
 
-  // Verify legacy DB and registry are deleted
+  // Retain the original encrypted database and its registry.
   const databases = await indexedDB.databases();
-  expect(databases.some((db) => db.name === oldDbName)).toBe(false);
-  expect(databases.some((db) => db.name === REGISTRY_DB_NAME)).toBe(false);
+  expect(databases.some((db) => db.name === `ofdb:sql:${oldDbName}`)).toBe(true);
+  expect(databases.some((db) => db.name === REGISTRY_DB_NAME)).toBe(true);
 }, 15000);
 
 it("keeps a legacy empty vault unchanged without setting any attempted password", async () => {
@@ -416,9 +416,9 @@ it("does not upgrade a legacy vault if any encrypted record is damaged", async (
   await expect(unlockVault(fixturePassword, id)).rejects.toThrow(
     "Wrong password or damaged legacy records"
   );
-  // Legacy database is deleted after successful migration verification, even though unlock fails
+  // A damaged vault must not cause removal of the original.
   const databases = await indexedDB.databases();
-  expect(databases.some((db) => db.name === oldDbName)).toBe(false);
+  expect(databases.some((db) => db.name === `ofdb:sql:${oldDbName}`)).toBe(true);
 }, 15000);
 
 // Skip quota error tests - mocking IDBObjectStore.prototype.put doesn't work in Playwright Chromium

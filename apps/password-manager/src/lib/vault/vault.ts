@@ -7,14 +7,14 @@ import {
 } from "./encrypted-vault";
 import {
   getSharedClient,
-  migrateToSharedTables,
-  needsMigration,
+  listLegacyLocalVaults,
+  migrateLocalVault,
   openSharedDatabase,
 } from "./storage/migrate-to-shared";
-import { dbParams, localEncryptedRows, parseVaultRow } from "./storage/schema";
+import { dbParams, parseVaultRow, sharedEncryptedRows } from "./storage/schema";
 import { createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
 
-export function localDatabase(client: Client): VaultDatabase {
+export function localDatabase(client: Client, ownsClient = false): VaultDatabase {
   return {
     read: (sql, parse, params) => client.execute(sql, parse, dbParams(...params)),
     async write(sql, params) {
@@ -31,7 +31,7 @@ export function localDatabase(client: Client): VaultDatabase {
       }
     },
     parseMeta: parseVaultRow,
-    encryptedRows: localEncryptedRows,
+    encryptedRows: sharedEncryptedRows,
     async verifyExists(id) {
       await createVaultRegistry(client).findVault(id);
     },
@@ -39,35 +39,50 @@ export function localDatabase(client: Client): VaultDatabase {
       return navigator.locks.request(`password-manager-items-${id}`, action);
     },
     async close() {
-      // The local client lifecycle is managed by the caller.
+      if (ownsClient) client.close();
     },
   };
 }
 
 export async function createVault(password: string, name: string): Promise<VaultHandle> {
-  return createEncryptedVault(localDatabase(await getSharedClient()), password, name);
+  const database = localDatabase(await getSharedClient(), true);
+  try {
+    return await createEncryptedVault(database, password, name);
+  } catch (error) {
+    await database.close();
+    throw error;
+  }
 }
 
 export async function unlockVault(password: string, id: string): Promise<VaultHandle> {
-  if (await needsMigration()) await migrateToSharedTables();
-  const vault = await unlockEncryptedVault(localDatabase(await getSharedClient()), password, id);
-  if (!vault) throw new Error("Vault not found");
-  return vault;
+  await migrateLocalVault(id);
+  const database = localDatabase(await getSharedClient(), true);
+  try {
+    const vault = await unlockEncryptedVault(database, password, id);
+    if (!vault) throw new Error("Vault not found");
+    return vault;
+  } catch (error) {
+    await database.close();
+    throw error;
+  }
 }
 
 export async function listVaults(): Promise<
   { id: string; name: string; status: "ready"; migrated: boolean }[]
 > {
+  const legacy = await listLegacyLocalVaults();
   const database = await openSharedDatabase();
   try {
     // Merely opening the selector must not create independent catalog history.
-    if (await database.initialRestoreIsEligible()) return [];
+    if (await database.initialRestoreIsEligible()) return legacy;
   } finally {
     database.close();
   }
   const client = await getSharedClient();
   try {
-    return await createVaultRegistry(client).listVaultIdentities();
+    const shared = await createVaultRegistry(client).listVaultIdentities();
+    const ids = new Set(shared.map(({ id }) => id));
+    return [...shared, ...legacy.filter(({ id }) => !ids.has(id))];
   } finally {
     client.close();
   }

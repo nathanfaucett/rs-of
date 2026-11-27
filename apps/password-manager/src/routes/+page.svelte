@@ -34,6 +34,7 @@ const syncStatus = $derived(syncStateModule.getSyncStatus(
     currentBinding?.status === "bound" ? currentBinding.id : undefined
 ));
 let signingOut = $state(false);
+let recoveryId = $state("");
 
 let uploadBlocked = $state(false);
 
@@ -148,7 +149,7 @@ async function changeDetachment(detached: boolean) {
     }
 }
 
-async function findRestore() {
+async function findRestore(explicitId?: string) {
     const session = authState.session;
     if (busy || !session) return;
     error = "";
@@ -156,7 +157,7 @@ async function findRestore() {
     busy = true;
     restoreCandidate = undefined;
     try {
-        const candidate = await syncStateModule.inspectRestore(session);
+        const candidate = await syncStateModule.inspectRestore(session, explicitId);
         if (candidate) restoreCandidate = { session, ...candidate };
         else notice = "No Password Manager database is available to restore.";
     } catch (cause) {
@@ -187,16 +188,21 @@ async function restore() {
 async function merge(retry = false) {
     const session = authState.session;
     const candidate = currentCandidate;
-    if (!session || busy || (retry ? currentBinding?.status !== "pending-merge" : candidate?.mode !== "merge")) return;
+    const destination = candidate?.mode === "merge" || candidate?.mode === "upgrade" ? candidate : undefined;
+    if (!session || busy || (retry ? currentBinding?.status !== "pending-merge" : !destination)) return;
     busy = true;
     error = "";
     notice = "";
     restoreCandidate = undefined;
     confirmedSession = null;
     try {
-        await syncStateModule.mergeDatabases(session, retry || candidate?.mode !== "merge" ? undefined : candidate);
+        await syncStateModule.mergeDatabases(session, retry ? undefined : destination);
         await vaultStateModule.showVaultSelector();
-        if (session === authState.session) notice = "Databases merged. Unlock each vault with its existing password. Sync is detached.";
+        if (session === authState.session) {
+            notice = destination?.mode === "upgrade"
+                ? "Database upgraded. Unlock the older vaults with their existing passwords to verify them. The original browser copy was kept."
+                : "Databases merged. Unlock each vault with its existing password. Sync is detached.";
+        }
     } catch (cause) {
         if (session === authState.session) error = cause instanceof Error ? cause.message : "Merge did not complete.";
     } finally {
@@ -277,7 +283,7 @@ async function unlockVault() {
     }
 }
 
-function selectVault(identity: VaultIdentity & { synced?: boolean }) {
+function selectVault(identity: VaultIdentity & { recoveryResource?: string }) {
     showPassword = false;
     notice = "";
     error = "";
@@ -293,15 +299,16 @@ function showCreateVault() {
     vaultStateModule.state = { status: "create-vault" };
 }
 
-async function showSyncedVaults() {
+async function showRecoveryVaults() {
     if (busy) return;
     error = "";
     notice = "";
     busy = true;
     try {
-        if (await vaultStateModule.showSyncedVaults() === 0) notice = "No synced vaults.";
+        const id = recoveryId.trim();
+        if (await vaultStateModule.showRecoveryVaults(id) === 0) notice = "No vaults in the retained copy.";
     } catch (cause) {
-        error = cause instanceof Error ? cause.message : "Failed to list synced vaults.";
+        error = cause instanceof Error ? cause.message : "Failed to read the retained copy.";
     } finally {
         busy = false;
     }
@@ -340,7 +347,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                     {:else if !authState.isAuthenticated}
                         <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
                     {:else}
-                        {#if currentBinding?.status === "unbound" && !currentCandidate && vaultStateModule.state.vaults.some((vault) => !vault.synced)}
+                        {#if currentBinding?.status === "unbound" && !currentCandidate && vaultStateModule.state.vaults.some((vault) => !vault.recoveryResource)}
                             {#if confirmedSession && confirmedSession === authState.session}
                                 <section class="flex flex-col gap-2" aria-labelledby="sync-destination">
                                     <h2 id="sync-destination" class="font-medium">Confirm sync destination</h2>
@@ -373,7 +380,10 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                             <p class="break-all">Linked Storage Resource ID: {currentBinding.id}</p>
                             {#if !syncStatus}
                                 <p>Sync is detached in this tab. Reattach to send and receive changes automatically.</p>
-                                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => changeDetachment(false)}>Reattach sync</button>
+                                {#if currentBinding.unverified}
+                                    <p>Unlock each upgraded vault to verify its contents before reattaching sync.</p>
+                                {/if}
+                                <button class="btn btn-secondary btn-md" type="button" disabled={busy || currentBinding.unverified > 0} onclick={() => changeDetachment(false)}>Reattach sync</button>
                             {:else}
                                 <button class="btn btn-primary btn-md" type="button" disabled={busy || syncStatus.status === "syncing"} onclick={syncNow}>Sync now</button>
                                 <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => changeDetachment(true)}>Detach sync</button>
@@ -397,9 +407,13 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                             <p>This database is linked to another account or Installation. Sign in to that account to sync. You can still use your local vaults.</p>
                         {:else if currentBinding?.status === "unbound" && currentCandidate}
                             <section class="flex flex-col gap-2" aria-labelledby="restore-source">
-                                <h2 id="restore-source" class="font-medium">{currentCandidate.mode === "merge" ? "Confirm database merge" : currentCandidate.mode === "restore" ? "Confirm remote database restore" : "Remote database cannot be restored here"}</h2>
-                                {#if currentCandidate.mode === "merge"}
-                                    <p>Merge the entire local and remote databases, including all vaults and deletion history. Secret records are encrypted. Vault names and other metadata are not. Approval sends the merged history to this destination.</p>
+                                <h2 id="restore-source" class="font-medium">{currentCandidate.mode === "upgrade" ? "Confirm older database upgrade" : currentCandidate.mode === "merge" ? "Confirm database merge" : currentCandidate.mode === "restore" ? "Confirm remote database restore" : "Remote database cannot be restored here"}</h2>
+                                {#if currentCandidate.mode === "merge" || currentCandidate.mode === "upgrade"}
+                                    {#if currentCandidate.mode === "upgrade"}
+                                        <p>Close any older Password Manager tabs first. This upgrade combines the retained browser copy, this browser’s local vaults, and the exact Storage Resource, including saved deletions. Approval can send this combined history to that Resource. The original browser copy is kept.</p>
+                                    {:else}
+                                        <p>Merge the entire local and remote databases, including all vaults and deletion history. Secret records are encrypted. Vault names and other metadata are not. Approval sends the merged history to this destination.</p>
+                                    {/if}
                                     <dl class="break-all">
                                         <dt class="font-medium">Installation (issuer)</dt><dd>{currentCandidate.session.issuer}</dd>
                                         <dt class="font-medium">User</dt><dd>{currentCandidate.session.user.sub}</dd>
@@ -407,38 +421,50 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                                         <dt class="font-medium">Storage</dt><dd>{currentCandidate.session.storage}</dd>
                                         <dt class="font-medium">Storage Resource ID</dt><dd>{currentCandidate.id}</dd>
                                     </dl>
-                                    <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={() => merge()}>Approve and merge</button>
+                                    <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={() => merge()}>{currentCandidate.mode === "upgrade" ? "Approve and upgrade" : "Approve and merge"}</button>
                                 {:else}
                                     <p class="break-all">Storage: {currentCandidate.session.storage}. Storage Resource ID: {currentCandidate.id}</p>
                                     {#if currentCandidate.mode === "restore"}
                                         <p>The restore only downloads. It stops if this browser has local history.</p>
                                         <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={restore}>Restore database</button>
                                     {:else}
-                                        <p>This browser has legacy local vaults. Both databases stay unchanged.</p>
+                                        <p>Unlock the older local vaults from this selector, then find the remote database again. No database was changed.</p>
                                     {/if}
                                 {/if}
-                                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => restoreCandidate = undefined}>{currentCandidate.mode === "merge" ? "Decline merge" : "Cancel restore"}</button>
+                                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => restoreCandidate = undefined}>{currentCandidate.mode === "upgrade" ? "Cancel upgrade" : currentCandidate.mode === "merge" ? "Decline merge" : "Cancel restore"}</button>
                             </section>
                         {:else if currentBinding?.status === "unbound"}
-                            <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={findRestore}>Find remote database</button>
-                        {/if}
-                        {#if syncStateModule.supportsReplication()}
-                            <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showSyncedVaults}>Show synced vaults</button>
+                            <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => findRestore()}>Find remote database</button>
                         {/if}
                         <button class="btn btn-secondary btn-md" type="button" disabled={signingOut} onclick={signOut}>Sign out</button>
                     {/if}
+                    <details>
+                        <summary>Recover older data by Resource ID</summary>
+                        <div class="flex flex-col gap-2 py-2">
+                            <p>Use the exact Resource ID. You can open and export a retained copy without signing in. This does not verify a Storage binding.</p>
+                            <Field id="recovery-resource" label="Older Storage Resource ID">
+                                {#snippet children(control)}
+                                    <input {...control} type="text" bind:value={recoveryId} disabled={busy} />
+                                {/snippet}
+                            </Field>
+                            {#if authState.isAuthenticated && currentBinding?.status === "unbound"}
+                                <button class="btn btn-secondary btn-md" type="button" disabled={busy || !recoveryId.trim()} onclick={() => findRestore(recoveryId.trim())}>Find exact Resource</button>
+                            {/if}
+                            <button class="btn btn-secondary btn-md" type="button" disabled={busy || !recoveryId.trim()} onclick={showRecoveryVaults}>Open retained copy</button>
+                        </div>
+                    </details>
                     <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => { notice = ""; vaultStateModule.state = { status: "restore-vault" }; }}>Restore encrypted backup</button>
                     {#if vaultStateModule.state.vaults.length > 0}
                         <div class="flex flex-col gap-2">
                             <p class="text-sm font-medium text-muted-foreground">Existing vaults</p>
-                            {#each vaultStateModule.state.vaults as identity (`${identity.synced ? "synced" : "local"}:${identity.id}`)}
+                            {#each vaultStateModule.state.vaults as identity (`${identity.recoveryResource ?? "local"}:${identity.id}`)}
                                 <button
                                     class="btn btn-secondary btn-md text-left"
                                     type="button"
                                     disabled={busy}
                                     onclick={() => selectVault(identity)}
                                 >
-                                    <span class="vault-name">{identity.name}{identity.synced ? " (synced)" : ""}</span>
+                                    <span class="vault-name">{identity.name}{identity.recoveryResource ? " (recovery copy)" : ""}</span>
                                     <span class="block break-all text-xs">ID: {identity.id}</span>
                                 </button>
                             {/each}

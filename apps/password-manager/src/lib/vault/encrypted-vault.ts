@@ -37,12 +37,10 @@ export interface VaultDatabase {
   encryptedRows: EncryptedRowParsers;
   verifyExists?(id: string): Promise<void>;
   withItemLock?<T>(id: string, action: () => Promise<T>): Promise<T>;
-  sync?: VaultHandleLike["sync"];
   close(): Promise<void>;
 }
 
 export class VaultHandle implements VaultHandleLike {
-  readonly sync?: NonNullable<VaultHandleLike["sync"]>;
   private readonly database: VaultDatabase;
   private unlockedKey: CryptoKey | undefined;
   private readonly meta: VaultMeta;
@@ -51,7 +49,6 @@ export class VaultHandle implements VaultHandleLike {
     this.database = database;
     this.unlockedKey = key;
     this.meta = meta;
-    if (database.sync) this.sync = database.sync;
   }
 
   get id(): string {

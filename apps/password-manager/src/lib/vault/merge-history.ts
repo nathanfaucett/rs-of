@@ -1,13 +1,19 @@
 import { Database, JsSqlSyncTransport } from "@ofsdk/sql";
 import type { AttachOptions, SyncClient, SyncSession } from "@ofsdk/storage-sync-client";
 import { vaultHistoryRecords } from "./history-records";
+import { resourceIdPattern, stageLegacyUpgrade } from "./legacy-history";
 import { MIGRATIONS } from "./storage/schema";
 
 const mergeKey = "password-manager-v1:storage-binding:merge";
-const uuid = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
+
 const revision = /^[\da-f]{64}$/;
 
-export type MergeDestination = { id: string; local: string; remote: string };
+export type MergeDestination = {
+  id: string;
+  local: string;
+  remote: string;
+  legacy?: { browser: string | null; explicit: boolean };
+};
 export type PendingMerge = MergeDestination & {
   version: 1;
   namespace: string;
@@ -15,6 +21,7 @@ export type PendingMerge = MergeDestination & {
   clientId: string;
   operation: string;
   candidate: string;
+  legacyVaults?: string[];
   committed: boolean;
   // Missing on older pending operations: treat those as possibly sent.
   attempted?: boolean;
@@ -26,7 +33,18 @@ export function readPendingMerge(): PendingMerge | undefined {
   const value = JSON.parse(raw);
   if (
     value?.version !== 1 ||
-    ![value.id, value.operation].every((id) => typeof id === "string" && uuid.test(id)) ||
+    ![value.id, value.operation].every(
+      (id) => typeof id === "string" && resourceIdPattern.test(id)
+    ) ||
+    (value.legacy !== undefined &&
+      (!value.legacy ||
+        typeof value.legacy.explicit !== "boolean" ||
+        (value.legacy.browser !== null &&
+          (typeof value.legacy.browser !== "string" || !revision.test(value.legacy.browser))) ||
+        !Array.isArray(value.legacyVaults) ||
+        !value.legacyVaults.every(
+          (id: unknown) => typeof id === "string" && resourceIdPattern.test(id)
+        ))) ||
     ![value.local, value.remote, value.candidate].every(
       (hash) => typeof hash === "string" && revision.test(hash)
     ) ||
@@ -103,9 +121,12 @@ export async function retainCandidate(
   local: Database,
   remote: Database,
   merge: Omit<PendingMerge, "candidate">,
-  checkActive: () => boolean
+  checkActive: () => boolean,
+  browser?: Database
 ) {
-  const stage = await local.stageHistory(remote, vaultHistoryRecords);
+  const { stage, vaults } = merge.legacy
+    ? await stageLegacyUpgrade(local, remote, browser)
+    : { stage: await local.stageHistory(remote, vaultHistoryRecords), vaults: undefined };
   try {
     const before = await stage.historyRevision();
     const client = stage.client();
@@ -131,13 +152,17 @@ export async function retainCandidate(
         checkActive
       );
       if (!checkActive()) throw new Error("Sign-in session ended");
-      const pending = { ...merge, candidate: encodeRevision(before) };
+      const pending = {
+        ...merge,
+        candidate: encodeRevision(before),
+        ...(vaults && { legacyVaults: vaults }),
+      };
       retainMerge(pending);
       retained = true;
       return pending;
     } finally {
       saved.close();
-      if (!retained) indexedDB.deleteDatabase(name);
+      if (!retained) indexedDB.deleteDatabase(`ofdb:sql:${name}`);
     }
   } finally {
     stage.close();
@@ -172,7 +197,7 @@ export function clearMerge(merge: PendingMerge) {
     // The live binding is already committed and takes precedence over pending metadata.
     return;
   }
-  indexedDB.deleteDatabase(candidateName(merge.operation));
+  indexedDB.deleteDatabase(`ofdb:sql:${candidateName(merge.operation)}`);
 }
 
 export function archiveMerge(merge: PendingMerge) {

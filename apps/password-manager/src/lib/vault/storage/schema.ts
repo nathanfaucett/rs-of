@@ -174,7 +174,20 @@ function encryptedRowParsers(timestamp: v.GenericSchema<string>) {
 }
 
 export type EncryptedRowParsers = ReturnType<typeof encryptedRowParsers>;
-export const localEncryptedRows = encryptedRowParsers(v.pipe(v.string(), v.isoTimestamp()));
+const isoTimestamp = v.pipe(v.string(), v.isoTimestamp());
+export const localEncryptedRows = encryptedRowParsers(isoTimestamp);
+// Convert the old SQL representation only in memory, never in retained history.
+export const sharedEncryptedRows = encryptedRowParsers(
+  v.union([
+    isoTimestamp,
+    v.pipe(
+      v.string(),
+      v.regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/),
+      v.transform((text) => `${text.replace(" ", "T")}Z`),
+      v.isoTimestamp()
+    ),
+  ])
+);
 // The legacy synced reader accepted timestamp text as stored, without ISO validation.
 export const syncedEncryptedRows = encryptedRowParsers(v.string());
 

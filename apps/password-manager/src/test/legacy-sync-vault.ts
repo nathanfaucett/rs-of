@@ -5,9 +5,13 @@ import {
   unlockEncryptedVault,
   type VaultDatabase,
   type VaultHandle,
-} from "./encrypted-vault";
-import { MIGRATIONS, parseOptionalText, parseText, syncedEncryptedRows } from "./storage/schema";
-import type { VaultIdentity } from "./storage/VaultRegistry";
+} from "$lib/vault/encrypted-vault";
+import {
+  MIGRATIONS,
+  parseOptionalText,
+  parseText,
+  syncedEncryptedRows,
+} from "$lib/vault/storage/schema";
 
 function syncedDatabase(handle: DatabaseHandle): VaultDatabase {
   return {
@@ -47,7 +51,6 @@ function syncedDatabase(handle: DatabaseHandle): VaultDatabase {
         authentication: parseOptionalText(row, "authentication"),
       };
     },
-    sync: (options) => handle.sync(options),
     close: () => handle.close(),
   };
 }
@@ -67,17 +70,4 @@ export function unlockSyncVault(
   handle: DatabaseHandle
 ): Promise<VaultHandle | null> {
   return unlockEncryptedVault(syncedDatabase(handle), password, id);
-}
-
-export async function listSyncVaults(syncHandle: DatabaseHandle): Promise<VaultIdentity[]> {
-  const results = await syncHandle.execute(
-    `SELECT id, name, status, migrated FROM vaults WHERE status = 'ready' ORDER BY created_at DESC`,
-    []
-  );
-  return results.rows.map((row: unknown[]) => ({
-    id: row[0] as string,
-    name: row[1] as string,
-    status: "ready" as const,
-    migrated: Boolean(row[3]),
-  }));
 }

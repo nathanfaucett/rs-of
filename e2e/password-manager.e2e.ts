@@ -116,7 +116,7 @@ test("password-manager redirects to IdP, requests consent, and establishes a ses
   expect((await user.json()).email).toBe("admin@local.test");
   await page.reload();
   await expect(page).toHaveURL(`${passwordManagerURL}/`);
-  await expect(page.getByRole("button", { name: "Show synced vaults", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Find remote database", exact: true })).toBeVisible();
 });
 
 test("first upload stays guarded after a lost publish receipt", async ({ page, request }) => {

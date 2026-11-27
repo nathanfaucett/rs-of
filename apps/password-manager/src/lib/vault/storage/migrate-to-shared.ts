@@ -1,5 +1,6 @@
 import { type Client, type Row, Database as SqlDatabase } from "@ofsdk/sql";
-import { dbParams, MIGRATIONS, parseOptionalText, parseText } from "./schema";
+import { dbParams, MIGRATIONS, parseOptionalText, parseText, parseVaultRow } from "./schema";
+import type { VaultIdentity } from "./VaultRegistry";
 
 const REGISTRY_DB_NAME = "password-manager-vault-registry-v2";
 const LEGACY_DB_PREFIX = "password-manager-local-";
@@ -9,6 +10,7 @@ interface LegacyVaultIdentity {
   name: string;
   status: "pending" | "ready";
   migrated: boolean;
+  copiedToShared?: boolean;
 }
 
 interface LegacyVaultMeta {
@@ -42,41 +44,37 @@ export async function getSharedClient(): Promise<Client> {
   });
 }
 
+async function pendingLocals() {
+  if (!(await indexedDB.databases()).some(({ name }) => name === REGISTRY_DB_NAME)) return [];
+  return (await readRegistryIndexedDB()).filter((entry) => !entry.copiedToShared);
+}
+
+export async function listLegacyLocalVaults(): Promise<VaultIdentity[]> {
+  return (await pendingLocals()).map(({ id, name, migrated }) => ({
+    id,
+    name,
+    migrated,
+    status: "ready",
+  }));
+}
+
 export async function hasLegacyLocalVaults(): Promise<boolean> {
-  if (!(await indexedDB.databases()).some(({ name }) => name === REGISTRY_DB_NAME)) return false;
-  return (await readRegistryIndexedDB()).length > 0;
+  return (await pendingLocals()).length > 0;
 }
 
-/** One-time migration from per-vault tables and the registry to shared tables. */
-export async function migrateToSharedTables(): Promise<void> {
-  const client = await getSharedClient();
-  try {
-    const existing = await client.execute(`SELECT id FROM vaults LIMIT 1`, () => 1);
-    if (existing.length > 0) return;
-
-    const entries = await readRegistryIndexedDB();
-    for (const entry of entries) {
+export async function migrateLocalVault(id: string): Promise<void> {
+  await navigator.locks.request(`${SHARED_DB_NAME}:legacy-local`, async () => {
+    const entry = (await pendingLocals()).find((entry) => entry.id === id);
+    if (!entry) return;
+    const client = await getSharedClient();
+    try {
       await migrateLegacyVault(client, entry);
+      // The registry records only completion of the copy; it never authorizes removal of the source.
+      await markCopied(entry);
+    } finally {
+      client.close();
     }
-    await deleteIndexedDatabase(REGISTRY_DB_NAME);
-  } finally {
-    client.close();
-  }
-}
-
-/** Check whether registered legacy vaults still need migration. */
-export async function needsMigration(): Promise<boolean> {
-  const client = await getSharedClient();
-  try {
-    const existing = await client.execute(`SELECT id FROM vaults LIMIT 1`, () => 1);
-    if (existing.length > 0) return false;
-    const entries = await readRegistryIndexedDB();
-    return entries.length > 0;
-  } catch {
-    return false;
-  } finally {
-    client.close();
-  }
+  });
 }
 
 async function migrateLegacyVault(
@@ -85,6 +83,8 @@ async function migrateLegacyVault(
 ): Promise<void> {
   const vaultId = identity.id;
   const legacyDbName = `${LEGACY_DB_PREFIX}${vaultId}`;
+  if (!(await indexedDB.databases()).some(({ name }) => name === `ofdb:sql:${legacyDbName}`))
+    throw new Error(`Legacy local source not found: ${vaultId}. Do not clear browser data.`);
   const legacyDb = await SqlDatabase.open(legacyDbName);
   const legacyClient = legacyDb.client();
 
@@ -101,7 +101,25 @@ async function migrateLegacyVault(
       })
     );
     const meta = metaResults[0];
-    if (!meta) throw new Error(`Legacy vault metadata not found: ${vaultId}`);
+    if (!meta || meta.vaultId !== vaultId)
+      throw new Error(`Legacy vault metadata not found: ${vaultId}`);
+    const [existing] = await sharedClient.execute(
+      `SELECT id, name, salt, iv, created_at, authentication, status, migrated FROM vaults WHERE id = ?`,
+      parseVaultRow,
+      dbParams(vaultId)
+    );
+    if (existing) {
+      if (
+        existing.salt !== meta.salt ||
+        existing.iv !== meta.iv ||
+        existing.createdAt !== meta.createdAt ||
+        existing.authentication !== meta.authentication
+      )
+        throw new Error(
+          `The local vault ID conflicts with the older copy: ${vaultId}. Both copies were kept.`
+        );
+      return;
+    }
 
     const secrets = await legacyClient.execute(
       `SELECT id, ciphertext, nonce, created_at, updated_at FROM secrets`,
@@ -178,8 +196,6 @@ async function migrateLegacyVault(
     legacyClient.close();
     legacyDb.close();
   }
-
-  await deleteIndexedDatabase(legacyDbName);
 }
 
 async function readRegistryIndexedDB(): Promise<LegacyVaultIdentity[]> {
@@ -209,11 +225,28 @@ async function readRegistryIndexedDB(): Promise<LegacyVaultIdentity[]> {
   });
 }
 
-async function deleteIndexedDatabase(name: string): Promise<void> {
+async function markCopied(entry: LegacyVaultIdentity): Promise<void> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(name);
-    request.onsuccess = () => resolve();
+    const request = indexedDB.open(REGISTRY_DB_NAME, 1);
     request.onerror = () => reject(request.error);
-    request.onblocked = () => reject(new Error(`Database deletion blocked: ${name}`));
+    request.onblocked = () => reject(new Error("Legacy registry write blocked"));
+    request.onsuccess = () => {
+      const db = request.result;
+      try {
+        const transaction = db.transaction("vaults", "readwrite");
+        transaction.objectStore("vaults").put({ ...entry, copiedToShared: true });
+        transaction.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        transaction.onabort = () => {
+          db.close();
+          reject(transaction.error);
+        };
+      } catch (error) {
+        db.close();
+        reject(error);
+      }
+    };
   });
 }

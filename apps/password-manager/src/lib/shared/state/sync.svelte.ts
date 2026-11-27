@@ -1,13 +1,13 @@
 import { SyncClient, SyncError } from "@ofsdk/storage-sync-client";
-import type { SyncSDK } from "@ofsdk/sync-sdk";
 import {
-  BrowserSyncSDK,
   createSqlResourceSync,
   type SqlResourceSync,
   type SqlResourceSyncStatus,
   startSqlResourceSync,
 } from "@ofsdk/sync-sdk/browser";
 import { authState } from "$lib/auth/auth.svelte";
+import type { VaultHandle } from "$lib/vault/encrypted-vault";
+import { legacyCreationKey, openLegacyReplica, resourceIdPattern } from "$lib/vault/legacy-history";
 import {
   archiveMerge,
   clearMerge,
@@ -25,8 +25,6 @@ import {
 import { hasLegacyLocalVaults, openSharedDatabase } from "$lib/vault/storage/migrate-to-shared";
 import { StorageClient } from "../../../../../../packages/storage-client/src/index";
 
-let sdk: SyncSDK | undefined;
-
 type Session = NonNullable<typeof authState.session>;
 
 type Exchange = { controller: AbortController; sync?: SqlResourceSync };
@@ -36,7 +34,7 @@ const bindingTimeout = 2_000;
 const receiptKey = `${bindingLock}:receipt`;
 let receiptInMemory: Receipt | null | undefined;
 
-type Binding = { namespace: string; id: string; confirmationId: string };
+type Binding = { namespace: string; id: string; confirmationId: string; legacyVaults?: string[] };
 type Receipt = Binding & { version: 1; loginState: string; expected: null };
 type Database = Awaited<ReturnType<typeof openSharedDatabase>>;
 let attachment = $state.raw<{
@@ -86,31 +84,6 @@ function storageAccess(session = authState.session, checkActive?: () => boolean)
   return { session, client, getToken };
 }
 
-function supportsReplication(session = authState.session): boolean {
-  // The legacy SDK derives its IdP from the Storage URL. Never use a guessed authority.
-  if (!session) return false;
-  const { origin, pathname } = new URL(session.storage);
-  return (
-    pathname.endsWith("/storage") &&
-    `${origin}${pathname.replace(/\/storage$/, "/idp")}` === session.idp
-  );
-}
-
-function getSync(expected: Session) {
-  const { session, client, getToken } = storageAccess(expected);
-  if (!supportsReplication(session)) {
-    throw new Error("Vault replication is not available with separate IdP and Storage bases.");
-  }
-  sdk ??= new BrowserSyncSDK({
-    apiUrl: session.storage,
-    appId: session.clientId,
-    userId: session.user.sub,
-    getToken,
-    getStorageToken: (resource, actions) => client.getStorageToken(resource, actions),
-  });
-  return sdk;
-}
-
 const creationKey = "password-manager-local-v1";
 const resourceName = "Password Manager local database";
 
@@ -125,7 +98,12 @@ function namespace(session: Session) {
 
 function encodeBinding(binding: Binding) {
   return new TextEncoder().encode(
-    JSON.stringify([binding.namespace, binding.id, binding.confirmationId])
+    JSON.stringify([
+      binding.namespace,
+      binding.id,
+      binding.confirmationId,
+      ...(binding.legacyVaults ? [binding.legacyVaults] : []),
+    ])
   );
 }
 
@@ -141,15 +119,50 @@ async function readBinding(database: Database) {
     typeof value[1] !== "string" ||
     !value[1] ||
     (value.length !== 2 &&
-      (value.length !== 3 ||
-        (typeof value[2] !== "boolean" && (typeof value[2] !== "string" || !value[2]))))
+      (value.length < 3 ||
+        value.length > 4 ||
+        (typeof value[2] !== "boolean" && (typeof value[2] !== "string" || !value[2])))) ||
+    (value.length === 4 &&
+      (typeof value[2] !== "string" ||
+        !Array.isArray(value[3]) ||
+        !value[3].every((id: unknown) => typeof id === "string" && resourceIdPattern.test(id))))
   )
     throw new Error("Invalid local Storage binding. Your vaults are still local.");
   return {
     namespace: value[0],
     id: value[1],
     revision: typeof value[2] === "string" ? value[2] : revision,
+    legacyVaults: value.length === 4 ? (value[3] as string[]) : [],
+    tag,
   };
+}
+
+async function verifyUpgradedVault(vault: VaultHandle) {
+  const database = await openSharedDatabase();
+  try {
+    const record = await readBinding(database);
+    if (!record) return;
+    if (!record.legacyVaults.includes(vault.id)) return;
+    await vault.readItems();
+    await navigator.locks.request(bindingLock, async () => {
+      const current = await readBinding(database);
+      if (!current || current.revision !== record.revision)
+        throw new Error("The Storage binding changed. Unlock again to verify the upgraded vault.");
+      if (!current.legacyVaults.includes(vault.id)) return;
+      const saved = await database.replaceInitialRestoreTag(
+        current.tag,
+        encodeBinding({
+          namespace: current.namespace,
+          id: current.id,
+          confirmationId: current.revision,
+          legacyVaults: current.legacyVaults.filter((id) => id !== vault.id),
+        })
+      );
+      if (!saved) throw new Error("Could not save upgrade verification. Unlock again to retry.");
+    });
+  } finally {
+    database.close();
+  }
 }
 
 async function getBinding(expected: Session) {
@@ -169,7 +182,11 @@ async function getBinding(expected: Session) {
         : ({ status: "unbound" } as const);
     }
     if (record.namespace !== owner) return { status: "different-account" } as const;
-    return { status: "bound", id: record.id } as const;
+    return {
+      status: "bound",
+      id: record.id,
+      unverified: record.legacyVaults.length,
+    } as const;
   } finally {
     database.close();
   }
@@ -178,10 +195,11 @@ async function getBinding(expected: Session) {
 async function findRestoreResource(
   expected: Session,
   signal: AbortSignal,
-  checkActive: () => boolean
+  checkActive: () => boolean,
+  key = creationKey
 ) {
   const resource = await storageAccess(expected, checkActive).client.findSqlDatabaseByCreationKey(
-    creationKey,
+    key,
     signal
   );
   if (!checkActive()) throw new Error("Sign-in session ended");
@@ -194,24 +212,56 @@ async function isPristineForRestore(database: Database) {
 
 type RestoreInspection =
   | { id: string; mode: "restore" | "legacy" }
-  | (MergeDestination & { mode: "merge" });
+  | (MergeDestination & { mode: "merge" | "upgrade" });
 
-async function inspectRestore(expected: Session): Promise<RestoreInspection | undefined> {
+async function verifyRecoveryResource(expected: Session, id: string, signal?: AbortSignal) {
+  const { client } = storageAccess(expected);
+  if (
+    !resourceIdPattern.test(id) ||
+    !(await client.listSqlDatabases(signal)).some((entry) => entry.id === id)
+  )
+    throw new Error("This exact Storage Resource is not available in the signed-in namespace.");
+  if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session ended");
+}
+
+async function legacyBrowserRevision(id: string) {
+  const database = await openLegacyReplica(id);
+  try {
+    return database ? encodeRevision(await database.historyRevision()) : null;
+  } finally {
+    database?.close();
+  }
+}
+
+async function inspectRestore(
+  expected: Session,
+  explicitId?: string
+): Promise<RestoreInspection | undefined> {
   return withExchange(expected, async (database, signal, checkActive) => {
     requireUnbound(await readBinding(database));
     if (readPendingMerge()) throw new Error("A merge is already pending.");
-    const id = await findRestoreResource(expected, signal, checkActive);
+    const current = explicitId
+      ? undefined
+      : await findRestoreResource(expected, signal, checkActive);
+    const id =
+      current ??
+      explicitId ??
+      (await findRestoreResource(expected, signal, checkActive, legacyCreationKey));
     if (!id) return;
-    const legacy = await hasLegacyLocalVaults();
-    const pristine = await database.initialRestoreIsEligible();
+    if (explicitId) await verifyRecoveryResource(expected, id, signal);
+    if (await hasLegacyLocalVaults()) return { id, mode: "legacy" };
     if (!checkActive()) throw new Error("Sign-in session ended");
-    if (legacy) return { id, mode: "legacy" };
-    if (pristine) return { id, mode: "restore" };
+    if (current && (await database.initialRestoreIsEligible())) return { id, mode: "restore" };
     const local = encodeRevision(await database.historyRevision());
+    const legacy = current
+      ? undefined
+      : { browser: await legacyBrowserRevision(id), explicit: !!explicitId };
     const { client, attach } = mergeConnection(expected, id, signal, checkActive, false);
     const remote = await pullMergeSnapshot(client, attach, (_snapshot, pinned) => pinned);
     if (!checkActive()) throw new Error("Sign-in session ended");
-    return { id, local, remote, mode: "merge" };
+    return legacy
+      ? { id, local, remote, legacy, mode: "upgrade" }
+      : { id, local, remote, mode: "merge" };
   });
 }
 
@@ -222,8 +272,8 @@ function requireUnbound(record: Awaited<ReturnType<typeof readBinding>>) {
 function ownsMerge(expected: Session, merge: PendingMerge) {
   return (
     merge.namespace === namespace(expected) &&
-    merge.loginState === expected.loginState &&
-    merge.clientId === expected.clientId
+    (merge.legacy !== undefined ||
+      (merge.loginState === expected.loginState && merge.clientId === expected.clientId))
   );
 }
 
@@ -280,7 +330,7 @@ async function reviewPendingMerge(expected: Session) {
     const merge = readPendingMerge();
     if (!merge || !ownsMerge(expected, merge))
       throw new Error("This session cannot review the pending merge.");
-    const localMatches = await matchesLocalRevision(database, merge.local);
+    const localMatches = await matchesLocalRevision(database, merge);
     const write = mergeConnection(expected, merge.id, signal, checkActive, true);
     let committed = await checkMergeReceipt(merge, write.client, write.attach);
     if (!committed) {
@@ -316,31 +366,55 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
     const id = destination?.id ?? merge?.id;
     if (!destination && (!merge || !ownsMerge(expected, merge)))
       throw new Error("The sign-in session changed. This session cannot resume the merge.");
-    if (!id || (await findRestoreResource(expected, signal, checkActive)) !== id)
+    const legacy = (destination ?? merge)?.legacy;
+    if (!id) throw new Error("The remote Resource changed. No merge was applied.");
+    if (legacy?.explicit) await verifyRecoveryResource(expected, id, signal);
+    else if (
+      (await findRestoreResource(
+        expected,
+        signal,
+        checkActive,
+        legacy ? legacyCreationKey : creationKey
+      )) !== id
+    )
       throw new Error("The remote Resource changed. No merge was applied.");
     if (!checkActive()) throw new Error("Sign-in session ended");
     if (destination) {
       if (merge || readReceipt(expected)) throw new Error("Resolve the pending operation first.");
-      await requireLocalRevision(database, destination.local, false);
+      await requireLocalRevision(database, destination, false);
       const { client, attach } = mergeConnection(expected, id, signal, checkActive, false);
       await pullMergeSnapshot(client, attach, async (snapshot, revision) => {
         if (revision !== destination.remote)
           throw new Error("Remote history changed. Find the remote database again before merging.");
-        merge = await retainCandidate(
-          database,
-          snapshot,
-          {
-            ...destination,
-            version: 1,
-            operation: crypto.randomUUID(),
-            committed: false,
-            attempted: false,
-            namespace: namespace(expected),
-            loginState: expected.loginState,
-            clientId: expected.clientId,
-          },
-          checkActive
-        );
+        const browser = legacy ? await openLegacyReplica(id) : undefined;
+        try {
+          const captured = browser ? encodeRevision(await browser.historyRevision()) : null;
+          if (legacy && legacy.browser !== captured)
+            throw new Error(
+              "The older browser copy changed. Find the Resource again before upgrading."
+            );
+          merge = await retainCandidate(
+            database,
+            snapshot,
+            {
+              id,
+              local: destination.local,
+              remote: destination.remote,
+              ...(legacy && { legacy }),
+              version: 1,
+              operation: crypto.randomUUID(),
+              committed: false,
+              attempted: false,
+              namespace: namespace(expected),
+              loginState: expected.loginState,
+              clientId: expected.clientId,
+            },
+            checkActive,
+            browser
+          );
+        } finally {
+          browser?.close();
+        }
       });
     }
     if (!merge || !ownsMerge(expected, merge))
@@ -348,7 +422,7 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
     const publication = publicationFor(merge);
     const { client, attach } = mergeConnection(expected, id, signal, checkActive, true);
     let committed = !destination && (await checkMergeReceipt(merge, client, attach));
-    await requireLocalRevision(database, merge.local, committed);
+    await requireLocalRevision(database, merge, committed);
     if (!committed && !destination) {
       const pendingMerge = merge;
       const pull = mergeConnection(expected, id, signal, checkActive, false);
@@ -365,15 +439,15 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
     }
     const stage = await reopenCandidate(merge);
     try {
-      if (!committed) {
+      if (!committed && (!merge.legacy || merge.candidate !== merge.remote)) {
         try {
-          await requireLocalRevision(database, merge.local, false);
+          await requireLocalRevision(database, merge, false);
           if (!checkActive()) throw new Error("Sign-in session ended");
           merge = { ...merge, attempted: true };
           retainMerge(merge);
           const session = await client.attachComparePublish({ ...attach, publication });
           try {
-            await requireLocalRevision(database, merge.local, false);
+            await requireLocalRevision(database, merge, false);
             await exchangeHistory(stage, session, checkActive);
             await session.waitForPublish();
           } catch (cause) {
@@ -391,20 +465,28 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
           throw cause;
         }
         retainMerge({ ...merge, committed: true });
+        committed = true;
       }
       try {
-        await requireLocalRevision(database, merge.local, true);
+        await requireLocalRevision(database, merge, committed);
         await database.publishLocalHistory(
           stage,
           decodeRevision(merge.local),
           publication.candidate,
-          encodeBinding({ namespace: merge.namespace, id, confirmationId: merge.operation }),
+          encodeBinding({
+            namespace: merge.namespace,
+            id,
+            confirmationId: merge.operation,
+            ...(merge.legacyVaults && { legacyVaults: merge.legacyVaults }),
+          }),
           checkActive
         );
       } catch (cause) {
-        await requireLocalRevision(database, merge.local, true);
+        await requireLocalRevision(database, merge, committed);
         throw new Error(
-          "Storage committed the merge, but the local merge was not saved. Retry the pending merge.",
+          committed
+            ? "Storage committed the merge, but the local merge was not saved. Retry the pending merge."
+            : "The Storage snapshot was not saved locally. Retry the pending merge.",
           { cause }
         );
       }
@@ -415,15 +497,20 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
   });
 }
 
-async function matchesLocalRevision(database: Database, expected: string) {
+async function matchesLocalRevision(database: Database, expected: MergeDestination) {
   return (
     !(await database.initialRestoreTag()) &&
     !(await hasLegacyLocalVaults()) &&
-    encodeRevision(await database.historyRevision()) === expected
+    encodeRevision(await database.historyRevision()) === expected.local &&
+    (!expected.legacy || (await legacyBrowserRevision(expected.id)) === expected.legacy.browser)
   );
 }
 
-async function requireLocalRevision(database: Database, expected: string, committed: boolean) {
+async function requireLocalRevision(
+  database: Database,
+  expected: MergeDestination,
+  committed: boolean
+) {
   if (!(await matchesLocalRevision(database, expected)))
     throw new Error(
       committed
@@ -586,11 +673,17 @@ async function exchange(expected: Session, intent: Intent) {
         throw new Error("The remote Resource changed. Find it again before restoring.");
       id = intent.id;
     } else {
+      if (await hasLegacyLocalVaults())
+        throw new Error("Unlock the older local vaults before uploading this database.");
       if (await database.initialRestoreIsEligible())
         throw new Error("There is no local database to upload.");
       requireSession();
       if (readReceipt(expected))
         throw new BindingSaveError("Storage confirmed publication. Retry the local save.");
+      if (await findRestoreResource(expected, signal, checkActive, legacyCreationKey))
+        throw new Error(
+          "This account has an older database. Find the remote database and review the upgrade first."
+        );
       const resource = await client.ensureDatabase({ creationKey, name: resourceName }, signal);
       requireSession();
       id = resource.id;
@@ -707,6 +800,10 @@ async function setDetached(expected: Session, id: string, detached: boolean) {
         if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session changed.");
         if (!record || record.id !== id || record.namespace !== namespace(expected))
           throw new Error("The Storage binding changed. Check the destination before reattaching.");
+        if (record.legacyVaults.length)
+          throw new Error(
+            "Unlock each upgraded vault to verify its contents before reattaching sync."
+          );
         const checkActive = (): boolean =>
           attachment?.sync === sync &&
           authState.hasVerifiedToken(expected) &&
@@ -756,26 +853,13 @@ async function signOut(expected: Session) {
 }
 
 async function closeSync(): Promise<void> {
-  const previous = sdk;
-  sdk = undefined;
-  await Promise.all([previous?.close(), cancelExchange()]);
-}
-
-async function openDatabase(id: string, expected = authState.session) {
-  if (!expected) throw new Error("Sign in to sync first");
-  const owner = getSync(expected);
-  const handle = await owner.sql.open(id);
-  if (expected !== authState.session || owner !== sdk) {
-    await handle.close();
-    throw new Error("Sign-in session ended");
-  }
-  return handle;
+  await cancelExchange();
 }
 
 export const syncStateModule = {
-  supportsReplication,
   closeSync,
   inspectRestore,
+  verifyUpgradedVault,
   mergeDatabases,
   reviewPendingMerge,
   getBinding,
@@ -793,13 +877,4 @@ export const syncStateModule = {
     exchange(session, { mode: "first-restore", id }),
   uploadLocalDatabase: (session: Session, onResource: (id: string) => void) =>
     exchange(session, { mode: "first-upload", onResource }),
-  openDatabase,
-  async openLegacyDatabase() {
-    const { client, session } = storageAccess();
-    const databases = await client.listSqlDatabases();
-    const matching = databases.filter((entry) => entry.name === "password-manager-main");
-    if (matching.length > 1)
-      throw new Error("More than one Password Manager Resource exists. No vault data was changed.");
-    return matching[0] ? openDatabase(matching[0].id, session) : null;
-  },
 };
