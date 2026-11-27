@@ -1,30 +1,15 @@
-import { Database, type HistoryRecord } from "@ofsdk/sql";
+import { Database } from "@ofsdk/sql";
 import { expect, it } from "vitest";
 import { createEncryptedVault, unlockEncryptedVault } from "./encrypted-vault";
+import {
+  clearMerge,
+  encodeRevision,
+  readPendingMerge,
+  reopenCandidate,
+  retainCandidate,
+} from "./merge-history";
 import { MIGRATIONS, parseText } from "./storage/schema";
 import { localDatabase } from "./vault";
-
-const encryptedItem = {
-  identity: "id",
-  stable: ["vault_id", "created_at"],
-  envelope: ["ciphertext", "nonce", "updated_at"],
-};
-const records: HistoryRecord[] = [
-  { table: "folders", ...encryptedItem },
-  { table: "secrets", ...encryptedItem },
-  { table: "lock_settings", identity: "vault_id", envelope: ["ciphertext", "nonce", "updated_at"] },
-  {
-    table: "vaults",
-    identity: "id",
-    stable: ["salt", "iv", "created_at", "authentication", "status", "migrated"],
-    envelope: ["salt", "iv", "created_at", "authentication"],
-  },
-  {
-    table: "_ofdb_migrations",
-    identity: "id",
-    envelope: ["version", "description", "fingerprint", "execution_time"],
-  },
-];
 
 it("reopens independent same-name Vaults with their original encrypted records and deletions", async () => {
   const names = [`left-${crypto.randomUUID()}`, `right-${crypto.randomUUID()}`];
@@ -67,7 +52,24 @@ it("reopens independent same-name Vaults with their original encrypted records a
     }
     const [left, right] = sources;
     if (!left || !right) throw new Error("Two source databases required");
-    const candidate = await left.stageHistory(right, records);
+    const pending = await retainCandidate(
+      left,
+      right,
+      {
+        version: 1,
+        namespace: "fixture namespace",
+        loginState: "fixture login",
+        clientId: "fixture client",
+        id: crypto.randomUUID(),
+        local: encodeRevision(await left.historyRevision()),
+        remote: encodeRevision(await right.historyRevision()),
+        operation: crypto.randomUUID(),
+        committed: false,
+      },
+      () => true
+    );
+    expect(readPendingMerge()).toEqual(pending);
+    const candidate = await reopenCandidate(pending);
     try {
       const client = candidate.client();
       try {
@@ -97,6 +99,7 @@ it("reopens independent same-name Vaults with their original encrypted records a
       }
     } finally {
       candidate.close();
+      clearMerge(pending);
     }
     for (const [index, source] of sources.entries()) {
       const client = source.client();

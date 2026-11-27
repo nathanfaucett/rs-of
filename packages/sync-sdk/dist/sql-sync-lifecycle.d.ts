@@ -33,6 +33,8 @@ export type SqlResourceSyncStatus = {
  */
 export declare function startSqlResourceSync(database: Database, identity: StoreIdentity, options: SqlSyncOptions & {
     onStatus?(state: SqlResourceSyncStatus): void;
+    /** Let the owner serialize each exchange with other operations on the same replica. */
+    runExclusive?(run: () => Promise<void>, signal: AbortSignal): Promise<void>;
 }): SqlResourceSync;
 /** Owns one handle's attach, transport, deadline, and close lifecycle. */
 export declare class SqlSyncLifecycle implements SqlResourceSync {
