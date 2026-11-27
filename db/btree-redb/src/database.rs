@@ -55,6 +55,7 @@ impl RedbDatabase {
             return Ok(RedbDatabaseTransaction {
                 inner: NativeWriteTransaction::new_shared(
                     Arc::clone(&self.inner),
+                    Arc::clone(&self.admission),
                     self.changes.clone(),
                 )?,
             });
@@ -117,8 +118,23 @@ impl RedbDatabaseTransaction {
     /// # Errors
     ///
     /// Returns an error when persistence or conflict validation fails.
-    pub fn commit(self) -> BTreeResult<()> {
-        self.inner.commit()
+    pub async fn commit(self) -> BTreeResult<()> {
+        self.inner.commit().await
+    }
+
+    /// Runs an asynchronous read-only check under the actual writer before persisting changes.
+    /// Transactions with no shared writes do not acquire the writer or run the check.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage error on admission, commit, or rollback failure. A denied check is
+    /// returned separately, without persisting changes.
+    pub async fn commit_checked<Q, U, E>(self, check: Q) -> BTreeResult<Result<(), E>>
+    where
+        Q: FnOnce() -> U,
+        U: Future<Output = Result<(), E>>,
+    {
+        self.inner.commit_checked(check).await
     }
     /// Rolls back the transaction.
     ///

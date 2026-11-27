@@ -21,7 +21,8 @@ function recordActivity() {
 }
 
 $effect(() => {
-    if (!authState.isAuthenticated) void syncStateModule.closeSync();
+    if (!authState.session) return;
+    return () => void syncStateModule.closeSync();
 });
 
 $effect(() => {

@@ -69,6 +69,21 @@ pub trait KernelTransaction: MaybeSend + MaybeSync {
 
     fn commit(self) -> impl Future<Output = EngineResult<()>> + MaybeSend;
 
+    /// Runs a read-only check under actual writer admission before committing changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a check or storage error. Backends without a writer fence fail closed.
+    fn commit_checked<Q, U, E>(self, _check: Q) -> impl Future<Output = Result<(), E>> + MaybeSend
+    where
+        Self: Sized,
+        Q: FnOnce() -> U + MaybeSend,
+        U: Future<Output = Result<(), E>> + MaybeSend,
+        E: From<crate::EngineError> + MaybeSend,
+    {
+        core::future::ready(Err(crate::EngineError::Unsupported("checked commit").into()))
+    }
+
     /// Publishes legacy events only after this transaction commits durably.
     ///
     /// # Errors

@@ -10,9 +10,12 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use of_model::id::Id;
-use ofdb_sql::{SessionConfig, SyncRole, SyncTransport};
+use ofdb_sql::{
+    SessionConfig, SyncRole, SyncTransport,
+    history::{SyncError, SyncManifest, SyncMessage as SqlSyncMessage},
+};
 use serde_json::{Value, json};
-use tokio::{net::TcpStream, task::JoinHandle};
+use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 
 use super::{
@@ -92,7 +95,7 @@ async fn send(socket: &mut Socket, message: SyncMessage) {
 }
 
 async fn receive(socket: &mut Socket) -> SyncMessage {
-    let message = tokio::time::timeout(Duration::from_secs(15), socket.next())
+    let message = timeout(Duration::from_secs(15), socket.next())
         .await
         .expect("WS reply deadline")
         .expect("WS reply")
@@ -250,6 +253,30 @@ impl Fixture {
         .await;
         assert!(matches!(receive(&mut socket).await, SyncMessage::Hello(_)));
         socket
+    }
+
+    async fn first_upload(&self) -> (Socket, SyncMessage) {
+        let mut socket = self.hello().await;
+        let mut payload = SyncMessage::AttachRequest(AttachRequest {
+            store_identity: self.identity.clone(),
+            auth_token: AuthToken(b"user-token".to_vec()),
+            direction: AttachDirection::Bidirectional,
+        })
+        .encode()
+        .expect("attach payload");
+        payload[0] = 7;
+        let bytes = FrameCodec::encode(&Frame {
+            version: 1,
+            flags: 0,
+            payload,
+        })
+        .expect("first-upload frame");
+        socket
+            .send(Message::Binary(bytes.into()))
+            .await
+            .expect("send first upload");
+        let response = receive(&mut socket).await;
+        (socket, response)
     }
 
     async fn attach(&self) -> Socket {
@@ -555,11 +582,11 @@ async fn ws_authorization_revoked_during_preapply_preserves_committed_history() 
     }
     fixture.policy.lock().expect("policy lock")["adminAllowed"] = json!(false);
     gate.release();
-    let (_, denied) = tokio::time::timeout(Duration::from_secs(15), run)
+    let (_, denied) = timeout(Duration::from_secs(15), run)
         .await
         .expect("denied exchange ends");
     assert!(
-        matches!(denied, Err(ofdb_sql::history::SyncError::PreApply(_))),
+        matches!(denied, Err(SyncError::PreApply(_))),
         "authorization guard must deny apply: {denied:?}"
     );
     assert_eq!(
@@ -630,5 +657,279 @@ async fn ws_rejects_changed_identity_unsupported_direction_and_owner_protocol() 
     assert_eq!(
         receive(&mut socket).await,
         SyncMessage::Abort(AbortReason::MalformedMessage)
+    );
+}
+
+#[tokio::test]
+async fn ws_first_upload_rejects_even_dropped_remote_schema_without_changing_history() {
+    let fixture = Fixture::new().await;
+    let target = fixture
+        .databases
+        .open_selected(&fixture.namespace, fixture.identity.store_id)
+        .expect("open target")
+        .expect("selected target");
+    sql(
+        &target,
+        "CREATE TABLE prior (id UUID PRIMARY KEY); DROP TABLE prior",
+    )
+    .await;
+    let before = target.history_manifest().await.expect("remote history");
+    assert_ne!(before, SyncManifest::default());
+
+    let (_, response) = fixture.first_upload().await;
+    assert_eq!(response.encode().expect("abort payload"), [4, 4]);
+    assert_eq!(
+        target.history_manifest().await.expect("retained history"),
+        before
+    );
+}
+
+async fn stage_upload(fixture: &Fixture, source: &ofdb_sql::Database, socket: Socket) -> Socket {
+    let mut transport = ClientTransport(socket);
+    timeout(
+        Duration::from_secs(15),
+        source.exchange_resource_history(
+            &mut transport,
+            &SessionConfig::default(),
+            SyncRole::Initiator,
+            fixture.directory.0.join("source-stage"),
+            || async { Ok(()) },
+        ),
+    )
+    .await
+    .expect("SQL exchange deadline")
+    .expect("SQL exchange with private staging database");
+    transport.0
+}
+
+#[tokio::test]
+async fn ws_first_upload_publishes_history_and_refuses_replay_on_same_resource() {
+    for shared in [false, true] {
+        let fixture = Fixture::with_storage(shared).await;
+        let source = ofdb_sql::Database::in_memory();
+        sql(&source, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); CREATE INDEX by_value ON documents (value); INSERT INTO documents (value) VALUES ('kept'), ('deleted'); DELETE FROM documents WHERE value = 'deleted'").await;
+        let before = source.history_manifest().await.expect("source history");
+        let target = fixture
+            .databases
+            .open_selected(&fixture.namespace, fixture.identity.store_id)
+            .expect("open target")
+            .expect("selected target");
+        let (socket, response) = fixture.first_upload().await;
+        assert!(matches!(response, SyncMessage::AttachResponse(response) if response.accepted));
+        let receipt = receive(&mut stage_upload(&fixture, &source, socket).await).await;
+        assert_eq!(receipt.encode().expect("publish receipt"), [8]);
+        assert_eq!(
+            values(&target).await,
+            [ofdb_sql::Value::Text("kept".into())]
+        );
+        assert_eq!(
+            target.history_manifest().await.expect("published history"),
+            before
+        );
+        assert_eq!(
+            source.history_manifest().await.expect("source unchanged"),
+            before
+        );
+
+        let (_, response) = fixture.first_upload().await;
+        assert_eq!(
+            response,
+            SyncMessage::Abort(AbortReason::DestinationHasHistory)
+        );
+        assert_eq!(target.history_manifest().await.expect("no replay"), before);
+    }
+}
+
+#[tokio::test]
+async fn ws_first_upload_loses_to_sql_write_after_attach_without_merging_either_side() {
+    for shared in [false, true] {
+        let fixture = Fixture::with_storage(shared).await;
+        let source = ofdb_sql::Database::in_memory();
+        sql(&source, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('local')").await;
+        let local = source.history_manifest().await.expect("source history");
+        let target = fixture
+            .databases
+            .open_selected(&fixture.namespace, fixture.identity.store_id)
+            .expect("open target")
+            .expect("selected target");
+        let (socket, response) = fixture.first_upload().await;
+        assert!(matches!(response, SyncMessage::AttachResponse(response) if response.accepted));
+
+        let socket = {
+            let client = target.client();
+            let mut writer = client
+                .transaction()
+                .await
+                .expect("begin writer during upload");
+            writer.execute_sql("CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('remote')", None).await.expect("write competing history");
+            // Standalone Redb serializes writers. Finish SQL exchange while the competing
+            // transaction still owns the writer, then prove it can commit while publish waits.
+            let socket = if shared {
+                socket
+            } else {
+                stage_upload(&fixture, &source, socket).await
+            };
+            timeout(Duration::from_secs(5), writer.commit())
+                .await
+                .expect("writer commit deadline")
+                .expect("competing commit");
+            socket
+        };
+        let remote = target.history_manifest().await.expect("competing history");
+        let mut socket = if shared {
+            stage_upload(&fixture, &source, socket).await
+        } else {
+            socket
+        };
+        let receipt = receive(&mut socket).await;
+        assert_eq!(
+            receipt,
+            SyncMessage::Abort(AbortReason::DestinationHasHistory)
+        );
+        assert_eq!(
+            target.history_manifest().await.expect("no remote merge"),
+            remote
+        );
+        assert_eq!(
+            source.history_manifest().await.expect("no local merge"),
+            local
+        );
+    }
+}
+
+struct DisconnectBeforeRecovery {
+    transport: ClientTransport,
+}
+
+impl SyncTransport for DisconnectBeforeRecovery {
+    type Error = io::Error;
+
+    async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
+        if matches!(
+            postcard::from_bytes(&frame),
+            Ok(SqlSyncMessage::RequestSnapshots(_))
+        ) {
+            self.transport
+                .0
+                .close(None)
+                .await
+                .map_err(io::Error::other)?;
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "test interrupted upload",
+            ));
+        }
+        self.transport.send(frame).await
+    }
+
+    async fn receive(&mut self) -> io::Result<Vec<u8>> {
+        self.transport.receive().await
+    }
+}
+
+#[tokio::test]
+async fn ws_first_upload_disconnect_before_completion_can_retry_same_resource() {
+    let fixture = Fixture::with_storage(true).await;
+    let source = ofdb_sql::Database::in_memory();
+    sql(&source, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('local')").await;
+    let before = source.history_manifest().await.expect("source history");
+    let target = fixture
+        .databases
+        .open_selected(&fixture.namespace, fixture.identity.store_id)
+        .expect("open target")
+        .expect("selected target");
+    let (socket, response) = fixture.first_upload().await;
+    assert!(matches!(response, SyncMessage::AttachResponse(response) if response.accepted));
+    let error = source
+        .exchange_resource_history(
+            &mut DisconnectBeforeRecovery {
+                transport: ClientTransport(socket),
+            },
+            &SessionConfig::default(),
+            SyncRole::Initiator,
+            fixture.directory.0.join("source-stage"),
+            || async { Ok(()) },
+        )
+        .await
+        .expect_err("interrupted after the first SQL transfer round");
+    assert!(
+        matches!(error, SyncError::Transport(error) if error.kind() == io::ErrorKind::ConnectionAborted)
+    );
+    assert_eq!(
+        target.history_manifest().await.expect("target history"),
+        SyncManifest::default()
+    );
+    assert_eq!(
+        source.history_manifest().await.expect("source unchanged"),
+        before
+    );
+
+    let (socket, response) = fixture.first_upload().await;
+    assert!(matches!(response, SyncMessage::AttachResponse(response) if response.accepted));
+    assert_eq!(
+        receive(&mut stage_upload(&fixture, &source, socket).await).await,
+        SyncMessage::FirstUploadPublished
+    );
+    assert_eq!(
+        target.history_manifest().await.expect("published retry"),
+        before
+    );
+}
+
+#[tokio::test]
+async fn ws_first_upload_cannot_bypass_selection() {
+    let fixture = Fixture::new().await;
+    let target = fixture
+        .databases
+        .open_selected(&fixture.namespace, fixture.identity.store_id)
+        .expect("open target")
+        .expect("selected target");
+    sql(&target, "CREATE TABLE prior (id UUID PRIMARY KEY)").await;
+    fixture.policy.lock().expect("policy lock")["resources"] = json!([]);
+    // A denied selection must never disclose whether this Resource contains history.
+    let (_, response) = fixture.first_upload().await;
+    assert_eq!(response, SyncMessage::Abort(AbortReason::Unauthorized));
+}
+
+#[tokio::test]
+async fn ws_first_upload_aborts_unauthorized_if_selection_is_revoked_while_writer_is_held() {
+    let fixture = Fixture::new().await;
+    let source = ofdb_sql::Database::in_memory();
+    sql(&source, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('local')").await;
+    let before = source.history_manifest().await.expect("source history");
+    let target = fixture
+        .databases
+        .open_selected(&fixture.namespace, fixture.identity.store_id)
+        .expect("open target")
+        .expect("selected target");
+    let (socket, response) = fixture.first_upload().await;
+    assert!(matches!(response, SyncMessage::AttachResponse(response) if response.accepted));
+
+    let client = target.client();
+    let writer = client
+        .transaction()
+        .await
+        .expect("hold empty destination writer");
+    let mut socket = stage_upload(&fixture, &source, socket).await;
+    fixture.policy.lock().expect("policy lock")["resources"] = json!([]);
+    writer
+        .rollback()
+        .await
+        .expect("release unchanged destination");
+
+    assert_eq!(
+        receive(&mut socket).await,
+        SyncMessage::Abort(AbortReason::Unauthorized)
+    );
+    assert_eq!(
+        target
+            .history_manifest()
+            .await
+            .expect("destination history"),
+        SyncManifest::default()
+    );
+    assert_eq!(
+        source.history_manifest().await.expect("source history"),
+        before
     );
 }

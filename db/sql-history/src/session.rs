@@ -80,6 +80,9 @@ pub enum SyncError<E> {
     #[error("pre-apply check failed: {0}")]
     PreApply(String),
 
+    #[error("destination already has retained history")]
+    DestinationHasHistory,
+
     #[error("engine error: {0}")]
     Engine(#[from] EngineError),
 
@@ -853,6 +856,120 @@ where
             .map(|(key, summary)| (key, summary.digest))
             .collect(),
     ))
+}
+
+/// Tests for retained catalog history, including dropped definitions.
+///
+/// # Errors
+///
+/// Returns an error if the catalog cannot be read.
+pub async fn catalog_history_is_empty_for<K, R>(engine: &Engine<K, R>) -> Result<bool, EngineError>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+{
+    engine
+        .read_transaction(|codec, transaction| {
+            Box::pin(catalog_history_is_empty(codec, transaction))
+        })
+        .await
+}
+
+async fn catalog_history_is_empty<T, R>(codec: &R, transaction: &T) -> Result<bool, EngineError>
+where
+    T: KernelTransaction,
+    R: SyncRowCodec<T>,
+{
+    // User row history cannot be created without a catalog definition. Drops retain that history.
+    for table in [
+        ENGINE_TABLES_STORAGE,
+        ENGINE_TABLE_FIELDS_STORAGE,
+        ENGINE_INDICES_STORAGE,
+        ENGINE_INDEX_FIELDS_STORAGE,
+    ] {
+        let rows = codec.row_ids(transaction, table);
+        pin_mut!(rows);
+        if rows.next().await.transpose()?.is_some() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Publishes a private staging database into a destination with no catalog history.
+/// The emptiness check, all writes, and the final authorization check share one transaction.
+///
+/// # Errors
+///
+/// Returns an error for an empty upload, existing destination history, denied authorization,
+/// invalid staged history, or transaction failure.
+pub async fn publish_initial_history_for<K, R, S, C, Q, U, E>(
+    engine: &Engine<K, R>,
+    staged: &Engine<S, C>,
+    max_bytes: usize,
+    check: Q,
+) -> Result<(), SyncError<E>>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+    S: Kernel,
+    C: SyncRowCodec<S::Transaction>,
+    Q: FnOnce() -> U + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
+    E: MaybeSend,
+{
+    let units = sync_stage(|| export_sync_state_limited(staged, max_bytes, None)).await?;
+    if units.is_empty() {
+        return Err(EngineError::InvalidQuery("empty first upload").into());
+    }
+    validate_state_batch(&units)?;
+    validate_row_addresses(&units, &[])?;
+    let tables = units
+        .iter()
+        .map(|unit| {
+            let SyncKey::Row { table, .. } = &unit.key;
+            table.clone()
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    engine
+        .mutate_tables_with_commit(
+            &tables,
+            move |codec, transaction| {
+                Box::pin(async move {
+                    let mut mutations = MutationSummary::default();
+                    if !catalog_history_is_empty(codec, transaction).await? {
+                        // Returning an error also rolls back table initialization done by mutate_tables.
+                        return Err(EngineError::InvalidQuery("destination has history"));
+                    }
+                    for order in 0..=4 {
+                        for unit in &units {
+                            let SyncKey::Row { table, .. } = &unit.key;
+                            if catalog_order(table) == order {
+                                merge_snapshot(codec, transaction, unit).await?;
+                                mutations.record_table(table);
+                            }
+                        }
+                        if order == 3 {
+                            validate_catalog(codec, transaction, &units, &[], None).await?;
+                        }
+                    }
+                    Ok(((), mutations))
+                })
+            },
+            |_| Ok(()),
+            |transaction| {
+                transaction.commit_checked(|| async { check().await.map_err(SyncError::PreApply) })
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            SyncError::Engine(EngineError::InvalidQuery("destination has history")) => {
+                SyncError::DestinationHasHistory
+            }
+            error => error,
+        })
 }
 
 /// Exports current state units.

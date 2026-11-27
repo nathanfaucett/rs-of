@@ -124,8 +124,11 @@ where
 
     async fn transaction(&self) -> BTreeResult<Self::Transaction> {
         if self.shared {
-            let transaction =
-                NativeWriteTransaction::new_shared(Arc::clone(&self.db), self.changes.clone())?;
+            let transaction = NativeWriteTransaction::new_shared(
+                Arc::clone(&self.db),
+                Arc::clone(&self.admission),
+                self.changes.clone(),
+            )?;
             return Ok(RedbBTreeTransaction::new(transaction, &self.name));
         }
         let admission = self.admission.lock_arc().await;
@@ -337,6 +340,7 @@ mod test {
             second.commit().await.expect("scoped commit failed");
             transaction
                 .commit()
+                .await
                 .expect("failed to commit database transaction");
 
             let first = RedbBTree::<String, String>::new(Arc::clone(&db), "first");

@@ -25,7 +25,7 @@ fn commit_invalidation_basic() {
 
         let tx = db.transaction().await.expect("transaction");
         tx.create_table::<Bytes, Bytes>("items").expect("table");
-        tx.commit().expect("commit");
+        tx.commit().await.expect("commit");
 
         // Table creation does not emit events - only data changes do
         assert!(changes.events().next().now_or_never().is_none());
@@ -36,7 +36,7 @@ fn commit_invalidation_basic() {
             .insert(Bytes(vec![1]), Bytes(vec![2]))
             .await
             .expect("write");
-        tx.commit().expect("commit");
+        tx.commit().await.expect("commit");
 
         let event = changes.events().next().await.expect("data change event");
         assert_eq!(event.key.table, "items");
@@ -56,7 +56,7 @@ fn committed_work_survives_cancellation() {
 
         let tx = db.transaction().await.expect("transaction");
         tx.create_table::<Bytes, Bytes>("items").expect("table");
-        tx.commit().expect("commit");
+        tx.commit().await.expect("commit");
 
         // Insert data
         let tx = db.transaction().await.expect("transaction");
@@ -64,7 +64,7 @@ fn committed_work_survives_cancellation() {
             .insert(Bytes(vec![1]), Bytes(vec![2]))
             .await
             .expect("write");
-        tx.commit().expect("commit");
+        tx.commit().await.expect("commit");
 
         let _event = changes.events().next().await;
         // Second call to events() returns None - snapshot semantics
@@ -87,7 +87,7 @@ fn overflow_handles_large_keys() {
             .insert(Bytes(vec![0; 17000]), Bytes(vec![1]))
             .await
             .expect("large key");
-        tx.commit().expect("commit");
+        tx.commit().await.expect("commit");
 
         let event = changes.events().next().await.expect("overflow event");
         assert_ne!(event.blob, [] as [u8; 0]);
@@ -109,7 +109,7 @@ fn retry_after_cancellation_works() {
             .insert(Bytes(vec![0; 17000]), Bytes(vec![1]))
             .await
             .expect("large key");
-        tx.commit().expect("commit");
+        tx.commit().await.expect("commit");
 
         let _event = changes.events().next().await;
 
@@ -122,7 +122,7 @@ fn retry_after_cancellation_works() {
             .insert(Bytes(vec![250]), Bytes(vec![4]))
             .await
             .expect("post-overflow write");
-        tx.commit().expect("commit");
+        tx.commit().await.expect("commit");
 
         // New subscription replays all history (push-based model)
         let event1 = changes
@@ -157,7 +157,7 @@ fn oversized_batch_invalidations() {
             .insert(Bytes(vec![0; 17000]), Bytes(vec![1]))
             .await
             .expect("large key");
-        tx.commit().expect("commit");
+        tx.commit().await.expect("commit");
 
         let event = changes
             .events()
@@ -183,7 +183,7 @@ fn acknowledgement_cannot_hide_a_later_commit_or_another_consumer() {
             .insert(Bytes(vec![1]), Bytes(vec![2]))
             .await
             .expect("write");
-        tx.commit().expect("commit");
+        tx.commit().await.expect("commit");
 
         let _event = changes.events().next().await;
 

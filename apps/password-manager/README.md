@@ -57,7 +57,13 @@ For a new OAuth Client, sign in as a User allowed to register it. Select **Accep
 
 Local and legacy synced vaults use the same encryption, unlock, and editing code. They still use separate browser databases. This shared code does not migrate vaults or change their IDs, master passwords, lock settings, or Storage Resource bindings. Synced vaults still accept legacy SQL timestamp text for item, folder, and lock-setting rows without rewriting it. Local vaults still require ISO timestamps in those rows.
 
-**Create new vault** always creates a local vault. A successful sign-in does not unlock a vault or move its data. Signed-in Users can explicitly show or create synced vaults; replication through the legacy browser sync SDK still requires paired `/idp` and `/storage` bases on the same server.
+**Create new vault** always creates a local vault. Sign-in does not unlock a vault or upload its data.
+
+To upload the local database, lock the vault and select **Connect local database**. Check the Installation issuer, User subject, and Application URI. Select **Confirm and upload** to register or reopen the same logical Storage Resource and try a guarded first upload. Storage must authorize the upload. If Selection is missing, give the displayed Resource ID to an Installation operator. The operator must select that Resource on the serving Node’s approved Device through the [Device owner contract](../../openapi/device.json). Retry after Selection is in place. Password Manager does not select a Device or grant permissions. A fresh unified Installation currently also needs Storage-side support to validate `storage:sync` tokens. Selection alone does not resolve that denial.
+
+The first upload uses the existing browser database. It does not merge with a Resource that already has history. If the publication receipt is lost, the app cannot verify success; it does not switch to an unguarded exchange. Later local edits, automatic reconnect, and remote restore are not part of first upload. Vault names and other metadata are not encrypted by the vault record encryption.
+
+Use **Show synced vaults** to reopen existing legacy synced vaults. This path still requires paired `/idp` and `/storage` bases on the same server. It does not open the new first-upload Resource as a legacy vault.
 
 The browser must allow IndexedDB, Web Crypto, Web Locks, and the relevant service-worker/cache APIs for offline delivery. Use HTTPS or a secure loopback development context.
 
