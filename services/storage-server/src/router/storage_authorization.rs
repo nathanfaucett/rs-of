@@ -39,6 +39,12 @@ pub struct StorageAuthorization {
     pub can_write: bool,
 }
 
+impl StorageAuthorization {
+    pub fn is_current(&self) -> bool {
+        self.expires_at > unix_time_seconds()
+    }
+}
+
 pub async fn authorize_storage_token(
     idp_client: &IdpClient,
     token: &str,
@@ -46,15 +52,16 @@ pub async fn authorize_storage_token(
     authorize_inspected_token(idp_client.introspect(token).await)
 }
 
-#[cfg(feature = "sync")]
-pub async fn authorize_storage_token_read_only(
+pub async fn inspect_storage_token_read_only(
     idp_client: &IdpClient,
     token: &str,
+    renew: bool,
 ) -> Result<StorageAuthorization, StorageAuthorizationError> {
-    if idp_client.has_local_device_policy() {
-        return Err(StorageAuthorizationError::InvalidToken);
-    }
-    authorize_inspected_token(idp_client.inspect_identity_read_only(token).await)
+    authorize_inspected_token(if renew {
+        idp_client.inspect_identity(token).await
+    } else {
+        idp_client.inspect_identity_read_only(token).await
+    })
 }
 
 pub fn authorize_inspected_token(

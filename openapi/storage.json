@@ -599,6 +599,55 @@
         "tags": ["resources"]
       }
     },
+    "/databases/by-creation-key": {
+      "get": {
+        "operationId": "get_database_by_creation_key",
+        "parameters": [
+          {
+            "description": "Exact database creation key in the signed-in namespace",
+            "in": "query",
+            "name": "creation_key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseResource"
+                }
+              }
+            },
+            "description": "Existing keyed database Resource"
+          },
+          "400": {
+            "description": "Invalid creation key"
+          },
+          "401": {
+            "description": "Invalid storage authorization"
+          },
+          "403": {
+            "description": "Token does not permit reads"
+          },
+          "404": {
+            "description": "No live keyed database Resource"
+          },
+          "503": {
+            "description": "Storage runtime or authority unavailable"
+          }
+        },
+        "security": [
+          {
+            "authorization": []
+          }
+        ],
+        "tags": ["resources"]
+      }
+    },
     "/databases/ensure": {
       "post": {
         "operationId": "ensure_database",

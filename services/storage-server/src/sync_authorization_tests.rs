@@ -139,6 +139,7 @@ async fn local_ws_requires_database_capability_and_rechecks_revocation() {
         &identity,
         "local",
         super::AttachDirection::Bidirectional,
+        super::AuthorityCheck::Reconcile,
     )
     .await
     .expect("scoped capability");

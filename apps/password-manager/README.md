@@ -88,6 +88,6 @@ Backend tests start an isolated real local backend. They must not replace remote
 
 ### Restore a Storage database
 
-Sign in, select **Find remote database**, then confirm the displayed Storage Resource ID. Restore downloads the first-upload Resource into the regular local vault store. If more than one Resource matches, the app stops. Storage must authorize a read-only exchange and the serving Device must have a Selection when required. Unlock restored vaults with their existing passwords, with or without sign-in.
+Sign in, select **Find remote database**, then confirm the displayed Storage Resource ID. Restore downloads the first-upload Resource into the regular local vault store. The app looks up the exact first-upload creation key in the signed-in namespace. It does not search by display name or create a Resource. Storage must authorize a read-only exchange and the serving Device must have a Selection when required. Unlock restored vaults with their existing passwords, with or without sign-in.
 
 The local publish transaction accepts only a database with no retained SQL history. A provisioned schema or a deleted vault is not a fresh database. Restore does not clear either store or import the separate legacy synced-vault store. It records the verified source and Resource ID locally with the restored data. Reopening does not repeat the restore or upload local edits. The legacy selector remains available.

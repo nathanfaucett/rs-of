@@ -77,6 +77,13 @@ export interface GetDatabaseRequest {
   databaseId: string;
 }
 
+export interface GetDatabaseByCreationKeyRequest {
+  /**
+   * Exact database creation key in the signed-in namespace
+   */
+  creationKey: string;
+}
+
 export interface GetFileSystemRequest {
   /**
    * Filesystem resource ID
@@ -258,6 +265,35 @@ export interface ResourcesApiInterface {
     requestParameters: GetDatabaseRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<DatabaseDetailResponse>;
+
+  /**
+   * Creates request options for getDatabaseByCreationKey without sending the request
+   * @param {string} creationKey Exact database creation key in the signed-in namespace
+   * @throws {RequiredError}
+   * @memberof ResourcesApiInterface
+   */
+  getDatabaseByCreationKeyRequestOpts(
+    requestParameters: GetDatabaseByCreationKeyRequest
+  ): Promise<runtime.RequestOpts>;
+
+  /**
+   *
+   * @param {string} creationKey Exact database creation key in the signed-in namespace
+   * @param {*} [options] Override http request option.
+   * @throws {RequiredError}
+   * @memberof ResourcesApiInterface
+   */
+  getDatabaseByCreationKeyRaw(
+    requestParameters: GetDatabaseByCreationKeyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<DatabaseResource>>;
+
+  /**
+   */
+  getDatabaseByCreationKey(
+    requestParameters: GetDatabaseByCreationKeyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<DatabaseResource>;
 
   /**
    * Creates request options for getFileSystem without sending the request
@@ -709,6 +745,70 @@ export class ResourcesApi extends runtime.BaseAPI implements ResourcesApiInterfa
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<DatabaseDetailResponse> {
     const response = await this.getDatabaseRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Creates request options for getDatabaseByCreationKey without sending the request
+   */
+  async getDatabaseByCreationKeyRequestOpts(
+    requestParameters: GetDatabaseByCreationKeyRequest
+  ): Promise<runtime.RequestOpts> {
+    if (requestParameters["creationKey"] == null) {
+      throw new runtime.RequiredError(
+        "creationKey",
+        'Required parameter "creationKey" was null or undefined when calling getDatabaseByCreationKey().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    if (requestParameters["creationKey"] != null) {
+      queryParameters["creation_key"] = requestParameters["creationKey"];
+    }
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token("authorization", []);
+
+      if (tokenString) {
+        headerParameters["Authorization"] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/databases/by-creation-key`;
+
+    return {
+      path: urlPath,
+      method: "GET",
+      headers: headerParameters,
+      query: queryParameters,
+    };
+  }
+
+  /**
+   */
+  async getDatabaseByCreationKeyRaw(
+    requestParameters: GetDatabaseByCreationKeyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<DatabaseResource>> {
+    const requestOptions = await this.getDatabaseByCreationKeyRequestOpts(requestParameters);
+    const response = await this.request(requestOptions, initOverrides);
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      DatabaseResourceFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   */
+  async getDatabaseByCreationKey(
+    requestParameters: GetDatabaseByCreationKeyRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<DatabaseResource> {
+    const response = await this.getDatabaseByCreationKeyRaw(requestParameters, initOverrides);
     return await response.value();
   }
 

@@ -183,11 +183,14 @@ impl DeviceClient {
     pub async fn selection_snapshot(
         &self,
         endpoint_id: &str,
+        renew: bool,
     ) -> Result<SelectedResourcesResponse, String> {
-        // The ordinary pre-apply check refreshes the token before writer admission.
-        let service_token = self
-            .cached_service_token()?
-            .ok_or("Device Selection service token is not current")?;
+        let service_token = if renew {
+            self.service_access_token().await?
+        } else {
+            self.cached_service_token()?
+                .ok_or("Device Selection service token is not current")?
+        };
         let mut url = self.device_base_url.clone();
         url.path_segments_mut()
             .map_err(|()| "invalid Device endpoint URL")?

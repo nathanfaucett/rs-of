@@ -10,8 +10,9 @@ use super::residency::{__path_get_file_system_residency, __path_put_file_system_
 use super::resources::sql::__path_execute_sql;
 use super::resources::{
     __path_create_database, __path_create_file_system, __path_delete_database,
-    __path_delete_file_system, __path_ensure_database, __path_get_database, __path_get_file_system,
-    __path_list_databases, __path_list_file_systems,
+    __path_delete_file_system, __path_ensure_database, __path_get_database,
+    __path_get_database_by_creation_key, __path_get_file_system, __path_list_databases,
+    __path_list_file_systems,
 };
 use super::routes::health::{__path_health, health};
 use super::routes::version::{__path_version, version};
@@ -30,6 +31,7 @@ use of_model::server::storage::resources::{
         execute_sql,
         list_databases,
         get_database,
+        get_database_by_creation_key,
         delete_database,
         create_file_system,
         list_file_systems,

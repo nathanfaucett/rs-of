@@ -134,6 +134,7 @@ export declare class StorageClient {
     createSqlDatabase(name?: string): Promise<SqlDatabaseHandle>;
     openSqlDatabase(databaseId: string): Promise<SqlDatabaseHandle>;
     listSqlDatabases(signal?: AbortSignal): Promise<DatabaseResource[]>;
+    findSqlDatabaseByCreationKey(creationKey: string, signal?: AbortSignal): Promise<DatabaseResource | undefined>;
     createKvStore(_name?: string): Promise<KvStoreHandle>;
     openKvStore(storeId: string): Promise<KvStoreHandle>;
     listKvStores(_signal?: AbortSignal): Promise<{

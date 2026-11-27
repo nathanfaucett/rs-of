@@ -14,7 +14,7 @@ Resource deletion creates a Tombstone and removes local runtime/catalog availabi
 
 Database ensure is explicit creation or reopen; authentication and metadata reads do not provision a database. A stable creation key identifies a logical Resource within the verified subject/Application namespace. Retrying the same key converges on the same derived Resource identity; changing it deliberately selects a different identity.
 
-The current identity derivation uses UUIDv5 over the verified subject, canonical Application ID, and creation key. Names remain non-unique labels. Disconnected Nodes can derive the same identity without global create serialization or globally ordered writes.
+The current identity derivation uses UUIDv5 over the verified subject, canonical Application ID, and creation key. A read-only creation-key lookup returns only an existing live Resource in that namespace. It does not open or create a copy. Names remain non-unique labels. Disconnected Nodes can derive the same identity without global create serialization or globally ordered writes.
 
 Initialization publishes valid existing database content before exposure. Interrupted fresh initialization can resume from durable intent. Missing or corrupt acknowledged content is an error, never a reason to create an empty replacement. A learned Tombstone permanently consumes that identity; recreation requires a new key. Local-copy fences remain distinct from unknown Resource lookups.
 

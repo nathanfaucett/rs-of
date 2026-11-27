@@ -137,19 +137,7 @@ impl DatabaseCatalog {
         key: &str,
         name: Option<String>,
     ) -> io::Result<(DatabaseResource, bool)> {
-        if key.is_empty() || key.len() > 128 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid creation key",
-            ));
-        }
-        let identity = serde_json::to_vec(&[
-            "of:database:creation:v1",
-            scope.user_sub(),
-            &scope.application_id().to_string(),
-            key,
-        ])?;
-        let id = DatabaseId::new_v5(&DatabaseId::NAMESPACE_URL, &identity);
+        let id = creation_id(scope, key)?;
         self.with_catalog(scope, true, |catalog| {
             if let Some(record) = catalog.records.get(&id) {
                 if record.deleted {
@@ -260,6 +248,17 @@ impl DatabaseCatalog {
                 .filter(|record| !record.deleted && !record.initializing)
                 .map(|record| record.resource.clone()))
         })
+    }
+
+    /// Finds a live keyed Resource in the exact namespace, without reserving it.
+    /// # Errors
+    /// Returns an error for an invalid key, namespace, or catalog read failure.
+    pub fn get_by_creation_key<S: StorageNamespace>(
+        &self,
+        scope: &S,
+        key: &str,
+    ) -> io::Result<Option<DatabaseResource>> {
+        self.get(scope, creation_id(scope, key)?)
     }
 
     /// Marks a database Resource as deleted.
@@ -586,4 +585,20 @@ mod tests {
         catalog.list(&scope).unwrap_err();
         fs::remove_dir_all(root).expect("test catalog is removed");
     }
+}
+
+fn creation_id(scope: &impl StorageNamespace, key: &str) -> io::Result<DatabaseId> {
+    if key.is_empty() || key.len() > 128 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid creation key",
+        ));
+    }
+    let identity = serde_json::to_vec(&[
+        "of:database:creation:v1",
+        scope.user_sub(),
+        &scope.application_id().to_string(),
+        key,
+    ])?;
+    Ok(DatabaseId::new_v5(&DatabaseId::NAMESPACE_URL, &identity))
 }

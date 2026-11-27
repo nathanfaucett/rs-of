@@ -53,6 +53,7 @@ function getSync() {
   return sdk;
 }
 
+const creationKey = "password-manager-local-v1";
 const resourceName = "Password Manager local database";
 
 function restoreNamespace(session: Session) {
@@ -77,12 +78,9 @@ async function restoredResource(session: Session): Promise<string | undefined> {
 }
 
 async function findRestoreResource(expected: Session) {
-  const databases = await storageAccess(expected).client.listSqlDatabases();
+  const resource = await storageAccess(expected).client.findSqlDatabaseByCreationKey(creationKey);
   if (authState.session !== expected) throw new Error("Sign-in session ended");
-  const matching = databases.filter((entry) => entry.name === resourceName);
-  if (matching.length > 1)
-    throw new Error("More than one Password Manager Resource matches. No data was changed.");
-  return matching[0]?.id;
+  return resource?.id;
 }
 
 async function uploadLocalDatabase(expected: Session, onResource: (id: string) => void) {
@@ -108,7 +106,7 @@ async function uploadLocalDatabase(expected: Session, onResource: (id: string) =
     // Keep this key and name distinct from the legacy synced-vault Resource.
     const resource = await client.ensureDatabase(
       {
-        creationKey: "password-manager-local-v1",
+        creationKey,
         name: resourceName,
       },
       signal

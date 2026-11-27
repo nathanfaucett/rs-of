@@ -509,6 +509,8 @@ nodeTest(
     await expect(destination).toContainText(user.sub);
     await expect(destination).toContainText(pm);
     await expect(destination).toContainText(storage);
+    const lookup = `${storage}/databases/by-creation-key?creation_key=password-manager-local-v1`;
+    expect((await owner.call(lookup, read, "GET")).status).toBe(404);
     expect(await databases()).toEqual([]);
     await confirm.click();
     const selectionError = destination.getByRole("alert");
@@ -611,6 +613,14 @@ nodeTest(
     const findRemote = (page: Page) => page.getByRole("button", { name: "Find remote database" });
     const confirmRestore = (page: Page) =>
       page.getByRole("button", { name: "Restore database", exact: true });
+    const writeCatalog = await owner.exchange(pmSession, "storage:databases", "write");
+    const sameName = await owner.call(`${storage}/databases`, writeCatalog, "POST", {
+      name: "Password Manager local database",
+    });
+    expect(sameName.status, sameName.body).toBe(201);
+    expect(await owner.json<{ id: string }>(lookup, read)).toMatchObject({ id: resourceId });
+    const catalogWithDuplicateName = await databases();
+    expect(catalogWithDuplicateName).toHaveLength(2);
     await findRemote(pmPage).click();
     await confirmRestore(pmPage).click();
     await expect(pmPage.getByRole("alert").filter({ hasText: "Merge required" })).toBeVisible();
@@ -655,7 +665,7 @@ nodeTest(
     await expect(
       restoredPage.getByRole("button", { name: "Edited restored vault offline", exact: true })
     ).toBeVisible();
-    expect(await databases()).toEqual(catalog);
+    expect(await databases()).toEqual(catalogWithDuplicateName);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
 
     await pmPage.route(`${base}/**`, (route) => route.abort());

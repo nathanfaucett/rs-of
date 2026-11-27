@@ -2,7 +2,7 @@ use std::{
     io,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicI64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -114,6 +114,13 @@ async fn receive(socket: &mut Socket) -> SyncMessage {
     .expect("typed reply")
 }
 
+#[derive(Default)]
+struct OwnerCalls {
+    tokens: AtomicUsize,
+    selection_reads_with_repair: AtomicUsize,
+    snapshots: AtomicUsize,
+}
+
 struct Fixture {
     url: String,
     identity: StoreIdentity,
@@ -122,6 +129,7 @@ struct Fixture {
     expires_at: Arc<AtomicI64>,
     authorization_details: Arc<Mutex<Option<Value>>>,
     snapshot_gate: Arc<Mutex<Option<Gate>>>,
+    owner_calls: Arc<OwnerCalls>,
     databases: Arc<storage_service::database_runtime::DatabaseRuntime>,
     state: RouterState,
     tasks: Vec<JoinHandle<()>>,
@@ -179,16 +187,25 @@ impl Fixture {
         let expires_at = Arc::new(AtomicI64::new(i64::MAX));
         let expiry = expires_at.clone();
         let selected = policy.clone();
+        let owner_calls = Arc::new(OwnerCalls::default());
+        let tokens = owner_calls.clone();
+        let repairs = owner_calls.clone();
+        let snapshots = owner_calls.clone();
         let owners = Router::new()
-            .route("/idp/oauth2/token", post(|| async { Json(json!({
-                "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
-                "scope": "management.device.list management.replication.read management.replication.admit", "iss": "https://idp.example"
-            })) }))
+            .route("/idp/oauth2/token", post(move || {
+                tokens.tokens.fetch_add(1, Ordering::Relaxed);
+                async { Json(json!({
+                    "access_token": "service-token", "token_type": "Bearer", "expires_in": 300,
+                    "scope": "management.device.list management.replication.read management.replication.admit", "iss": "https://idp.example"
+                })) }
+            }))
             .route("/device/replication/devices/test-endpoint/selections", get(move || {
+                repairs.selection_reads_with_repair.fetch_add(1, Ordering::Relaxed);
                 let selected = selected.clone();
                 async move { Json(selected.lock().expect("policy lock").clone()) }
             }))
             .route("/device/replication/selection-snapshots/test-endpoint", get(move || {
+                snapshots.snapshots.fetch_add(1, Ordering::Relaxed);
                 let control = control.clone();
                 let policy = snapshot.clone();
                 let gate = gate.lock().expect("snapshot gate").clone();
@@ -276,6 +293,7 @@ impl Fixture {
             expires_at,
             authorization_details,
             snapshot_gate,
+            owner_calls,
             databases,
             state,
             tasks: vec![owner_task, task],
@@ -713,6 +731,25 @@ async fn request_pull_or_push(
 }
 
 #[tokio::test]
+async fn ws_pull_does_not_provision_a_selected_resource() {
+    for shared in [false, true] {
+        let fixture = Fixture::with_storage(shared).await;
+        let (_, response) = request_pull_or_push(&fixture, AttachDirection::Pull).await;
+        assert_eq!(
+            response,
+            SyncMessage::Abort(AbortReason::BackendUnavailable)
+        );
+        assert!(
+            fixture
+                .databases
+                .list(&fixture.namespace)
+                .expect("catalog")
+                .is_empty()
+        );
+    }
+}
+
+#[tokio::test]
 async fn ws_pull_needs_read_and_never_accepts_incoming_sql_history() {
     let fixture = Fixture::new().await;
     *fixture.authorization_details.lock().expect("capability") =
@@ -775,6 +812,30 @@ async fn ws_pull_needs_read_and_never_accepts_incoming_sql_history() {
         remote.history_manifest().await.expect("no remote write"),
         before
     );
+    let (mut socket, response) = request_pull_or_push(&fixture, AttachDirection::Pull).await;
+    assert!(matches!(response, SyncMessage::AttachResponse(_)));
+    fixture.policy.lock().expect("policy lock")["resources"] = json!([]);
+    send(
+        &mut socket,
+        SyncMessage::OwnerMessage {
+            protocol_id: ProtocolId::OfdbSqlV7,
+            payload: vec![],
+        },
+    )
+    .await;
+    assert_eq!(
+        receive(&mut socket).await,
+        SyncMessage::Abort(AbortReason::Unauthorized)
+    );
+    assert_eq!(
+        fixture
+            .owner_calls
+            .selection_reads_with_repair
+            .load(Ordering::Relaxed),
+        0
+    );
+    assert!(fixture.owner_calls.snapshots.load(Ordering::Relaxed) > 4);
+    assert_eq!(fixture.owner_calls.tokens.load(Ordering::Relaxed), 1);
 }
 
 #[tokio::test]
