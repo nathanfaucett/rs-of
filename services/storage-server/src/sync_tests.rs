@@ -890,3 +890,46 @@ async fn ws_first_upload_cannot_bypass_selection() {
     let (_, response) = fixture.first_upload().await;
     assert_eq!(response, SyncMessage::Abort(AbortReason::Unauthorized));
 }
+
+#[tokio::test]
+async fn ws_first_upload_aborts_unauthorized_if_selection_is_revoked_while_writer_is_held() {
+    let fixture = Fixture::new().await;
+    let source = ofdb_sql::Database::in_memory();
+    sql(&source, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('local')").await;
+    let before = source.history_manifest().await.expect("source history");
+    let target = fixture
+        .databases
+        .open_selected(&fixture.namespace, fixture.identity.store_id)
+        .expect("open target")
+        .expect("selected target");
+    let (socket, response) = fixture.first_upload().await;
+    assert!(matches!(response, SyncMessage::AttachResponse(response) if response.accepted));
+
+    let client = target.client();
+    let writer = client
+        .transaction()
+        .await
+        .expect("hold empty destination writer");
+    let mut socket = stage_upload(&fixture, &source, socket).await;
+    fixture.policy.lock().expect("policy lock")["resources"] = json!([]);
+    writer
+        .rollback()
+        .await
+        .expect("release unchanged destination");
+
+    assert_eq!(
+        receive(&mut socket).await,
+        SyncMessage::Abort(AbortReason::Unauthorized)
+    );
+    assert_eq!(
+        target
+            .history_manifest()
+            .await
+            .expect("destination history"),
+        SyncManifest::default()
+    );
+    assert_eq!(
+        source.history_manifest().await.expect("source history"),
+        before
+    );
+}

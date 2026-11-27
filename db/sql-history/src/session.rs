@@ -897,25 +897,29 @@ where
 }
 
 /// Publishes a private staging database into a destination with no catalog history.
-/// The emptiness check and all writes share one transaction. `false` means history already exists.
+/// The emptiness check, all writes, and the final authorization check share one transaction.
 ///
 /// # Errors
 ///
-/// Returns an error for an empty upload, invalid staged history, or transaction failure.
-pub async fn publish_initial_history_for<K, R, S, C>(
+/// Returns an error for an empty upload, existing destination history, denied authorization,
+/// invalid staged history, or transaction failure.
+pub async fn publish_initial_history_for<K, R, S, C, Q, U, E>(
     engine: &Engine<K, R>,
     staged: &Engine<S, C>,
     max_bytes: usize,
-) -> Result<bool, EngineError>
+    check: Q,
+) -> Result<(), SyncError<E>>
 where
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
     S: Kernel,
     C: SyncRowCodec<S::Transaction>,
+    Q: FnOnce() -> U + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
 {
     let units = sync_stage(|| export_sync_state_limited(staged, max_bytes, None)).await?;
     if units.is_empty() {
-        return Err(EngineError::InvalidQuery("empty first upload"));
+        return Err(EngineError::InvalidQuery("empty first upload").into());
     }
     validate_state_batch(&units)?;
     validate_row_addresses(&units, &[])?;
@@ -929,32 +933,39 @@ where
         .into_iter()
         .collect::<Vec<_>>();
     engine
-        .mutate_tables(&tables, move |codec, transaction| {
-            Box::pin(async move {
-                let mut mutations = MutationSummary::default();
-                if !catalog_history_is_empty(codec, transaction).await? {
-                    // Returning an error also rolls back table initialization done by mutate_tables.
-                    return Err(EngineError::InvalidQuery("destination has history"));
-                }
-                for order in 0..=4 {
-                    for unit in &units {
-                        let SyncKey::Row { table, .. } = &unit.key;
-                        if catalog_order(table) == order {
-                            merge_snapshot(codec, transaction, unit).await?;
-                            mutations.record_table(table);
+        .mutate_tables_checked(
+            &tables,
+            move |codec, transaction| {
+                Box::pin(async move {
+                    let mut mutations = MutationSummary::default();
+                    if !catalog_history_is_empty(codec, transaction).await? {
+                        // Returning an error also rolls back table initialization done by mutate_tables.
+                        return Err(EngineError::InvalidQuery("destination has history"));
+                    }
+                    for order in 0..=4 {
+                        for unit in &units {
+                            let SyncKey::Row { table, .. } = &unit.key;
+                            if catalog_order(table) == order {
+                                merge_snapshot(codec, transaction, unit).await?;
+                                mutations.record_table(table);
+                            }
+                        }
+                        if order == 3 {
+                            validate_catalog(codec, transaction, &units, &[], None).await?;
                         }
                     }
-                    if order == 3 {
-                        validate_catalog(codec, transaction, &units, &[], None).await?;
-                    }
-                }
-                Ok((true, mutations))
-            })
-        })
+                    Ok(((), mutations))
+                })
+            },
+            |_| Ok(()),
+            || async { check().await.map_err(SyncError::PreApply) },
+        )
         .await
-        .or_else(|error| match error {
-            EngineError::InvalidQuery("destination has history") => Ok(false),
-            error => Err(error),
+        .map_err(|error| match error {
+            SyncError::Engine(EngineError::InvalidQuery("destination has history")) => {
+                SyncError::DestinationHasHistory
+            }
+            error => error,
         })
 }
 

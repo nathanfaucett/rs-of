@@ -373,26 +373,9 @@ fn fresh_replica_retains_generated_uuid_keys_from_history() {
 #[cfg(all(feature = "in-memory", feature = "validated-history"))]
 #[tokio::test]
 async fn peer_session_preserves_generated_keys_and_applies_later_edits() {
-    use core::future::ready;
-
-    use ofdb_sql::history::{SessionConfig, SyncRole, SyncTransport};
-    use tokio::{
-        sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-        time::timeout,
-    };
-
-    struct Channel(UnboundedSender<Vec<u8>>, UnboundedReceiver<Vec<u8>>);
-    impl SyncTransport for Channel {
-        type Error = &'static str;
-
-        fn send(&mut self, frame: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
-            ready(self.0.send(frame).map_err(|_error| "peer closed"))
-        }
-
-        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
-            self.1.recv().await.ok_or("peer closed")
-        }
-    }
+    use history_transport::{Channel, unbounded_channel};
+    use ofdb_sql::history::{SessionConfig, SyncRole};
+    use tokio::time::timeout;
 
     let a = Database::in_memory();
     let b = Database::in_memory();
@@ -471,4 +454,95 @@ async fn peer_session_preserves_generated_keys_and_applies_later_edits() {
             );
         }
     }
+}
+
+#[cfg(all(feature = "in-memory", feature = "validated-history"))]
+mod history_transport {
+    use core::future::ready;
+
+    use ofdb_sql::history::SyncTransport;
+    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
+    pub use tokio::sync::mpsc::unbounded_channel;
+
+    pub struct Channel(pub UnboundedSender<Vec<u8>>, pub UnboundedReceiver<Vec<u8>>);
+
+    impl SyncTransport for Channel {
+        type Error = &'static str;
+
+        fn send(&mut self, frame: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
+            ready(self.0.send(frame).map_err(|_error| "peer closed"))
+        }
+
+        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
+            self.1.recv().await.ok_or("peer closed")
+        }
+    }
+}
+
+#[cfg(all(feature = "redb", feature = "validated-history"))]
+#[tokio::test]
+async fn first_upload_rechecks_authorization_after_waiting_for_destination_writer() {
+    use core::{
+        future::ready,
+        sync::atomic::{AtomicBool, Ordering},
+    };
+
+    use history_transport::{Channel, unbounded_channel};
+    use ofdb_sql::history::{SessionConfig, SyncError, SyncManifest, SyncRole};
+    use tokio::time::timeout;
+
+    let directory = tempfile::tempdir().expect("first-upload directory");
+    let target = Database::open(directory.path().join("target.redb")).expect("destination");
+    let source = Database::in_memory();
+    source
+        .client()
+        .execute_sql(
+            "CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items DEFAULT VALUES",
+            None,
+        )
+        .await
+        .expect("source history");
+    let before = source.history_manifest().await.expect("source manifest");
+    let client = target.client();
+    let writer = client
+        .transaction()
+        .await
+        .expect("hold destination writer without changes");
+    let allowed = AtomicBool::new(true);
+    let config = SessionConfig::default();
+    let (source_send, target_receive) = unbounded_channel();
+    let (target_send, source_receive) = unbounded_channel();
+    let mut initiator = Channel(source_send, source_receive);
+    let mut responder = Channel(target_send, target_receive);
+    let (result, ()) = timeout(Duration::from_secs(10), async {
+        tokio::join!(
+            biased;
+            target.receive_first_upload(&mut responder, &config, directory.path(), || {
+                ready(if allowed.load(Ordering::Relaxed) { Ok(()) } else { Err("revoked".into()) })
+            }),
+            async {
+                source.exchange_resource_history(&mut initiator, &config, SyncRole::Initiator, directory.path(), || ready(Ok(()))).await.expect("SQL exchange with staged destination");
+                // The responder runs first and the channel sends never suspend. Once SQL
+                // finishes here, publish has already yielded on the held destination writer.
+                allowed.store(false, Ordering::Relaxed);
+                writer.rollback().await.expect("release unchanged destination writer");
+            },
+        )
+    }).await.expect("first-upload deadline");
+    assert!(
+        matches!(result, Err(SyncError::PreApply(ref reason)) if reason == "revoked"),
+        "{result:?}"
+    );
+    assert_eq!(
+        target
+            .history_manifest()
+            .await
+            .expect("destination manifest"),
+        SyncManifest::default()
+    );
+    assert_eq!(
+        source.history_manifest().await.expect("source manifest"),
+        before
+    );
 }

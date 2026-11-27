@@ -1,3 +1,5 @@
+use core::future::ready;
+
 #[cfg(not(feature = "std"))]
 use alloc::{collections::BTreeSet, string::String, vec::Vec};
 #[cfg(feature = "std")]
@@ -155,8 +157,36 @@ where
         ) -> platform::BoxFuture<'a, EngineResult<(O, MutationSummary)>>,
         V: FnOnce(&O) -> EngineResult<()>,
     {
+        self.mutate_tables_checked(tables, operation, validate, || ready(Ok(())))
+            .await
+    }
+
+    /// Runs a final check after mutation, validation, and index maintenance, with the
+    /// transaction still open. The check must not depend on this transaction or its writer.
+    ///
+    /// # Errors
+    ///
+    /// Rolls back and returns an error if mutation, validation, or the final check fails.
+    /// Also returns errors from transaction setup, commit, or rollback.
+    pub async fn mutate_tables_checked<F, O, V, Q, U, E>(
+        &self,
+        tables: &[String],
+        operation: F,
+        validate: V,
+        before_commit: Q,
+    ) -> Result<O, E>
+    where
+        F: for<'a> FnOnce(
+            &'a R,
+            &'a mut K::Transaction,
+        ) -> platform::BoxFuture<'a, EngineResult<(O, MutationSummary)>>,
+        V: FnOnce(&O) -> EngineResult<()>,
+        Q: FnOnce() -> U,
+        U: Future<Output = Result<(), E>>,
+        E: From<crate::EngineError>,
+    {
         let mut transaction = self.kernel.transaction().await?;
-        let result: EngineResult<O> = async {
+        let result: Result<O, E> = async {
             ensure(&mut transaction, self.reconciler.as_ref()).await?;
             for table in tables {
                 self.reconciler
@@ -180,6 +210,7 @@ where
                     .await?;
                 }
             }
+            before_commit().await?;
             Ok(output)
         }
         .await;

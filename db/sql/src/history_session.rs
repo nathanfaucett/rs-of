@@ -232,18 +232,15 @@ impl Database {
                     .read()
                     .await
                     .map_err(|error| SyncError::PreApply(error.to_string()))?;
-                if !sync_stage(|| {
+                sync_stage(|| {
                     history::publish_initial_history_for(
                         &*engine,
                         &staged,
                         config.max_session_bytes,
+                        check,
                     )
                 })
-                .await?
-                {
-                    return Err(SyncError::DestinationHasHistory);
-                }
-                Ok(())
+                .await
             }))
             .await
             .map_err(|error| SyncError::PreApply(error.to_string()))?
