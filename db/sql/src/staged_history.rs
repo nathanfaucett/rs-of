@@ -32,6 +32,10 @@ pub struct HistoryRecord<'a> {
     /// Additional non-null columns whose values must never change (for example, a vault ID).
     pub stable: &'a [&'a str],
     pub envelope: &'a [&'a str],
+    /// Empty to reject split conflicts. Otherwise the first field selects the unique source
+    /// with the canonical value. These fields must be written together in each live source.
+    /// All envelope fields, including any companions outside this list, come from that source.
+    pub resolve_by: &'a [&'a str],
 }
 
 /// An immutable, private reconciliation result. It is not a publication token.
@@ -166,7 +170,8 @@ impl Database {
     ///
     /// Rejects invalid policy, incompatible schemas or migration history, unverifiable identities,
     /// lost rows or tombstones, and live protected tuples that were not present in either live source.
-    /// Split envelopes with unresolved protected column conflicts are also rejected.
+    /// Split envelopes with conflicts require an explicit resolution policy and a unique,
+    /// complete source for the canonical value. Resolution retains both sources' native changes.
     pub async fn stage_history(
         &self,
         other: &Self,
@@ -213,6 +218,7 @@ struct Claim {
     identity: Value,
     stable: Vec<Value>,
     envelope: Option<Vec<Value>>,
+    envelope_conflicted: bool,
 }
 
 fn record_policy<'a>(records: &[HistoryRecord<'a>]) -> Result<Policy<'a>, EngineError> {
@@ -220,6 +226,7 @@ fn record_policy<'a>(records: &[HistoryRecord<'a>]) -> Result<Policy<'a>, Engine
     for record in records {
         let columns = record.envelope.iter().copied().collect::<BTreeSet<_>>();
         let stable = record.stable.iter().copied().collect::<BTreeSet<_>>();
+        let resolve_by = record.resolve_by.iter().copied().collect::<BTreeSet<_>>();
         if record.table.is_empty()
             || catalog_table_for_storage(record.table).is_some()
             || record.identity.is_empty()
@@ -227,6 +234,11 @@ fn record_policy<'a>(records: &[HistoryRecord<'a>]) -> Result<Policy<'a>, Engine
             || columns.contains("")
             || columns.contains(record.identity)
             || columns.len() != record.envelope.len()
+            || (!resolve_by.is_empty()
+                && (resolve_by.len() < 2
+                    || resolve_by.len() != record.resolve_by.len()
+                    || !resolve_by.is_subset(&columns)
+                    || !columns.is_disjoint(&stable)))
             || stable.len() != record.stable.len()
             || stable.contains("")
             || stable.contains(record.identity)
@@ -259,6 +271,8 @@ async fn reconcile(
     let (right_schemas, right_claims) =
         conflict_stage(|| observe(&other, policy, &right_keys, Some(&right))).await?;
     require_same_schema(&schemas, &right_schemas)?;
+    verify_source_groups(&left, &left_claims, policy)?;
+    verify_source_groups(&right, &right_claims, policy)?;
     let mut redundant = redundant_migrations(&left, &right, &stage, &other).await?;
     drop(other);
 
@@ -266,9 +280,23 @@ async fn reconcile(
     let keys = left_keys.union(&right_keys).cloned().collect();
     let (merged_schemas, merged) = conflict_stage(|| observe(&stage, policy, &keys, None)).await?;
     require_same_schema(&schemas, &merged_schemas)?;
+    let mut resolutions = Vec::new();
     for (key, claim) in &merged {
-        verify_claim(claim, left_claims.get(key), right_claims.get(key))?;
+        let SyncKey::Row { table, .. } = key;
+        let record = &policy[table.as_str()];
+        if let Some(values) =
+            verify_claim(record, claim, left_claims.get(key), right_claims.get(key))?
+        {
+            let assignments = record
+                .envelope
+                .iter()
+                .map(|name| (*name).to_owned())
+                .zip(values.iter().cloned())
+                .collect();
+            resolutions.push((key.clone(), assignments));
+        }
     }
+    resolve_groups(&stage, resolutions).await?;
     redundant.retain(|row| {
         merged
             .get(&SyncKey::Row {
@@ -584,26 +612,18 @@ fn collect_claims(
                 "History record identity collision",
             ));
         }
-        let envelope = if row.deleted {
-            None
-        } else {
-            if envelope.len() > 1
-                && row
-                    .conflicts
-                    .iter()
-                    .any(|(column, _)| record.envelope.contains(&column.as_str()))
-            {
-                return Err(EngineError::InvalidQuery(
-                    "Incompatible split history envelope: column conflict",
-                ));
-            }
-            Some(
-                envelope
-                    .iter()
-                    .map(|index| row.row.values[*index].clone())
-                    .collect(),
-            )
-        };
+        let envelope_conflicted = !row.deleted
+            && envelope.len() > 1
+            && row
+                .conflicts
+                .iter()
+                .any(|(column, _)| record.envelope.contains(&column.as_str()));
+        let envelope = (!row.deleted).then(|| {
+            envelope
+                .iter()
+                .map(|index| row.row.values[*index].clone())
+                .collect()
+        });
         claims.insert(
             SyncKey::Row {
                 table: view.name.clone(),
@@ -613,17 +633,76 @@ fn collect_claims(
                 identity: id,
                 stable,
                 envelope,
+                envelope_conflicted,
             },
         );
     }
     Ok(())
 }
 
-fn verify_claim(
-    merged: &Claim,
-    left: Option<&Claim>,
-    right: Option<&Claim>,
+const SPLIT_CONFLICT: EngineError =
+    EngineError::InvalidQuery("Incompatible split history envelope: column conflict");
+
+fn verify_source_groups(
+    units: &[SyncStateUnit],
+    claims: &Claims,
+    policy: &Policy<'_>,
 ) -> Result<(), EngineError> {
+    for unit in units {
+        let Some(claim) = claims.get(&unit.key) else {
+            continue;
+        };
+        if claim.envelope_conflicted {
+            return Err(SPLIT_CONFLICT);
+        }
+        let SyncKey::Row { table, .. } = &unit.key;
+        let record = &policy[table.as_str()];
+        if let Some(values) = &claim.envelope
+            && !record.resolve_by.is_empty()
+        {
+            if values.contains(&Value::Null) {
+                return Err(EngineError::InvalidQuery(
+                    "Incomplete source history envelope",
+                ));
+            }
+            AutomergeRowCodec::verify_history_group(&unit.state, record.resolve_by)?;
+        }
+    }
+    Ok(())
+}
+
+async fn resolve_groups(
+    stage: &Stage,
+    resolutions: Vec<(SyncKey, Vec<(String, Value)>)>,
+) -> Result<(), EngineError> {
+    if resolutions.is_empty() {
+        return Ok(());
+    }
+    let units = stage
+        .read_transaction(|codec, tx| {
+            Box::pin(async move {
+                let mut units = Vec::with_capacity(resolutions.len());
+                for (key, assignments) in resolutions {
+                    let SyncKey::Row { table, row } = &key;
+                    let snapshot = codec
+                        .resolve_history_group(tx, table, row, &assignments)
+                        .await?;
+                    let metadata = codec.export_metadata(tx, table, *row).await?;
+                    units.push(SyncStateUnit::new(key, snapshot, metadata));
+                }
+                Ok(units)
+            })
+        })
+        .await?;
+    conflict_stage(|| history::apply_sync_state_batch_for(stage, units)).await
+}
+
+fn verify_claim<'a>(
+    record: &HistoryRecord<'_>,
+    merged: &Claim,
+    left: Option<&'a Claim>,
+    right: Option<&'a Claim>,
+) -> Result<Option<&'a [Value]>, EngineError> {
     let sources = [left, right];
     if sources
         .into_iter()
@@ -643,6 +722,32 @@ fn verify_claim(
             "History record deletion did not match source tombstones",
         ));
     }
+    if merged.envelope_conflicted {
+        let Some(selector) = record.resolve_by.first() else {
+            return Err(SPLIT_CONFLICT);
+        };
+        let index = record
+            .envelope
+            .iter()
+            .position(|column| column == selector)
+            .expect("record policy validates the selector column");
+        let canonical = &merged
+            .envelope
+            .as_ref()
+            .expect("live conflict has an envelope")[index];
+        let mut matches = sources.into_iter().flatten().filter_map(|source| {
+            source
+                .envelope
+                .as_deref()
+                .filter(|values| &values[index] == canonical)
+        });
+        if let (Some(winner), None) = (matches.next(), matches.next()) {
+            return Ok(Some(winner));
+        }
+        return Err(EngineError::InvalidQuery(
+            "Ambiguous canonical source history envelope",
+        ));
+    }
     if !sources
         .into_iter()
         .flatten()
@@ -652,5 +757,5 @@ fn verify_claim(
             "History envelope did not come from one source row",
         ));
     }
-    Ok(())
+    Ok(None)
 }

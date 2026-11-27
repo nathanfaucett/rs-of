@@ -1,14 +1,18 @@
 import type { HistoryRecord } from "@ofsdk/sql";
 
+const encryptedFields = {
+  envelope: ["ciphertext", "nonce", "updated_at"],
+  resolveBy: ["ciphertext", "nonce"],
+};
 const encryptedItem = {
   identity: "id",
   stable: ["vault_id", "created_at"],
-  envelope: ["ciphertext", "nonce", "updated_at"],
+  ...encryptedFields,
 };
 export const vaultHistoryRecords: HistoryRecord[] = [
   { table: "folders", ...encryptedItem },
   { table: "secrets", ...encryptedItem },
-  { table: "lock_settings", identity: "vault_id", envelope: ["ciphertext", "nonce", "updated_at"] },
+  { table: "lock_settings", identity: "vault_id", ...encryptedFields },
   {
     table: "vaults",
     identity: "id",
