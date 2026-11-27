@@ -50,7 +50,7 @@ $effect(() => {
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<svelte:window onstorage={authState.checkStoredSession} onfocus={checkInactivity} onpageshow={checkInactivity} />
+<svelte:window onstorage={authState.checkStoredSession} onfocus={checkInactivity} onpageshow={checkInactivity} onpagehide={() => void syncStateModule.closeSync()} />
 <svelte:document onvisibilitychange={checkInactivity} onpointerdown={recordActivity} onkeydown={recordActivity} oninput={recordActivity} />
 
 <OfflineStatus />

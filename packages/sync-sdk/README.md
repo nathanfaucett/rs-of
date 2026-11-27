@@ -42,4 +42,18 @@ try {
   account change. The lifecycle does not register Resources, grant Selection,
   persist bindings, or schedule sync on local writes.
 
+For a verified established binding, call `startSqlResourceSync` only after the
+User activates sync in this runtime. Do not infer activation from a restored
+login or saved permission. The SDK uses the supplied database and Resource
+identity. It reports status through `onStatus` and runs an initial exchange,
+then wakes on committed changes, browser `online` events, or `sync()`. Only one
+exchange runs per lifecycle. Changes during an exchange schedule a follow-up.
+Failure leaves local history available and waits for a trigger; there is no
+polling. Close the lifecycle on detach, sign-out, or account change. Closing
+cancels the exchange and removes listeners without closing the database.
+
+Wakeups cover commits in the current WASM runtime, not writes in other tabs,
+workers, or remote-only changes. Use `sync()` for explicit reconciliation.
+There is no change to the persisted data or Storage wire format.
+
 The legacy `BrowserSyncSDK` and `createEstablishedSqlHandle` remain available.

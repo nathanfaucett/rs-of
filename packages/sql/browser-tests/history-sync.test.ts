@@ -82,7 +82,19 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       const replacedExisting = await a.replaceInitialRestoreTag(undefined, Uint8Array.of(5));
       await sync();
       const first = [await read(aClient), await read(bClient)];
-      await sync();
+      let repeatCommits = 0;
+      const stopA = a.onCommit(() => {
+        repeatCommits++;
+      });
+      const stopB = b.onCommit(() => {
+        repeatCommits++;
+      });
+      try {
+        await sync();
+      } finally {
+        stopA();
+        stopB();
+      }
       const repeated = [await read(aClient), await read(bClient)];
 
       close();
@@ -108,6 +120,7 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       return {
         first,
         repeated,
+        repeatCommits,
         reopened,
         updated,
         deleted,
@@ -132,6 +145,7 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
   expect(result.peerTag).toBeNull();
   expect(result.first).toEqual([expected, expected]);
   expect(result.repeated).toEqual([expected, expected]);
+  expect(result.repeatCommits).toBe(0);
   expect(result.reopened).toEqual([expected, expected]);
   const updated = [
     ["1", "updated-a"],

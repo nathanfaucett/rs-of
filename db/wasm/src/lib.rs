@@ -2,10 +2,10 @@
 
 mod kv;
 mod sql;
-mod sql_migration;
-mod sync;
 #[cfg(feature = "sync")]
 mod sql_history;
+mod sql_migration;
+mod sync;
 mod value;
 
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -15,17 +15,14 @@ pub async fn init() {
     console_error_panic_hook::set_once();
 }
 
+pub use kv::{KvClient, KvDatabase, KvTransaction};
+pub use sql::{SqlClient, SqlCommitWatch, SqlDatabase, SqlTransaction};
+#[cfg(feature = "sync")]
+pub use sql_history::{JsSqlHistoryError, SqlHistoryResult, SqlHistoryRole};
 #[cfg(feature = "sync")]
 pub use sync::{
-    JsChangeEvent, JsPushSyncError, JsPushSyncErrorKind, JsPushSyncTransport,
-    JsPushSyncTransportError, PushConfig, PushSynchronizeConfig, PushSynchronizeResult,
-    KvChangeSubscription, SqlChangeSubscription,
-    JsKvSyncError, JsKvSyncErrorKind, JsKvSyncTransport,
-    JsSqlSyncError, JsSqlSyncErrorKind, JsSqlSyncTransport,
+    JsChangeEvent, JsKvSyncError, JsKvSyncErrorKind, JsKvSyncTransport, JsPushSyncError,
+    JsPushSyncErrorKind, JsPushSyncTransport, JsPushSyncTransportError, JsSqlSyncError,
+    JsSqlSyncErrorKind, JsSqlSyncTransport, KvChangeSubscription, PushConfig,
+    PushSynchronizeConfig, PushSynchronizeResult, SqlChangeSubscription,
 };
-#[cfg(feature = "sync")]
-pub use sql_history::{
-    JsSqlHistoryError, SqlHistoryResult, SqlHistoryRole,
-};
-pub use kv::{KvClient, KvDatabase, KvTransaction};
-pub use sql::{SqlClient, SqlDatabase, SqlTransaction};

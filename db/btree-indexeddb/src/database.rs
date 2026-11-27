@@ -1,6 +1,7 @@
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
+    sync::{Arc, Weak},
 };
 
 use btree::{BTreeError, BTreeResult, ChangeSignal, ChangeSubscription, StorageInvalidation};
@@ -16,7 +17,11 @@ pub type Table = BTreeMap<Vec<u8>, Vec<u8>>;
 #[derive(Clone, Debug)]
 pub struct Database {
     handle: Arc<Connection>,
-    changes: ChangeSignal,
+    changes: Arc<ChangeSignal>,
+}
+
+thread_local! {
+    static CHANGES: RefCell<BTreeMap<String, Weak<ChangeSignal>>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 struct Connection(JsValue);
@@ -45,9 +50,20 @@ impl Database {
         let handle = JsFuture::from(platform::open(&physical, kind).map_err(error)?)
             .await
             .map_err(error)?;
+        // Independent handles in this WASM runtime observe the same physical store.
+        let changes = CHANGES.with(|signals| {
+            let mut signals = signals.borrow_mut();
+            signals.retain(|_, signal| signal.strong_count() != 0);
+            if let Some(signal) = signals.get(&physical).and_then(Weak::upgrade) {
+                return signal;
+            }
+            let signal = Arc::new(ChangeSignal::default());
+            signals.insert(physical, Arc::downgrade(&signal));
+            signal
+        });
         Ok(Self {
             handle: Arc::new(Connection(handle)),
-            changes: ChangeSignal::default(),
+            changes,
         })
     }
 

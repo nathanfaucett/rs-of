@@ -44,6 +44,23 @@ export class Database {
     return new Client(this.handle.get().client());
   }
 
+  /**
+   * Observe coalesced durable changes to this IndexedDB store in the current WASM runtime.
+   * Includes incoming history applied locally, not remote-only changes or writes in other tabs.
+   * Returns a function to unsubscribe. No events are replayed at subscription time.
+   */
+  onCommit(listener: () => void): () => void {
+    let subscribed = true;
+    const watch = this.handle.get().watch_commits(() => {
+      if (subscribed) listener();
+    });
+    return () => {
+      if (!subscribed) return;
+      subscribed = false;
+      watch.free();
+    };
+  }
+
   /** Synchronize with a remote peer using the given transport. */
   async synchronize(
     transport: JsPushSyncTransport,

@@ -3,6 +3,27 @@ use futures::{FutureExt, StreamExt};
 use crate::changes::ChangeSignal;
 
 #[tokio::test]
+async fn commit_wakeups_coalesce_and_end_when_sources_close() {
+    let first = ChangeSignal::default();
+    let second = ChangeSignal::default();
+    first.committed();
+    let mut changes = first.subscribe().merge(second.subscribe());
+    assert!(changes.changed().now_or_never().is_none());
+
+    first.committed();
+    first.committed();
+    assert_eq!(changes.changed().now_or_never(), Some(true));
+    assert!(changes.changed().now_or_never().is_none());
+
+    first.close();
+    assert!(changes.changed().now_or_never().is_none());
+    second.committed();
+    assert!(changes.changed().await);
+    drop(second);
+    assert!(!changes.changed().await);
+}
+
+#[tokio::test]
 async fn notifications_are_coalesced_and_cancel_safe() {
     let signal = ChangeSignal::default();
     let mut changes = signal.subscribe();

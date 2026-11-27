@@ -9,7 +9,6 @@ import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium, expect, type Page, test } from "@playwright/test";
-
 import {
   localRecord,
   localSecret,
@@ -19,6 +18,7 @@ import {
   passwordManagerSignin,
   passwordManagerWhileWaiting,
 } from "./password-manager-setup";
+import { verifyCommitDrivenSql } from "./sdk-commit-sync";
 
 const owners = ["idp", "device", "storage"] as const;
 const cwd = fileURLToPath(new URL("../", import.meta.url));
@@ -391,7 +391,7 @@ async function rejectStorageChanges(page: Page, keys: string[] | "all") {
 }
 
 nodeTest(
-  "default Create retains the Installation and supports guarded vault upload and restore",
+  "default Create retains the Installation and supports guarded vault upload, restore, and commit-driven sync",
   async ({ node }) => {
     const { app, base, browser, ca, data, pm } = node;
     const idp = `${base}/idp`;
@@ -674,7 +674,10 @@ nodeTest(
     expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBeNull();
     await pmPage.unroute(backendRoutes);
     await expect(pmPage.getByRole("button", { name: "Sync now", exact: true })).toHaveCount(0);
-    await pmPage.getByRole("button", { name: "Reattach sync" }).click();
+    const reattach = (page: Page) => page.getByRole("button", { name: "Reattach sync" });
+    const complete = (page: Page) => page.getByText("Sync complete.", { exact: true });
+    await reattach(pmPage).click();
+    await expect(complete(pmPage)).toBeVisible();
     expect(await databases()).toEqual(catalog);
     const remote = () =>
       query(
@@ -719,11 +722,11 @@ nodeTest(
         new URLSearchParams(response.request().postData() ?? "").get("grant_type") ===
           "refresh_token"
     );
-    await pmPage.getByRole("button", { name: "Sync now", exact: true }).click();
+    await reattach(pmPage).click();
     expect((await renewed).ok()).toBe(true);
-    await expect(pmPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    await expect(complete(pmPage)).toBeVisible();
     await pmPage.reload();
-    await expect(pmPage.getByRole("button", { name: "Sync now", exact: true })).toBeVisible();
+    await expect(reattach(pmPage)).toBeVisible();
     expect(await databases()).toEqual(catalog);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
 
@@ -796,7 +799,7 @@ nodeTest(
     );
     expect(deselected.status, deselected.body).toBe(204);
     const sync = restoredPage.getByRole("button", { name: "Sync now", exact: true });
-    await sync.click();
+    await reattach(restoredPage).click();
     await expect(restoredPage.getByRole("alert")).toContainText("Your changes stay local");
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
 
@@ -832,10 +835,30 @@ nodeTest(
     await expect(binding).toBeVisible();
     await expect(sync).toHaveCount(0);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
-    await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
-    await sync.click();
-    await expect(restoredPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    await reattach(restoredPage).click();
+    await expect(complete(restoredPage)).toBeVisible();
+    const afterReconnect = await remote();
+    expect(JSON.parse(afterReconnect.body)).not.toEqual(JSON.parse(saved.body));
+    const editRestoredNote = async (notes: string) => {
+      await restoredVault.click();
+      await restoredPage.getByLabel("Master password", { exact: true }).fill(masterPassword);
+      await restoredPage.getByRole("button", { name: "Unlock", exact: true }).click();
+      await restoredPage.getByRole("button", { name: "Edited restored vault offline" }).click();
+      await restoredPage
+        .getByRole("region", { name: "Item details" })
+        .getByRole("button", { name: "Edit", exact: true })
+        .click();
+      await restoredPage.getByLabel("Notes", { exact: true }).fill(notes);
+      await restoredPage.getByRole("button", { name: "Save changes" }).click();
+      await expect(restoredPage.getByRole("button", { name: "Save changes" })).toHaveCount(0);
+      await restoredPage.getByRole("button", { name: "Lock vault" }).click();
+    };
+    const changedNote = "Encrypted automatically after a vault edit";
+    await editRestoredNote(changedNote);
+    await expect.poll(async () => (await remote()).body).not.toBe(afterReconnect.body);
+    await expect(complete(restoredPage)).toBeVisible();
     const changedRemote = await remote();
+    expect(changedRemote.body).not.toContain(changedNote);
     expect(changedRemote.status, changedRemote.body).toBe(200);
     expect(JSON.parse(changedRemote.body)).not.toEqual(JSON.parse(saved.body));
     expect(changedRemote.body).not.toContain("Edited restored vault offline");
@@ -925,9 +948,8 @@ nodeTest(
     await expect(binding).toBeVisible();
     await expect(restoredPage.getByRole("button", { name: "Reattach sync" })).toBeVisible();
     await expect(sync).toHaveCount(0);
-    await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
-    await sync.click();
-    await expect(restoredPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    await reattach(restoredPage).click();
+    await expect(complete(restoredPage)).toBeVisible();
     // Old permission formats also keep the destination but require explicit reattachment.
     await restoredPage.evaluate((key) => {
       const permission = JSON.parse(localStorage.getItem(key) ?? "null");
@@ -936,11 +958,19 @@ nodeTest(
     await restoredPage.reload();
     await expect(binding).toBeVisible();
     await expect(sync).toHaveCount(0);
-    await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
-    await expect(sync).toBeVisible();
+    await reattach(restoredPage).click();
+    await expect(complete(restoredPage)).toBeVisible();
 
     // Failed credential cleanup stops sync here, but cannot make sign-out durable.
     await rejectStorageChanges(restoredPage, "all");
+    await restoredPage.evaluate(() => {
+      const transaction = IDBDatabase.prototype.transaction;
+      IDBDatabase.prototype.transaction = function (...args) {
+        if (args[1] === "readwrite")
+          throw new DOMException("Injected database write failure", "QuotaExceededError");
+        return transaction.apply(this, args);
+      };
+    });
     await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect(restoredPage.getByRole("alert")).toContainText("Sign-out is incomplete");
     await expect(restoredPage.getByRole("button", { name: "Retry sign-out" })).toBeVisible();
@@ -952,7 +982,12 @@ nodeTest(
     const reloadSockets: string[] = [];
     restoredPage.on("websocket", (socket) => reloadSockets.push(socket.url()));
     await restoredPage.reload();
-    await expect(sync).toBeVisible();
+    await expect(reattach(restoredPage)).toBeVisible();
+    expect(
+      await restoredPage.evaluate((key) => localStorage.getItem(key), attachmentKey)
+    ).not.toBeNull();
+    await editRestoredNote("Still local after failed sign-out and reload");
+    await expect(reattach(restoredPage)).toBeVisible();
     expect(reloadSockets).not.toContain(socketUrl);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
 
@@ -1067,6 +1102,17 @@ nodeTest(
     expect(await databases()).toEqual(catalogWithDuplicateName);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
 
+    const sdkPage = await browser.newPage();
+    await sdkPage.goto(pm);
+    try {
+      const token = await owner.exchange(pmSession, "storage:sync", ["read", "write"]);
+      await verifyCommitDrivenSql(sdkPage, { storage, storeId: resourceId, token }, () =>
+        query("SELECT id FROM sdk_commit_probe ORDER BY id")
+      );
+    } finally {
+      await sdkPage.close();
+    }
+
     await pmPage.route(`${base}/**`, (route) => route.abort());
     await pmPage.reload();
     await expect(vault).toContainText(`ID: ${vaultId}`);
@@ -1140,7 +1186,7 @@ function installationOwner(base: string, ca: Buffer) {
   async function exchange(
     session: { clientId: string; accessToken: string },
     resource: string,
-    action?: "read" | "write"
+    action?: "read" | "write" | ("read" | "write")[]
   ) {
     const response = await api(`${base}/idp/oauth2/token`, ca, {
       method: "POST",
@@ -1152,7 +1198,9 @@ function installationOwner(base: string, ca: Buffer) {
         client_id: session.clientId,
         resource,
         ...(action && {
-          authorization_details: JSON.stringify([{ type: "storage", actions: [action] }]),
+          authorization_details: JSON.stringify([
+            { type: "storage", actions: Array.isArray(action) ? action : [action] },
+          ]),
         }),
       }).toString(),
     });

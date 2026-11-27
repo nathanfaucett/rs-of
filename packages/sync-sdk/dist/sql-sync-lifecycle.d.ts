@@ -20,6 +20,19 @@ export interface SqlResourceSync {
 }
 /** Bind an already-open database to one Resource without starting sync or taking ownership. */
 export declare function createSqlResourceSync(database: Database, identity: StoreIdentity, options: SqlResourceSyncOptions): SqlResourceSync;
+export type SqlResourceSyncStatus = {
+    status: "syncing" | "synced";
+} | {
+    status: "error";
+    error: Error;
+};
+/**
+ * Start commit-driven exchange for an explicitly activated, established binding.
+ * The caller owns the database and must close sync on detachment or a session change.
+ */
+export declare function startSqlResourceSync(database: Database, identity: StoreIdentity, options: SyncClientOptions & {
+    onStatus?(state: SqlResourceSyncStatus): void;
+}): SqlResourceSync;
 /** Owns one handle's attach, transport, deadline, and close lifecycle. */
 export declare class SqlSyncLifecycle implements SqlResourceSync {
     private active;

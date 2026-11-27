@@ -3,6 +3,8 @@ import {
   BrowserSyncSDK,
   createSqlResourceSync,
   type SqlResourceSync,
+  type SqlResourceSyncStatus,
+  startSqlResourceSync,
 } from "@ofsdk/sync-sdk/browser";
 import { authState } from "$lib/auth/auth.svelte";
 import { hasLegacyLocalVaults, openSharedDatabase } from "$lib/vault/storage/migrate-to-shared";
@@ -16,13 +18,33 @@ type Exchange = { controller: AbortController; sync?: SqlResourceSync };
 let active: Exchange | undefined;
 const bindingLock = "password-manager-v1:storage-binding";
 const bindingTimeout = 2_000;
-const revoked = new Set<string>();
 const receiptKey = `${bindingLock}:receipt`;
 let receiptInMemory: Receipt | null | undefined;
 
 type Binding = { namespace: string; id: string; confirmationId: string };
 type Receipt = Binding & { version: 1; loginState: string; expected: null };
 type Database = Awaited<ReturnType<typeof openSharedDatabase>>;
+let attachment = $state.raw<{
+  session: Session;
+  id: string;
+  sync: SqlResourceSync;
+  database: Database;
+}>();
+let syncStatus = $state.raw<SqlResourceSyncStatus>();
+let closingAttachment: Promise<void> | undefined;
+
+function getSyncStatus(session: Session | null, id: string | undefined) {
+  return attachment?.session === session && attachment?.id === id ? syncStatus : undefined;
+}
+
+function resourceIdentity(id: string) {
+  return {
+    storeId: id,
+    replicaId: crypto.randomUUID(),
+    creationEpoch: 0n,
+    schemaFingerprint: new Uint8Array(32),
+  };
+}
 
 function storageAccess(session = authState.session) {
   if (!session || session !== authState.session) throw new Error("Sign in to sync first");
@@ -115,7 +137,7 @@ async function getBinding(expected: Session) {
         : ({ status: "unbound" } as const);
     }
     if (record.namespace !== owner) return { status: "different-account" } as const;
-    return { status: "bound", id: record.id, detached: !isAttached(record, expected) } as const;
+    return { status: "bound", id: record.id } as const;
   } finally {
     database.close();
   }
@@ -185,7 +207,7 @@ function clearPendingConfirmation(expected: Session) {
   if (readReceipt(expected)) clearReceipt();
 }
 
-async function savePublishedBinding(database: Database, expected: Session, activate: boolean) {
+async function savePublishedBinding(database: Database, expected: Session) {
   try {
     const record = await readBinding(database);
     const receipt = readReceipt(expected);
@@ -195,12 +217,8 @@ async function savePublishedBinding(database: Database, expected: Session, activ
       throw new BindingSaveError(
         "Storage confirmed publication, but a competing local binding was kept."
       );
-    // Grant permission before the CAS so a detach during the write cannot be undone by it.
-    if (activate) attach(expected, receipt.confirmationId);
-    // A retry must not match permission saved before the failed database write.
-    const binding = activate ? receipt : { ...receipt, confirmationId: crypto.randomUUID() };
     if (
-      await database.replaceInitialRestoreTag(receipt.expected ?? undefined, encodeBinding(binding))
+      await database.replaceInitialRestoreTag(receipt.expected ?? undefined, encodeBinding(receipt))
     ) {
       if (readReceipt(expected)?.confirmationId === receipt.confirmationId) clearReceipt();
       return;
@@ -223,7 +241,7 @@ async function retryBindingSave(expected: Session) {
     const database = await openSharedDatabase();
     try {
       signal.throwIfAborted();
-      await savePublishedBinding(database, expected, false);
+      await savePublishedBinding(database, expected);
     } finally {
       database.close();
     }
@@ -232,8 +250,7 @@ async function retryBindingSave(expected: Session) {
 
 type Intent =
   | { mode: "first-upload"; onResource: (id: string) => void }
-  | { mode: "first-restore"; id: string }
-  | { mode: "established" };
+  | { mode: "first-restore"; id: string };
 
 async function exchange(expected: Session, intent: Intent) {
   if (authState.session !== expected) throw new Error("Sign-in session ended");
@@ -255,64 +272,43 @@ async function exchange(expected: Session, intent: Intent) {
         const owner = namespace(expected);
         const confirmationId = crypto.randomUUID();
         let id: string;
-        if (intent.mode === "established") {
-          if (!record || record.namespace !== owner || !isAttached(record, expected))
-            throw new Error("There is no active Storage binding for this account.");
-          id = record.id;
+        if (record) throw new Error("This database already has a Storage destination.");
+        const empty = await database.initialRestoreIsEligible();
+        if (intent.mode === "first-restore") {
+          if (!empty || (await hasLegacyLocalVaults()))
+            throw new Error("Merge required: this browser has local history. No data was changed.");
+          requireSession();
+          if ((await findRestoreResource(expected, signal)) !== intent.id)
+            throw new Error("The remote Resource changed. Find it again before restoring.");
+          id = intent.id;
         } else {
-          if (record) throw new Error("This database already has a Storage destination.");
-          const empty = await database.initialRestoreIsEligible();
-          if (intent.mode === "first-restore") {
-            if (!empty || (await hasLegacyLocalVaults()))
-              throw new Error(
-                "Merge required: this browser has local history. No data was changed."
-              );
-            requireSession();
-            if ((await findRestoreResource(expected, signal)) !== intent.id)
-              throw new Error("The remote Resource changed. Find it again before restoring.");
-            id = intent.id;
-          } else {
-            if (empty) throw new Error("There is no local database to upload.");
-            requireSession();
-            if (readReceipt(expected))
-              throw new BindingSaveError("Storage confirmed publication. Retry the local save.");
-            const resource = await client.ensureDatabase(
-              { creationKey, name: resourceName },
-              signal
-            );
-            requireSession();
-            id = resource.id;
-            intent.onResource(id);
-          }
+          if (empty) throw new Error("There is no local database to upload.");
+          requireSession();
+          if (readReceipt(expected))
+            throw new BindingSaveError("Storage confirmed publication. Retry the local save.");
+          const resource = await client.ensureDatabase({ creationKey, name: resourceName }, signal);
+          requireSession();
+          id = resource.id;
+          intent.onResource(id);
         }
         requireSession();
         const binding = { namespace: owner, id, confirmationId };
-        if (intent.mode === "first-restore") attach(expected, confirmationId);
-        pending.sync = createSqlResourceSync(
-          database,
-          {
-            storeId: id,
-            replicaId: crypto.randomUUID(),
-            creationEpoch: 0n,
-            schemaFingerprint: new Uint8Array(32),
+        pending.sync = createSqlResourceSync(database, resourceIdentity(id), {
+          ...(intent.mode === "first-restore"
+            ? { mode: intent.mode, localTag: encodeBinding(binding) }
+            : { mode: intent.mode }),
+          storageApiUrl: expected.storage,
+          async tokenProvider(attempt) {
+            requireSession();
+            const token = await client.getStorageToken(
+              "storage:sync",
+              intent.mode === "first-restore" ? ["read"] : ["read", "write"],
+              attempt
+            );
+            requireSession();
+            return token;
           },
-          {
-            ...(intent.mode === "first-restore"
-              ? { mode: intent.mode, localTag: encodeBinding(binding) }
-              : { mode: intent.mode }),
-            storageApiUrl: expected.storage,
-            async tokenProvider() {
-              requireSession();
-              const token = await client.getStorageToken(
-                "storage:sync",
-                intent.mode === "first-restore" ? ["read"] : ["read", "write"],
-                signal
-              );
-              requireSession();
-              return token;
-            },
-          }
-        );
+        });
         await pending.sync.sync();
         requireSession();
         if (intent.mode === "first-upload") {
@@ -323,7 +319,7 @@ async function exchange(expected: Session, intent: Intent) {
             loginState: expected.loginState,
             expected: null,
           });
-          await savePublishedBinding(database, expected, true);
+          await savePublishedBinding(database, expected);
         }
       } finally {
         await pending.sync?.close();
@@ -337,7 +333,17 @@ async function exchange(expected: Session, intent: Intent) {
 
 function cancelExchange() {
   active?.controller.abort();
-  return active?.sync?.close();
+  const previous = attachment;
+  attachment = undefined;
+  syncStatus = undefined;
+  if (previous) {
+    const closed = previous.sync.close().finally(() => {
+      previous.database.close();
+      if (closingAttachment === closed) closingAttachment = undefined;
+    });
+    closingAttachment = closed;
+  }
+  return Promise.all([active?.sync?.close(), closingAttachment]);
 }
 
 function watchDetach() {
@@ -357,10 +363,7 @@ function attachmentPermission(expected: Session, revision: string) {
 function isAttached(binding: { namespace: string; revision: string }, expected: Session) {
   const key = attachmentKey(binding.namespace);
   try {
-    return (
-      !revoked.has(key) &&
-      localStorage.getItem(key) === attachmentPermission(expected, binding.revision)
-    );
+    return localStorage.getItem(key) === attachmentPermission(expected, binding.revision);
   } catch {
     return false;
   }
@@ -369,14 +372,12 @@ function isAttached(binding: { namespace: string; revision: string }, expected: 
 function attach(expected: Session, revision: string) {
   const key = attachmentKey(namespace(expected));
   localStorage.setItem(key, attachmentPermission(expected, revision));
-  revoked.delete(key);
 }
 
 function detach(expected: Session) {
   void cancelExchange();
   const key = attachmentKey(namespace(expected));
   const cleared = clearLocal(key);
-  if (!cleared) revoked.add(key);
   clearPendingConfirmation(expected);
   const channel = new BroadcastChannel(bindingLock);
   try {
@@ -387,27 +388,64 @@ function detach(expected: Session) {
   return cleared;
 }
 
-async function setDetached(expected: Session, detached: boolean) {
+async function setDetached(expected: Session, id: string, detached: boolean) {
   if (authState.session !== expected) throw new Error("Sign-in session changed.");
   if (detached) {
     if (!detach(expected))
       throw new Error("Could not save detachment. Sync stays disabled in this tab.");
     return;
   }
-  const signal = AbortSignal.timeout(bindingTimeout);
-  await navigator.locks.request(bindingLock, { signal }, async () => {
-    const database = await openSharedDatabase();
-    try {
-      const record = await readBinding(database);
-      signal.throwIfAborted();
-      if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session changed.");
-      if (!record || record.namespace !== namespace(expected))
-        throw new Error("There is no Storage binding for this account.");
-      attach(expected, record.revision);
-    } finally {
-      database.close();
-    }
-  });
+  if (attachment) {
+    if (attachment.session === expected && attachment.id === id) return;
+    throw new Error("Detach the active Storage sync before reattaching.");
+  }
+  if (active) throw new Error("A sync exchange is already in progress");
+  const pending: Exchange = { controller: new AbortController() };
+  active = pending;
+  const signal = AbortSignal.any([pending.controller.signal, AbortSignal.timeout(bindingTimeout)]);
+  try {
+    await closingAttachment;
+    await navigator.locks.request(bindingLock, { signal }, async () => {
+      const database = await openSharedDatabase();
+      try {
+        const record = await readBinding(database);
+        signal.throwIfAborted();
+        if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session changed.");
+        if (!record || record.id !== id || record.namespace !== namespace(expected))
+          throw new Error("The Storage binding changed. Check the destination before reattaching.");
+        const { client } = storageAccess(expected);
+        // Saved permission alone is never authority to start in a new runtime.
+        attach(expected, record.revision);
+        const sync = startSqlResourceSync(database, resourceIdentity(record.id), {
+          storageApiUrl: expected.storage,
+          async tokenProvider(attempt) {
+            const requireAttachment = () => {
+              attempt?.throwIfAborted();
+              if (
+                attachment?.sync !== sync ||
+                authState.session !== expected ||
+                !isAttached(record, expected)
+              )
+                throw new Error("Storage sync is detached.");
+            };
+            requireAttachment();
+            const token = await client.getStorageToken("storage:sync", ["read", "write"], attempt);
+            requireAttachment();
+            return token;
+          },
+          onStatus(status) {
+            if (attachment?.sync === sync) syncStatus = status;
+          },
+        });
+        syncStatus = { status: "syncing" };
+        attachment = { session: expected, id: record.id, sync, database };
+      } finally {
+        if (attachment?.database !== database) database.close();
+      }
+    });
+  } finally {
+    active = undefined;
+  }
 }
 
 async function signOut(expected: Session) {
@@ -446,7 +484,11 @@ export const syncStateModule = {
   watchDetach,
   setDetached,
   signOut,
-  syncBoundDatabase: (session: Session) => exchange(session, { mode: "established" }),
+  getSyncStatus,
+  syncBoundDatabase(session: Session) {
+    if (attachment?.session !== session) throw new Error("Storage sync is detached.");
+    return attachment.sync.sync();
+  },
   restoreRemoteDatabase: (session: Session, id: string) =>
     exchange(session, { mode: "first-restore", id }),
   uploadLocalDatabase: (session: Session, onResource: (id: string) => void) =>

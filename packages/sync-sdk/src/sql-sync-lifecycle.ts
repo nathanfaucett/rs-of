@@ -46,6 +46,78 @@ export function createSqlResourceSync(
   );
 }
 
+export type SqlResourceSyncStatus =
+  | { status: "syncing" | "synced" }
+  | { status: "error"; error: Error };
+
+/**
+ * Start commit-driven exchange for an explicitly activated, established binding.
+ * The caller owns the database and must close sync on detachment or a session change.
+ */
+export function startSqlResourceSync(
+  database: Database,
+  identity: StoreIdentity,
+  options: SyncClientOptions & { onStatus?(state: SqlResourceSyncStatus): void }
+): SqlResourceSync {
+  const exchange = createSqlResourceSync(database, identity, { ...options, mode: "established" });
+  const report = options.onStatus;
+  let closed = false;
+  let pending = false;
+  let running: Promise<void> | undefined;
+
+  async function drain() {
+    try {
+      while (pending && !closed) {
+        pending = false;
+        report?.({ status: "syncing" });
+        if (closed) break;
+        try {
+          await exchange.sync();
+          if (!closed && !pending) report?.({ status: "synced" });
+        } catch (cause) {
+          if (!closed) {
+            const error = cause instanceof Error ? cause : new Error("SQL synchronization failed");
+            report?.({ status: "error", error });
+          }
+          if (!pending) throw cause;
+        }
+      }
+    } finally {
+      running = undefined;
+    }
+  }
+
+  function sync() {
+    if (closed) return Promise.reject(new SyncError("cancelled", "Sync lifecycle closed"));
+    if (running !== undefined) return running;
+    pending = true;
+    running = Promise.resolve().then(drain);
+    return running;
+  }
+
+  function wake() {
+    pending = true;
+    // The SDK reports failure and waits for the next trigger.
+    if (running === undefined) void sync().catch(() => {});
+  }
+
+  const unsubscribe = database.onCommit(wake);
+  globalThis.addEventListener?.("online", wake);
+  wake();
+  return {
+    sync,
+    async close() {
+      if (!closed) {
+        closed = true;
+        unsubscribe();
+        globalThis.removeEventListener?.("online", wake);
+      }
+      await exchange.close();
+      await running?.catch(() => {});
+    },
+  };
+}
+
 interface ActiveSync {
   controller: AbortController;
   completion: Promise<void>;

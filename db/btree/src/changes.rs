@@ -261,6 +261,25 @@ impl ChangeSubscription {
         }
     }
 
+    /// Waits for a coalesced commit wakeup, without consuming change payloads.
+    /// Returns false when all sources have closed.
+    pub async fn changed(&mut self) -> bool {
+        let mut waiting = self
+            .sources
+            .iter_mut()
+            .filter(|source| !source.history.borrow().closed)
+            .map(|source| async move {
+                source.history.changed().await.is_ok() && !source.history.borrow().closed
+            })
+            .collect::<FuturesUnordered<_>>();
+        while let Some(changed) = futures::StreamExt::next(&mut waiting).await {
+            if changed {
+                return true;
+            }
+        }
+        false
+    }
+
     #[doc(hidden)]
     pub fn consume(&mut self) {
         for source in &mut self.sources {

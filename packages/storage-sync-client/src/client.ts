@@ -14,7 +14,7 @@ import { createSession, type FirstUploadSession, type SyncSession } from "./sess
 
 export interface SyncClientOptions {
   storageApiUrl: string;
-  tokenProvider: () => string | Promise<string>;
+  tokenProvider: (signal?: AbortSignal) => string | Promise<string>;
 }
 export interface AttachOptions {
   identity: StoreIdentity;
@@ -187,7 +187,7 @@ export class SyncClient {
       void (async () => {
         let token: string;
         try {
-          token = await this.options.tokenProvider();
+          token = await this.options.tokenProvider(options.signal);
         } catch {
           stop(new SyncError("auth", "Could not obtain sync access token"));
           return;

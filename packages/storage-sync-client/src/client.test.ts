@@ -166,13 +166,17 @@ test("cancels while the token provider is pending and never opens a socket later
   const factory = vi.fn();
   vi.stubGlobal("WebSocket", factory);
   let supply: (token: string) => void = () => {};
-  const pending = new SyncClient({
-    storageApiUrl: "https://node.test",
-    tokenProvider: () =>
+  const tokenProvider = vi.fn(
+    () =>
       new Promise<string>((resolve) => {
         supply = resolve;
-      }),
+      })
+  );
+  const pending = new SyncClient({
+    storageApiUrl: "https://node.test",
+    tokenProvider,
   }).attach({ identity, direction: "Push", signal: controller.signal });
+  expect(tokenProvider).toHaveBeenCalledWith(controller.signal);
   controller.abort();
   await expect(pending).rejects.toMatchObject({ code: "cancelled" });
   supply("secret-token");

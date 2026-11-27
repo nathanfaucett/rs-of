@@ -359,6 +359,12 @@ float bit patterns; database arithmetic is not a bit-preservation operation.
 
 ## Ownership and commit outcomes
 
+Use `Database.onCommit` for coalesced wakeups after IndexedDB confirms a change.
+It sees commits on the same store in this WASM runtime, including tombstones and
+locally applied history. It does not replay old commits or notify on rollback,
+failed persistence, or unchanged exchanges. The listener owns no connection and
+carries no SQL data. Call the returned function to unsubscribe.
+
 - Each database, client, clone, deadline client, and transaction is an owned
   handle. Close each handle in `finally`. `close()` is idempotent.
 - A database can close while its clients remain usable. A client can close while

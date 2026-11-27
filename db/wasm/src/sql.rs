@@ -15,6 +15,16 @@ pub struct SqlDatabase {
     database: Database,
 }
 
+/// Subscription lifetime; freeing this handle stops wakeups.
+#[wasm_bindgen]
+pub struct SqlCommitWatch(futures_util::future::AbortHandle);
+
+impl Drop for SqlCommitWatch {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 #[wasm_bindgen]
 impl SqlDatabase {
     /// Open a SQL database backed by IndexedDB.
@@ -28,6 +38,24 @@ impl SqlDatabase {
         SqlClient {
             client: self.database.client(),
         }
+    }
+
+    /// Observe coalesced physical commits without retaining the SQL database.
+    pub fn watch_commits(&self, listener: js_sys::Function) -> Result<SqlCommitWatch, JsError> {
+        let mut subscription = self
+            .database
+            .subscribe_commits()
+            .ok_or_else(|| JsError::new("SQL commit notifications require IndexedDB"))?;
+        let (handle, registration) = futures_util::future::AbortHandle::new_pair();
+        wasm_bindgen_futures::spawn_local(async move {
+            let task = async move {
+                while subscription.changed().await {
+                    let _ = listener.call0(&JsValue::UNDEFINED);
+                }
+            };
+            let _ = futures_util::future::Abortable::new(task, registration).await;
+        });
+        Ok(SqlCommitWatch(handle))
     }
 
     /// Get the change subscription for push-based synchronization.
@@ -89,7 +117,10 @@ impl SqlDatabase {
         expected: Option<Vec<u8>>,
         tag: Vec<u8>,
     ) -> Result<bool, JsError> {
-        Ok(self.database.replace_initial_restore_tag(expected, tag).await?)
+        Ok(self
+            .database
+            .replace_initial_restore_tag(expected, tag)
+            .await?)
     }
 
     /// Receives SQL history without sending local history, then publishes if still pristine.
