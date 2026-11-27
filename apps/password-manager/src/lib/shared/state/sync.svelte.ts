@@ -152,6 +152,23 @@ async function findRestoreResource(expected: Session, signal?: AbortSignal) {
   return resource?.id;
 }
 
+async function isPristineForRestore(database: Database) {
+  return (await database.initialRestoreIsEligible()) && !(await hasLegacyLocalVaults());
+}
+
+async function inspectRestore(expected: Session) {
+  const id = await findRestoreResource(expected);
+  if (!id) return undefined;
+  const database = await openSharedDatabase();
+  try {
+    const canRestore = await isPristineForRestore(database);
+    if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session ended");
+    return { id, canRestore };
+  } finally {
+    database.close();
+  }
+}
+
 export class BindingSaveError extends Error {}
 
 function readReceipt(expected: Session): Receipt | undefined {
@@ -273,16 +290,16 @@ async function exchange(expected: Session, intent: Intent) {
         const confirmationId = crypto.randomUUID();
         let id: string;
         if (record) throw new Error("This database already has a Storage destination.");
-        const empty = await database.initialRestoreIsEligible();
         if (intent.mode === "first-restore") {
-          if (!empty || (await hasLegacyLocalVaults()))
+          if (!(await isPristineForRestore(database)))
             throw new Error("Merge required: this browser has local history. No data was changed.");
           requireSession();
           if ((await findRestoreResource(expected, signal)) !== intent.id)
             throw new Error("The remote Resource changed. Find it again before restoring.");
           id = intent.id;
         } else {
-          if (empty) throw new Error("There is no local database to upload.");
+          if (await database.initialRestoreIsEligible())
+            throw new Error("There is no local database to upload.");
           requireSession();
           if (readReceipt(expected))
             throw new BindingSaveError("Storage confirmed publication. Retry the local save.");
@@ -464,7 +481,7 @@ async function openDatabase(id: string, expected = authState.session) {
 export const syncStateModule = {
   supportsReplication,
   closeSync,
-  findRestoreResource,
+  inspectRestore,
   getBinding,
   retryBindingSave,
   clearPendingConfirmation,

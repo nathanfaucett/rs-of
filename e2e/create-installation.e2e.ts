@@ -745,6 +745,65 @@ nodeTest(
     await expect(findRemote(pmPage)).toHaveCount(0);
     await expect(vault).toContainText(`ID: ${vaultId}`);
 
+    await test.step("keep an independent local vault and the existing remote history separate", async () => {
+      const independentContext = await browser.newContext();
+      try {
+        const independent = await independentContext.newPage();
+        await independent.goto(pm);
+        await independent.getByRole("button", { name: "Create new vault" }).click();
+        const name = "Independent local vault";
+        await independent.getByLabel("Vault name").fill(name);
+        await independent.getByLabel("Master password", { exact: true }).fill(masterPassword);
+        await independent.getByLabel("Confirm password").fill(masterPassword);
+        await independent.getByRole("button", { name: "Create vault", exact: true }).click();
+        await expect(independent).toHaveURL(`${pm}/vault`);
+        await independent.getByRole("button", { name: "Lock vault" }).click();
+        const local = independent.getByRole("button", { name: new RegExp(name) });
+        const original = await local.innerText();
+        await passwordManagerSignin(
+          independent,
+          { origin: pm, idp, storage, username, password },
+          false,
+          false
+        );
+
+        await findRemote(independent).click();
+        const blocked = independent.getByRole("region", {
+          name: "Remote database cannot be restored here",
+        });
+        await expect(blocked).toContainText(resourceId);
+        await expect(blocked).toContainText("This browser has local vault history");
+        await expect(confirmRestore(independent)).toHaveCount(0);
+        await blocked.getByRole("button", { name: "Cancel" }).click();
+        await expect(blocked).toHaveCount(0);
+        await expect(local).toHaveText(original);
+        expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
+
+        await independent.getByRole("button", { name: "Connect local database" }).click();
+        await independent.getByRole("button", { name: "Confirm and upload" }).click();
+        await expect(independent.getByRole("alert")).toContainText(
+          "This Resource already has history"
+        );
+        expect(await databases()).toEqual(catalogWithDuplicateName);
+        expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
+
+        await independent.reload();
+        await expect(
+          independent.getByRole("button", { name: "Connect local database" })
+        ).toBeVisible();
+        await expect(local).toHaveText(original);
+        await expect(independent.getByRole("button", { name: new RegExp(localVault) })).toHaveCount(
+          0
+        );
+        await local.click();
+        await independent.getByLabel("Master password", { exact: true }).fill(masterPassword);
+        await independent.getByRole("button", { name: "Unlock", exact: true }).click();
+        await expect(independent).toHaveURL(`${pm}/vault`);
+      } finally {
+        await independentContext.close();
+      }
+    });
+
     const restoredContext = await browser.newContext();
     const restoredPage = await restoredContext.newPage();
     await restoredPage.addInitScript(() => {
