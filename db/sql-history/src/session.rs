@@ -25,10 +25,10 @@ use value::Value;
 use crate::pre_apply::{ApplyError, Check, CheckFuture, check_apply, commit_apply};
 use crate::scope::TableScope;
 use crate::{
-    HistoryPublication, MemorySyncStageFactory, PROTOCOL_VERSION, SyncCandidateView, SyncHello,
-    SyncIncrementalChange, SyncKey, SyncManifest, SyncMessage, SyncRowCodec, SyncRowInventory,
-    SyncSelection, SyncSnapshotRequest, SyncStage, SyncStageFactory, SyncStateUnit, SyncTransport,
-    SyncValidationDirection,
+    HistoryPublication, HistoryRevision, MemorySyncStageFactory, PROTOCOL_VERSION,
+    SyncCandidateView, SyncHello, SyncIncrementalChange, SyncKey, SyncManifest, SyncMessage,
+    SyncRowCodec, SyncRowInventory, SyncSelection, SyncSnapshotRequest, SyncStage,
+    SyncStageFactory, SyncStateUnit, SyncTransport, SyncValidationDirection,
     candidate::{CandidateValidator, read_candidate_view},
     history_revision,
 };
@@ -1108,9 +1108,67 @@ where
     .await
 }
 
+/// Applies a validated candidate and saves the first local binding in one optimistic transaction.
+/// A caller must confirm the remote receipt before calling this function.
+/// # Errors
+/// Returns an error for stale history, an existing tag, cancellation, or a failed commit.
+pub async fn publish_local_history_for<K, R, S, C, Q>(
+    engine: &Engine<K, R>,
+    staged: &Engine<S, C>,
+    max_bytes: usize,
+    expected: HistoryRevision,
+    candidate: HistoryRevision,
+    tag: Vec<u8>,
+    check: Q,
+) -> Result<(), SyncError<core::convert::Infallible>>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+    S: Kernel,
+    C: SyncRowCodec<S::Transaction>,
+    Q: FnOnce() -> Result<(), String> + MaybeSend,
+{
+    sync_stage(|| {
+        publish_initial_history_with(
+            engine,
+            staged,
+            max_bytes,
+            Publication::Local {
+                expected,
+                candidate,
+                tag,
+            },
+            |transaction| async {
+                check().map_err(SyncError::PreApply)?;
+                transaction.commit().await.map_err(SyncError::Engine)
+            },
+        )
+    })
+    .await
+}
+
 enum Publication {
     Initial(Option<Vec<u8>>),
     Compare(HistoryPublication),
+    Local {
+        expected: HistoryRevision,
+        candidate: HistoryRevision,
+        tag: Vec<u8>,
+    },
+}
+
+impl Publication {
+    fn revisions(&self) -> Option<(HistoryRevision, HistoryRevision)> {
+        match self {
+            Self::Initial(_) => None,
+            Self::Compare(spec) => Some((spec.expected, spec.candidate)),
+            Self::Local {
+                expected,
+                candidate,
+                ..
+            } => Some((*expected, *candidate)),
+        }
+    }
 }
 
 fn receipt_bytes(publication: HistoryPublication) -> Vec<u8> {
@@ -1203,8 +1261,10 @@ where
     if units.is_empty() {
         return Err(EngineError::InvalidQuery("empty initial history").into());
     }
-    if let Publication::Compare(spec) = &publication
-        && (spec.expected == spec.candidate || history_revision(&units) != spec.candidate)
+    let revisions = publication.revisions();
+    if let Some((expected, candidate)) = revisions
+        && (history_revision(&units) != candidate
+            || (expected == candidate && matches!(publication, Publication::Compare(_))))
     {
         return Err(EngineError::InvalidQuery("invalid publication candidate revision").into());
     }
@@ -1244,15 +1304,26 @@ where
                                     "publication operation already used",
                                 ));
                             }
-                            let current = sync_stage(|| {
-                                export_transaction_history(codec, transaction, max_bytes, None)
-                            })
-                            .await?;
-                            if history_revision(&current) != spec.expected {
+                        }
+                        Publication::Local { .. } => {
+                            if transaction
+                                .get_bytes(ENGINE_INITIAL_RESTORE_STORAGE, &[])
+                                .await?
+                                .is_some()
+                            {
                                 return Err(EngineError::InvalidQuery(
-                                    "destination history changed",
+                                    "local replica tag already exists",
                                 ));
                             }
+                        }
+                    }
+                    if let Some((expected, _)) = revisions {
+                        let current = sync_stage(|| {
+                            export_transaction_history(codec, transaction, max_bytes, None)
+                        })
+                        .await?;
+                        if history_revision(&current) != expected {
+                            return Err(EngineError::InvalidQuery("destination history changed"));
                         }
                     }
                     for order in 0..=4 {
@@ -1267,34 +1338,39 @@ where
                             validate_catalog(codec, transaction, &units, &[], None).await?;
                         }
                     }
-                    if let Publication::Initial(Some(tag)) = &publication {
-                        transaction
-                            .ensure_table(ENGINE_INITIAL_RESTORE_STORAGE)
-                            .await?;
-                        transaction
-                            .put_bytes(ENGINE_INITIAL_RESTORE_STORAGE, Vec::new(), tag.clone())
-                            .await?;
-                    }
-                    if let Publication::Compare(spec) = publication {
+                    if let Some((_, candidate)) = revisions {
                         let result = sync_stage(|| {
                             export_transaction_history(codec, transaction, max_bytes, None)
                         })
                         .await?;
-                        if history_revision(&result) != spec.candidate {
+                        if history_revision(&result) != candidate {
                             return Err(EngineError::InvalidQuery(
                                 "candidate does not extend destination history",
                             ));
                         }
-                        transaction
-                            .ensure_table(ENGINE_PUBLISH_RECEIPTS_STORAGE)
-                            .await?;
-                        transaction
-                            .put_bytes(
-                                ENGINE_PUBLISH_RECEIPTS_STORAGE,
-                                spec.operation.as_bytes().to_vec(),
-                                receipt_bytes(spec),
-                            )
-                            .await?;
+                    }
+                    match publication {
+                        Publication::Initial(Some(tag)) | Publication::Local { tag, .. } => {
+                            transaction
+                                .ensure_table(ENGINE_INITIAL_RESTORE_STORAGE)
+                                .await?;
+                            transaction
+                                .put_bytes(ENGINE_INITIAL_RESTORE_STORAGE, Vec::new(), tag)
+                                .await?;
+                        }
+                        Publication::Initial(None) => {}
+                        Publication::Compare(spec) => {
+                            transaction
+                                .ensure_table(ENGINE_PUBLISH_RECEIPTS_STORAGE)
+                                .await?;
+                            transaction
+                                .put_bytes(
+                                    ENGINE_PUBLISH_RECEIPTS_STORAGE,
+                                    spec.operation.as_bytes().to_vec(),
+                                    receipt_bytes(spec),
+                                )
+                                .await?;
+                        }
                     }
                     Ok(((), mutations))
                 })
@@ -1972,6 +2048,12 @@ where
         let name = value.values[0]
             .as_text()
             .expect("catalog table name was validated");
+        if matches!(
+            name,
+            ENGINE_PUBLISH_RECEIPTS_STORAGE | ENGINE_INITIAL_RESTORE_STORAGE
+        ) {
+            return Err(EngineError::InvalidQuery("reserved local metadata storage"));
+        }
         let next_bytes = table_lookup_bytes
             .saturating_add(name.len())
             .saturating_add(256);
@@ -2120,10 +2202,10 @@ fn validate_row_addresses(
 ) -> Result<(), EngineError> {
     for unit in snapshots {
         let SyncKey::Row { table, row } = &unit.key;
-        validate_row_id(table, row)?;
+        validate_history_row_address(table, row)?;
     }
     for change in changes {
-        validate_row_id(&change.table, &change.row)?;
+        validate_history_row_address(&change.table, &change.row)?;
     }
     Ok(())
 }
@@ -2131,9 +2213,19 @@ fn validate_row_addresses(
 fn validate_manifest_row_addresses(manifest: &SyncManifest) -> Result<(), EngineError> {
     for (key, _) in &manifest.entries {
         let SyncKey::Row { table, row } = key;
-        validate_row_id(table, row)?;
+        validate_history_row_address(table, row)?;
     }
     Ok(())
+}
+
+fn validate_history_row_address(table: &str, row: &Uuid) -> Result<(), EngineError> {
+    if matches!(
+        table,
+        ENGINE_PUBLISH_RECEIPTS_STORAGE | ENGINE_INITIAL_RESTORE_STORAGE
+    ) {
+        return Err(EngineError::InvalidQuery("reserved local metadata storage"));
+    }
+    validate_row_id(table, row)
 }
 
 fn validate_state_batch(batch: &[SyncStateUnit]) -> Result<(), EngineError> {

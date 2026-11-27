@@ -9,7 +9,11 @@ use engine::{
     Uuid, catalog_table_for_storage,
 };
 use engine_automerge::AutomergeRowCodec;
-use history::{DEFAULT_MAX_SESSION_BYTES, SyncKey, SyncStateUnit, export_sync_state_bounded_for};
+use history::{
+    DEFAULT_MAX_SESSION_BYTES, HistoryRevision, SyncError, SyncKey, SyncStateUnit,
+    export_sync_state_bounded_for, history_revision,
+};
+use platform::MaybeSend;
 use schema::{IndexSchema, TableSchema};
 use value::Value;
 
@@ -67,6 +71,81 @@ impl StagedHistory {
 }
 
 impl Database {
+    /// Reads the exact bounded history revision from one transaction.
+    /// # Errors
+    /// Returns an error if the snapshot fails or exceeds the history budget.
+    pub async fn history_revision(&self) -> Result<HistoryRevision, Error> {
+        let units = self.staging_snapshot().await.map_err(from_engine)?;
+        Ok(history_revision(&units))
+    }
+
+    /// Applies the exact private candidate if local history still matches `expected` and no
+    /// replica tag exists. Saves `tag` with the history. This does not check the remote receipt;
+    /// the caller must confirm that receipt and fence any running synchronization first.
+    /// # Errors
+    /// Returns an error for a changed history or tag, invalid stage, cancellation or failed commit.
+    pub async fn publish_local_history<Q>(
+        &self,
+        staged: &Self,
+        expected: HistoryRevision,
+        candidate: HistoryRevision,
+        tag: Vec<u8>,
+        check: Q,
+    ) -> Result<(), SyncError<core::convert::Infallible>>
+    where
+        Q: FnOnce() -> Result<(), String> + MaybeSend,
+    {
+        let stage = match &staged.backend {
+            DatabaseBackend::InMemory(stage) => stage,
+            #[cfg(any(
+                feature = "redb",
+                all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown")
+            ))]
+            _ => {
+                return Err(EngineError::Unsupported(
+                    "local publication requires an in-memory candidate",
+                )
+                .into());
+            }
+        };
+        match &self.backend {
+            #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
+            DatabaseBackend::IndexedDb(engine) => {
+                conflict_stage(|| {
+                    history::publish_local_history_for(
+                        engine,
+                        stage,
+                        DEFAULT_MAX_SESSION_BYTES,
+                        expected,
+                        candidate,
+                        tag,
+                        check,
+                    )
+                })
+                .await
+            }
+            DatabaseBackend::InMemory(engine) => {
+                conflict_stage(|| {
+                    history::publish_local_history_for(
+                        engine,
+                        stage,
+                        DEFAULT_MAX_SESSION_BYTES,
+                        expected,
+                        candidate,
+                        tag,
+                        check,
+                    )
+                })
+                .await
+            }
+            #[cfg(feature = "redb")]
+            DatabaseBackend::File(_) => Err(EngineError::Unsupported(
+                "local publication requires an optimistic backend",
+            )
+            .into()),
+        }
+    }
+
     /// Captures each database separately and reconciles the snapshots in private memory.
     /// Neither source is written, including on failure. Both must have exactly the listed active
     /// tables with matching schemas. Each snapshot and the result have the default history session

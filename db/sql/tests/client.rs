@@ -482,7 +482,7 @@ mod history_transport {
 
 #[cfg(all(feature = "in-memory", feature = "validated-history"))]
 #[tokio::test]
-async fn initial_restore_metadata_storage_is_not_a_sql_table_or_index() {
+async fn local_metadata_storage_is_not_a_sql_table_or_index() {
     let database = Database::in_memory();
     let client = database.client();
     client
@@ -492,6 +492,8 @@ async fn initial_restore_metadata_storage_is_not_a_sql_table_or_index() {
     for sql in [
         r#"CREATE TABLE "ofdb:local:initial-restore" (id INTEGER PRIMARY KEY)"#,
         r#"CREATE INDEX "ofdb:local:initial-restore" ON documents (id)"#,
+        r#"CREATE TABLE "ofdb:local:publish-receipts" (id INTEGER PRIMARY KEY)"#,
+        r#"CREATE INDEX "ofdb:local:publish-receipts" ON documents (id)"#,
     ] {
         let error = client
             .execute_sql(sql, None)
@@ -834,5 +836,81 @@ async fn shared_first_upload_rechecks_after_host_writer_and_allows_control_reads
     assert_eq!(
         source.history_manifest().await.expect("unchanged source"),
         before
+    );
+}
+
+#[cfg(all(feature = "redb", feature = "validated-history"))]
+#[tokio::test]
+async fn publication_receipt_persists_across_reopen_without_entering_sql_history() {
+    use core::future::ready;
+
+    use history_transport::{Channel, unbounded_channel};
+    use ofdb_sql::history::{HistoryPublication, SessionConfig, SyncRole};
+
+    let directory = tempfile::tempdir().expect("publication directory");
+    let path = directory.path().join("publication.redb");
+    let target = Database::open(&path).expect("remote destination");
+    let source = Database::in_memory();
+    target
+        .client()
+        .execute_sql(
+            "CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items DEFAULT VALUES",
+            None,
+        )
+        .await
+        .expect("existing history");
+    source
+        .import_history(target.export_history().await.expect("remote snapshot"))
+        .await
+        .expect("seed stage");
+    source
+        .client()
+        .execute_sql("INSERT INTO items DEFAULT VALUES", None)
+        .await
+        .expect("new history");
+    let publication = HistoryPublication {
+        operation: uuid::Uuid::now_v7(),
+        expected: target.history_revision().await.expect("previous revision"),
+        candidate: source.history_revision().await.expect("candidate revision"),
+    };
+    let config = SessionConfig::default();
+    let (send_source, receive_target) = unbounded_channel();
+    let (send_target, receive_source) = unbounded_channel();
+    let mut initiator = Channel(send_source, receive_source);
+    let mut responder = Channel(send_target, receive_target);
+    let (sent, received) = tokio::join!(
+        source.exchange_resource_history(
+            &mut initiator,
+            &config,
+            SyncRole::Initiator,
+            directory.path(),
+            || ready(Ok(()))
+        ),
+        target.receive_history_publication(
+            &mut responder,
+            &config,
+            directory.path(),
+            publication,
+            || ready(Ok(())),
+            || ready(Ok(()))
+        ),
+    );
+    sent.expect("owner exchange completed");
+    received.expect("guarded publication committed");
+    drop(target);
+    let reopened = Database::open_existing(path).expect("reopen physical destination");
+    assert!(
+        reopened
+            .check_history_publication(publication)
+            .await
+            .expect("durable exact receipt")
+    );
+    assert_eq!(
+        reopened.history_revision().await.expect("reopened history"),
+        publication.candidate
+    );
+    assert_eq!(
+        reopened.export_history().await.expect("remote history"),
+        source.export_history().await.expect("stage history")
     );
 }

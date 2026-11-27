@@ -44,6 +44,12 @@ export class Database {
     }
   }
 
+  /** Open a disposable database with no persistent replica identity. */
+  static async inMemory(): Promise<Database> {
+    const { SqlDatabase: WasmSqlDatabase } = await loadWasm();
+    return new Database(WasmSqlDatabase.in_memory());
+  }
+
   /** Release this handle. Independently owned clients remain usable. */
   close(): void {
     this.handle.close();
@@ -114,6 +120,34 @@ export class Database {
       );
       return await this.handle.run((left) =>
         other.handle.run(async (right) => new Database(await left.stage_history(right, policy)))
+      );
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
+
+  /** Capture one bounded history revision, including retained tombstones. */
+  async historyRevision(): Promise<Uint8Array> {
+    try {
+      return await this.handle.run((wasm) => wasm.history_revision());
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
+
+  /** Apply the exact private candidate and save the first replica tag in one local commit. */
+  async publishLocalHistory(
+    staged: Database,
+    expected: Uint8Array,
+    candidate: Uint8Array,
+    tag: Uint8Array,
+    canApply?: () => boolean
+  ): Promise<void> {
+    try {
+      return await this.handle.run((wasm) =>
+        staged.handle.run((stage) =>
+          wasm.publish_local_history(stage, expected, candidate, tag, canApply)
+        )
       );
     } catch (error) {
       throw wrapError(error, SqlError);

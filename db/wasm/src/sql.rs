@@ -140,6 +140,42 @@ impl SqlDatabase {
         })
     }
 
+    /// Opens a disposable database for a read-only Pull or candidate validation.
+    #[cfg(feature = "sync")]
+    pub fn in_memory() -> Self {
+        Self {
+            database: Database::in_memory(),
+        }
+    }
+
+    #[cfg(feature = "sync")]
+    pub async fn history_revision(&self) -> Result<Vec<u8>, JsError> {
+        Ok(self.database.history_revision().await?.to_vec())
+    }
+
+    /// Changes local history and saves the first replica tag together, after remote receipt confirmation.
+    #[cfg(feature = "sync")]
+    pub async fn publish_local_history(
+        &self,
+        staged: &Self,
+        expected: Vec<u8>,
+        candidate: Vec<u8>,
+        tag: Vec<u8>,
+        can_apply: Option<js_sys::Function>,
+    ) -> Result<(), JsError> {
+        let invalid_revision = |_| JsError::new("Expected a 32-byte history revision");
+        self.database
+            .publish_local_history(
+                &staged.database,
+                expected.try_into().map_err(invalid_revision)?,
+                candidate.try_into().map_err(invalid_revision)?,
+                tag,
+                || check_history_apply(can_apply.as_ref()),
+            )
+            .await
+            .map_err(|error| JsError::new(&error.to_string()))
+    }
+
     /// Preflight only. The restore transaction checks the catalog again.
     #[cfg(feature = "sync")]
     pub async fn initial_restore_is_eligible(&self) -> Result<bool, JsError> {

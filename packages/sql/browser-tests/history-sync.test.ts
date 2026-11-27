@@ -331,3 +331,92 @@ for (const competing of ["vault write", "destination", "detach"]) {
     );
   });
 }
+
+test("local publication checks the candidate, source revision and tag before atomic IndexedDB commit", async ({
+  page,
+}) => {
+  const result = await page.evaluate(async () => {
+    const { Database } = window.sql;
+    const local = await Database.open("merge-local");
+    const other = await Database.inMemory();
+    const concurrent = await Database.open("merge-local");
+    const left = local.client();
+    const right = other.client();
+    const writer = concurrent.client();
+    const records = [{ table: "items", identity: "id", envelope: ["secret"] }];
+    const tag = Uint8Array.of(8, 6);
+    const error = (promise: Promise<void>) =>
+      promise.then(
+        () => null,
+        (reason: unknown) => String(reason)
+      );
+    try {
+      const schema = "CREATE TABLE items (id TEXT PRIMARY KEY, secret TEXT)";
+      await left.executeRaw(schema);
+      await right.executeRaw(schema);
+      await left.executeRaw("INSERT INTO items VALUES ('local', 'local ciphertext')");
+      await right.executeRaw("INSERT INTO items VALUES ('remote', 'remote ciphertext')");
+      const stale = await local.historyRevision();
+      const first = await local.stageHistory(other, records);
+      try {
+        const firstRevision = await first.historyRevision();
+        const wrongCandidate = await error(local.publishLocalHistory(first, stale, stale, tag));
+        await writer.executeRaw("INSERT INTO items VALUES ('later', 'other tab ciphertext')");
+        const staleError = await error(local.publishLocalHistory(first, stale, firstRevision, tag));
+        const expected = await local.historyRevision();
+        const stage = await local.stageHistory(other, records);
+        try {
+          const candidate = await stage.historyRevision();
+          const cancelled = await error(
+            local.publishLocalHistory(stage, expected, candidate, tag, () => false)
+          );
+          const tagBefore = (await local.initialRestoreTag()) ?? null;
+          await local.publishLocalHistory(stage, expected, candidate, tag);
+          const competing = await error(
+            local.publishLocalHistory(stage, candidate, candidate, Uint8Array.of(4))
+          );
+          const reopened = await Database.open("merge-local");
+          const read = reopened.client();
+          try {
+            return {
+              wrongCandidate,
+              staleError,
+              cancelled,
+              tagBefore,
+              competing,
+              tagAfter: Array.from((await reopened.initialRestoreTag()) ?? []),
+              matchingRevision:
+                Array.from(await reopened.historyRevision()).join() ===
+                Array.from(candidate).join(),
+              rows: await read.execute("SELECT id FROM items ORDER BY id", (row) => row.id),
+            };
+          } finally {
+            read.close();
+            reopened.close();
+          }
+        } finally {
+          stage.close();
+        }
+      } finally {
+        first.close();
+      }
+    } finally {
+      writer.close();
+      right.close();
+      left.close();
+      concurrent.close();
+      other.close();
+      local.close();
+    }
+  });
+  expect(result.wrongCandidate).toContain("invalid publication candidate revision");
+  expect(result.staleError).toContain("destination history revision changed");
+  expect(result.cancelled).toContain("local history apply cancelled");
+  expect(result.tagBefore).toBeNull();
+  expect(result.competing).toContain("local replica tag already exists");
+  expect(result.tagAfter).toEqual([8, 6]);
+  expect(result.matchingRevision).toBe(true);
+  expect(result.rows).toEqual(
+    ["later", "local", "remote"].map((value) => ({ type: "text", value }))
+  );
+});

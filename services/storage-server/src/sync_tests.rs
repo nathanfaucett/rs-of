@@ -1182,9 +1182,25 @@ async fn ws_compare_publish_rejects_stale_revision_and_checks_lost_receipt() {
             SyncMessage::PublicationStatus(false)
         );
 
-        let source = ofdb_sql::Database::in_memory();
-        let expected = fixture.revisioned_pull(&source).await;
-        sql(&source, "INSERT INTO documents (value) VALUES ('local')").await;
+        let snapshot = ofdb_sql::Database::in_memory();
+        let expected = fixture.revisioned_pull(&snapshot).await;
+        let local = ofdb_sql::Database::in_memory();
+        sql(&local, "CREATE TABLE documents (id UUID PRIMARY KEY, value TEXT); INSERT INTO documents (value) VALUES ('local')").await;
+        let source = local
+            .stage_history(
+                &snapshot,
+                &[ofdb_sql::HistoryRecord {
+                    table: "documents",
+                    identity: "id",
+                    stable: &[],
+                    envelope: &["value"],
+                }],
+            )
+            .await
+            .expect("reconcile independently populated snapshots")
+            .into_memory_database()
+            .await
+            .expect("open the private candidate");
         let publication = HistoryPublication {
             operation: uuid::Uuid::now_v7(),
             expected,
@@ -1200,6 +1216,13 @@ async fn ws_compare_publish_rejects_stale_revision_and_checks_lost_receipt() {
         .await
         .expect("committed without reading original receipt");
         drop(socket);
+        assert_eq!(
+            values(&target).await,
+            [
+                ofdb_sql::Value::Text("local".into()),
+                ofdb_sql::Value::Text("remote".into())
+            ]
+        );
         assert_eq!(
             fixture.receipt(publication).await,
             SyncMessage::PublicationStatus(true)
