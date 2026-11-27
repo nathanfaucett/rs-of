@@ -4,6 +4,7 @@ use crate::{
     resource::retired_error,
     table_definition,
 };
+use async_lock::{Mutex as AsyncMutex, MutexGuardArc};
 use btree::{BTreeError, BTreeResult};
 use redb::{ReadableDatabase, ReadableTable, TableDefinition, TableHandle};
 use std::{
@@ -25,14 +26,16 @@ struct TableState {
 }
 pub struct SharedWriteTransaction {
     database: Arc<redb::Database>,
+    admission: Arc<AsyncMutex<()>>,
     snapshot: redb::ReadTransaction,
     tables: Mutex<BTreeMap<String, TableState>>,
 }
 impl SharedWriteTransaction {
-    pub fn new(database: Arc<redb::Database>) -> BTreeResult<Self> {
+    pub fn new(database: Arc<redb::Database>, admission: Arc<AsyncMutex<()>>) -> BTreeResult<Self> {
         let snapshot = database.begin_read().map_err(BTreeError::custom)?;
         Ok(Self {
             database,
+            admission,
             snapshot,
             tables: Mutex::new(BTreeMap::new()),
         })
@@ -189,17 +192,30 @@ impl SharedWriteTransaction {
         drop(tables);
         Ok(())
     }
-    pub fn commit(self) -> BTreeResult<()> {
+    pub async fn writer_admission(&self) -> Option<MutexGuardArc<()>> {
+        // A read-only commit must not wait for a checked writer that is reading this host.
+        let has_writes = self
+            .tables
+            .lock()
+            .expect("shared transaction tables lock")
+            .values()
+            .any(|table| table.created || table.dropped || !table.writes.is_empty());
+        if has_writes {
+            Some(self.admission.lock_arc().await)
+        } else {
+            None
+        }
+    }
+
+    pub async fn commit_checked<Q, U, E>(self, check: Q) -> BTreeResult<Result<(), E>>
+    where
+        Q: FnOnce() -> U,
+        U: Future<Output = Result<(), E>>,
+    {
         let tables = self
             .tables
             .into_inner()
             .expect("shared transaction tables lock");
-        if !tables
-            .values()
-            .any(|table| table.created || table.dropped || !table.writes.is_empty())
-        {
-            return Ok(());
-        }
         let transaction = self.database.begin_write().map_err(BTreeError::custom)?;
         {
             let mut versions = transaction
@@ -237,7 +253,12 @@ impl SharedWriteTransaction {
                 }
             }
         }
-        transaction.commit().map_err(BTreeError::custom)
+        if let Err(error) = check().await {
+            transaction.abort().map_err(BTreeError::custom)?;
+            return Ok(Err(error));
+        }
+        transaction.commit().map_err(BTreeError::custom)?;
+        Ok(Ok(()))
     }
 }
 fn namespace_prefix(name: &str) -> Option<&str> {

@@ -155,8 +155,35 @@ where
         ) -> platform::BoxFuture<'a, EngineResult<(O, MutationSummary)>>,
         V: FnOnce(&O) -> EngineResult<()>,
     {
+        self.mutate_tables_with_commit(tables, operation, validate, KernelTransaction::commit)
+            .await
+    }
+
+    /// Commits through a caller-selected transaction commit method after mutation, validation,
+    /// and index maintenance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if setup, mutation, validation, commit, or rollback fails.
+    pub async fn mutate_tables_with_commit<F, O, V, Q, U, E>(
+        &self,
+        tables: &[String],
+        operation: F,
+        validate: V,
+        commit: Q,
+    ) -> Result<O, E>
+    where
+        F: for<'a> FnOnce(
+            &'a R,
+            &'a mut K::Transaction,
+        ) -> platform::BoxFuture<'a, EngineResult<(O, MutationSummary)>>,
+        V: FnOnce(&O) -> EngineResult<()>,
+        Q: FnOnce(K::Transaction) -> U,
+        U: Future<Output = Result<(), E>>,
+        E: From<crate::EngineError>,
+    {
         let mut transaction = self.kernel.transaction().await?;
-        let result: EngineResult<O> = async {
+        let result: Result<O, E> = async {
             ensure(&mut transaction, self.reconciler.as_ref()).await?;
             for table in tables {
                 self.reconciler
@@ -185,7 +212,7 @@ where
         .await;
         match result {
             Ok(output) => {
-                transaction.commit().await?;
+                commit(transaction).await?;
                 Ok(output)
             }
             Err(error) => {

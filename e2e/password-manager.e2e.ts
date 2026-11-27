@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 import { appURL, backendURL, passwordManagerURL } from "./backend.mjs";
-import { signIn } from "./session";
+import { frontendSession, signIn, storageClient } from "./session";
 
 async function signInToSync(page: Page) {
   await page.goto(passwordManagerURL);
@@ -118,32 +118,91 @@ test("password-manager redirects to IdP, requests consent, and establishes a ses
   await expect(page.getByRole("button", { name: "Show synced vaults", exact: true })).toBeVisible();
 });
 
-test("synced vault network failure gives service recovery without local-storage advice", async ({
+test("first upload requires confirmation and can recover from an interrupted Storage connection", async ({
   page,
+  request,
 }) => {
   await signInToSync(page);
   const allow = page.getByRole("button", { name: "Allow", exact: true });
-  const signedIn = page.getByRole("button", { name: "Create synced vault", exact: true });
-  await expect(allow.or(signedIn)).toBeVisible();
+  const create = page.getByRole("button", { name: "Create new vault", exact: true });
+  await expect(allow.or(create)).toBeVisible();
   if (await allow.isVisible()) await allow.click();
   await expect(page).toHaveURL(`${passwordManagerURL}/`);
-  await page.route(`${backendURL}/idp/oauth2/token`, async (route) => {
+  await create.click();
+  await page.getByLabel("Vault name", { exact: true }).fill("Local vault");
+  const masterPassword = "synthetic-sync-password";
+  await page.getByLabel("Master password", { exact: true }).fill(masterPassword);
+  await page.getByLabel("Confirm password", { exact: true }).fill(masterPassword);
+  await page.getByRole("button", { name: "Create vault", exact: true }).click();
+  const plaintext = "A local note for guarded first upload.";
+  await page.getByRole("button", { name: "New item", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New secure note" }).click();
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Local note");
+  await page.getByLabel("Notes", { exact: true }).fill(plaintext);
+  await page.getByRole("button", { name: "Create item" }).click();
+  await expect(page.getByRole("button", { name: "Local note", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Lock vault" }).click();
+  await expect(page.getByRole("button", { name: "Create synced vault" })).toHaveCount(0);
+  const tokenEndpoint = `${backendURL}/idp/oauth2/token`;
+  await page.route(tokenEndpoint, async (route) => {
     const grant = new URLSearchParams(route.request().postData() ?? "").get("grant_type");
     if (grant === "urn:ietf:params:oauth:grant-type:token-exchange") await route.abort("failed");
     else await route.continue();
   });
 
-  await page.getByRole("button", { name: "Create synced vault", exact: true }).click();
-  await page.getByLabel("Vault name", { exact: true }).fill("Interrupted sync vault");
-  await page.getByLabel("Master password", { exact: true }).fill("synthetic-sync-password");
-  await page.getByLabel("Confirm password", { exact: true }).fill("synthetic-sync-password");
-  await page.getByRole("button", { name: "Create vault", exact: true }).click();
-
-  const alert = page.getByRole("alert");
-  await expect(alert).toContainText(
+  const connect = page.getByRole("button", { name: "Connect local database" });
+  const destination = page.getByRole("region", { name: "Confirm sync destination" });
+  await connect.click();
+  await destination.getByRole("button", { name: "Cancel" }).click();
+  await expect(destination).toBeHidden();
+  await connect.click();
+  await destination.getByRole("button", { name: "Confirm and upload" }).click();
+  await expect(destination.getByRole("alert")).toContainText(
     "Storage service is unavailable. Check the Node status and connection, then retry."
   );
-  await expect(alert).toContainText("Return to the selector");
-  await expect(alert).not.toContainText("interceptors");
-  await expect(alert).not.toContainText("Check browser storage");
+  await destination.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: /Local vault/ }).click();
+  await page.getByLabel("Master password", { exact: true }).fill(masterPassword);
+  await page.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(page).toHaveURL(`${passwordManagerURL}/vault`);
+
+  const session = await frontendSession(request, "password-manager", passwordManagerURL);
+  const storage = storageClient("password-manager", session.access_token);
+  const before = await storage.listDatabases();
+  await page.unroute(tokenEndpoint);
+  await page.getByRole("button", { name: "Lock vault" }).click();
+  await connect.click();
+  await destination.getByRole("button", { name: "Confirm and upload" }).click();
+  await expect(destination.getByRole("status").or(destination.getByRole("alert"))).toContainText(
+    "First upload complete"
+  );
+  const after = await storage.listDatabases();
+  const created = after.filter(({ id }) => !before.some((resource) => resource.id === id));
+  expect(created).toHaveLength(1);
+  const resourceId = created[0]?.id;
+  if (!resourceId) throw new Error("Missing uploaded Resource");
+  await expect(destination).toContainText(resourceId);
+  const read = () =>
+    storage.executeSql(
+      resourceId,
+      {
+        statements: [{ sql: "SELECT ciphertext, nonce FROM secrets", params: [] }],
+      },
+      ["read"]
+    );
+  const encrypted = await read();
+  expect(encrypted.results[0]?.rows).toEqual([
+    [
+      { type: "text", value: expect.stringMatching(/^[A-Za-z0-9+/]+=*$/) },
+      { type: "text", value: expect.stringMatching(/^[A-Za-z0-9+/]{16}$/) },
+    ],
+  ]);
+  expect(JSON.stringify(encrypted)).not.toContain(plaintext);
+  expect(JSON.stringify(encrypted)).not.toContain(masterPassword);
+  await destination.getByRole("button", { name: "Done" }).click();
+  await connect.click();
+  await destination.getByRole("button", { name: "Confirm and upload" }).click();
+  await expect(destination.getByRole("alert")).toContainText("already has history");
+  expect(await storage.listDatabases()).toEqual(after);
+  expect(await read()).toEqual(encrypted);
 });

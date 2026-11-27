@@ -9,6 +9,9 @@ let client: OidcClient | undefined;
 let startup: Promise<void> | undefined;
 let session = $state.raw<{
   user: OidcUserInfo;
+  userEmail: string | undefined;
+  issuer: string;
+  applicationUri: string;
   idp: string;
   storage: string;
   clientId: string;
@@ -44,11 +47,16 @@ async function restore(): Promise<void> {
   }
 }
 
-async function establishSession(oidc: OidcClient, { idp, storage }: OidcAuthConfig) {
-  const { userInfo } = await oidc.getVerifiedIdentity();
+async function establishSession(
+  oidc: OidcClient,
+  { idp, storage, applicationUri }: OidcAuthConfig
+) {
+  const { issuer, userInfo } = await oidc.getVerifiedIdentity();
   const clientId = oidc.registeredClientId;
   if (!clientId) throw new Error("No verified OAuth Client ID");
-  session = { user: userInfo, idp, storage, clientId };
+  const { email } = userInfo;
+  const userEmail = typeof email === "string" ? email : undefined;
+  session = { user: userInfo, userEmail, issuer, applicationUri, idp, storage, clientId };
 }
 
 function initialize(): Promise<void> {
@@ -81,10 +89,20 @@ async function logout(): Promise<void> {
 }
 
 async function getAccessToken(expected: NonNullable<typeof session>): Promise<string> {
-  if (!client || session !== expected) throw new Error("Sign in to sync first");
-  const token = await client.getAccessToken();
-  if (session !== expected) throw new Error("Sign-in session ended");
-  return token;
+  const oidc = client;
+  if (!oidc || session !== expected) throw new Error("Sign in to sync first");
+  // Another tab can replace a stored token without changing this tab's session.
+  const identity = await oidc.getVerifiedIdentity();
+  if (
+    client !== oidc ||
+    session !== expected ||
+    identity.issuer !== expected.issuer ||
+    identity.subject !== expected.user.sub ||
+    oidc.registeredClientId !== expected.clientId
+  ) {
+    throw new Error("The signed-in account changed. Reload and confirm the destination again.");
+  }
+  return identity.accessToken;
 }
 
 export const authState = {

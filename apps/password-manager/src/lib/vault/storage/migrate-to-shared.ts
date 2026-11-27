@@ -21,23 +21,29 @@ interface LegacyVaultMeta {
   lockSettings: string | null;
 }
 
-/**
- * Get a client for the shared database (non-sync mode).
- * This replaces SharedDb.getInstance().getClient() for migration purposes.
- */
-export async function getSharedClient(): Promise<Client> {
-  return navigator.locks.request(`${SHARED_DB_NAME}:migrations`, async () => {
+export async function openSharedDatabase(): Promise<SqlDatabase> {
+  return await navigator.locks.request(`${SHARED_DB_NAME}:migrations`, async () => {
     const db = await SqlDatabase.open(SHARED_DB_NAME);
     const client = db.client();
     try {
       await client.migrate(MIGRATIONS);
-      return client;
+      return db;
     } catch (error) {
-      client.close();
       db.close();
       throw error;
+    } finally {
+      client.close();
     }
   });
+}
+
+export async function getSharedClient(): Promise<Client> {
+  const database = await openSharedDatabase();
+  try {
+    return database.client();
+  } finally {
+    database.close();
+  }
 }
 
 /** One-time migration from per-vault tables and the registry to shared tables. */

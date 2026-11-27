@@ -54,7 +54,7 @@ fn budget_rejection_precedes_owned_value_decoding_for_get_range_and_mutation_rea
             .insert(1, TrackedValue(vec![0; 1024 * 1024]))
             .await
             .expect("large native value");
-        transaction.commit().expect("seed");
+        transaction.commit().await.expect("seed");
         for operation in ["get", "range", "remove", "remove_range", "insert"] {
             let mut transaction = database.transaction().await.expect("bounded transaction");
             transaction.set_read_limits(10, 1024).expect("read budget");

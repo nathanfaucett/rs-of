@@ -195,8 +195,20 @@ impl KernelTransaction for RedbKernelTransaction {
             .map_err(EngineError::custom)
     }
 
-    fn commit(self) -> impl Future<Output = EngineResult<()>> + Send {
-        ready(self.database.commit().map_err(EngineError::custom))
+    async fn commit(self) -> EngineResult<()> {
+        self.database.commit().await.map_err(EngineError::custom)
+    }
+
+    async fn commit_checked<Q, U, E>(self, check: Q) -> Result<(), E>
+    where
+        Q: FnOnce() -> U + Send,
+        U: Future<Output = Result<(), E>> + Send,
+        E: From<EngineError> + Send,
+    {
+        self.database
+            .commit_checked(check)
+            .await
+            .map_err(EngineError::custom)?
     }
 
     fn rollback(self) -> impl Future<Output = EngineResult<()>> + Send {

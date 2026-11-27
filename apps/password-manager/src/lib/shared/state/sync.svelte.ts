@@ -1,12 +1,21 @@
 import type { SyncSDK } from "@ofsdk/sync-sdk";
-import { BrowserSyncSDK } from "@ofsdk/sync-sdk/browser";
+import {
+  BrowserSyncSDK,
+  createSqlResourceSync,
+  type SqlResourceSync,
+} from "@ofsdk/sync-sdk/browser";
 import { authState } from "$lib/auth/auth.svelte";
+import { openSharedDatabase } from "$lib/vault/storage/migrate-to-shared";
 import { StorageClient } from "../../../../../../packages/storage-client/src/index";
 
 let sdk: SyncSDK | undefined;
 
-function storageAccess() {
-  const session = authState.session;
+type Session = NonNullable<typeof authState.session>;
+
+type FirstUpload = { controller: AbortController; sync?: SqlResourceSync };
+let firstUpload: FirstUpload | undefined;
+
+function storageAccess(session = authState.session) {
   if (!session) throw new Error("Sign in to sync first");
   const getToken = () => authState.getAccessToken(session);
   const client = new StorageClient({
@@ -44,20 +53,70 @@ function getSync() {
   return sdk;
 }
 
+async function uploadLocalDatabase(expected: Session, onResource: (id: string) => void) {
+  if (authState.session !== expected) throw new Error("Sign-in session ended");
+  if (firstUpload) throw new Error("A first upload is already in progress");
+  const pending: FirstUpload = { controller: new AbortController() };
+  firstUpload = pending;
+  const { signal } = pending.controller;
+  function requireSession() {
+    signal.throwIfAborted();
+    if (authState.session !== expected) throw new Error("Sign-in session ended");
+  }
+  let database: Awaited<ReturnType<typeof openSharedDatabase>> | undefined;
+  try {
+    const { client } = storageAccess(expected);
+    database = await openSharedDatabase();
+    requireSession();
+    // Keep this key and name distinct from the legacy synced-vault Resource.
+    const resource = await client.ensureDatabase(
+      {
+        creationKey: "password-manager-local-v1",
+        name: "Password Manager local database",
+      },
+      signal
+    );
+    requireSession();
+    onResource(resource.id);
+    pending.sync = createSqlResourceSync(
+      database,
+      {
+        storeId: resource.id,
+        replicaId: crypto.randomUUID(),
+        creationEpoch: 0n,
+        schemaFingerprint: new Uint8Array(32),
+      },
+      {
+        mode: "first-upload",
+        storageApiUrl: expected.storage,
+        async tokenProvider() {
+          requireSession();
+          const token = await client.getStorageToken("storage:sync", ["read", "write"], signal);
+          requireSession();
+          return token;
+        },
+      }
+    );
+    await pending.sync.sync();
+    requireSession();
+  } finally {
+    await pending.sync?.close();
+    database?.close();
+    firstUpload = undefined;
+  }
+}
+
 async function closeSync(): Promise<void> {
   const previous = sdk;
   sdk = undefined;
-  await previous?.close();
+  firstUpload?.controller.abort();
+  await Promise.all([previous?.close(), firstUpload?.sync?.close()]);
 }
 
 export const syncStateModule = {
   supportsReplication,
   closeSync,
-  async createDatabase(name: string) {
-    const legacy = getSync();
-    const database = await storageAccess().client.ensureDatabase({ creationKey: name, name });
-    return legacy.sql.open(database.id);
-  },
+  uploadLocalDatabase,
   async openDatabase(id: string) {
     return getSync().sql.open(id);
   },

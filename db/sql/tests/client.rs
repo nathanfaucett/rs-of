@@ -373,26 +373,9 @@ fn fresh_replica_retains_generated_uuid_keys_from_history() {
 #[cfg(all(feature = "in-memory", feature = "validated-history"))]
 #[tokio::test]
 async fn peer_session_preserves_generated_keys_and_applies_later_edits() {
-    use core::future::ready;
-
-    use ofdb_sql::history::{SessionConfig, SyncRole, SyncTransport};
-    use tokio::{
-        sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-        time::timeout,
-    };
-
-    struct Channel(UnboundedSender<Vec<u8>>, UnboundedReceiver<Vec<u8>>);
-    impl SyncTransport for Channel {
-        type Error = &'static str;
-
-        fn send(&mut self, frame: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
-            ready(self.0.send(frame).map_err(|_error| "peer closed"))
-        }
-
-        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
-            self.1.recv().await.ok_or("peer closed")
-        }
-    }
+    use history_transport::{Channel, unbounded_channel};
+    use ofdb_sql::history::{SessionConfig, SyncRole};
+    use tokio::time::timeout;
 
     let a = Database::in_memory();
     let b = Database::in_memory();
@@ -471,4 +454,286 @@ async fn peer_session_preserves_generated_keys_and_applies_later_edits() {
             );
         }
     }
+}
+
+#[cfg(all(feature = "in-memory", feature = "validated-history"))]
+mod history_transport {
+    use core::future::ready;
+
+    use ofdb_sql::history::SyncTransport;
+    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
+    pub use tokio::sync::mpsc::unbounded_channel;
+
+    pub struct Channel(pub UnboundedSender<Vec<u8>>, pub UnboundedReceiver<Vec<u8>>);
+
+    impl SyncTransport for Channel {
+        type Error = &'static str;
+
+        fn send(&mut self, frame: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send {
+            ready(self.0.send(frame).map_err(|_error| "peer closed"))
+        }
+
+        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
+            self.1.recv().await.ok_or("peer closed")
+        }
+    }
+}
+
+#[cfg(all(feature = "redb", feature = "validated-history"))]
+#[tokio::test]
+async fn first_upload_rechecks_authorization_after_waiting_for_destination_writer() {
+    use core::{
+        future::ready,
+        sync::atomic::{AtomicBool, Ordering},
+    };
+
+    use history_transport::{Channel, unbounded_channel};
+    use ofdb_sql::history::{SessionConfig, SyncError, SyncManifest, SyncRole};
+    use tokio::time::timeout;
+
+    let directory = tempfile::tempdir().expect("first-upload directory");
+    let target = Database::open(directory.path().join("target.redb")).expect("destination");
+    let source = Database::in_memory();
+    source
+        .client()
+        .execute_sql(
+            "CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items DEFAULT VALUES",
+            None,
+        )
+        .await
+        .expect("source history");
+    let before = source.history_manifest().await.expect("source manifest");
+    let client = target.client();
+    let writer = client
+        .transaction()
+        .await
+        .expect("hold destination writer without changes");
+    let allowed = AtomicBool::new(true);
+    let config = SessionConfig::default();
+    let (source_send, target_receive) = unbounded_channel();
+    let (target_send, source_receive) = unbounded_channel();
+    let mut initiator = Channel(source_send, source_receive);
+    let mut responder = Channel(target_send, target_receive);
+    let (result, ()) = timeout(Duration::from_secs(10), async {
+        tokio::join!(
+            biased;
+            target.receive_first_upload(&mut responder, &config, directory.path(), || {
+                ready(if allowed.load(Ordering::Relaxed) { Ok(()) } else { Err("revoked".into()) })
+            }),
+            async {
+                source.exchange_resource_history(&mut initiator, &config, SyncRole::Initiator, directory.path(), || ready(Ok(()))).await.expect("SQL exchange with staged destination");
+                // The responder runs first and the channel sends never suspend. Once SQL
+                // finishes here, publish has already yielded on the held destination writer.
+                allowed.store(false, Ordering::Relaxed);
+                writer.rollback().await.expect("release unchanged destination writer");
+            },
+        )
+    }).await.expect("first-upload deadline");
+    assert!(
+        matches!(result, Err(SyncError::PreApply(ref reason)) if reason == "revoked"),
+        "{result:?}"
+    );
+    assert_eq!(
+        target
+            .history_manifest()
+            .await
+            .expect("destination manifest"),
+        SyncManifest::default()
+    );
+    assert_eq!(
+        source.history_manifest().await.expect("source manifest"),
+        before
+    );
+}
+
+#[cfg(all(feature = "redb", feature = "validated-history"))]
+#[tokio::test]
+async fn shared_first_upload_rechecks_after_host_writer_and_allows_control_reads() {
+    use core::{
+        future::ready,
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+
+    use futures::poll;
+    use history_transport::{Channel, unbounded_channel};
+    use ofdb_sql::{
+        SharedDatabase,
+        history::{
+            NativeSyncStageFactory, SessionConfig, SyncError, SyncManifest, SyncRole, SyncStage,
+            SyncStageFactory, SyncTransport,
+        },
+    };
+    use tokio::{sync::Notify, time::timeout};
+
+    struct UploadTransport<'a>(Channel, &'a AtomicUsize);
+    impl SyncTransport for UploadTransport<'_> {
+        type Error = &'static str;
+
+        async fn send(&mut self, frame: Vec<u8>) -> Result<(), Self::Error> {
+            // SQL v7 sends a Done after initial transfer and again after recovery.
+            if frame == [8] {
+                self.1.fetch_add(1, Ordering::Relaxed);
+            }
+            self.0.send(frame).await
+        }
+
+        async fn receive(&mut self) -> Result<Vec<u8>, Self::Error> {
+            self.0.receive().await
+        }
+    }
+
+    let directory = tempfile::tempdir().expect("shared upload directory");
+    let host = SharedDatabase::in_memory().expect("shared host");
+    let control = Database::open_shared(&host, "control").expect("control namespace");
+    let winner = Database::open_shared(&host, "winner").expect("writer namespace");
+    let waiting = Database::open_shared(&host, "waiting").expect("destination namespace");
+    let source = Database::in_memory();
+    source
+        .client()
+        .execute_sql(
+            "CREATE TABLE items (id UUID PRIMARY KEY); INSERT INTO items DEFAULT VALUES",
+            None,
+        )
+        .await
+        .expect("source history");
+    let before = source.history_manifest().await.expect("source manifest");
+    control
+        .client()
+        .execute_sql(
+            "CREATE TABLE policy (id UUID PRIMARY KEY); INSERT INTO policy DEFAULT VALUES",
+            None,
+        )
+        .await
+        .expect("policy data");
+    let control_read = || async {
+        let policy = control
+            .client()
+            .execute_sql("SELECT id FROM policy", None)
+            .await
+            .expect("authorization reads the shared host");
+        assert_eq!(policy[0].rows.len(), 1);
+    };
+
+    let stage_factory =
+        NativeSyncStageFactory::shared(host.namespace("stages").expect("stage namespace"));
+    let mut abandoned_stage = stage_factory.create().await.expect("independent stage");
+    abandoned_stage
+        .append(vec![1])
+        .await
+        .expect("persist staged record");
+
+    let checked = AtomicUsize::new(0);
+    let winner_done = AtomicUsize::new(0);
+    let waiting_done = AtomicUsize::new(0);
+    let waiting_allowed = AtomicBool::new(true);
+    let staged = Notify::new();
+    let allow_publish = Notify::new();
+    let winner_at_commit = Notify::new();
+    let release_winner = Notify::new();
+
+    async fn upload<Q, U>(
+        source: &Database,
+        target: &Database,
+        done: &AtomicUsize,
+        directory: &std::path::Path,
+        check: Q,
+    ) -> Result<(), SyncError<&'static str>>
+    where
+        Q: FnMut() -> U + Send,
+        U: Future<Output = Result<(), String>> + Send,
+    {
+        let config = SessionConfig::default();
+        let (source_send, target_receive) = unbounded_channel();
+        let (target_send, source_receive) = unbounded_channel();
+        let mut initiator = Channel(source_send, source_receive);
+        let mut responder = UploadTransport(Channel(target_send, target_receive), done);
+        let (exchange, publish) = tokio::join!(
+            source.exchange_resource_history(
+                &mut initiator,
+                &config,
+                SyncRole::Initiator,
+                directory,
+                || ready(Ok(()))
+            ),
+            target.receive_first_upload(&mut responder, &config, directory, check),
+        );
+        exchange.expect("SQL exchange with private candidate");
+        publish
+    }
+    let mut waiting_upload = Box::pin(upload(
+        &source,
+        &waiting,
+        &waiting_done,
+        directory.path(),
+        || async {
+            if waiting_done.load(Ordering::Relaxed) == 2
+                && checked.fetch_add(1, Ordering::Relaxed) == 0
+            {
+                staged.notify_one();
+                allow_publish.notified().await;
+            }
+            control_read().await;
+            if waiting_allowed.load(Ordering::Relaxed) {
+                Ok(())
+            } else {
+                Err("revoked".into())
+            }
+        },
+    ));
+    let winner_checks = AtomicUsize::new(0);
+    let mut winner_upload = Box::pin(upload(
+        &source,
+        &winner,
+        &winner_done,
+        directory.path(),
+        || async {
+            if winner_done.load(Ordering::Relaxed) == 2
+                && winner_checks.fetch_add(1, Ordering::Relaxed) == 1
+            {
+                control_read().await;
+                winner_at_commit.notify_one();
+                release_winner.notified().await;
+            }
+            Ok(())
+        },
+    ));
+
+    timeout(Duration::from_secs(10), async {
+        tokio::select! {
+            () = staged.notified() => {},
+            result = &mut waiting_upload => panic!("destination did not stage: {result:?}"),
+        }
+        tokio::select! {
+            () = winner_at_commit.notified() => {},
+            result = &mut winner_upload => panic!("winner did not reach its commit check: {result:?}"),
+        }
+        // Cleanup must not block this executor while another namespace holds the writer.
+        drop(abandoned_stage);
+        allow_publish.notify_one();
+        let pending = poll!(&mut waiting_upload);
+        assert!(pending.is_pending(), "publish bypassed the shared writer: {pending:?}");
+        let client = control.client();
+        let mut regular_write = Box::pin(client.execute_sql("INSERT INTO policy DEFAULT VALUES", None));
+        assert!(poll!(&mut regular_write).is_pending(), "ordinary writes must also wait for the shared writer");
+        waiting_allowed.store(false, Ordering::Relaxed);
+        release_winner.notify_one();
+        winner_upload.await.expect("competing writer commits");
+        let result = waiting_upload.await;
+        regular_write.await.expect("ordinary writer resumes");
+        assert!(matches!(result, Err(SyncError::PreApply(ref reason)) if reason == "revoked"), "{result:?}");
+    }).await.expect("shared publish and control-read deadline");
+
+    assert_eq!(
+        waiting.history_manifest().await.expect("empty destination"),
+        SyncManifest::default()
+    );
+    assert_eq!(
+        winner.history_manifest().await.expect("competing history"),
+        before
+    );
+    assert_eq!(
+        source.history_manifest().await.expect("unchanged source"),
+        before
+    );
 }

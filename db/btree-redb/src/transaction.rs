@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use async_lock::MutexGuardArc;
+use async_lock::{Mutex, MutexGuardArc};
 use async_stream::stream;
 use futures::Stream;
 use redb::{Database, ReadableTable, Table, TableDefinition, TableHandle, WriteTransaction};
@@ -28,7 +28,7 @@ type BorrowedTable<'a, K, V> = Table<'a, Borrowed<Key<K>>, Borrowed<Value<V>>>;
 
 trait WriteTransactionHandle {
     fn native(&self) -> &NativeWriteTransaction;
-    fn commit(self) -> BTreeResult<()>;
+    fn commit(self) -> impl Future<Output = BTreeResult<()>> + Send;
     fn rollback(self) -> BTreeResult<()>;
 }
 
@@ -60,9 +60,13 @@ impl fmt::Debug for WriteBackend {
 }
 
 impl NativeWriteTransaction {
-    pub fn new_shared(database: Arc<Database>, changes: ChangeSignal) -> BTreeResult<Self> {
+    pub fn new_shared(
+        database: Arc<Database>,
+        admission: Arc<Mutex<()>>,
+        changes: ChangeSignal,
+    ) -> BTreeResult<Self> {
         Ok(Self {
-            backend: WriteBackend::Shared(SharedWriteTransaction::new(database)?),
+            backend: WriteBackend::Shared(SharedWriteTransaction::new(database, admission)?),
             mutations: Mutations::default(),
             read_budget: ReadBudget::default(),
             changes,
@@ -90,7 +94,9 @@ impl NativeWriteTransaction {
     fn native_inner(&self) -> &WriteTransaction {
         match &self.backend {
             WriteBackend::Native { inner, .. } => inner,
-            WriteBackend::Shared(_) => unreachable!("shared writes use their transaction overlay"),
+            WriteBackend::Shared(_) => {
+                unreachable!("shared writes use their transaction overlay")
+            }
         }
     }
 
@@ -268,11 +274,35 @@ impl NativeWriteTransaction {
         self.mutations.table(name, old, new);
     }
 
-    pub fn commit(self) -> BTreeResult<()> {
+    pub async fn commit(self) -> BTreeResult<()> {
+        self.commit_checked(|| ready(Ok::<(), BTreeError>(())))
+            .await?
+    }
+
+    pub async fn commit_checked<Q, U, E>(self, check: Q) -> BTreeResult<Result<(), E>>
+    where
+        Q: FnOnce() -> U,
+        U: Future<Output = Result<(), E>>,
+    {
         let _invalidations = self.mutations.invalidations();
+        let shared_admission = match &self.backend {
+            WriteBackend::Shared(transaction) => transaction.writer_admission().await,
+            _ => None,
+        };
         match self.backend {
-            WriteBackend::Native { inner, .. } => (*inner).commit().map_err(BTreeError::custom)?,
-            WriteBackend::Shared(transaction) => transaction.commit()?,
+            WriteBackend::Native { inner, .. } => {
+                if let Err(error) = check().await {
+                    inner.abort().map_err(BTreeError::custom)?;
+                    return Ok(Err(error));
+                }
+                inner.commit().map_err(BTreeError::custom)?;
+            }
+            WriteBackend::Shared(inner) if shared_admission.is_some() => {
+                if let Err(error) = inner.commit_checked(check).await? {
+                    return Ok(Err(error));
+                }
+            }
+            WriteBackend::Shared(_) => {}
         }
         // Build events from mutations for push-based sync
         let events = self.mutations.take_events();
@@ -285,7 +315,8 @@ impl NativeWriteTransaction {
             })
             .collect();
         self.changes.committed_with_events(change_events);
-        Ok(())
+        drop(shared_admission);
+        Ok(Ok(()))
     }
 
     pub fn rollback(self) -> BTreeResult<()> {
@@ -300,7 +331,7 @@ impl WriteTransactionHandle for NativeWriteTransaction {
     fn native(&self) -> &NativeWriteTransaction {
         self
     }
-    fn commit(self) -> BTreeResult<()> {
+    fn commit(self) -> impl Future<Output = BTreeResult<()>> + Send {
         self.commit()
     }
     fn rollback(self) -> BTreeResult<()> {
@@ -312,8 +343,8 @@ impl WriteTransactionHandle for &NativeWriteTransaction {
     fn native(&self) -> &NativeWriteTransaction {
         self
     }
-    fn commit(self) -> BTreeResult<()> {
-        Ok(())
+    fn commit(self) -> impl Future<Output = BTreeResult<()>> + Send {
+        ready(Ok(()))
     }
     fn rollback(self) -> BTreeResult<()> {
         Ok(())
@@ -426,7 +457,7 @@ where
     }
 
     fn commit(self) -> impl Future<Output = BTreeResult<()>> {
-        ready(self.tx.commit())
+        self.tx.commit()
     }
     fn rollback(self) -> impl Future<Output = BTreeResult<()>> {
         ready(self.tx.rollback())
