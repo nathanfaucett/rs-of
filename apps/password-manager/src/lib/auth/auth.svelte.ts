@@ -8,19 +8,21 @@ import { createOidcClient, type OidcAuthConfig } from "./oidc";
 let client: OidcClient | undefined;
 let startup: Promise<void> | undefined;
 let verifiedToken: string | undefined;
-const sessionListeners = new Set<(ended: boolean) => void>();
+type SessionListener = (ended: boolean, previous: typeof session) => void;
+const sessionListeners = new Set<SessionListener>();
 
-function notifySession(ended: boolean) {
-  for (const listener of sessionListeners) listener(ended);
+function notifySession(ended: boolean, previous: typeof session) {
+  for (const listener of sessionListeners) listener(ended, previous);
 }
 
 function endSession() {
+  const previous = session;
   session = null;
   verifiedToken = undefined;
-  notifySession(true);
+  notifySession(true, previous);
 }
 
-function watchSession(listener: (ended: boolean) => void) {
+function watchSession(listener: SessionListener) {
   sessionListeners.add(listener);
   return () => {
     sessionListeners.delete(listener);
@@ -41,7 +43,7 @@ function checkStoredSession(event: StorageEvent) {
   const current = oidc.getStoredTokenResponse()?.access_token;
   if (current === verifiedToken) return;
   // A token replacement may be a renewal or a different User. Stop transport before checking.
-  notifySession(false);
+  notifySession(false, expected);
   if (!current) {
     endSession();
     return;
@@ -133,8 +135,11 @@ async function login(): Promise<void> {
 async function logout(): Promise<void> {
   const oidc = client;
   client = undefined;
-  endSession();
-  oidc?.clearStoredTokenResponse();
+  try {
+    endSession();
+  } finally {
+    oidc?.clearStoredTokenResponse();
+  }
   await goto(resolve("/"));
 }
 

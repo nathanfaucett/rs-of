@@ -23,9 +23,12 @@ function recordActivity() {
 
 onMount(() => {
     const unwatchDetach = syncStateModule.watchDetach();
-    const unwatchSession = authState.watchSession((ended) => {
+    const unwatchSession = authState.watchSession((ended, previous) => {
+        if (ended) {
+            void vaultStateModule.showVaultSelector();
+            if (previous) syncStateModule.clearPendingConfirmation(previous);
+        }
         void syncStateModule.closeSync();
-        if (ended) void vaultStateModule.showVaultSelector();
     });
     return () => {
         unwatchDetach();

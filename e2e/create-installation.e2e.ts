@@ -348,6 +348,24 @@ async function choose(
   return nodeCode;
 }
 
+// Reject only the local binding write, not vault history or the server transaction.
+async function rejectNextBindingWrite(page: Page) {
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (value, key) {
+      if (
+        this.name === "records" &&
+        Array.isArray(key) &&
+        key[0] === "ofdb:local:initial-restore"
+      ) {
+        IDBObjectStore.prototype.put = put;
+        throw new DOMException("Injected binding write failure", "QuotaExceededError");
+      }
+      return put.call(this, value, key);
+    };
+  });
+}
+
 nodeTest(
   "default Create retains the Installation and supports guarded vault upload and restore",
   async ({ node }) => {
@@ -577,8 +595,57 @@ nodeTest(
     const selected = await select();
     expect(selected.status, selected.body).toBe(204);
 
+    await rejectNextBindingWrite(pmPage);
     await retry.click();
-    await expect(pmPage.getByText("First upload complete.", { exact: false })).toBeVisible();
+    const retrySave = pmPage.getByRole("button", { name: "Retry local save" });
+    await expect(retrySave).toBeVisible();
+    await pmPage.reload();
+    await expect(retrySave).toBeVisible();
+    const blockedRequests: string[] = [];
+    const backendRoutes = `${base}/**`;
+    await pmPage.route(backendRoutes, (route) => {
+      blockedRequests.push(route.request().url());
+      return route.abort();
+    });
+    const blockedSockets: string[] = [];
+    pmPage.on("websocket", (socket) => blockedSockets.push(socket.url()));
+    const receiptKey = "password-manager-v1:storage-binding:receipt";
+    const receipt = await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey);
+    expect(JSON.parse(receipt ?? "null")).toMatchObject({
+      id: resourceId,
+      confirmationId: expect.any(String),
+      expected: null,
+    });
+    await pmPage.evaluate(async (key) => {
+      const fixture = "/src/test/binding-browser-fixture.ts";
+      const { namespace } = JSON.parse(localStorage.getItem(key) ?? "null");
+      await (await import(fixture)).writeCompetingBinding(namespace);
+    }, receiptKey);
+    await retrySave.click();
+    await expect(pmPage.getByRole("alert")).toContainText("a competing local binding was kept");
+    await expect(pmPage.getByText("Linked Storage Resource ID: competing-resource")).toBeVisible();
+    expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBe(receipt);
+    // Clear only the fixture binding to restore the empty revision needed by the receipt.
+    await pmPage.evaluate(async () => {
+      const fixture = "/src/test/binding-browser-fixture.ts";
+      await (await import(fixture)).removeCompetingBinding();
+    });
+    await pmPage.unroute(backendRoutes);
+    await pmPage.reload();
+    await expect(retrySave).toBeVisible();
+    blockedRequests.length = 0;
+    await pmPage.route(backendRoutes, (route) => {
+      blockedRequests.push(route.request().url());
+      return route.abort();
+    });
+    await retrySave.click();
+    await expect(
+      pmPage.getByText(`Linked Storage Resource ID: ${resourceId}`, { exact: true })
+    ).toBeVisible();
+    expect(blockedSockets.filter((url) => url.startsWith(base.replace(/^http/, "ws")))).toEqual([]);
+    expect(blockedRequests).toEqual([]);
+    expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBeNull();
+    await pmPage.unroute(backendRoutes);
     expect(await databases()).toEqual(catalog);
     const remote = () =>
       query(
@@ -797,8 +864,27 @@ nodeTest(
     const signedOutExchange = holdNextExchange();
     await sync.click();
     await expect.poll(() => signedOutExchange.started).toBe(true);
+    await restoredPage.evaluate(
+      ({ receiptKey, receipt }) => {
+        // A stale pending confirmation must not survive this sign-out either.
+        if (receipt) localStorage.setItem(receiptKey, receipt);
+        IDBFactory.prototype.open = () => {
+          throw new DOMException("Injected database failure", "InvalidStateError");
+        };
+        const remove = Storage.prototype.removeItem;
+        Storage.prototype.removeItem = function (key) {
+          if (key.startsWith("password-manager-v1:storage-binding:attached:"))
+            throw new DOMException("Injected attachment removal failure", "SecurityError");
+          remove.call(this, key);
+        };
+      },
+      { receiptKey, receipt }
+    );
     await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect.poll(() => signedOutExchange.closed).toBe(true);
+    expect(await restoredPage.evaluate((key) => localStorage.getItem(key), tokenKey)).toBeNull();
+    expect(await restoredPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBeNull();
+    await restoredPage.reload();
     await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
     await expect(unlocked).toHaveURL(`${pm}/`);
     await expect(unlocked.getByRole("button", { name: new RegExp(localVault) })).toBeVisible();
@@ -813,6 +899,30 @@ nodeTest(
     await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
     await sync.click();
     await expect(restoredPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    // Sign-out must finish while another tab still holds the binding lock.
+    await unlocked.evaluate(
+      () =>
+        new Promise<void>((acquired) => {
+          void navigator.locks.request(
+            "password-manager-v1:storage-binding",
+            () =>
+              new Promise<void>((release) => {
+                window.addEventListener("release-binding-lock", () => release(), { once: true });
+                acquired();
+              })
+          );
+        })
+    );
+    await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+    expect(await restoredPage.evaluate((key) => localStorage.getItem(key), tokenKey)).toBeNull();
+    await unlocked.evaluate(() => window.dispatchEvent(new Event("release-binding-lock")));
+
+    await restoredPage.getByRole("link", { name: "Sign in to sync" }).click();
+    await restoredPage.getByRole("button", { name: "Sign in with IdP" }).click();
+    await expect(binding).toBeVisible();
+    await expect(restoredPage.getByRole("button", { name: "Reattach sync" })).toBeVisible();
+    await expect(sync).toHaveCount(0);
     await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
 

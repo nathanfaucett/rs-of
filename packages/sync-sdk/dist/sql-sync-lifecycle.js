@@ -100,9 +100,10 @@ export class SqlSyncLifecycle {
             else {
                 await this.database.synchronizeHistory(transport);
             }
-            if (upload && !controller.signal.aborted)
+            // Closing must not discard a verified receipt. An unconfirmed upload still rejects.
+            if (upload)
                 await upload.waitForPublish();
-            if (this.closed || controller.signal.aborted) {
+            else if (this.closed || controller.signal.aborted) {
                 throw new SyncError("cancelled", "Sync session cancelled");
             }
             this.callbacks?.synced();

@@ -150,8 +150,9 @@ export class SqlSyncLifecycle implements SqlResourceSync {
       } else {
         await this.database.synchronizeHistory(transport);
       }
-      if (upload && !controller.signal.aborted) await upload.waitForPublish();
-      if (this.closed || controller.signal.aborted) {
+      // Closing must not discard a verified receipt. An unconfirmed upload still rejects.
+      if (upload) await upload.waitForPublish();
+      else if (this.closed || controller.signal.aborted) {
         throw new SyncError("cancelled", "Sync session cancelled");
       }
       this.callbacks?.synced();

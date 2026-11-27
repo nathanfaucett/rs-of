@@ -15,8 +15,13 @@ type Session = NonNullable<typeof authState.session>;
 type Exchange = { controller: AbortController; sync?: SqlResourceSync };
 let active: Exchange | undefined;
 const bindingLock = "password-manager-v1:storage-binding";
+const bindingTimeout = 2_000;
+const revoked = new Set<string>();
+const receiptKey = `${bindingLock}:receipt`;
+let receiptInMemory: Receipt | null | undefined;
 
-type Binding = { namespace: string; id: string; detached: boolean };
+type Binding = { namespace: string; id: string; confirmationId: string };
+type Receipt = Binding & { expected: null };
 type Database = Awaited<ReturnType<typeof openSharedDatabase>>;
 
 function storageAccess(session = authState.session) {
@@ -71,35 +76,48 @@ function namespace(session: Session) {
 
 function encodeBinding(binding: Binding) {
   return new TextEncoder().encode(
-    JSON.stringify([binding.namespace, binding.id, binding.detached])
+    JSON.stringify([binding.namespace, binding.id, binding.confirmationId])
   );
 }
 
 async function readBinding(database: Database) {
   const tag = await database.initialRestoreTag();
   if (!tag) return undefined;
-  const value: unknown = JSON.parse(new TextDecoder().decode(tag));
-  // Ticket 03 stored the same tuple without the detachment flag.
+  const revision = new TextDecoder().decode(tag);
+  const value: unknown = JSON.parse(revision);
+  // Older bindings have no confirmation ID. Keep the destination, but require reattachment.
   if (
     !Array.isArray(value) ||
     typeof value[0] !== "string" ||
     typeof value[1] !== "string" ||
     !value[1] ||
-    (value.length !== 2 && (value.length !== 3 || typeof value[2] !== "boolean"))
+    (value.length !== 2 &&
+      (value.length !== 3 ||
+        (typeof value[2] !== "boolean" && (typeof value[2] !== "string" || !value[2]))))
   )
     throw new Error("Invalid local Storage binding. Your vaults are still local.");
-  const binding: Binding = { namespace: value[0], id: value[1], detached: value[2] === true };
-  return { binding, tag };
+  return {
+    namespace: value[0],
+    id: value[1],
+    revision: typeof value[2] === "string" ? value[2] : revision,
+  };
 }
 
 async function getBinding(expected: Session) {
+  const owner = namespace(expected);
+  const pending = readReceipt();
+  if (pending && pending.namespace !== owner && authState.session === expected) clearReceipt();
   const database = await openSharedDatabase();
   try {
     const record = await readBinding(database);
-    if (!record) return { status: "unbound" } as const;
-    if (record.binding.namespace !== namespace(expected))
-      return { status: "different-account" } as const;
-    return { status: "bound", id: record.binding.id, detached: record.binding.detached } as const;
+    if (!record) {
+      const receipt = readReceipt();
+      return receipt?.namespace === owner
+        ? ({ status: "pending-save", id: receipt.id } as const)
+        : ({ status: "unbound" } as const);
+    }
+    if (record.namespace !== owner) return { status: "different-account" } as const;
+    return { status: "bound", id: record.id, detached: !isAttached(record) } as const;
   } finally {
     database.close();
   }
@@ -116,18 +134,96 @@ async function findRestoreResource(expected: Session, signal?: AbortSignal) {
 
 export class BindingSaveError extends Error {}
 
-async function savePublishedBinding(database: Database, tag: Uint8Array) {
+function readReceipt(): Receipt | undefined {
+  if (receiptInMemory !== undefined) return receiptInMemory ?? undefined;
   try {
-    if (await database.replaceInitialRestoreTag(undefined, tag)) return;
+    const value = JSON.parse(localStorage.getItem(receiptKey) ?? "null");
+    if (
+      typeof value?.namespace === "string" &&
+      typeof value.id === "string" &&
+      value.id &&
+      typeof value.confirmationId === "string" &&
+      value.confirmationId &&
+      value.expected === null
+    )
+      return value;
+  } catch {
+    // Without a readable receipt, remote history cannot authorize a local save.
+  }
+  return undefined;
+}
+
+function retainReceipt(receipt: Receipt) {
+  try {
+    localStorage.setItem(receiptKey, JSON.stringify(receipt));
+    receiptInMemory = undefined;
+  } catch {
+    receiptInMemory = receipt;
+  }
+}
+
+function clearLocal(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    try {
+      localStorage.setItem(key, "");
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+function clearReceipt() {
+  receiptInMemory = clearLocal(receiptKey) ? undefined : null;
+}
+
+function clearPendingConfirmation(expected: Session) {
+  if (readReceipt()?.namespace === namespace(expected)) clearReceipt();
+}
+
+async function savePublishedBinding(database: Database, expected: Session) {
+  try {
+    const record = await readBinding(database);
+    const receipt = readReceipt();
+    if (!authState.hasVerifiedToken(expected) || receipt?.namespace !== namespace(expected))
+      throw new BindingSaveError("There is no verified upload to save for this account.");
+    if (record)
+      throw new BindingSaveError(
+        "Storage confirmed publication, but a competing local binding was kept."
+      );
+    // Grant permission before the CAS so a detach during the write cannot be undone by it.
+    attach(receipt.namespace, receipt.confirmationId);
+    if (
+      await database.replaceInitialRestoreTag(receipt.expected ?? undefined, encodeBinding(receipt))
+    ) {
+      if (readReceipt()?.confirmationId === receipt.confirmationId) clearReceipt();
+      return;
+    }
   } catch (cause) {
+    if (cause instanceof BindingSaveError) throw cause;
     throw new BindingSaveError(
-      "Storage confirmed publication, but the local binding could not be saved. Your vaults stay local.",
+      "Storage confirmed publication, but the local binding could not be saved. Retry the local save.",
       { cause }
     );
   }
   throw new BindingSaveError(
     "Storage confirmed publication, but a competing local binding was kept."
   );
+}
+
+async function retryBindingSave(expected: Session) {
+  const signal = AbortSignal.timeout(bindingTimeout);
+  await navigator.locks.request(bindingLock, { signal }, async () => {
+    const database = await openSharedDatabase();
+    try {
+      signal.throwIfAborted();
+      await savePublishedBinding(database, expected);
+    } finally {
+      database.close();
+    }
+  });
 }
 
 type Intent =
@@ -153,13 +249,14 @@ async function exchange(expected: Session, intent: Intent) {
         const { client } = storageAccess(expected);
         const record = await readBinding(database);
         const owner = namespace(expected);
+        const confirmationId = crypto.randomUUID();
         let id: string;
         if (intent.mode === "established") {
-          if (!record || record.binding.namespace !== owner || record.binding.detached)
+          if (!record || record.namespace !== owner || !isAttached(record))
             throw new Error("There is no active Storage binding for this account.");
-          id = record.binding.id;
+          id = record.id;
         } else {
-          if (record) throw new Error("This database already has a verified Storage binding.");
+          if (record) throw new Error("This database already has a Storage destination.");
           const empty = await database.initialRestoreIsEligible();
           if (intent.mode === "first-restore") {
             if (!empty || (await hasLegacyLocalVaults()))
@@ -173,6 +270,8 @@ async function exchange(expected: Session, intent: Intent) {
           } else {
             if (empty) throw new Error("There is no local database to upload.");
             requireSession();
+            if (readReceipt()?.namespace === owner)
+              throw new BindingSaveError("Storage confirmed publication. Retry the local save.");
             const resource = await client.ensureDatabase(
               { creationKey, name: resourceName },
               signal
@@ -183,7 +282,8 @@ async function exchange(expected: Session, intent: Intent) {
           }
         }
         requireSession();
-        const tag = encodeBinding({ namespace: owner, id, detached: false });
+        const binding = { namespace: owner, id, confirmationId };
+        if (intent.mode === "first-restore") attach(owner, confirmationId);
         pending.sync = createSqlResourceSync(
           database,
           {
@@ -194,7 +294,7 @@ async function exchange(expected: Session, intent: Intent) {
           },
           {
             ...(intent.mode === "first-restore"
-              ? { mode: intent.mode, localTag: tag }
+              ? { mode: intent.mode, localTag: encodeBinding(binding) }
               : { mode: intent.mode }),
             storageApiUrl: expected.storage,
             async tokenProvider() {
@@ -210,9 +310,12 @@ async function exchange(expected: Session, intent: Intent) {
           }
         );
         await pending.sync.sync();
-        // Once the receipt is verified, finish the local CAS. Sign-out detaches under this same lock.
-        if (intent.mode === "first-upload") await savePublishedBinding(database, tag);
         requireSession();
+        if (intent.mode === "first-upload") {
+          if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session ended");
+          retainReceipt({ ...binding, expected: null });
+          await savePublishedBinding(database, expected);
+        }
       } finally {
         await pending.sync?.close();
         database.close();
@@ -234,50 +337,69 @@ function watchDetach() {
   return () => channel.close();
 }
 
-function stopAcrossTabs() {
-  void cancelExchange();
-  const channel = new BroadcastChannel(bindingLock);
-  channel.postMessage("detach");
-  channel.close();
+function attachmentKey(owner: string) {
+  return `${bindingLock}:attached:${owner}`;
 }
 
-async function writeDetached(expected: Session, detached: boolean, allowMissing = false) {
-  const database = await openSharedDatabase();
+function isAttached(binding: { namespace: string; revision: string }) {
+  const key = attachmentKey(binding.namespace);
   try {
-    const record = await readBinding(database);
-    if (!record || record.binding.namespace !== namespace(expected)) {
-      if (allowMissing) return;
-      throw new Error("There is no Storage binding for this account.");
-    }
-    if (record.binding.detached === detached) return;
-    if (
-      !(await database.replaceInitialRestoreTag(
-        record.tag,
-        encodeBinding({ ...record.binding, detached })
-      ))
-    )
-      throw new Error("The local Storage binding changed. Try again.");
-  } finally {
-    database.close();
+    return !revoked.has(key) && localStorage.getItem(key) === binding.revision;
+  } catch {
+    return false;
   }
 }
 
+function attach(owner: string, revision: string) {
+  const key = attachmentKey(owner);
+  localStorage.setItem(key, revision);
+  revoked.delete(key);
+}
+
+function detach(expected: Session) {
+  void cancelExchange();
+  const key = attachmentKey(namespace(expected));
+  const cleared = clearLocal(key);
+  if (!cleared) revoked.add(key);
+  clearPendingConfirmation(expected);
+  const channel = new BroadcastChannel(bindingLock);
+  try {
+    channel.postMessage("detach");
+  } finally {
+    channel.close();
+  }
+  if (!cleared) throw new Error("Could not save detachment. Sync stays disabled in this tab.");
+}
+
 async function setDetached(expected: Session, detached: boolean) {
-  if (detached) stopAcrossTabs();
-  await navigator.locks.request(bindingLock, async () => {
-    if (authState.session !== expected || (!detached && !authState.hasVerifiedToken(expected)))
-      throw new Error("Sign-in session changed. Try again after sign-in.");
-    await writeDetached(expected, detached);
+  if (authState.session !== expected) throw new Error("Sign-in session changed.");
+  if (detached) {
+    detach(expected);
+    return;
+  }
+  const signal = AbortSignal.timeout(bindingTimeout);
+  await navigator.locks.request(bindingLock, { signal }, async () => {
+    const database = await openSharedDatabase();
+    try {
+      const record = await readBinding(database);
+      signal.throwIfAborted();
+      if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session changed.");
+      if (!record || record.namespace !== namespace(expected))
+        throw new Error("There is no Storage binding for this account.");
+      attach(record.namespace, record.revision);
+    } finally {
+      database.close();
+    }
   });
 }
 
 async function signOut(expected: Session) {
-  stopAcrossTabs();
-  await navigator.locks.request(bindingLock, async () => {
-    if (authState.session !== expected) return;
-    await writeDetached(expected, true, true);
-    if (authState.session === expected) await authState.logout();
-  });
+  if (authState.session !== expected) return;
+  try {
+    detach(expected);
+  } finally {
+    await authState.logout();
+  }
 }
 
 async function closeSync(): Promise<void> {
@@ -302,6 +424,8 @@ export const syncStateModule = {
   closeSync,
   findRestoreResource,
   getBinding,
+  retryBindingSave,
+  clearPendingConfirmation,
   watchDetach,
   setDetached,
   signOut,

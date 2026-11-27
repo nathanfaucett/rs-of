@@ -298,7 +298,7 @@ describe.each(["browser", "node"] as const)("%s SQL sync lifecycle", (kind) => {
   });
 });
 
-it.each(["published", "lost receipt", "destination has history"] as const)(
+it.each(["published", "published then closed", "lost receipt", "destination has history"] as const)(
   "first upload on the already-open database: %s",
   async (result) => {
     vi.stubGlobal("indexedDB", indexedDB);
@@ -390,8 +390,13 @@ it.each(["published", "lost receipt", "destination has history"] as const)(
           { rows: [[{ type: "text", value: "local data" }]] },
         ]);
         expect(onSuccess).not.toHaveBeenCalled();
-        if (result === "published") {
+        if (result === "published" || result === "published then closed") {
           socket.receive(fixtures.firstUploadPublished);
+          if (result === "published then closed") {
+            await Promise.resolve(); // Deliver the receipt before cancelling the exchange.
+            expect(socket.readyState).toBe(3);
+            await sync.close();
+          }
           await expect(pending).resolves.toBeUndefined();
         } else if (result === "lost receipt") {
           socket.close();

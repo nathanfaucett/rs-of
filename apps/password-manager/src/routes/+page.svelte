@@ -56,8 +56,8 @@ async function upload() {
         } else if (cause instanceof SyncError && cause.code === "auth" && resourceId) {
             uploadError = "Storage did not authorize the upload. Check Selection with the serving Device owner. Only that owner can set Selection, with read access to this Resource and the devices.select permission for this Application. Once authorized, retry the first upload. It stops if the Resource has history.";
         } else if (cause instanceof BindingSaveError) {
-            uploadError = cause.message;
-            uploadBlocked = true;
+            error = cause.message;
+            await readBinding(session);
         } else if (resourceId) {
             uploadError = "Storage did not confirm publication. It may have saved the upload. You can keep using your local vaults. A retry uses the same Resource and stops if it has history.";
         } else {
@@ -80,6 +80,23 @@ async function readBinding(session: typeof authState.session) {
         if (session === authState.session) binding = { session, value };
     } catch (cause) {
         error = cause instanceof Error ? cause.message : "Could not read the local Storage binding.";
+    }
+}
+
+async function retryLocalSave() {
+    const session = authState.session;
+    if (!session || busy) return;
+    busy = true;
+    error = "";
+    try {
+        await syncStateModule.retryBindingSave(session);
+        await readBinding(session);
+        if (session === authState.session) notice = "Storage binding saved. Your vaults stay on this browser.";
+    } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Could not save the Storage binding.";
+        await readBinding(session);
+    } finally {
+        busy = false;
     }
 }
 
@@ -124,11 +141,13 @@ async function changeDetachment(detached: boolean) {
     notice = "";
     try {
         await syncStateModule.setDetached(session, detached);
-        await readBinding(session);
-        error = "";
+        if (!detached) await readBinding(session);
     } catch (cause) {
         error = cause instanceof Error ? cause.message : "Could not change Storage attachment.";
     } finally {
+        if (detached && session === authState.session && currentBinding?.status === "bound") {
+            binding = { session, value: { ...currentBinding, detached: true } };
+        }
         busy = false;
     }
 }
@@ -323,6 +342,9 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                                 </button>
                                 <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => changeDetachment(true)}>Detach sync</button>
                             {/if}
+                        {:else if currentBinding?.status === "pending-save"}
+                            <p class="break-all">Storage confirmed upload to Resource ID: {currentBinding.id}</p>
+                            <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={retryLocalSave}>Retry local save</button>
                         {:else if currentBinding?.status === "different-account"}
                             <p>This database is linked to another account or Installation. Sign in to that account to sync. You can still use your local vaults.</p>
                         {:else if currentBinding?.status === "unbound" && restoreCandidate && restoreCandidate.session === authState.session}
