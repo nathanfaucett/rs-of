@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work status: resolved
+
 Milestone: M2 — Single-Node encrypted synchronization
 
 ## Scope and non-goals
@@ -26,4 +28,4 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 ## Current evidence and qualification limits
 
-The shared SDK lifecycle currently runs explicit SQL exchanges. Password Manager invokes sync after legacy synced creation and unlock. Commit-driven scheduling is not implemented or qualified.
+Merged in `c46801c6`. Real non-seeded Chromium verified encrypted post-commit sync and the delayed cross-tab authorization fence. Browser SQL tests covered cancellation before local apply and before IndexedDB commit. An already-issued commit can still finish. Password Manager requires explicit activation in each runtime. Wakeups cover commits from that WASM runtime, not other tabs, workers, or remote-only writes. The full browser matrix and native qualification did not pass or were not run.

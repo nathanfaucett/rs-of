@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work status: resolved
+
 Milestone: M2 — Single-Node encrypted synchronization
 
 ## Scope and non-goals
@@ -27,4 +29,4 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 ## Current evidence and qualification limits
 
-Current sign-in and SDK state are separate from a durable local-to-Resource binding. Reconnection, account switching, and merge-state persistence are not qualified as one lifecycle.
+Merged in `3a3bc9ee`. The binding is local metadata, not replicated SQL history. The real non-seeded Chromium flow covered upload, restore, reload, denial, sign-out, and explicit reattachment. A verified receipt can recover a failed local binding save without another upload; local save does not grant sync permission. If browser storage cannot clear credentials, the current tab stops sync and reports incomplete sign-out. Reload can recover stale credentials, so restored permission alone cannot activate background sync.

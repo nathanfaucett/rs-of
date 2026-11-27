@@ -2,9 +2,11 @@
 
 **What to build:** Detect when an unlinked local database and an existing remote Resource both contain independently created data. Require explicit approval before changing either side, then reconcile them through `ofdb` history with deterministic conflict ordering and one continuing Storage binding.
 
-**Blocked by:** 05 — Add change-driven synchronization to SDK database handles
+**Blocked by:** 05 — Run change-driven synchronization in the SDK
 
 **Status:** ready-for-agent
+
+Work status: in progress
 
 Milestone: M2 — Single-Node encrypted synchronization
 
@@ -28,4 +30,10 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 ## Current evidence and qualification limits
 
-Current code has no consensual first merge of independently populated local and remote Password Manager databases. Deterministic CRDT convergence alone does not qualify this workflow or its compatibility failure behavior.
+The integration branch detects independent local history before restore. The real non-seeded browser test verified cancellation leaves both sources unchanged and does not create a binding. Approved merge remains disabled.
+
+## Comments
+
+The unmerged staging prototype (`2eeabb28`) tests duplicate application IDs, deleted claims, and protected ciphertext groups. It also confirms that two databases initialized by the same migration runner can record equivalent migrations under different Logical Row IDs. Staging currently rejects that case. Do not enable merge until staging can reconcile equivalent ledgers without losing divergent history and verify that encrypted records reopen correctly.
+
+Publication must compare each source with the exact staged snapshot. The Storage transaction must reject concurrent remote writes and save a receipt with the merge. The guarded browser transaction must preserve concurrent local edits and establish the binding only after a verified receipt. Redb and IndexedDB cannot commit atomically together: if Storage commits but local state changes, report that partial outcome and preserve local edits. A lost reply requires verification of the exact operation, not inference from remote history or fallback to ordinary sync.
