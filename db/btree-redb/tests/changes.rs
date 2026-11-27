@@ -40,7 +40,7 @@ mod tests {
                 .insert(Bytes(vec![1]), Bytes(vec![2]))
                 .await
                 .expect("write");
-            tx.commit().expect("commit");
+            tx.commit().await.expect("commit");
 
             let mut stream = changes.events();
             let event = stream.next().await.expect("event available");
@@ -59,7 +59,7 @@ mod tests {
             let mut changes = database.subscribe_changes();
             let tx = database.transaction().await.expect("transaction");
             tx.create_table::<Bytes, Bytes>("items").expect("table");
-            tx.commit().expect("commit");
+            tx.commit().await.expect("commit");
 
             // No events for table creation
             assert!(changes.events().next().now_or_never().is_none());
@@ -69,7 +69,7 @@ mod tests {
                 .insert(Bytes(vec![1]), Bytes(vec![2]))
                 .await
                 .expect("write");
-            tx.commit().expect("commit");
+            tx.commit().await.expect("commit");
 
             // Wait for new events before polling stream
             let mut stream = changes.events();
@@ -91,7 +91,7 @@ mod tests {
                 .insert(Bytes(vec![1]), Bytes(vec![2]))
                 .await
                 .expect("write");
-            tx.commit().expect("commit");
+            tx.commit().await.expect("commit");
 
             let _event = changes.events().next().await;
 
