@@ -1,7 +1,14 @@
 // Main entry point for @ofsdk/sync-sdk
 
 // Platform-specific implementations
-export { BrowserSyncSDK, createSync as createBrowserSync } from "./browser";
+export {
+  BrowserSyncSDK,
+  createSqlResourceSync,
+  createSync as createBrowserSync,
+  type SqlResourceSync,
+  type SqlResourceSyncOptions,
+  SyncError,
+} from "./browser";
 export * from "./core";
 export { createSync as createNodeSync, NodeSyncSDK } from "./node";
 

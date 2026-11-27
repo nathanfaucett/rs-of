@@ -5,6 +5,8 @@ import { SyncClient } from "@ofsdk/storage-sync-client";
 import { BehaviorSubject, Subject } from "rxjs";
 import { execute } from "./sql";
 import { SqlSyncLifecycle } from "./sql-sync-lifecycle";
+export { SyncError } from "@ofsdk/storage-sync-client";
+export { createSqlResourceSync, } from "./sql-sync-lifecycle";
 /** Browser sync SDK implementation */
 export class BrowserSyncSDK {
     storageClient;

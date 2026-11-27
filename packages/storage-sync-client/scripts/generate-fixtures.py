@@ -1,17 +1,23 @@
+import argparse
 import json
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
 package = Path(__file__).resolve().parents[1]
-server = (package / "../../services/storage-server/src/sync.rs").resolve()
-source = server.read_text()
+parser = argparse.ArgumentParser()
+parser.add_argument("--check", action="store_true")
+parser.add_argument(
+    "--server-source", type=Path, default=package / "../../services/storage-server/src/sync.rs"
+)
+args = parser.parse_args()
+source = args.server_source.read_text()
 protocol = source[
     source.index("pub const MAX_FRAME_PAYLOAD") : source.index("pub enum SyncAuthError")
 ]
 # Keep the actual server types and codec, without its authentication code.
 protocol = protocol[: protocol.rfind("#[derive")]
+protocol = "\n".join(line for line in protocol.splitlines() if not line.startswith("const "))
 main = r"""
 fn main() {
     let identity = StoreIdentity {
@@ -40,6 +46,9 @@ fn main() {
     for (name, max_frame_bytes, max_session_bytes) in [("maxLimits", u32::MAX, u64::MAX), ("tinyFrame", 8, 1024), ("tinySession", MAX_FRAME_PAYLOAD, 1), ("budget", MAX_FRAME_PAYLOAD, 512)] {
         emit(name, SyncMessage::AttachResponse(AttachResponse {accepted: true, backend_replica_id: Uuid::from_bytes([0x44; 16]), session_id: Uuid::from_bytes([0x55; 16]), granted_direction: AttachDirection::Bidirectional, max_frame_bytes, max_session_bytes}));
     }
+    emit("firstUpload", SyncMessage::FirstUpload(AttachRequest {store_identity: identity.clone(), auth_token: AuthToken("idp-token-é".as_bytes().to_vec()), direction: AttachDirection::Bidirectional}));
+    emit("firstUploadPublished", SyncMessage::FirstUploadPublished);
+    emit("destinationHasHistory", SyncMessage::Abort(AbortReason::DestinationHasHistory));
     emit("rejected", SyncMessage::AttachResponse(AttachResponse {accepted: false, backend_replica_id: Uuid::nil(), session_id: Uuid::nil(), granted_direction: AttachDirection::Push, max_frame_bytes: MAX_FRAME_PAYLOAD, max_session_bytes: MAX_SESSION_BYTES}));
     emit("unauthorized", SyncMessage::Abort(AbortReason::Unauthorized));
     emit("unavailable", SyncMessage::Abort(AbortReason::BackendUnavailable));
@@ -65,7 +74,7 @@ postcard = { version = "1.1", default-features = false, features = ["alloc"] }
 crc32fast = { version = "1.0", default-features = false }
 """)
     (root / "src/main.rs").write_text(
-        "use serde::{Deserialize, Serialize};\nuse uuid::Uuid;\nuse crc32fast::Hasher;\n"
+        "use serde::{Deserialize, Serialize};\nuse uuid::Uuid;\n"
         + protocol
         + main
     )
@@ -86,7 +95,7 @@ crc32fast = { version = "1.0", default-features = false }
     fixtures = dict(line.split() for line in result.stdout.splitlines())
     output = json.dumps(fixtures, indent=4) + "\n"
     destination = package / "src/wire-fixtures.json"
-    if "--check" in sys.argv:
+    if args.check:
         if destination.read_text() != output:
             raise SystemExit(
                 "Server wire fixtures changed; run pnpm fixtures and review compatibility"

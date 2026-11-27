@@ -1,4 +1,4 @@
-export { BrowserSyncSDK, createSync as createBrowserSync } from "./browser";
+export { BrowserSyncSDK, createSqlResourceSync, createSync as createBrowserSync, type SqlResourceSync, type SqlResourceSyncOptions, SyncError, } from "./browser";
 export * from "./core";
 export { createSync as createNodeSync, NodeSyncSDK } from "./node";
 /** Create sync SDK instance for the current platform */
