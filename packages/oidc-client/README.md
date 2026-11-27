@@ -73,3 +73,5 @@ See the `src` directory for more API details and tests.
 
 - The `registered` event now emits the full dynamic client registration response object.
 - `setClientId` has been removed from `OidcClient`.
+
+`getVerifiedIdentity()` returns `loginState` for a stored authorization-code session. This is the local PKCE transaction state, paired with the verified token response. It changes for a new sign-in with generated state and survives token refresh. It is not an IdP session identifier or a credential.

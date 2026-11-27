@@ -21,7 +21,7 @@ pub fn from_engine(error: engine::EngineError) -> Error {
             QueryErrorKind::Unsupported
         }
         EngineError::LimitExceeded => QueryErrorKind::LimitExceeded,
-        EngineError::Custom(_) => QueryErrorKind::Storage,
+        EngineError::TransactionConflict | EngineError::Custom(_) => QueryErrorKind::Storage,
     };
     Error::new(kind, error.to_string())
 }

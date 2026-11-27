@@ -78,6 +78,8 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       await bClient.executeRaw("CREATE TABLE entries (id INTEGER PRIMARY KEY, value TEXT)");
       await aClient.executeRaw("INSERT INTO entries VALUES (1, 'from-a')");
       await bClient.executeRaw("INSERT INTO entries VALUES (2, 'from-b')");
+      const savedTag = await a.replaceInitialRestoreTag(undefined, Uint8Array.of(3, 4));
+      const replacedExisting = await a.replaceInitialRestoreTag(undefined, Uint8Array.of(5));
       await sync();
       const first = [await read(aClient), await read(bClient)];
       await sync();
@@ -89,6 +91,8 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       aClient = a.client();
       bClient = b.client();
       const reopened = [await read(aClient), await read(bClient)];
+      const retainedTag = Array.from((await a.initialRestoreTag()) ?? []);
+      const peerTag = (await b.initialRestoreTag()) ?? null;
 
       await aClient.executeRaw("UPDATE entries SET value = 'updated-a' WHERE id = 1");
       await bClient.executeRaw("UPDATE entries SET value = 'updated-b' WHERE id = 2");
@@ -101,7 +105,18 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       const deleted = [await read(aClient), await read(bClient)];
       await sync();
       const repeatedDelete = [await read(aClient), await read(bClient)];
-      return { first, repeated, reopened, updated, deleted, repeatedDelete };
+      return {
+        first,
+        repeated,
+        reopened,
+        updated,
+        deleted,
+        repeatedDelete,
+        savedTag,
+        replacedExisting,
+        retainedTag,
+        peerTag,
+      };
     } finally {
       close();
     }
@@ -111,6 +126,10 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
     ["1", "from-a"],
     ["2", "from-b"],
   ];
+  expect(result.savedTag).toBe(true);
+  expect(result.replacedExisting).toBe(false);
+  expect(result.retainedTag).toEqual([3, 4]);
+  expect(result.peerTag).toBeNull();
   expect(result.first).toEqual([expected, expected]);
   expect(result.repeated).toEqual([expected, expected]);
   expect(result.reopened).toEqual([expected, expected]);
@@ -203,3 +222,44 @@ test("restore refuses retained history from another IndexedDB handle during exch
   expect(result.eligible).toBe(false);
   expect(result.tag).toBeNull();
 });
+
+for (const competing of ["vault write", "destination", "detach"]) {
+  test(`local replica tag CAS preserves a competing ${competing}`, async ({ page }) => {
+    const result = await page.evaluate(async (competing) => {
+      const { Database } = window.sql;
+      const db = await Database.open("tag-race");
+      const other = await Database.open("tag-race");
+      const writer = other.client();
+      try {
+        await writer.executeRaw("CREATE TABLE vaults (id INTEGER PRIMARY KEY)");
+        const expected = competing === "detach" ? Uint8Array.of(1) : undefined;
+        if (expected) await other.replaceInitialRestoreTag(undefined, expected);
+        const hold = window.faults.holdNextCompletion("readonly");
+        const pending = db.replaceInitialRestoreTag(expected, Uint8Array.of(2)).then(
+          (saved) => saved,
+          (error: unknown) => String(error)
+        );
+        try {
+          await hold.completed;
+          if (competing === "vault write") await writer.executeRaw("INSERT INTO vaults VALUES (1)");
+          else await other.replaceInitialRestoreTag(expected, Uint8Array.of(3));
+        } finally {
+          hold.release();
+        }
+        const saved = await pending;
+        const tag = Array.from((await db.initialRestoreTag()) ?? []);
+        const { rows } = (await writer.executeRaw("SELECT id FROM vaults"))[0];
+        return { saved, tag, rows };
+      } finally {
+        writer.close();
+        other.close();
+        db.close();
+      }
+    }, competing);
+    expect(result).toEqual(
+      competing === "vault write"
+        ? { saved: true, tag: [2], rows: [[{ type: "integer", value: "1" }]] }
+        : { saved: false, tag: [3], rows: [] }
+    );
+  });
+}

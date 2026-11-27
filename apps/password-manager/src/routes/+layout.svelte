@@ -2,6 +2,7 @@
 import "../app.css";
 
 import { getTheme } from "@ofsdk/svelte-headless";
+import { onMount } from "svelte";
 import favicon from "$lib/assets/favicon.svg";
 import { authState } from "$lib/auth/auth.svelte";
 import Notifications from "$lib/shared/components/Notifications.svelte";
@@ -20,9 +21,20 @@ function recordActivity() {
     vaultStateModule.vaultData?.inactivity.activity();
 }
 
-$effect(() => {
-    if (!authState.session) return;
-    return () => void syncStateModule.closeSync();
+onMount(() => {
+    const unwatchDetach = syncStateModule.watchDetach();
+    const unwatchSession = authState.watchSession((ended, previous) => {
+        if (ended) {
+            void vaultStateModule.showVaultSelector();
+            if (previous) syncStateModule.clearPendingConfirmation(previous);
+        }
+        void syncStateModule.closeSync();
+    });
+    return () => {
+        unwatchDetach();
+        unwatchSession();
+        void syncStateModule.closeSync();
+    };
 });
 
 $effect(() => {
@@ -38,7 +50,7 @@ $effect(() => {
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<svelte:window onfocus={checkInactivity} onpageshow={checkInactivity} />
+<svelte:window onstorage={authState.checkStoredSession} onfocus={checkInactivity} onpageshow={checkInactivity} />
 <svelte:document onvisibilitychange={checkInactivity} onpointerdown={recordActivity} onkeydown={recordActivity} oninput={recordActivity} />
 
 <OfflineStatus />

@@ -82,6 +82,16 @@ impl SqlDatabase {
         Ok(self.database.initial_restore_tag().await?)
     }
 
+    /// Replaces the local-only replica tag if the previous bytes match.
+    #[cfg(feature = "sync")]
+    pub async fn replace_initial_restore_tag(
+        &self,
+        expected: Option<Vec<u8>>,
+        tag: Vec<u8>,
+    ) -> Result<bool, JsError> {
+        Ok(self.database.replace_initial_restore_tag(expected, tag).await?)
+    }
+
     /// Receives SQL history without sending local history, then publishes if still pristine.
     #[cfg(feature = "sync")]
     pub async fn restore_history(

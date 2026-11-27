@@ -5,7 +5,7 @@ import { isRedirect } from "@sveltejs/kit";
 import { onMount } from "svelte";
 import { resolve } from "$app/paths";
 import { authState } from "$lib/auth/auth.svelte";
-import { syncStateModule } from "$lib/shared/state/sync.svelte";
+import { BindingSaveError, syncStateModule } from "$lib/shared/state/sync.svelte";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
@@ -23,36 +23,41 @@ let notice = $state("");
 let confirmedSession = $state.raw<typeof authState.session>(null);
 let resourceId = $state("");
 let uploadError = $state("");
-let uploaded = $state(false);
-let restoreCandidate = $state.raw<{ session: NonNullable<typeof authState.session>; id: string }>();
-let binding = $state.raw<{ session: NonNullable<typeof authState.session>; id: string }>();
-const restoredResourceId = $derived(binding?.session === authState.session ? binding?.id : undefined);
+type Session = NonNullable<typeof authState.session>;
+let restoreCandidate = $state.raw<{ session: Session; id: string }>();
+let binding = $state.raw<{ session: Session; value: Awaited<ReturnType<typeof syncStateModule.getBinding>> }>();
+const currentBinding = $derived(binding?.session === authState.session ? binding?.value : undefined);
+let syncing = $state(false);
+let signingOut = $state(false);
 
-let destinationHasHistory = $state(false);
+let uploadBlocked = $state(false);
 
 function showDestination() {
     confirmedSession = authState.session;
     resourceId = "";
     uploadError = "";
-    uploaded = false;
-    destinationHasHistory = false;
+    uploadBlocked = false;
 }
 
 async function upload() {
     const session = confirmedSession;
-    if (!session || session !== authState.session || busy || uploaded || destinationHasHistory) return;
+    if (!session || session !== authState.session || busy || uploadBlocked) return;
     uploadError = "";
     resourceId = "";
     busy = true;
     try {
         await syncStateModule.uploadLocalDatabase(session, (id) => { resourceId = id; });
-        uploaded = true;
+        await readBinding(session);
+        notice = "First upload complete. Your vaults stay on this browser.";
     } catch (cause) {
         if (cause instanceof SyncError && cause.code === "destination-has-history") {
-            destinationHasHistory = true;
+            uploadBlocked = true;
             uploadError = "This Resource already has history. The app cannot verify an earlier upload. No merge was attempted. Keep using your local vaults.";
         } else if (cause instanceof SyncError && cause.code === "auth" && resourceId) {
             uploadError = "Storage did not authorize the upload. Check Selection with the serving Device owner. Only that owner can set Selection, with read access to this Resource and the devices.select permission for this Application. Once authorized, retry the first upload. It stops if the Resource has history.";
+        } else if (cause instanceof BindingSaveError) {
+            error = cause.message;
+            await readBinding(session);
         } else if (resourceId) {
             uploadError = "Storage did not confirm publication. It may have saved the upload. You can keep using your local vaults. A retry uses the same Resource and stops if it has history.";
         } else {
@@ -65,18 +70,86 @@ async function upload() {
 
 onMount(() => {
     void vaultStateModule.init();
-    void readRestoreBinding();
+    void authState.initialize().then(() => readBinding(authState.session));
 });
 
-async function readRestoreBinding() {
-    await authState.initialize();
-    const session = authState.session;
+async function readBinding(session: typeof authState.session) {
     if (!session) return;
     try {
-        const id = await syncStateModule.restoredResource(session);
-        if (session === authState.session && id) binding = { session, id };
+        const value = await syncStateModule.getBinding(session);
+        if (session === authState.session) binding = { session, value };
     } catch (cause) {
-        error = cause instanceof Error ? cause.message : "Could not read the local restore record.";
+        error = cause instanceof Error ? cause.message : "Could not read the local Storage binding.";
+    }
+}
+
+async function retryLocalSave() {
+    const session = authState.session;
+    if (!session || busy) return;
+    busy = true;
+    error = "";
+    try {
+        await syncStateModule.retryBindingSave(session);
+        await readBinding(session);
+        if (session === authState.session) notice = "Storage binding saved. Sync is detached. Your vaults stay on this browser.";
+    } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Could not save the Storage binding.";
+        await readBinding(session);
+    } finally {
+        busy = false;
+    }
+}
+
+async function syncNow() {
+    const session = authState.session;
+    if (!session || busy || syncing) return;
+    syncing = true;
+    error = "";
+    notice = "";
+    try {
+        await syncStateModule.syncBoundDatabase(session);
+        if (session === authState.session) notice = "Sync complete.";
+    } catch {
+        await readBinding(session);
+        if (session === authState.session && currentBinding?.status === "bound" && !currentBinding.detached) {
+            error = "Sync failed. Check your connection, Storage access, and Selection. Your changes stay local. Retry with Sync now.";
+        }
+    } finally {
+        syncing = false;
+    }
+}
+
+async function signOut() {
+    const session = authState.session;
+    if ((!session && !authState.logoutError) || signingOut) return;
+    signingOut = true;
+    error = "";
+    try {
+        if (session) await syncStateModule.signOut(session);
+        else await authState.logout();
+    } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Could not detach Storage and sign out.";
+    } finally {
+        signingOut = false;
+    }
+}
+
+async function changeDetachment(detached: boolean) {
+    const session = authState.session;
+    if (!session || busy) return;
+    busy = true;
+    error = "";
+    notice = "";
+    try {
+        await syncStateModule.setDetached(session, detached);
+        if (!detached) await readBinding(session);
+    } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Could not change Storage attachment.";
+    } finally {
+        if (detached && session === authState.session && currentBinding?.status === "bound") {
+            binding = { session, value: { ...currentBinding, detached: true } };
+        }
+        busy = false;
     }
 }
 
@@ -105,7 +178,7 @@ async function restore() {
     try {
         await syncStateModule.restoreRemoteDatabase(candidate.session, candidate.id);
         await vaultStateModule.showVaultSelector();
-        binding = candidate;
+        await readBinding(candidate.session);
         restoreCandidate = undefined;
         notice = "Remote database restored. Unlock its vaults with their existing passwords.";
     } catch (cause) {
@@ -224,13 +297,16 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                 description="Select a vault to unlock, or create a new one."
             />
             {#if notice}<p role="status">{notice}</p>{/if}
-            {#if error}<Alert tone="danger">{error}</Alert>{/if}
+            {#if authState.logoutError}<Alert tone="danger">{authState.logoutError}</Alert>
+            {:else if error}<Alert tone="danger">{error}</Alert>{/if}
             <Card>
                 <div class="flex flex-col gap-4">
-                    {#if !authState.isAuthenticated}
+                    {#if authState.logoutError}
+                        <button class="btn btn-secondary btn-md" type="button" disabled={signingOut} onclick={signOut}>Retry sign-out</button>
+                    {:else if !authState.isAuthenticated}
                         <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
                     {:else}
-                        {#if !restoredResourceId && vaultStateModule.state.vaults.some((vault) => !vault.synced)}
+                        {#if currentBinding?.status === "unbound" && vaultStateModule.state.vaults.some((vault) => !vault.synced)}
                             {#if confirmedSession && confirmedSession === authState.session}
                                 <section class="flex flex-col gap-2" aria-labelledby="sync-destination">
                                     <h2 id="sync-destination" class="font-medium">Confirm sync destination</h2>
@@ -246,24 +322,36 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                                         {/if}
                                     </dl>
                                     {#if uploadError}<Alert tone="danger">{uploadError}</Alert>{/if}
-                                    {#if uploaded}
-                                        <p role="status">First upload complete. Your vaults stay on this browser.</p>
-                                    {:else if !destinationHasHistory}
+                                    {#if !uploadBlocked}
                                         <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={upload}>
                                             {busy ? "Uploading…" : uploadError ? "Retry first upload" : "Confirm and upload"}
                                         </button>
                                     {/if}
                                     <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => confirmedSession = null}>
-                                        {uploaded ? "Done" : "Cancel"}
+                                        Cancel
                                     </button>
                                 </section>
                             {:else}
                                 <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showDestination}>Connect local database</button>
                             {/if}
                         {/if}
-                        {#if restoredResourceId}
-                            <p>Restored Storage Resource ID: {restoredResourceId}</p>
-                        {:else if restoreCandidate && restoreCandidate.session === authState.session}
+                        {#if currentBinding?.status === "bound"}
+                            <p class="break-all">Linked Storage Resource ID: {currentBinding.id}</p>
+                            {#if currentBinding.detached}
+                                <p>Sync is detached. Your vaults stay on this browser.</p>
+                                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => changeDetachment(false)}>Reattach sync</button>
+                            {:else}
+                                <button class="btn btn-primary btn-md" type="button" disabled={busy || syncing} onclick={syncNow}>
+                                    {syncing ? "Syncing…" : "Sync now"}
+                                </button>
+                                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => changeDetachment(true)}>Detach sync</button>
+                            {/if}
+                        {:else if currentBinding?.status === "pending-save"}
+                            <p class="break-all">Storage confirmed upload to Resource ID: {currentBinding.id}</p>
+                            <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={retryLocalSave}>Retry local save</button>
+                        {:else if currentBinding?.status === "different-account"}
+                            <p>This database is linked to another account or Installation. Sign in to that account to sync. You can still use your local vaults.</p>
+                        {:else if currentBinding?.status === "unbound" && restoreCandidate && restoreCandidate.session === authState.session}
                             <section class="flex flex-col gap-2" aria-labelledby="restore-source">
                                 <h2 id="restore-source" class="font-medium">Confirm remote database restore</h2>
                                 <p class="break-all">Restore from {restoreCandidate.session.storage}. Storage Resource ID: {restoreCandidate.id}</p>
@@ -271,12 +359,13 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                                 <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={restore}>Restore database</button>
                                 <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => restoreCandidate = undefined}>Cancel restore</button>
                             </section>
-                        {:else}
+                        {:else if currentBinding?.status === "unbound"}
                             <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={findRestore}>Find remote database</button>
                         {/if}
                         {#if syncStateModule.supportsReplication()}
                             <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showSyncedVaults}>Show synced vaults</button>
                         {/if}
+                        <button class="btn btn-secondary btn-md" type="button" disabled={signingOut} onclick={signOut}>Sign out</button>
                     {/if}
                     <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => { notice = ""; vaultStateModule.state = { status: "restore-vault" }; }}>Restore encrypted backup</button>
                     {#if vaultStateModule.state.vaults.length > 0}

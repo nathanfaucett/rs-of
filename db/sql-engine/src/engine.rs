@@ -51,6 +51,9 @@ pub enum EngineError {
     #[error("Sync dependency is unavailable")]
     SyncDependencyUnavailable,
 
+    #[error("Error: Conflict")]
+    TransactionConflict,
+
     #[error("Error: {0}")]
     Custom(String),
 }

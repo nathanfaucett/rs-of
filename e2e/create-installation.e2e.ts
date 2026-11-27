@@ -213,9 +213,15 @@ async function launchNode(root: string) {
       expect.poll(() => status(url, ca), { timeout: 60_000 }).toBe(200);
     const startBackend = async () => {
       // Match the seeded runner's stack allowance for backend SQL workloads.
-      backend = launch("just", ["unified", "--data-dir", data], {
-        RUST_MIN_STACK: "67108864",
-      });
+      const stack = { RUST_MIN_STACK: "67108864" };
+      const { E2E_BACKEND_BIN: binary } = process.env;
+      backend = binary
+        ? launch(
+            "pnpm",
+            ["exec", "portless", "run", "--name", "unified", binary, "setup", "--data-dir", data],
+            stack
+          )
+        : launch("just", ["unified", "--data-dir", data], stack);
       await ready(`${base}/setup/node`);
     };
     await startBackend();
@@ -340,6 +346,48 @@ async function choose(
     409
   );
   return nodeCode;
+}
+
+// Reject only the local binding write, not vault history or the server transaction.
+async function rejectNextBindingWrite(page: Page) {
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (value, key) {
+      if (
+        this.name === "records" &&
+        Array.isArray(key) &&
+        key[0] === "ofdb:local:initial-restore"
+      ) {
+        IDBObjectStore.prototype.put = put;
+        throw new DOMException("Injected binding write failure", "QuotaExceededError");
+      }
+      return put.call(this, value, key);
+    };
+  });
+}
+
+async function rejectStorageChanges(page: Page, keys: string[] | "all") {
+  await page.evaluate((keys) => {
+    const remove = Storage.prototype.removeItem;
+    const set = Storage.prototype.setItem;
+    const clear = Storage.prototype.clear;
+    function reject(storage: Storage, key: string) {
+      if (storage === localStorage && (keys === "all" || keys.includes(key)))
+        throw new DOMException("Injected localStorage failure", "SecurityError");
+    }
+    Storage.prototype.removeItem = function (key) {
+      reject(this, key);
+      remove.call(this, key);
+    };
+    Storage.prototype.setItem = function (key, value) {
+      reject(this, key);
+      set.call(this, key, value);
+    };
+    Storage.prototype.clear = function () {
+      reject(this, "");
+      clear.call(this);
+    };
+  }, keys);
 }
 
 nodeTest(
@@ -561,18 +609,72 @@ nodeTest(
       expect(response.status, response.body).toBeLessThan(300);
     }
     const pmDevice = await owner.exchange(pmSession, device);
-    const selected = await owner.call(`${device}/devices/${deviceId}/selection`, pmDevice, "PUT", {
-      applicationId,
-      id: resourceId,
-      kind: "database",
-      storageAccessToken: read,
-    });
+    const select = () =>
+      owner.call(`${device}/devices/${deviceId}/selection`, pmDevice, "PUT", {
+        applicationId,
+        id: resourceId,
+        kind: "database",
+        storageAccessToken: read,
+      });
+    const selected = await select();
     expect(selected.status, selected.body).toBe(204);
 
+    await rejectNextBindingWrite(pmPage);
     await retry.click();
-    const outcome = destination.getByRole("status").or(destination.getByRole("alert"));
-    await expect(outcome).toBeVisible();
-    expect(await outcome.innerText()).toContain("First upload complete");
+    const retrySave = pmPage.getByRole("button", { name: "Retry local save" });
+    await expect(retrySave).toBeVisible();
+    await pmPage.reload();
+    await expect(retrySave).toBeVisible();
+    const blockedRequests: string[] = [];
+    const backendRoutes = `${base}/**`;
+    await pmPage.route(backendRoutes, (route) => {
+      blockedRequests.push(route.request().url());
+      return route.abort();
+    });
+    const blockedSockets: string[] = [];
+    pmPage.on("websocket", (socket) => blockedSockets.push(socket.url()));
+    const receiptKey = "password-manager-v1:storage-binding:receipt";
+    const receipt = await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey);
+    if (!receipt) throw new Error("Missing pending upload receipt");
+    expect(JSON.parse(receipt)).toMatchObject({
+      version: 1,
+      loginState: expect.any(String),
+      id: resourceId,
+      confirmationId: expect.any(String),
+      expected: null,
+    });
+    await pmPage.evaluate(async (key) => {
+      const fixture = "/src/test/binding-browser-fixture.ts";
+      const { namespace } = JSON.parse(localStorage.getItem(key) ?? "null");
+      await (await import(fixture)).writeCompetingBinding(namespace);
+    }, receiptKey);
+    await retrySave.click();
+    await expect(pmPage.getByRole("alert")).toContainText("a competing local binding was kept");
+    await expect(pmPage.getByText("Linked Storage Resource ID: competing-resource")).toBeVisible();
+    expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBe(receipt);
+    // Clear only the fixture binding to restore the empty revision needed by the receipt.
+    await pmPage.evaluate(async () => {
+      const fixture = "/src/test/binding-browser-fixture.ts";
+      await (await import(fixture)).removeCompetingBinding();
+    });
+    await pmPage.unroute(backendRoutes);
+    await pmPage.reload();
+    await expect(retrySave).toBeVisible();
+    blockedRequests.length = 0;
+    await pmPage.route(backendRoutes, (route) => {
+      blockedRequests.push(route.request().url());
+      return route.abort();
+    });
+    await retrySave.click();
+    await expect(
+      pmPage.getByText(`Linked Storage Resource ID: ${resourceId}`, { exact: true })
+    ).toBeVisible();
+    expect(blockedSockets.filter((url) => url.startsWith(base.replace(/^http/, "ws")))).toEqual([]);
+    expect(blockedRequests).toEqual([]);
+    expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBeNull();
+    await pmPage.unroute(backendRoutes);
+    await expect(pmPage.getByRole("button", { name: "Sync now", exact: true })).toHaveCount(0);
+    await pmPage.getByRole("button", { name: "Reattach sync" }).click();
     expect(await databases()).toEqual(catalog);
     const remote = () =>
       query(
@@ -603,10 +705,25 @@ nodeTest(
     for (const plaintext of [localRecord, localSecret, masterPassword])
       expect(saved.body).not.toContain(plaintext);
 
+    await node.restart();
+    await expect.poll(() => descriptor(page, base).catch(() => undefined)).toEqual(ready);
     await pmPage.reload();
-    await connect.click();
-    await confirm.click();
-    await expect(destination.getByRole("alert")).toContainText("already has history");
+    const linked = pmPage.getByText(`Linked Storage Resource ID: ${resourceId}`, { exact: true });
+    await expect(linked).toBeVisible();
+    await expect(connect).toHaveCount(0);
+    // Expire the client's cached token without changing the real IdP clock.
+    await pmPage.clock.setFixedTime(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const renewed = pmPage.waitForResponse(
+      (response) =>
+        response.url() === `${idp}/oauth2/token` &&
+        new URLSearchParams(response.request().postData() ?? "").get("grant_type") ===
+          "refresh_token"
+    );
+    await pmPage.getByRole("button", { name: "Sync now", exact: true }).click();
+    expect((await renewed).ok()).toBe(true);
+    await expect(pmPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    await pmPage.reload();
+    await expect(pmPage.getByRole("button", { name: "Sync now", exact: true })).toBeVisible();
     expect(await databases()).toEqual(catalog);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
 
@@ -621,13 +738,12 @@ nodeTest(
     expect(await owner.json<{ id: string }>(lookup, read)).toMatchObject({ id: resourceId });
     const catalogWithDuplicateName = await databases();
     expect(catalogWithDuplicateName).toHaveLength(2);
-    await findRemote(pmPage).click();
-    await confirmRestore(pmPage).click();
-    await expect(pmPage.getByRole("alert").filter({ hasText: "Merge required" })).toBeVisible();
+    await expect(findRemote(pmPage)).toHaveCount(0);
     await expect(vault).toContainText(`ID: ${vaultId}`);
 
-    const restoredPage = await browser.newPage();
-    await passwordManagerSignin(
+    const restoredContext = await browser.newContext();
+    const restoredPage = await restoredContext.newPage();
+    const restoredSession = await passwordManagerSignin(
       restoredPage,
       { origin: pm, idp, storage, username, password },
       false,
@@ -640,14 +756,15 @@ nodeTest(
     await confirmRestore(restoredPage).click();
     const restoredVault = restoredPage.getByRole("button", { name: new RegExp(localVault) });
     await expect(restoredVault).toContainText(`ID: ${vaultId}`);
-    const binding = restoredPage.getByText(`Restored Storage Resource ID: ${resourceId}`, {
+    const binding = restoredPage.getByText(`Linked Storage Resource ID: ${resourceId}`, {
       exact: true,
     });
     await expect(binding).toBeVisible();
     await restoredPage.reload();
     await expect(binding).toBeVisible();
     await expect(restoredVault).toHaveCount(1);
-    await restoredPage.route(`${base}/**`, (route) => route.abort());
+    const offline = `${base}/**`;
+    await restoredPage.route(offline, (route) => route.abort());
     await restoredPage.reload();
     await restoredVault.click();
     await restoredPage.getByLabel("Master password", { exact: true }).fill(masterPassword);
@@ -667,6 +784,288 @@ nodeTest(
     ).toBeVisible();
     expect(await databases()).toEqual(catalogWithDuplicateName);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
+
+    await restoredPage.getByRole("button", { name: "Lock vault" }).click();
+    await restoredPage.unroute(offline);
+    await restoredPage.reload();
+    await expect(binding).toBeVisible();
+    const deselected = await owner.call(
+      `${device}/devices/${deviceId}/selection/${applicationId}/database/${resourceId}`,
+      pmDevice,
+      "DELETE"
+    );
+    expect(deselected.status, deselected.body).toBe(204);
+    const sync = restoredPage.getByRole("button", { name: "Sync now", exact: true });
+    await sync.click();
+    await expect(restoredPage.getByRole("alert")).toContainText("Your changes stay local");
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
+
+    // Keep the exchange on a real server but hold client messages to test cancellation.
+    const socketUrl = `${base.replace(/^http/, "ws")}/storage/sync/ws`;
+    const holds: { started: boolean; closed: boolean }[] = [];
+    function holdNextExchange() {
+      const hold = { started: false, closed: false };
+      holds.push(hold);
+      return hold;
+    }
+    await restoredPage.routeWebSocket(socketUrl, (socket) => {
+      const server = socket.connectToServer();
+      const hold = holds.shift();
+      if (hold) {
+        socket.onMessage(() => {
+          hold.started = true;
+        });
+        socket.onClose(() => {
+          hold.closed = true;
+          void server.close();
+        });
+      }
+    });
+    expect((await select()).status).toBe(204);
+    const detachedExchange = holdNextExchange();
+    await sync.click();
+    await expect.poll(() => detachedExchange.started).toBe(true);
+    await restoredPage.getByRole("button", { name: "Detach sync" }).click();
+    await expect.poll(() => detachedExchange.closed).toBe(true);
+    await expect(restoredPage.getByRole("button", { name: "Reattach sync" })).toBeVisible();
+    await restoredPage.reload();
+    await expect(binding).toBeVisible();
+    await expect(sync).toHaveCount(0);
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(saved.body));
+    await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
+    await sync.click();
+    await expect(restoredPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    const changedRemote = await remote();
+    expect(changedRemote.status, changedRemote.body).toBe(200);
+    expect(JSON.parse(changedRemote.body)).not.toEqual(JSON.parse(saved.body));
+    expect(changedRemote.body).not.toContain("Edited restored vault offline");
+    expect(await databases()).toEqual(catalogWithDuplicateName);
+
+    // A sign-out in one tab must cancel its exchange and lock another tab's open vault.
+    const unlocked = await restoredContext.newPage();
+    await unlocked.goto(pm);
+    await unlocked.getByRole("button", { name: new RegExp(localVault) }).click();
+    await unlocked.getByLabel("Master password", { exact: true }).fill(masterPassword);
+    await unlocked.getByRole("button", { name: "Unlock", exact: true }).click();
+    await expect(
+      unlocked.getByRole("button", { name: "Edited restored vault offline" })
+    ).toBeVisible();
+    // Delay the native removal notification until the replacement token is already visible.
+    const tokenKey = await restoredPage.evaluate((token) => {
+      const key = Object.keys(localStorage).find((entry) =>
+        localStorage.getItem(entry)?.includes(token)
+      );
+      if (!key) throw new Error("Missing signed-in session");
+      return key;
+    }, restoredSession.accessToken);
+    await unlocked.evaluate((key) => {
+      const captured = new Promise<StorageEvent>((resolve) => {
+        function hold(event: StorageEvent) {
+          if (event.key !== key || event.newValue !== null) return;
+          event.stopImmediatePropagation();
+          window.removeEventListener("storage", hold, true);
+          resolve(event);
+        }
+        window.addEventListener("storage", hold, true);
+      });
+      window.addEventListener(
+        "release-token-removal",
+        () => {
+          void captured.then((event) => window.dispatchEvent(event));
+        },
+        { once: true }
+      );
+    }, tokenKey);
+    await restoredPage.evaluate((key) => {
+      const stored = localStorage.getItem(key);
+      if (!stored) throw new Error("Missing signed-in session");
+      localStorage.removeItem(key);
+      localStorage.setItem(key, stored);
+    }, tokenKey);
+    await unlocked.evaluate(() => window.dispatchEvent(new Event("release-token-removal")));
+    await expect(unlocked).toHaveURL(`${pm}/`);
+    await expect(unlocked.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+    await unlocked.reload();
+    await unlocked.getByRole("button", { name: new RegExp(localVault) }).click();
+    await unlocked.getByLabel("Master password", { exact: true }).fill(masterPassword);
+    await unlocked.getByRole("button", { name: "Unlock", exact: true }).click();
+    await expect(
+      unlocked.getByRole("button", { name: "Edited restored vault offline" })
+    ).toBeVisible();
+    const signedOutExchange = holdNextExchange();
+    await sync.click();
+    await expect.poll(() => signedOutExchange.started).toBe(true);
+    const attachmentKey = `password-manager-v1:storage-binding:attached:${JSON.parse(receipt).namespace}`;
+    const attachment = await restoredPage.evaluate(
+      (key) => localStorage.getItem(key),
+      attachmentKey
+    );
+    expect(attachment).not.toBeNull();
+    await rejectStorageChanges(restoredPage, [attachmentKey]);
+    await restoredPage.evaluate(() => {
+      IDBFactory.prototype.open = () => {
+        throw new DOMException("Injected database failure", "InvalidStateError");
+      };
+    });
+    await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect.poll(() => signedOutExchange.closed).toBe(true);
+    expect(await restoredPage.evaluate((key) => localStorage.getItem(key), tokenKey)).toBeNull();
+    expect(await restoredPage.evaluate((key) => localStorage.getItem(key), attachmentKey)).toBe(
+      attachment
+    );
+    await restoredPage.reload();
+    await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+    await expect(unlocked).toHaveURL(`${pm}/`);
+    await expect(unlocked.getByRole("button", { name: new RegExp(localVault) })).toBeVisible();
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
+
+    await restoredPage.getByRole("link", { name: "Sign in to sync" }).click();
+    await restoredPage.getByRole("button", { name: "Sign in with IdP" }).click();
+    await expect(restoredPage).toHaveURL(`${pm}/`);
+    await expect(binding).toBeVisible();
+    await expect(restoredPage.getByRole("button", { name: "Reattach sync" })).toBeVisible();
+    await expect(sync).toHaveCount(0);
+    await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
+    await sync.click();
+    await expect(restoredPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    // Old permission formats also keep the destination but require explicit reattachment.
+    await restoredPage.evaluate((key) => {
+      const permission = JSON.parse(localStorage.getItem(key) ?? "null");
+      localStorage.setItem(key, permission[2]);
+    }, attachmentKey);
+    await restoredPage.reload();
+    await expect(binding).toBeVisible();
+    await expect(sync).toHaveCount(0);
+    await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
+    await expect(sync).toBeVisible();
+
+    // Failed credential cleanup stops sync here, but cannot make sign-out durable.
+    await rejectStorageChanges(restoredPage, "all");
+    await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(restoredPage.getByRole("alert")).toContainText("Sign-out is incomplete");
+    await expect(restoredPage.getByRole("button", { name: "Retry sign-out" })).toBeVisible();
+    await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toHaveCount(0);
+    await expect(sync).toHaveCount(0);
+    expect(
+      await restoredPage.evaluate((key) => localStorage.getItem(key), tokenKey)
+    ).not.toBeNull();
+    const reloadSockets: string[] = [];
+    restoredPage.on("websocket", (socket) => reloadSockets.push(socket.url()));
+    await restoredPage.reload();
+    await expect(sync).toBeVisible();
+    expect(reloadSockets).not.toContain(socketUrl);
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
+
+    // Sign-out must finish while another tab still holds the binding lock.
+    await unlocked.evaluate(
+      () =>
+        new Promise<void>((acquired) => {
+          void navigator.locks.request(
+            "password-manager-v1:storage-binding",
+            () =>
+              new Promise<void>((release) => {
+                window.addEventListener("release-binding-lock", () => release(), { once: true });
+                acquired();
+              })
+          );
+        })
+    );
+    await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+    expect(await restoredPage.evaluate((key) => localStorage.getItem(key), tokenKey)).toBeNull();
+    await unlocked.evaluate(() => window.dispatchEvent(new Event("release-binding-lock")));
+
+    await restoredPage.getByRole("link", { name: "Sign in to sync" }).click();
+    await restoredPage.getByRole("button", { name: "Sign in with IdP" }).click();
+    await expect(binding).toBeVisible();
+    await expect(restoredPage.getByRole("button", { name: "Reattach sync" })).toBeVisible();
+    await expect(sync).toHaveCount(0);
+    await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+
+    // Recreate the pending-save state with the real receipt from the original login.
+    await pmPage.clock.setFixedTime(Date.now());
+    await pmPage.evaluate(
+      async ({ receiptKey, receipt }) => {
+        const fixture = "/src/test/binding-browser-fixture.ts";
+        await (await import(fixture)).removeCompetingBinding();
+        const unversioned = JSON.parse(receipt);
+        unversioned.version = undefined;
+        localStorage.setItem(receiptKey, JSON.stringify(unversioned));
+      },
+      { receiptKey, receipt }
+    );
+    await pmPage.reload();
+    await expect(connect).toBeVisible();
+    await expect(retrySave).toHaveCount(0);
+    await pmPage.evaluate(({ receiptKey, receipt }) => localStorage.setItem(receiptKey, receipt), {
+      receiptKey,
+      receipt,
+    });
+    await pmPage.reload();
+    await expect(retrySave).toBeVisible();
+    await rejectStorageChanges(pmPage, [receiptKey]);
+    await pmPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(pmPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+    expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBe(receipt);
+    // The IdP session is still for the same User; this is a fresh Password Manager login.
+    await pmPage.getByRole("link", { name: "Sign in to sync" }).click();
+    await pmPage.getByRole("button", { name: "Sign in with IdP" }).click();
+    await expect(connect).toBeVisible();
+    await expect(retrySave).toHaveCount(0);
+    await pmPage.reload();
+    await expect(connect).toBeVisible();
+    await expect(retrySave).toHaveCount(0);
+    expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBe(receipt);
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
+
+    const secondUser = "second@setup.test";
+    const idpAdmin = await owner.exchange(operator, idp);
+    await owner.json(`${idp}/users`, idpAdmin, "POST", {
+      name: "Second User",
+      email: secondUser,
+      password,
+    });
+    await unlocked.goto(app);
+    await unlocked.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(unlocked).toHaveURL(`${app}/signin`);
+    const storageWrites: string[] = [];
+    restoredPage.on("request", (request) => {
+      if (request.url().startsWith(`${storage}/`) && !["GET", "OPTIONS"].includes(request.method()))
+        storageWrites.push(request.method());
+    });
+    restoredPage.on("websocket", (socket) => {
+      if (socket.url() === socketUrl) storageWrites.push("sync");
+    });
+    const different = await passwordManagerSignin(
+      restoredPage,
+      { origin: pm, idp, storage, username: secondUser, password },
+      false,
+      false,
+      restoredSession.clientId
+    );
+    await expect(
+      restoredPage.getByText("This database is linked to another account", { exact: false })
+    ).toBeVisible();
+    await expect(sync).toHaveCount(0);
+    await expect(binding).toHaveCount(0);
+    await expect(restoredVault).toContainText(`ID: ${vaultId}`);
+    const differentUser = await owner.json<{ sub: string }>(
+      `${idp}/userinfo`,
+      different.accessToken
+    );
+    expect(differentUser.sub).not.toBe(user.sub);
+    const differentRead = await owner.exchange(different, "storage:databases", "read");
+    expect((await owner.call(`${storage}/databases`, differentRead)).status).toBe(401);
+    await restoredVault.click();
+    await restoredPage.getByLabel("Master password", { exact: true }).fill(masterPassword);
+    await restoredPage.getByRole("button", { name: "Unlock", exact: true }).click();
+    await expect(
+      restoredPage.getByRole("button", { name: "Edited restored vault offline" })
+    ).toBeVisible();
+    expect(storageWrites).toEqual([]);
+    expect(await databases()).toEqual(catalogWithDuplicateName);
+    expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
 
     await pmPage.route(`${base}/**`, (route) => route.abort());
     await pmPage.reload();

@@ -226,6 +226,16 @@ export class OidcClient<
     return `${this.tokenStoragePrefix}:response`;
   }
 
+  /** Detect a cross-tab change to this client's stored tokens, including storage.clear(). */
+  isStoredTokenEvent(event: StorageEvent): boolean {
+    const storage = this.getStorage();
+    return (
+      storage !== null &&
+      event.storageArea === storage &&
+      (event.key === null || event.key === this.getTokenStorageKey())
+    );
+  }
+
   private rememberTokenResponse(tokenResponse: OidcTokenResponse): void {
     this.sessionGeneration += 1;
     if (this.memoryOnly) {
@@ -267,7 +277,11 @@ export class OidcClient<
     this.tokenResponse = null;
     this.pkceVerifiersByState.clear();
     const storage = this.getStorage();
-    if (!storage) return;
+    if (!storage) {
+      if (!this.memoryOnly && typeof window !== "undefined")
+        throw new Error("Cannot clear credentials: browser storage is unavailable");
+      return;
+    }
     storage.removeItem(this.getTokenStorageKey());
     for (let index = storage.length - 1; index >= 0; index--) {
       const key = storage.key(index);
@@ -565,6 +579,7 @@ export class OidcClient<
     subject: string;
     userInfo: UserInfo;
     accessToken: string;
+    loginState: string | undefined;
   }> {
     const context = this.identityContext;
     const active = () => {
@@ -579,10 +594,13 @@ export class OidcClient<
       const token = await this.getAccessToken();
       active();
       const generation = this.sessionGeneration;
+      const loginState = this.getStoredTokenResponse()?.state;
       const stale = () => {
         active();
+        const stored = this.getStoredTokenResponse();
         return (
-          token !== this.getStoredTokenResponse()?.access_token ||
+          token !== stored?.access_token ||
+          loginState !== stored?.state ||
           generation !== this.sessionGeneration
         );
       };
@@ -606,6 +624,7 @@ export class OidcClient<
           subject: userInfo.sub,
           userInfo,
           accessToken: token,
+          loginState: typeof loginState === "string" && loginState ? loginState : undefined,
         };
       } catch (error) {
         if (stale()) continue;
@@ -810,6 +829,7 @@ export class OidcClient<
       expires_in: undefined,
       access_token_expires_at: undefined,
       ...response,
+      state: storedToken.state,
     });
     if (
       generation !== this.sessionGeneration ||

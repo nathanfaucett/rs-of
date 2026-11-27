@@ -39,6 +39,16 @@ The real-backend Chromium scenario creates an encrypted IndexedDB vault, signs i
 
 Attached sessions close after success and every failure. Handle or SDK close aborts and awaits active synchronization. Attach has a 10-second deadline and receive inactivity has a 30-second deadline. This is explicit single-Node behavior, not continuous delivery, two-Device convergence, durable replay, or production password-manager qualification.
 
+### Sync the active local database
+
+Use the vault selector to connect a populated local database or restore into a browser with no local history. First upload requires confirmation and a publication receipt from Storage. If the local save fails after Storage confirms publication, use **Retry local save**. This works only in the login session that received the receipt. It does not contact Storage or replace a newer local binding. It saves the binding with sync detached; choose **Reattach sync** to enable **Sync now**. If that receipt is lost, the app does not link the database or try an unguarded upload. A restore only reads from Storage when it creates the local copy.
+
+After a verified upload or restore, **Sync now** exchanges history with the saved Resource. The app retains the verified Installation, User/Application namespace, and exact Resource ID in local database metadata, not in SQL history or vault backups. Old attachment permissions and pending receipts are ignored. The saved destination and local vaults stay intact; choose **Reattach sync** for an existing binding. A previously uploaded database without a verified local record remains unlinked; existing remote history does not prove the earlier upload came from this database.
+
+Each exchange still requires current Storage authorization and Selection. Edits stay local if sync fails. **Detach sync** stops the exchange and keeps both copies. **Reattach sync** enables explicit sync to the same Resource. Signing out cancels sync and locks opened vaults. Detachment revokes a separate browser-local permission without waiting for the database. Signing out clears vault keys and tries to clear browser credentials and sync permission without waiting for database access. Permission and pending receipts belong to the verified login session. Token refresh and reload keep that identity; a fresh sign-in changes it, even for the same User. After a fresh sign-in, choose **Reattach sync** before you can use **Sync now**. A different account or Installation cannot use or replace the saved binding. There is no automatic upload on reload or edit in this workflow.
+
+If the browser cannot clear saved credentials, the app stops sync in the current tab and reports incomplete sign-out. Fix browser storage and retry before reloading. If no persistent change succeeds, a reload can restore the old credentials and still recognize the old permission or receipt. The app cannot tell that sign-out was attempted. Upload still requires an explicit action, and **Retry local save** never enables sync. This is local sign-out, not IdP session termination or token revocation.
+
 ## Local development
 
 Use the toolchain versions in `rust-toolchain.toml`, `.nvmrc`, and the root contributor guide. From the repository root:

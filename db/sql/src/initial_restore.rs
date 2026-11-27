@@ -34,7 +34,7 @@ impl Database {
         .map_err(from_engine)
     }
 
-    /// Reads the local-only tag saved atomically with a successful restore.
+    /// Reads the local-only replica tag, which may have been saved by a restore.
     /// # Errors
     /// Returns an error on a storage read failure or unsupported backend.
     pub async fn initial_restore_tag(&self) -> Result<Option<Vec<u8>>, crate::Error> {
@@ -46,6 +46,36 @@ impl Database {
             DatabaseBackend::File(_) => {
                 Err(engine::EngineError::Unsupported("local initial restore"))
             }
+        }
+        .map_err(from_engine)
+    }
+
+    /// Replaces the local-only replica tag if its current bytes match `expected`.
+    /// The tag is not exported with SQL history.
+    ///
+    /// # Errors
+    /// Returns an error on storage failure, concurrent writes, or an unsupported backend.
+    pub async fn replace_initial_restore_tag(
+        &self,
+        expected: Option<Vec<u8>>,
+        tag: Vec<u8>,
+    ) -> Result<bool, crate::Error> {
+        match &self.backend {
+            #[cfg(all(feature = "indexeddb", target_arch = "wasm32", target_os = "unknown"))]
+            DatabaseBackend::IndexedDb(engine) => {
+                Box::pin(history::replace_initial_restore_tag_for(
+                    engine, expected, tag,
+                ))
+                .await
+            }
+            DatabaseBackend::InMemory(engine) => {
+                Box::pin(history::replace_initial_restore_tag_for(
+                    engine, expected, tag,
+                ))
+                .await
+            }
+            #[cfg(feature = "redb")]
+            DatabaseBackend::File(_) => Err(engine::EngineError::Unsupported("local replica tag")),
         }
         .map_err(from_engine)
     }
