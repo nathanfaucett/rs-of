@@ -184,6 +184,28 @@ test("cancels while the token provider is pending and never opens a socket later
   expect(factory).not.toHaveBeenCalled();
 });
 
+test("rechecks the caller fence when a delayed token is ready, without an abort event", async () => {
+  const factory = vi.fn();
+  vi.stubGlobal("WebSocket", factory);
+  let supply!: (token: string) => void;
+  const token = new Promise<string>((resolve) => {
+    supply = resolve;
+  });
+  let active = true;
+  const pending = new SyncClient({
+    storageApiUrl: "https://node.test",
+    tokenProvider: () => token,
+  }).attach({
+    identity,
+    direction: "Bidirectional",
+    checkActive: () => active,
+  });
+  active = false;
+  supply("storage-token");
+  await expect(pending).rejects.toMatchObject({ code: "cancelled" });
+  expect(factory).not.toHaveBeenCalled();
+});
+
 test("cancels a stalled connection", async () => {
   TestSocket.open = false;
   const controller = new AbortController();
@@ -357,8 +379,13 @@ test("retains owner data received before the consumer starts reading", async () 
 test("reports authorization loss after attach", async () => {
   const session = await client().attach({ identity, direction: "Push" });
   const pending = session.receive();
+  TestSocket.latest.receive(fixtures.owner);
+  await expect(pending).resolves.toEqual(Uint8Array.of(7, 8, 9));
+  expect(session.failure).toBeUndefined();
   TestSocket.latest.receive(fixtures.unauthorized);
-  await expect(pending).rejects.toMatchObject({ code: "auth" });
+  await Promise.resolve();
+  expect(session.failure).toMatchObject({ code: "auth" });
+  await expect(session.receive()).rejects.toMatchObject({ code: "auth" });
   expect(TestSocket.latest.readyState).toBe(3);
 });
 
@@ -420,6 +447,7 @@ test("delivers complete buffered owner messages before reporting remote close", 
   await Promise.resolve();
   TestSocket.latest.dispatchEvent(new Event("close"));
   expect(await session.receive()).toEqual(Uint8Array.of(7, 8, 9));
+  expect(session.failure).toBeUndefined();
   await expect(session.receive()).rejects.toMatchObject({
     code: "transport",
   });
@@ -476,5 +504,7 @@ test("rejects a publish receipt delivered in place of an SQL message", async () 
   const pending = session.receive();
   TestSocket.latest.receive(fixtures.firstUploadPublished);
   await expect(pending).rejects.toMatchObject({ code: "protocol" });
-  await expect(session.waitForPublish()).rejects.toMatchObject({ code: "protocol" });
+  await expect(session.waitForPublish()).rejects.toMatchObject({
+    code: "protocol",
+  });
 });

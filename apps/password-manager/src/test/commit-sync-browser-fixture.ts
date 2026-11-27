@@ -5,6 +5,7 @@ let database: Database | undefined;
 let client: Client | undefined;
 let sync: SqlResourceSync | undefined;
 let state = "starting";
+let cancelNextCheck = false;
 
 export async function start({
   storage,
@@ -17,7 +18,7 @@ export async function start({
 }) {
   database = await Database.open("sdk-commit-probe");
   client = database.client();
-  sync = startSqlResourceSync(
+  const exchange: SqlResourceSync = startSqlResourceSync(
     database,
     {
       storeId,
@@ -28,14 +29,28 @@ export async function start({
     {
       storageApiUrl: storage,
       tokenProvider: () => token,
+      checkActive: () => {
+        if (cancelNextCheck) {
+          cancelNextCheck = false;
+          void exchange.close().then(() => {
+            state = "cancelled";
+          });
+        }
+        return true;
+      },
       onStatus: (next) => {
         state = next.status;
       },
     }
   );
+  sync = exchange;
 }
 
 export const status = () => state;
+export const armCancellation = () => {
+  cancelNextCheck = true;
+};
+export const initialRestoreIsEligible = () => database?.initialRestoreIsEligible();
 function writer() {
   if (!client) throw new Error("Commit probe is not open");
   return client;

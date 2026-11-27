@@ -7,14 +7,17 @@ export function createSqlResourceSync(database, identity, options) {
     const { mode } = options;
     if (mode !== "first-upload" && mode !== "first-restore" && mode !== "established")
         throw new SyncError("protocol", "Unknown SQL Resource sync mode");
-    return new SqlSyncLifecycle(database, new SyncClient(options), identity, undefined, mode, options.mode === "first-restore" ? new Uint8Array(options.localTag) : undefined);
+    return new SqlSyncLifecycle(database, new SyncClient(options), identity, undefined, mode, options.mode === "first-restore" ? new Uint8Array(options.localTag) : undefined, options.checkActive);
 }
 /**
  * Start commit-driven exchange for an explicitly activated, established binding.
  * The caller owns the database and must close sync on detachment or a session change.
  */
 export function startSqlResourceSync(database, identity, options) {
-    const exchange = createSqlResourceSync(database, identity, { ...options, mode: "established" });
+    const exchange = createSqlResourceSync(database, identity, {
+        ...options,
+        mode: "established",
+    });
     const report = options.onStatus;
     let closed = false;
     let pending = false;
@@ -86,12 +89,17 @@ export class SqlSyncLifecycle {
     callbacks;
     mode;
     localTag;
-    constructor(database, client, identity, callbacks, mode = "established", localTag) {
+    checkActive;
+    constructor(database, client, identity, callbacks, mode = "established", localTag, checkActive) {
         this.database = database;
         this.client = client;
-        this.identity = { ...identity, schemaFingerprint: new Uint8Array(identity.schemaFingerprint) };
+        this.identity = {
+            ...identity,
+            schemaFingerprint: new Uint8Array(identity.schemaFingerprint),
+        };
         this.mode = mode;
         this.localTag = localTag;
+        this.checkActive = checkActive;
         this.callbacks = callbacks;
     }
     sync() {
@@ -130,10 +138,35 @@ export class SqlSyncLifecycle {
             }, kind === "attach" ? ATTACH_TIMEOUT_MS : INACTIVITY_TIMEOUT_MS);
         };
         let transportFailure;
+        let denied = false;
+        const checkActive = () => {
+            if (session?.failure)
+                return false;
+            if (!denied && !controller.signal.aborted) {
+                try {
+                    if (this.checkActive === undefined || this.checkActive() === true)
+                        return true;
+                }
+                catch {
+                    // An unreadable fence cannot authorize sync.
+                }
+            }
+            denied = true;
+            return false;
+        };
+        const requireActive = () => {
+            if (!checkActive())
+                throw session?.failure ?? new SyncError("cancelled", "Sync session cancelled");
+        };
         this.callbacks?.connecting();
         try {
+            requireActive();
             arm("attach");
-            const attach = { identity: this.identity, signal: controller.signal };
+            const attach = {
+                identity: this.identity,
+                signal: controller.signal,
+                checkActive,
+            };
             const upload = this.mode === "first-upload" ? await this.client.attachFirstUpload(attach) : undefined;
             const attached = upload ??
                 (await this.client.attach({
@@ -156,23 +189,25 @@ export class SqlSyncLifecycle {
                 }
             };
             const transport = new JsSqlSyncTransport({
-                send: (data) => withActivity(() => attached.send(data)),
+                send: (data) => withActivity(() => {
+                    requireActive();
+                    attached.send(data);
+                }),
                 receive: () => withActivity(() => attached.receive()),
             });
             if (this.mode === "first-restore") {
                 if (!this.localTag)
                     throw new SyncError("protocol", "Missing local restore tag");
-                await this.database.restoreHistory(transport, controller.signal, this.localTag);
+                await this.database.restoreHistory(transport, controller.signal, this.localTag, checkActive);
             }
             else {
-                await this.database.synchronizeHistory(transport);
+                await this.database.synchronizeHistory(transport, undefined, checkActive);
             }
             // Closing must not discard a verified receipt. An unconfirmed upload still rejects.
             if (upload)
                 await upload.waitForPublish();
-            else if (this.closed || controller.signal.aborted) {
-                throw new SyncError("cancelled", "Sync session cancelled");
-            }
+            else
+                requireActive();
             this.callbacks?.synced();
         }
         catch (cause) {
@@ -185,14 +220,17 @@ export class SqlSyncLifecycle {
                 sqlCause.destinationHasHistory === true;
             const failure = localHistory
                 ? new SyncError("destination-has-history", "Merge required: this browser has local history. No data was changed.")
-                : this.mode !== "established" && transportFailure instanceof SyncError
-                    ? transportFailure
-                    : cause;
+                : (session?.failure ??
+                    (this.mode !== "established" && transportFailure instanceof SyncError
+                        ? transportFailure
+                        : cause));
             const error = timeout
                 ? new SyncError("transport", timeout === "attach" ? "Sync attach timed out" : "Sync receive timed out")
-                : failure instanceof Error
-                    ? failure
-                    : new Error("SQL synchronization failed");
+                : denied || controller.signal.aborted
+                    ? new SyncError("cancelled", "Sync session cancelled")
+                    : failure instanceof Error
+                        ? failure
+                        : new Error("SQL synchronization failed");
             this.callbacks?.failed(error);
             throw error;
         }

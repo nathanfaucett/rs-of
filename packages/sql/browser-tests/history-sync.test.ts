@@ -15,6 +15,8 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       interface TransportEndpoint {
         queue: Uint8Array[];
         waiting: ((data: Uint8Array) => void) | undefined;
+        cancel?: () => void;
+        closed?: boolean;
         peer: TransportEndpoint | undefined;
       }
       const endpoints: TransportEndpoint[] = [0, 1].map(() => ({
@@ -40,11 +42,17 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
           return Promise.resolve();
         },
         receive() {
+          if (endpoint.closed) return Promise.reject(new Error("test transport closed"));
           const data = endpoint.queue.shift();
           if (data) return Promise.resolve(data);
-          return new Promise<Uint8Array>((resolve) => {
+          return new Promise<Uint8Array>((resolve, reject) => {
             endpoint.waiting = resolve;
+            endpoint.cancel = () => reject(new Error("test transport closed"));
           });
+        },
+        cancel() {
+          endpoint.closed = true;
+          endpoint.cancel?.();
         },
       }));
     }
@@ -80,6 +88,46 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       await bClient.executeRaw("INSERT INTO entries VALUES (2, 'from-b')");
       const savedTag = await a.replaceInitialRestoreTag(undefined, Uint8Array.of(3, 4));
       const replacedExisting = await a.replaceInitialRestoreTag(undefined, Uint8Array.of(5));
+      const cancelledAttempts = [];
+      await bClient.executeRaw("CREATE TABLE remote_only (id INTEGER PRIMARY KEY)");
+      for (const boundary of ["done", "commit"]) {
+        const cancelled = new AbortController();
+        const [pull, serve] = transportPair();
+        const serving = b
+          .synchronizeHistory(new JsSqlSyncTransport(serve), SqlHistoryRole.Responder)
+          .catch(() => {});
+        let error: string | undefined;
+        try {
+          await a.synchronizeHistory(
+            new JsSqlSyncTransport({
+              ...pull,
+              async receive() {
+                const bytes = await pull.receive();
+                // Return the already-received SQL v7 Done even though the fence closed.
+                if (boundary === "done" && bytes.length === 1 && bytes[0] === 8) cancelled.abort();
+                return bytes;
+              },
+            }),
+            SqlHistoryRole.Initiator,
+            () => {
+              if (cancelled.signal.aborted) return false;
+              // Admit preparation of the first batch, but forbid its commit.
+              if (boundary === "commit") cancelled.abort();
+              return true;
+            }
+          );
+        } catch (cause) {
+          error = String(cause);
+        } finally {
+          serve.cancel();
+          await serving;
+        }
+        cancelledAttempts.push({
+          error,
+          rows: await read(aClient),
+          tables: await aClient.execute("SELECT name FROM tables", (row) => row.name),
+        });
+      }
       await sync();
       const first = [await read(aClient), await read(bClient)];
       let repeatCommits = 0;
@@ -118,6 +166,7 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
       await sync();
       const repeatedDelete = [await read(aClient), await read(bClient)];
       return {
+        cancelledAttempts,
         first,
         repeated,
         repeatCommits,
@@ -143,6 +192,11 @@ test("public history v7 synchronizes both IndexedDB peers without duplicating ro
   expect(result.replacedExisting).toBe(false);
   expect(result.retainedTag).toEqual([3, 4]);
   expect(result.peerTag).toBeNull();
+  for (const attempt of result.cancelledAttempts) {
+    expect(attempt.error).toContain("local history apply cancelled");
+    expect(attempt.rows).toEqual([expected[0]]);
+    expect(attempt.tables).not.toContain("remote_only");
+  }
   expect(result.first).toEqual([expected, expected]);
   expect(result.repeated).toEqual([expected, expected]);
   expect(result.repeatCommits).toBe(0);

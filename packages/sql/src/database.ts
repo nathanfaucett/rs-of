@@ -76,13 +76,16 @@ export class Database {
   /**
    * Exchange SQL history v7 over caller-supplied byte frames.
    * Transports must bound reads and queued frames before buffering.
+   * A supplied synchronous `canApply` must return true before each local batch
+   * and its commit. A commit already issued to IndexedDB can finish.
    */
   async synchronizeHistory(
     transport: JsSqlSyncTransport,
-    role: SqlHistoryRole = SqlHistoryRole.Initiator
+    role: SqlHistoryRole = SqlHistoryRole.Initiator,
+    canApply?: () => boolean
   ): Promise<SqlHistoryResult> {
     try {
-      return await this.handle.run((wasm) => wasm.synchronize_history(transport, role));
+      return await this.handle.run((wasm) => wasm.synchronize_history(transport, role, canApply));
     } catch (error) {
       throw wrapError(error, SqlError);
     }
@@ -121,10 +124,13 @@ export class Database {
   async restoreHistory(
     transport: JsSqlSyncTransport,
     signal: AbortSignal,
-    tag: Uint8Array
+    tag: Uint8Array,
+    canApply?: () => boolean
   ): Promise<void> {
     try {
-      return await this.handle.run((wasm) => wasm.restore_history(transport, signal, tag));
+      return await this.handle.run((wasm) =>
+        wasm.restore_history(transport, signal, tag, canApply)
+      );
     } catch (error) {
       throw wrapError(error, SqlError);
     }

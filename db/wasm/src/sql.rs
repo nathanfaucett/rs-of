@@ -87,12 +87,14 @@ impl SqlDatabase {
         &self,
         transport: &mut crate::sync::JsSqlSyncTransport,
         role: crate::sql_history::SqlHistoryRole,
+        can_apply: Option<js_sys::Function>,
     ) -> Result<crate::sql_history::SqlHistoryResult, crate::sql_history::JsSqlHistoryError> {
         self.database
-            .exchange_resource_history_memory(
+            .exchange_resource_history_memory_checked(
                 transport,
                 &ofdb_sql::history::SessionConfig::default(),
                 role.into(),
+                || check_history_apply(can_apply.as_ref()),
             )
             .await
             .map_err(crate::sql_history::JsSqlHistoryError::from)
@@ -130,6 +132,7 @@ impl SqlDatabase {
         transport: &mut crate::sync::JsSqlSyncTransport,
         signal: js_sys::Object,
         tag: Vec<u8>,
+        can_apply: Option<js_sys::Function>,
     ) -> Result<(), crate::sql_history::JsSqlHistoryError> {
         self.database
             .restore_resource_history_memory(
@@ -137,13 +140,29 @@ impl SqlDatabase {
                 &ofdb_sql::history::SessionConfig::default(),
                 tag,
                 || match js_sys::Reflect::get(&signal, &JsValue::from_str("aborted")) {
-                    Ok(value) if value.as_bool() == Some(false) => Ok(()),
+                    Ok(value) if value.as_bool() == Some(false) => {
+                        check_history_apply(can_apply.as_ref())
+                    }
                     _ => Err("restore cancelled".into()),
                 },
             )
             .await
             .map_err(crate::sql_history::JsSqlHistoryError::from)
     }
+}
+
+#[cfg(feature = "sync")]
+fn check_history_apply(can_apply: Option<&js_sys::Function>) -> Result<(), String> {
+    if let Some(check) = can_apply
+        && check
+            .call0(&JsValue::UNDEFINED)
+            .ok()
+            .and_then(|value| value.as_bool())
+            != Some(true)
+    {
+        return Err("local history apply cancelled".into());
+    }
+    Ok(())
 }
 
 #[wasm_bindgen]

@@ -1,6 +1,6 @@
 use alloc::string::String;
 
-use engine::EngineError;
+use engine::{EngineError, KernelTransaction};
 use thiserror::Error;
 
 pub type CheckFuture<'a> = platform::BoxFuture<'a, Result<(), String>>;
@@ -35,4 +35,16 @@ impl<E> From<ApplyError> for crate::SyncError<E> {
             ApplyError::PreApply(reason) => Self::PreApply(reason),
         }
     }
+}
+
+// IndexedDB loads a snapshot after the pre-apply check. Recheck before issuing its write.
+// Native checks stay outside writer transactions: they may need the same database.
+pub async fn commit_apply<T: KernelTransaction>(
+    transaction: T,
+    _check: &mut Check<'_>,
+) -> Result<(), ApplyError> {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    check_apply(_check).await?;
+    transaction.commit().await?;
+    Ok(())
 }

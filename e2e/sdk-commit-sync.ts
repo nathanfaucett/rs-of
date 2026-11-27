@@ -11,6 +11,11 @@ export async function verifyCommitDrivenSql(
   let sessions = 0;
   let hold = false;
   let release: (() => void) | undefined;
+  const releaseDone = () => {
+    if (!release) throw new Error("No delayed SQL Done frame");
+    release();
+    release = undefined;
+  };
   let disconnect = false;
   await page.routeWebSocket(socketUrl, (socket) => {
     sessions++;
@@ -54,11 +59,30 @@ export async function verifyCommitDrivenSql(
     if (result.status !== 200) return undefined;
     return JSON.parse(result.body).results[0].rows.map(([id]: [{ value: string }]) => id.value);
   };
+  const start = () =>
+    page.evaluate(async ({ fixture, destination }) => (await import(fixture)).start(destination), {
+      fixture,
+      destination,
+    });
   try {
-    await page.evaluate(
-      async ({ fixture, destination }) => (await import(fixture)).start(destination),
-      { fixture, destination }
-    );
+    // Storage has history to pull. Cancel after the browser receives Done and admits
+    // apply preparation, but before it can issue the first IndexedDB write.
+    hold = true;
+    await start();
+    await expect.poll(() => Boolean(release)).toBe(true);
+    await page.evaluate(async (fixture) => (await import(fixture)).armCancellation(), fixture);
+    releaseDone();
+    await expect.poll(status).toBe("cancelled");
+    expect(
+      await page.evaluate(
+        async (fixture) => (await import(fixture)).initialRestoreIsEligible(),
+        fixture
+      )
+    ).toBe(true);
+    await page.evaluate(async (fixture) => (await import(fixture)).close(), fixture);
+    sessions = 0;
+
+    await start();
     await expect.poll(status).toBe("synced");
     // An actual pull wakes a follow-up, but replaying the same history must settle.
     expect(sessions).toBe(2);
@@ -73,7 +97,7 @@ export async function verifyCommitDrivenSql(
     await execute("DELETE FROM sdk_commit_probe WHERE id = 1");
     expect(sessions).toBe(3);
     expect(await remoteIds()).toEqual(["1"]);
-    release?.();
+    releaseDone();
     await expect.poll(remoteIds).toEqual(["2", "3"]);
     await expect.poll(status).toBe("synced");
     expect(sessions).toBe(4);

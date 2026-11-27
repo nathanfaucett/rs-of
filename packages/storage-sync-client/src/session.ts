@@ -4,6 +4,8 @@ import { frame, owner, response, unframe } from "./protocol.js";
 
 export interface SyncSession {
   readonly result: Readonly<AttachResult>;
+  /** A failure that invalidates even owner frames already delivered to the consumer. */
+  readonly failure?: SyncError | undefined;
   send(payload: Uint8Array): void;
   receive(): Promise<Uint8Array>;
   close(): void;
@@ -23,6 +25,7 @@ export function createSession(
   firstUpload: boolean
 ): FirstUploadSession {
   let ended: SyncError | undefined;
+  let failure: SyncError | undefined;
   const queue: Incoming[] = [];
   const waiting: {
     resolve: (data: Incoming) => void;
@@ -35,7 +38,10 @@ export function createSession(
     socket.removeEventListener("error", failed);
     socket.removeEventListener("close", closed);
     signal?.removeEventListener("abort", cancelled);
-    if (!preserveBuffered) queue.length = 0;
+    if (!preserveBuffered) {
+      failure = error;
+      queue.length = 0;
+    }
     for (const pending of waiting.splice(0)) pending.reject(error);
     socket.close();
   };
@@ -113,6 +119,9 @@ export function createSession(
   };
   return {
     result,
+    get failure() {
+      return failure;
+    },
     send(payload) {
       if (ended) throw ended;
       let message: Uint8Array;

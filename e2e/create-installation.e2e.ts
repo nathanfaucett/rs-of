@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { chromium, expect, type Page, test } from "@playwright/test";
+import { MAX_FRAME_BYTES, unframe } from "../packages/storage-sync-client/src/protocol";
 import {
   localRecord,
   localSecret,
@@ -746,6 +747,22 @@ nodeTest(
 
     const restoredContext = await browser.newContext();
     const restoredPage = await restoredContext.newPage();
+    await restoredPage.addInitScript(() => {
+      let keys: string[] = [];
+      window.addEventListener(
+        "storage",
+        (event) => {
+          if (event.key && keys.includes(event.key)) {
+            event.stopImmediatePropagation();
+            document.documentElement.setAttribute("data-delayed-storage", event.key);
+          }
+        },
+        true
+      );
+      window.addEventListener("hold-sync-notifications", (event) => {
+        keys = (event as CustomEvent<string[]>).detail;
+      });
+    });
     const restoredSession = await passwordManagerSignin(
       restoredPage,
       { origin: pm, idp, storage, username, password },
@@ -811,8 +828,35 @@ nodeTest(
       holds.push(hold);
       return hold;
     }
+    let socketCount = 0;
+    const delayedFrames: ("attach" | "history")[] = [];
+    let releaseFrame: (() => void) | undefined;
+    function releaseDelayedFrame() {
+      if (!releaseFrame) throw new Error("No delayed sync frame");
+      releaseFrame();
+      releaseFrame = undefined;
+    }
+    let historyFrames = 0;
     await restoredPage.routeWebSocket(socketUrl, (socket) => {
+      socketCount++;
       const server = socket.connectToServer();
+      const delayed = delayedFrames.shift();
+      if (delayed) {
+        const tag = (message: string | Buffer) =>
+          typeof message === "string"
+            ? undefined
+            : unframe(new Uint8Array(message).buffer, MAX_FRAME_BYTES)[0];
+        server.onMessage((message) => {
+          if (!releaseFrame && tag(message) === (delayed === "attach" ? 2 : 3))
+            releaseFrame = () => socket.send(message);
+          else socket.send(message);
+        });
+        socket.onMessage((message) => {
+          if (tag(message) === 3) historyFrames++;
+          server.send(message);
+        });
+        return;
+      }
       const hold = holds.shift();
       if (hold) {
         socket.onMessage(() => {
@@ -864,6 +908,148 @@ nodeTest(
     expect(changedRemote.body).not.toContain("Edited restored vault offline");
     expect(await databases()).toEqual(catalogWithDuplicateName);
 
+    const tokenKey = await restoredPage.evaluate((token) => {
+      const key = Object.keys(localStorage).find((entry) =>
+        localStorage.getItem(entry)?.includes(token)
+      );
+      if (!key) throw new Error("Missing signed-in session");
+      return key;
+    }, restoredSession.accessToken);
+    const attachmentKey = `password-manager-v1:storage-binding:attached:${JSON.parse(receipt).namespace}`;
+    const editor = await restoredContext.newPage();
+    await editor.goto(pm);
+    await expect(editor.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+    const setStored = (key: string, value: string | null) =>
+      editor.evaluate(
+        ([key, value]) => {
+          if (value === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, value);
+        },
+        [key, value] as const
+      );
+    const savedPermission = await editor.evaluate(
+      (key) => localStorage.getItem(key),
+      attachmentKey
+    );
+    const login = await editor.evaluate((key) => localStorage.getItem(key), tokenKey);
+    expect(savedPermission).not.toBeNull();
+    expect(login).not.toBeNull();
+
+    const secondUser = "second@setup.test";
+    const idpAdmin = await owner.exchange(operator, idp);
+    await owner.json(`${idp}/users`, idpAdmin, "POST", {
+      name: "Second User",
+      email: secondUser,
+      password,
+    });
+    const clientKey = tokenKey.replace(/:response$/, ":client");
+    const clientRegistration = await editor.evaluate((key) => localStorage.getItem(key), clientKey);
+    if (!clientRegistration) throw new Error("Missing Password Manager client registration");
+    const secondPage = await browser.newPage({
+      storageState: {
+        cookies: [],
+        origins: [
+          {
+            origin: pm,
+            localStorage: [{ name: clientKey, value: clientRegistration }],
+          },
+        ],
+      },
+    });
+    let secondAccessToken: string;
+    let secondLogin: string;
+    try {
+      const secondSession = await passwordManagerSignin(
+        secondPage,
+        { origin: pm, idp, storage, username: secondUser, password },
+        false,
+        false,
+        restoredSession.clientId
+      );
+      const secondIdentity = await owner.json<{ sub: string }>(
+        `${idp}/userinfo`,
+        secondSession.accessToken
+      );
+      expect(secondIdentity.sub).not.toBe(user.sub);
+      const stored = await secondPage.evaluate((key) => localStorage.getItem(key), tokenKey);
+      if (!stored) throw new Error("Missing second User login");
+      expect(stored).toContain(secondSession.accessToken);
+      secondLogin = stored;
+      secondAccessToken = secondSession.accessToken;
+    } finally {
+      await secondPage.close();
+    }
+
+    // Hold the actual Storage token response. The active tab must read the new login state
+    // without relying on delivery of a storage event or detach broadcast.
+    await restoredPage.evaluate((tokenEndpoint) => {
+      const fetchToken = window.fetch;
+      window.fetch = async (input, init) => {
+        const response = fetchToken(input, init);
+        const url = input instanceof Request ? input.url : String(input);
+        if (url !== tokenEndpoint) return response;
+        window.fetch = fetchToken;
+        const received = await response;
+        await new Promise<void>((release) => {
+          window.addEventListener("release-sync-token", () => release(), {
+            once: true,
+          });
+          document.documentElement.setAttribute("data-sync-token-status", String(received.status));
+        });
+        return received;
+      };
+    }, `${idp}/oauth2/token`);
+    const holdNotifications = (keys: string[]) =>
+      restoredPage.evaluate((detail) => {
+        window.dispatchEvent(new CustomEvent("hold-sync-notifications", { detail }));
+      }, keys);
+    await holdNotifications([attachmentKey, tokenKey]);
+    const beforeDeniedAdmission = socketCount;
+    await sync.click();
+    try {
+      await expect(restoredPage.locator("html")).toHaveAttribute("data-sync-token-status", "200");
+      await setStored(tokenKey, secondLogin);
+      await expect(restoredPage.locator("html")).toHaveAttribute("data-delayed-storage", tokenKey);
+    } finally {
+      await restoredPage.evaluate(() => window.dispatchEvent(new Event("release-sync-token")));
+    }
+    const syncError = restoredPage
+      .getByRole("alert")
+      .filter({ hasText: "Your changes stay local" });
+    await expect(syncError).toBeVisible();
+    expect(socketCount).toBe(beforeDeniedAdmission);
+    await setStored(tokenKey, login);
+
+    // Now withdraw the stored permission after real attach. No SQL history may leave the stale tab.
+    delayedFrames.push("attach");
+    await sync.click();
+    await expect.poll(() => Boolean(releaseFrame)).toBe(true);
+    await setStored(attachmentKey, null);
+    await expect(restoredPage.locator("html")).toHaveAttribute(
+      "data-delayed-storage",
+      attachmentKey
+    );
+    releaseDelayedFrame();
+    await expect(syncError).toBeVisible();
+    expect(historyFrames).toBe(0);
+    await setStored(attachmentKey, savedPermission);
+
+    // Let the first history frame reach Storage, then fence the next send without an event.
+    delayedFrames.push("history");
+    await sync.click();
+    await expect.poll(() => Boolean(releaseFrame)).toBe(true);
+    expect(historyFrames).toBe(1);
+    await setStored(tokenKey, secondLogin);
+    await expect(restoredPage.locator("html")).toHaveAttribute("data-delayed-storage", tokenKey);
+    releaseDelayedFrame();
+    await expect(syncError).toBeVisible();
+    expect(historyFrames).toBe(1);
+    await setStored(tokenKey, login);
+    await editor.close();
+    await holdNotifications([]);
+    await sync.click();
+    await expect(complete(restoredPage)).toBeVisible();
+
     // A sign-out in one tab must cancel its exchange and lock another tab's open vault.
     const unlocked = await restoredContext.newPage();
     await unlocked.goto(pm);
@@ -874,13 +1060,6 @@ nodeTest(
       unlocked.getByRole("button", { name: "Edited restored vault offline" })
     ).toBeVisible();
     // Delay the native removal notification until the replacement token is already visible.
-    const tokenKey = await restoredPage.evaluate((token) => {
-      const key = Object.keys(localStorage).find((entry) =>
-        localStorage.getItem(entry)?.includes(token)
-      );
-      if (!key) throw new Error("Missing signed-in session");
-      return key;
-    }, restoredSession.accessToken);
     await unlocked.evaluate((key) => {
       const captured = new Promise<StorageEvent>((resolve) => {
         function hold(event: StorageEvent) {
@@ -918,7 +1097,6 @@ nodeTest(
     const signedOutExchange = holdNextExchange();
     await sync.click();
     await expect.poll(() => signedOutExchange.started).toBe(true);
-    const attachmentKey = `password-manager-v1:storage-binding:attached:${JSON.parse(receipt).namespace}`;
     const attachment = await restoredPage.evaluate(
       (key) => localStorage.getItem(key),
       attachmentKey
@@ -1054,16 +1232,6 @@ nodeTest(
     expect(await pmPage.evaluate((key) => localStorage.getItem(key), receiptKey)).toBe(receipt);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
 
-    const secondUser = "second@setup.test";
-    const idpAdmin = await owner.exchange(operator, idp);
-    await owner.json(`${idp}/users`, idpAdmin, "POST", {
-      name: "Second User",
-      email: secondUser,
-      password,
-    });
-    await unlocked.goto(app);
-    await unlocked.getByRole("button", { name: "Sign out", exact: true }).click();
-    await expect(unlocked).toHaveURL(`${app}/signin`);
     const storageWrites: string[] = [];
     restoredPage.on("request", (request) => {
       if (request.url().startsWith(`${storage}/`) && !["GET", "OPTIONS"].includes(request.method()))
@@ -1072,31 +1240,33 @@ nodeTest(
     restoredPage.on("websocket", (socket) => {
       if (socket.url() === socketUrl) storageWrites.push("sync");
     });
-    const different = await passwordManagerSignin(
-      restoredPage,
-      { origin: pm, idp, storage, username: secondUser, password },
-      false,
-      false,
-      restoredSession.clientId
-    );
+    // Restore the second User's real IdP login in the profile that owns the first User's vault.
+    await restoredPage.evaluate(([key, value]) => localStorage.setItem(key, value), [
+      tokenKey,
+      secondLogin,
+    ] as const);
+    await restoredPage.reload();
     await expect(
-      restoredPage.getByText("This database is linked to another account", { exact: false })
+      restoredPage.getByText("This database is linked to another account", {
+        exact: false,
+      })
     ).toBeVisible();
     await expect(sync).toHaveCount(0);
     await expect(binding).toHaveCount(0);
     await expect(restoredVault).toContainText(`ID: ${vaultId}`);
-    const differentUser = await owner.json<{ sub: string }>(
-      `${idp}/userinfo`,
-      different.accessToken
+    const differentRead = await owner.exchange(
+      { accessToken: secondAccessToken, clientId: restoredSession.clientId },
+      "storage:databases",
+      "read"
     );
-    expect(differentUser.sub).not.toBe(user.sub);
-    const differentRead = await owner.exchange(different, "storage:databases", "read");
     expect((await owner.call(`${storage}/databases`, differentRead)).status).toBe(401);
     await restoredVault.click();
     await restoredPage.getByLabel("Master password", { exact: true }).fill(masterPassword);
     await restoredPage.getByRole("button", { name: "Unlock", exact: true }).click();
     await expect(
-      restoredPage.getByRole("button", { name: "Edited restored vault offline" })
+      restoredPage.getByRole("button", {
+        name: "Edited restored vault offline",
+      })
     ).toBeVisible();
     expect(storageWrites).toEqual([]);
     expect(await databases()).toEqual(catalogWithDuplicateName);

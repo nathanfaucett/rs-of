@@ -38,9 +38,15 @@ try {
 - Use `mode: "established"` for a separately verified binding. It uses normal
   bidirectional exchange and must not be used to bypass a first-upload rejection.
 - Concurrent calls to `sync()` on one lifecycle share one exchange. `close()`
-  cancels and waits for it without closing the database. Close on sign-out or
-  account change. The lifecycle does not register Resources, grant Selection,
+  cancels and waits for it without closing the database. Commits already issued
+  to IndexedDB can finish. Close on sign-out or account change. The lifecycle does not register Resources, grant Selection,
   persist bindings, or schedule sync on local writes.
+
+Supply the optional synchronous `checkActive` to enforce an app-owned session or
+permission fence. The SDK requires `true` before admission, after token exchange,
+before handshake and SQL history sends, and before local history writes. Return
+`false` when authority is missing or cannot be read. Keep login and permission
+storage in the application; the SDK takes no login data through this hook.
 
 For a verified established binding, call `startSqlResourceSync` only after the
 User activates sync in this runtime. Do not infer activation from a restored

@@ -260,7 +260,7 @@ async function exchange(expected: Session, intent: Intent) {
   const { signal } = pending.controller;
   function requireSession() {
     signal.throwIfAborted();
-    if (authState.session !== expected) throw new Error("Sign-in session ended");
+    if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session ended");
   }
   try {
     await navigator.locks.request(bindingLock, { signal }, async () => {
@@ -298,21 +298,17 @@ async function exchange(expected: Session, intent: Intent) {
             ? { mode: intent.mode, localTag: encodeBinding(binding) }
             : { mode: intent.mode }),
           storageApiUrl: expected.storage,
-          async tokenProvider(attempt) {
-            requireSession();
-            const token = await client.getStorageToken(
+          checkActive: () => !signal.aborted && authState.hasVerifiedToken(expected),
+          tokenProvider: (attempt) =>
+            client.getStorageToken(
               "storage:sync",
               intent.mode === "first-restore" ? ["read"] : ["read", "write"],
               attempt
-            );
-            requireSession();
-            return token;
-          },
+            ),
         });
         await pending.sync.sync();
         requireSession();
         if (intent.mode === "first-upload") {
-          if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session ended");
           retainReceipt({
             ...binding,
             version: 1,
@@ -418,21 +414,12 @@ async function setDetached(expected: Session, id: string, detached: boolean) {
         attach(expected, record.revision);
         const sync = startSqlResourceSync(database, resourceIdentity(record.id), {
           storageApiUrl: expected.storage,
-          async tokenProvider(attempt) {
-            const requireAttachment = () => {
-              attempt?.throwIfAborted();
-              if (
-                attachment?.sync !== sync ||
-                authState.session !== expected ||
-                !isAttached(record, expected)
-              )
-                throw new Error("Storage sync is detached.");
-            };
-            requireAttachment();
-            const token = await client.getStorageToken("storage:sync", ["read", "write"], attempt);
-            requireAttachment();
-            return token;
-          },
+          checkActive: () =>
+            attachment?.sync === sync &&
+            authState.hasVerifiedToken(expected) &&
+            isAttached(record, expected),
+          tokenProvider: (attempt) =>
+            client.getStorageToken("storage:sync", ["read", "write"], attempt),
           onStatus(status) {
             if (attachment?.sync === sync) syncStatus = status;
           },

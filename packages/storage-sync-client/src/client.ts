@@ -20,6 +20,8 @@ export interface AttachOptions {
   identity: StoreIdentity;
   direction: SyncDirection;
   signal?: AbortSignal;
+  /** Synchronous caller fence, checked after token acquisition and before handshake sends. */
+  checkActive?: () => boolean;
 }
 export interface AttachResult {
   status: "attached";
@@ -98,7 +100,16 @@ export class SyncClient {
       let attachPayload: Uint8Array;
       let echoedHello = false;
       let usedBytes = 0n;
+      const requireActive = () => {
+        try {
+          if (options.checkActive === undefined || options.checkActive() === true) return;
+        } catch {
+          // An unreadable fence cannot authorize attach.
+        }
+        throw new SyncError("cancelled", "Sync attach cancelled");
+      };
       const send = (payload: Uint8Array) => {
+        requireActive();
         const bytes = frame(payload);
         usedBytes += BigInt(bytes.length);
         if (usedBytes > MAX_SESSION_BYTES) throw new Error("Sync session exceeds byte limit");
@@ -108,8 +119,9 @@ export class SyncClient {
         try {
           send(helloPayload);
           if (!firstUpload) send(attachPayload);
-        } catch {
-          failed();
+        } catch (error) {
+          if (error instanceof SyncError) stop(error);
+          else failed();
         }
       };
       const received = (event: MessageEvent) => {
@@ -170,10 +182,12 @@ export class SyncClient {
           );
         } catch (error) {
           stop(
-            new SyncError(
-              "protocol",
-              error instanceof Error ? error.message : "Invalid sync response"
-            )
+            error instanceof SyncError
+              ? error
+              : new SyncError(
+                  "protocol",
+                  error instanceof Error ? error.message : "Invalid sync response"
+                )
           );
         }
       };
@@ -205,14 +219,16 @@ export class SyncClient {
           return;
         }
         try {
+          requireActive();
           socket = new WebSocket(this.url);
           socket.binaryType = "arraybuffer";
           socket.addEventListener("open", opened);
           socket.addEventListener("message", received);
           socket.addEventListener("error", failed);
           socket.addEventListener("close", closed);
-        } catch {
-          failed();
+        } catch (error) {
+          if (error instanceof SyncError) stop(error);
+          else failed();
         }
       })();
     });
