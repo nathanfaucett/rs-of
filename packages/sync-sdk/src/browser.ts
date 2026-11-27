@@ -19,6 +19,13 @@ import type {
 import { execute } from "./sql";
 import { SqlSyncLifecycle } from "./sql-sync-lifecycle";
 
+export { SyncError } from "@ofsdk/storage-sync-client";
+export {
+  createSqlResourceSync,
+  type SqlResourceSync,
+  type SqlResourceSyncOptions,
+} from "./sql-sync-lifecycle";
+
 /** Document type that must have an id property for database operations. */
 type WithId = { id: string; [key: string]: unknown };
 

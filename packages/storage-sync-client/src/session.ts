@@ -8,16 +8,24 @@ export interface SyncSession {
   receive(): Promise<Uint8Array>;
   close(): void;
 }
+export interface FirstUploadSession extends SyncSession {
+  /** Wait for Storage publication after the SQL owner exchange succeeds. */
+  waitForPublish(): Promise<void>;
+}
+
+type Incoming = Uint8Array | "published";
+
 export function createSession(
   socket: WebSocket,
   result: Readonly<AttachResult>,
   signal: AbortSignal | undefined,
-  usedBytes: bigint
-): SyncSession {
+  usedBytes: bigint,
+  firstUpload: boolean
+): FirstUploadSession {
   let ended: SyncError | undefined;
-  const queue: Uint8Array[] = [];
+  const queue: Incoming[] = [];
   const waiting: {
-    resolve: (data: Uint8Array) => void;
+    resolve: (data: Incoming) => void;
     reject: (error: SyncError) => void;
   }[] = [];
   const stop = (error: SyncError, preserveBuffered = false) => {
@@ -66,10 +74,18 @@ export function createSession(
         send(Uint8Array.of(6));
         return;
       }
-      if (message.type !== "owner") throw new Error("Expected an ofdb SQL owner message");
+      const data =
+        message.type === "owner"
+          ? message.data
+          : firstUpload && message.type === "published"
+            ? "published"
+            : undefined;
+      if (data === undefined) throw new Error("Unexpected sync session message");
       const pending = waiting.shift();
-      if (pending) pending.resolve(message.data);
-      else queue.push(message.data);
+      if (pending) pending.resolve(data);
+      else queue.push(data);
+      if (data === "published")
+        stop(new SyncError("protocol", "First upload receipt already received"), true);
     } catch {
       stop(new SyncError("protocol", "Invalid sync session message or byte limit exceeded"));
     }
@@ -84,6 +100,17 @@ export function createSession(
   if (signal?.aborted) cancelled();
   if (usedBytes > result.maxSessionBytes)
     stop(new SyncError("protocol", "Sync session exceeds negotiated byte limit"));
+  const next = (): Promise<Incoming> => {
+    const data = queue.shift();
+    if (data) return Promise.resolve(data);
+    if (ended) return Promise.reject(ended);
+    return new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+  };
+  const unexpected = (message: string): never => {
+    const error = new SyncError("protocol", message);
+    stop(error);
+    throw error;
+  };
   return {
     result,
     send(payload) {
@@ -98,11 +125,14 @@ export function createSession(
       }
       send(message);
     },
-    receive() {
-      const data = queue.shift();
-      if (data) return Promise.resolve(data);
-      if (ended) return Promise.reject(ended);
-      return new Promise((resolve, reject) => waiting.push({ resolve, reject }));
+    async receive() {
+      const data = await next();
+      if (data === "published") return unexpected("Expected an ofdb SQL owner message");
+      return data;
+    },
+    async waitForPublish() {
+      if (!firstUpload) return unexpected("Not a first upload session");
+      if ((await next()) !== "published") return unexpected("Expected first upload receipt");
     },
     close() {
       queue.length = 0;
