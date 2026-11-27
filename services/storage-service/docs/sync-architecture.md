@@ -16,7 +16,7 @@ The Device API manages Selection for an approved Device and an exact owner, Appl
 
 The `sync` feature mounts a binary WebSocket route for Storage SQL synchronization. Its v1 framing carries a Hello/Attach handshake and opaque SQL v7 messages with Postcard encoding and CRC32 integrity checks.
 
-The server requires a `storage:sync` access token and checks Resource, namespace, and deployment-specific selection policy. It rechecks authorization around transport and apply operations. The current server accepts only Bidirectional attach requests and runs a SQL responder. It does not run KV or filesystem synchronization over this endpoint.
+Both ordinary attach and first upload require a User bearer access token with audience and resource `storage:sync` and one Storage authorization detail with both `read` and `write`. Storage checks this capability, the Resource namespace, and applicable Device Selection at admission and during authorization rechecks. The current server accepts only Bidirectional attach requests and runs a SQL responder. It does not run KV or filesystem synchronization over this endpoint.
 
 Attach and backend session IDs are generated for the session. They are not durable local database identities. Attachment alone does not prove exchange completion, durable replica identity, or backup.
 

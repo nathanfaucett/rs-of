@@ -25,8 +25,14 @@ use uuid::Uuid;
 
 use crate::{
     device_client::DeviceClient,
-    idp_client::{IdpClient, IdpIntrospectionError},
-    router::state::RouterState,
+    idp_client::IdpClient,
+    router::{
+        state::RouterState,
+        storage_authorization::{
+            StorageAuthorization, StorageAuthorizationError, authorize_inspected_token,
+            authorize_storage_token, authorize_storage_token_read_only,
+        },
+    },
 };
 
 pub const MAX_FRAME_PAYLOAD: u32 = 16 * 1024 * 1024;
@@ -251,47 +257,35 @@ async fn authorize_device_sync(
         idp.inspect_identity_read_only(token).await
     } else {
         idp.introspect(token).await
-    }
-    .map_err(|error| match error {
-        IdpIntrospectionError::InvalidToken => SyncAuthError::Unauthorized,
-        IdpIntrospectionError::ServiceUnavailable => SyncAuthError::BackendUnavailable,
-    })?;
-    let claims = &introspection.claims;
-    let now = unix_time_seconds();
-    if claims.exp <= now
-        || claims.nbf > now
-        || claims.r#use != of_model::contract::token_use::TokenUse::Access
-        || claims.aud != "storage:sync"
+    };
+    if introspection
+        .as_ref()
+        .is_ok_and(|response| response.claims.nbf > unix_time_seconds())
     {
         return Err(SyncAuthError::Unauthorized);
     }
+    let auth = authorize_bidirectional(authorize_inspected_token(introspection), identity)?;
     let selected = if read_only {
         device.selection_snapshot(endpoint_id).await
     } else {
         device.selected_resources(endpoint_id).await
     }
     .map_err(|_error| SyncAuthError::BackendUnavailable)?;
-    if claims.exp <= unix_time_seconds()
+    if auth.expires_at <= unix_time_seconds()
         || selected.endpoint_id != endpoint_id
-        || selected.owner_subject != claims.sub
+        || selected.owner_subject != auth.subject
         || !selected.admin_allowed
         || selected.pending_cleanup.is_some()
         || !selected.resources.iter().any(|resource| {
-            resource.owner_subject == claims.sub
-                && resource.application_id == introspection.application_id
+            resource.owner_subject == auth.subject
+                && resource.application_id == auth.application_id
                 && resource.resource_id == identity.store_id.to_string()
                 && resource.kind == "database"
         })
     {
         return Err(SyncAuthError::Unauthorized);
     }
-    Ok(SyncAuth {
-        subject: claims.sub.clone(),
-        application_id: introspection.application_id,
-        store_id: identity.store_id,
-        direction: AttachDirection::Bidirectional,
-        expires_at: claims.exp,
-    })
+    Ok(auth)
 }
 
 async fn authorize_session(
@@ -313,16 +307,19 @@ async fn authorize_local_session(
     identity: &StoreIdentity,
     read_only: bool,
 ) -> Result<SyncAuth, SyncAuthError> {
-    use crate::router::storage_authorization::{
-        StorageAuthorizationError, authorize_storage_token, authorize_storage_token_read_only,
-    };
-
     let authorization = if read_only {
         authorize_storage_token_read_only(idp, token).await
     } else {
         authorize_storage_token(idp, token).await
-    }
-    .map_err(|error| match error {
+    };
+    authorize_bidirectional(authorization, identity)
+}
+
+fn authorize_bidirectional(
+    authorization: Result<StorageAuthorization, StorageAuthorizationError>,
+    identity: &StoreIdentity,
+) -> Result<SyncAuth, SyncAuthError> {
+    let authorization = authorization.map_err(|error| match error {
         StorageAuthorizationError::InvalidToken => SyncAuthError::Unauthorized,
         StorageAuthorizationError::ServiceUnavailable => SyncAuthError::BackendUnavailable,
     })?;

@@ -57,7 +57,7 @@ pub async fn authorize_storage_token_read_only(
     authorize_inspected_token(idp_client.inspect_identity_read_only(token).await)
 }
 
-fn authorize_inspected_token(
+pub fn authorize_inspected_token(
     response: Result<IntrospectionResponse, IdpIntrospectionError>,
 ) -> Result<StorageAuthorization, StorageAuthorizationError> {
     let response = response.map_err(|error| match error {

@@ -120,6 +120,7 @@ struct Fixture {
     namespace: WsNamespace,
     policy: Arc<Mutex<Value>>,
     expires_at: Arc<AtomicI64>,
+    authorization_details: Arc<Mutex<Option<Value>>>,
     snapshot_gate: Arc<Mutex<Option<Gate>>>,
     databases: Arc<storage_service::database_runtime::DatabaseRuntime>,
     state: RouterState,
@@ -218,19 +219,22 @@ impl Fixture {
             "idp-management",
         )
         .expect("Device client");
+        let authorization_details = Arc::new(Mutex::new(Some(json!([
+            { "type": "storage", "actions": ["read", "write"] }
+        ]))));
+        let details = authorization_details.clone();
         let idp = IdpClient::local(move |_| {
             let exp = expiry.load(Ordering::Relaxed);
+            let details = details.lock().expect("authorization details lock").clone();
             async move {
                 let mut response = json!({
                     "claims": { "type": "Bearer", "use": "Access", "exp": exp, "iat": 0, "nbf": 0,
-                        "iss": "https://idp.example", "aud": "storage:sync", "client_id": "client", "sub": "alice", "principal_type": "user", "scope": "" },
+                        "iss": "https://idp.example", "aud": "storage:sync", "resource": "storage:sync",
+                        "client_id": "client", "sub": "alice", "principal_type": "user", "scope": "" },
                     "applicationId": application.to_string()
                 });
-                if local {
-                    response["claims"]["aud"] = json!("storage:sync");
-                    response["claims"]["resource"] = json!("storage:sync");
-                    response["claims"]["authorization_details"] =
-                        json!([{ "type": "storage", "actions": ["read", "write"] }]);
+                if let Some(details) = details {
+                    response["claims"]["authorization_details"] = details;
                 }
                 Ok(serde_json::from_value(response).expect("introspection"))
             }
@@ -270,6 +274,7 @@ impl Fixture {
             },
             policy,
             expires_at,
+            authorization_details,
             snapshot_gate,
             databases,
             state,
@@ -319,6 +324,12 @@ impl Fixture {
     }
 
     async fn attach(&self) -> Socket {
+        let (socket, response) = self.request_attach().await;
+        assert!(matches!(response, SyncMessage::AttachResponse(response) if response.accepted));
+        socket
+    }
+
+    async fn request_attach(&self) -> (Socket, SyncMessage) {
         let mut socket = self.hello().await;
         send(
             &mut socket,
@@ -329,10 +340,8 @@ impl Fixture {
             }),
         )
         .await;
-        assert!(
-            matches!(receive(&mut socket).await, SyncMessage::AttachResponse(response) if response.accepted)
-        );
-        socket
+        let response = receive(&mut socket).await;
+        (socket, response)
     }
 }
 
@@ -913,6 +922,88 @@ async fn ws_first_upload_disconnect_before_completion_can_retry_same_resource() 
         target.history_manifest().await.expect("published retry"),
         before
     );
+}
+
+fn insufficient_storage_details() -> [Option<Value>; 3] {
+    [
+        Some(json!([{ "type": "storage", "actions": ["read"] }])),
+        Some(json!([{ "type": "storage", "actions": ["write"] }])),
+        None,
+    ]
+}
+
+#[tokio::test]
+async fn ws_bidirectional_admission_requires_both_storage_actions() {
+    let fixture = Fixture::new().await;
+    for details in insufficient_storage_details() {
+        *fixture
+            .authorization_details
+            .lock()
+            .expect("authorization details lock") = details;
+        let (_, response) = fixture.request_attach().await;
+        assert_eq!(response, SyncMessage::Abort(AbortReason::Unauthorized));
+        let (_, response) = fixture.first_upload().await;
+        assert_eq!(response, SyncMessage::Abort(AbortReason::Unauthorized));
+    }
+}
+
+#[tokio::test]
+async fn ws_bidirectional_rechecks_require_both_storage_actions() {
+    let fixture = Fixture::with_storage(true).await;
+    let idp = fixture.state.idp_client.as_ref().expect("IdP client");
+    let device = fixture.state.device_client.as_ref().expect("Device client");
+    let endpoint = &fixture.state.endpoint_id;
+    let expected = super::authorize_sync(idp, device, "user-token", &fixture.identity, endpoint)
+        .await
+        .expect("bidirectional capability and exact Selection");
+    let authorization = super::SessionAuthorization {
+        idp,
+        device: Some(device),
+        token: "user-token",
+        identity: &fixture.identity,
+        endpoint_id: endpoint,
+        expected: &expected,
+    };
+    let baseline = fixture
+        .authorization_details
+        .lock()
+        .expect("authorization details lock")
+        .clone();
+    authorization
+        .check_publish()
+        .await
+        .expect("initial publish authorization");
+    for details in insufficient_storage_details() {
+        *fixture
+            .authorization_details
+            .lock()
+            .expect("authorization details lock") = baseline.clone();
+        let mut socket = fixture.attach().await;
+        *fixture
+            .authorization_details
+            .lock()
+            .expect("authorization details lock") = details;
+        send(
+            &mut socket,
+            SyncMessage::OwnerMessage {
+                protocol_id: ProtocolId::OfdbSqlV7,
+                payload: vec![0],
+            },
+        )
+        .await;
+        assert_eq!(
+            receive(&mut socket).await,
+            SyncMessage::Abort(AbortReason::Unauthorized)
+        );
+        assert_eq!(
+            authorization
+                .check_publish()
+                .await
+                .expect_err("publish requires both actions")
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+    }
 }
 
 #[tokio::test]

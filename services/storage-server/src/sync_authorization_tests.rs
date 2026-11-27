@@ -47,7 +47,8 @@ async fn ws_authorization_requires_exact_current_resource_policy() {
     let idp = IdpClient::local(|_| async {
         Ok(serde_json::from_value(json!({
             "claims": { "type": "Bearer", "use": "Access", "exp": i64::MAX,
-                "iat": 0, "nbf": 0, "iss": "https://idp.example", "aud": "storage:sync",
+                "iat": 0, "nbf": 0, "iss": "https://idp.example", "aud": "storage:sync", "resource": "storage:sync",
+                "authorization_details": [{ "type": "storage", "actions": ["read", "write"] }],
                 "client_id": "client", "sub": "alice", "principal_type": "user", "scope": "" },
             "applicationId": "app",
         }))
