@@ -1,5 +1,3 @@
-use core::future::ready;
-
 #[cfg(not(feature = "std"))]
 use alloc::{collections::BTreeSet, string::String, vec::Vec};
 #[cfg(feature = "std")]
@@ -157,23 +155,22 @@ where
         ) -> platform::BoxFuture<'a, EngineResult<(O, MutationSummary)>>,
         V: FnOnce(&O) -> EngineResult<()>,
     {
-        self.mutate_tables_checked(tables, operation, validate, || ready(Ok(())))
+        self.mutate_tables_with_commit(tables, operation, validate, KernelTransaction::commit)
             .await
     }
 
-    /// Runs a final check after mutation, validation, and index maintenance, with the
-    /// transaction still open. The check must not depend on this transaction or its writer.
+    /// Commits through a caller-selected transaction commit method after mutation, validation,
+    /// and index maintenance.
     ///
     /// # Errors
     ///
-    /// Rolls back and returns an error if mutation, validation, or the final check fails.
-    /// Also returns errors from transaction setup, commit, or rollback.
-    pub async fn mutate_tables_checked<F, O, V, Q, U, E>(
+    /// Returns an error if setup, mutation, validation, commit, or rollback fails.
+    pub async fn mutate_tables_with_commit<F, O, V, Q, U, E>(
         &self,
         tables: &[String],
         operation: F,
         validate: V,
-        before_commit: Q,
+        commit: Q,
     ) -> Result<O, E>
     where
         F: for<'a> FnOnce(
@@ -181,7 +178,7 @@ where
             &'a mut K::Transaction,
         ) -> platform::BoxFuture<'a, EngineResult<(O, MutationSummary)>>,
         V: FnOnce(&O) -> EngineResult<()>,
-        Q: FnOnce() -> U,
+        Q: FnOnce(K::Transaction) -> U,
         U: Future<Output = Result<(), E>>,
         E: From<crate::EngineError>,
     {
@@ -210,13 +207,12 @@ where
                     .await?;
                 }
             }
-            before_commit().await?;
             Ok(output)
         }
         .await;
         match result {
             Ok(output) => {
-                transaction.commit().await?;
+                commit(transaction).await?;
                 Ok(output)
             }
             Err(error) => {

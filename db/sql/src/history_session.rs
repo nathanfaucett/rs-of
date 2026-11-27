@@ -188,6 +188,7 @@ impl Database {
 
     /// Receives SQL v7 into a private staging database and publishes it only into a previously
     /// unused native destination. A caller must report success separately from SQL v7 completion.
+    /// The final check runs under the actual writer. It must be bounded and read-only on that host.
     ///
     /// # Errors
     ///

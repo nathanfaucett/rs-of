@@ -916,6 +916,7 @@ where
     C: SyncRowCodec<S::Transaction>,
     Q: FnOnce() -> U + MaybeSend,
     U: Future<Output = Result<(), String>> + MaybeSend,
+    E: MaybeSend,
 {
     let units = sync_stage(|| export_sync_state_limited(staged, max_bytes, None)).await?;
     if units.is_empty() {
@@ -933,7 +934,7 @@ where
         .into_iter()
         .collect::<Vec<_>>();
     engine
-        .mutate_tables_checked(
+        .mutate_tables_with_commit(
             &tables,
             move |codec, transaction| {
                 Box::pin(async move {
@@ -958,7 +959,9 @@ where
                 })
             },
             |_| Ok(()),
-            || async { check().await.map_err(SyncError::PreApply) },
+            |transaction| {
+                transaction.commit_checked(|| async { check().await.map_err(SyncError::PreApply) })
+            },
         )
         .await
         .map_err(|error| match error {

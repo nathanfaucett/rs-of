@@ -139,10 +139,11 @@ impl SyncStage for NativeSyncStage {
 
 impl Drop for SharedSyncStage {
     fn drop(&mut self) {
-        let _ = thread::scope(|scope| {
-            scope
-                .spawn(|| block_on(self.namespace.remove_table(&self.table)))
-                .join()
-        });
+        if let Ok(false) = self.namespace.try_remove_table(&self.table) {
+            // A checked writer may be awaiting authorization on this executor.
+            let namespace = self.namespace.clone();
+            let table = core::mem::take(&mut self.table);
+            let _ = thread::Builder::new().spawn(move || block_on(namespace.remove_table(&table)));
+        }
     }
 }

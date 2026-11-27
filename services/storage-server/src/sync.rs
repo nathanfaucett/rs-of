@@ -4,6 +4,7 @@ use std::{
     io,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use axum::{
@@ -19,6 +20,7 @@ use of_model::{id::Id, storage::namespace::StorageNamespace};
 use ofdb_sql::{Database, SessionConfig, SyncRole, SyncTransport, history::SyncError};
 use serde::{Deserialize, Serialize};
 use storage_service::database_runtime::DatabaseRuntime;
+use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::{
@@ -30,6 +32,7 @@ use crate::{
 pub const MAX_FRAME_PAYLOAD: u32 = 16 * 1024 * 1024;
 pub const MAX_SESSION_BYTES: u64 = 1024 * 1024 * 1024;
 pub const FRAMING_VERSION: u8 = 1;
+const FIRST_UPLOAD_AUTH_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -627,7 +630,11 @@ async fn exchange_attached_history(
     let config = SessionConfig::default();
     if first_upload {
         database
-            .receive_first_upload(&mut transport, &config, staging_dir, check)
+            .receive_first_upload(&mut transport, &config, staging_dir, || async {
+                timeout(FIRST_UPLOAD_AUTH_TIMEOUT, check())
+                    .await
+                    .map_err(|_elapsed| "first-upload authorization timed out".to_owned())?
+            })
             .await
             .map_err(exchange_abort)?;
         transport

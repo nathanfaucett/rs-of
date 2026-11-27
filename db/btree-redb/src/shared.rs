@@ -178,6 +178,23 @@ impl SharedNamespace {
     /// Returns an error when table deletion or commit fails.
     pub async fn remove_table(&self, name: &str) -> io::Result<()> {
         let _admission = self.host.admission.lock().await;
+        self.remove_table_admitted(name)
+    }
+
+    /// Removes one table only if writer admission is immediately available.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when table deletion or commit fails.
+    pub fn try_remove_table(&self, name: &str) -> io::Result<bool> {
+        let Some(_admission) = self.host.admission.try_lock() else {
+            return Ok(false);
+        };
+        self.remove_table_admitted(name)?;
+        Ok(true)
+    }
+
+    fn remove_table_admitted(&self, name: &str) -> io::Result<()> {
         let transaction = self.host.database.begin_write().map_err(io::Error::other)?;
         transaction
             .delete_table(table_definition::<Bytes, Vec<u8>>(&self.table(name)))
