@@ -205,6 +205,23 @@ async function merge(retry = false) {
     }
 }
 
+async function reviewPendingMerge() {
+    const session = authState.session;
+    if (!session || busy || currentBinding?.status !== "pending-merge") return;
+    busy = true;
+    error = "";
+    notice = "";
+    try {
+        await syncStateModule.reviewPendingMerge(session);
+        if (session === authState.session) notice = "The old merge was kept for recovery. Find the remote database and review a new merge before approving it.";
+    } catch (cause) {
+        if (session === authState.session) error = cause instanceof Error ? cause.message : "Could not check the pending merge.";
+    } finally {
+        await readBinding(session);
+        busy = false;
+    }
+}
+
 async function createVault() {
     if (busy) return;
     error = "";
@@ -373,6 +390,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                             <p class="break-all">Storage Resource ID: {currentBinding.id}</p>
                             <p>{currentBinding.committed ? "Storage confirmed the merge. Local publication is not complete." : "Storage has not confirmed the merge. Check its receipt before retrying."}</p>
                             <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={() => merge(true)}>Retry pending merge</button>
+                            <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={reviewPendingMerge}>Review changed histories</button>
                         {:else if currentBinding?.status === "merge-session-changed"}
                             <p>A merge is pending for a different sign-in session. This session cannot retry it. Your local vaults are still available.</p>
                         {:else if currentBinding?.status === "different-account"}

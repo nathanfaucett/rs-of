@@ -1353,7 +1353,7 @@ nodeTest(
             server.send(message);
           });
           server.onMessage((message) => {
-            if (typeof message !== "string" && message[6] === 12) {
+            if (!droppedReceipt && typeof message !== "string" && message[6] === 12) {
               droppedReceipt = true;
               socket.close();
             } else socket.send(message);
@@ -1362,6 +1362,8 @@ nodeTest(
         const prompt = independent.getByRole("region", { name: "Confirm database merge" });
         const approve = prompt.getByRole("button", { name: "Approve and merge" });
         const retryMerge = independent.getByRole("button", { name: "Retry pending merge" });
+        const reviewMerge = independent.getByRole("button", { name: "Review changed histories" });
+        const pendingKey = "password-manager-v1:storage-binding:merge";
         const remoteVault = independent.getByRole("button", { name: new RegExp(localVault) });
         await findRemote(independent).click();
         for (const field of [
@@ -1415,6 +1417,9 @@ nodeTest(
         expect(await localData()).toEqual(edited);
         expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
         await independent.reload();
+        await reviewMerge.click();
+        await expect(independent.getByRole("alert")).toContainText("Retry the exact pending merge");
+        expect(compareAttempts).toHaveLength(1);
         await retryMerge.click();
         await expect(retryMerge).toBeEnabled();
         await expect.poll(() => droppedReceipt).toBe(true);
@@ -1430,17 +1435,70 @@ nodeTest(
         for (const plaintext of [note, secret, independentPassword])
           expect(merged.body).not.toContain(plaintext);
 
+        // An edit after remote publication must survive even though the reply was lost.
+        const renamed = `${name} after publication`;
+        await independent.evaluate(
+          async ({ name, renamed }) => {
+            const module = "/src/lib/vault/storage/migrate-to-shared.ts";
+            const db = await (await import(module)).openSharedDatabase();
+            const client = db.client();
+            try {
+              await client.executeRaw("UPDATE vaults SET name = ? WHERE name = ?", [
+                { type: "text", value: renamed },
+                { type: "text", value: name },
+              ]);
+            } finally {
+              client.close();
+              db.close();
+            }
+          },
+          { name, renamed }
+        );
         await independent.reload();
         await retryMerge.click();
+        await expect(independent.getByRole("alert")).toContainText(
+          "Storage committed the merge, but this browser changed"
+        );
+        await expect(independent.getByRole("button", { name: new RegExp(renamed) })).toBeVisible();
+        expect(await localData()).toEqual(edited);
+        const oldOperation = await independent.evaluate(
+          (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
+          pendingKey
+        );
+        expect(oldOperation.committed).toBe(true);
+        await reviewMerge.click();
+        await expect(findRemote(independent)).toBeVisible();
+        expect(
+          await independent.evaluate(
+            (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
+            `${pendingKey}:${oldOperation.operation}`
+          )
+        ).toEqual(oldOperation);
+        expect(await localData()).toEqual(edited);
+        await findRemote(independent).click();
+        await expect(approve).toBeVisible();
+        expect(compareAttempts).toHaveLength(2);
+        expect(compareAttempts[0]).toBe(compareAttempts[1]);
+        expect(receiptChecks.every((receipt) => receipt === compareAttempts[0])).toBe(true);
+        expect(receiptChecks.length).toBeGreaterThan(1);
+        await approve.click();
         const linked = independent.getByText(`Linked Storage Resource ID: ${resourceId}`, {
           exact: true,
         });
         await expect(linked).toHaveCount(1);
-        expect(compareAttempts).toHaveLength(2);
-        expect(receiptChecks).toEqual(compareAttempts);
-        expect(new Set(compareAttempts).size).toBe(1);
+        expect(compareAttempts).toHaveLength(3);
+        expect(compareAttempts[2]).not.toBe(compareAttempts[0]);
         expect(await databases()).toEqual(catalogWithDuplicateName);
         expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(merged.body));
+        expect(
+          JSON.parse(
+            (
+              await query(
+                "SELECT name FROM vaults WHERE name = 'Independent local vault after publication'"
+              )
+            ).body
+          ).results[0].rows
+        ).toEqual([[{ type: "text", value: renamed }]]);
         await independent.reload();
         await expect(linked).toHaveCount(1);
         await expect(findRemote(independent)).toHaveCount(0);
@@ -1467,7 +1525,7 @@ nodeTest(
         await expect(complete(independent)).toBeVisible();
         await expect(linked).toHaveCount(1);
         await expect(prompt).toHaveCount(0);
-        expect(compareAttempts).toHaveLength(2);
+        expect(compareAttempts).toHaveLength(3);
         expect(await databases()).toEqual(catalogWithDuplicateName);
       } finally {
         await independentContext.close();

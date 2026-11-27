@@ -153,7 +153,8 @@ impl Database {
     ///
     /// The runner's `_ofdb_migrations` rows must have identical history or be unedited,
     /// independently applied copies of the same versions, descriptions and fingerprints.
-    /// The stage marks redundant copies deleted without removing their history. The caller must
+    /// The stage marks redundant copies deleted without removing their history. Previously staged
+    /// redundant tombstones are accepted only with the same canonical live copy. The caller must
     /// still verify the ledger against its expected migration plan.
     ///
     /// This checks retained application IDs and the provenance of visible encrypted field tuples,
@@ -258,7 +259,7 @@ async fn reconcile(
     let (right_schemas, right_claims) =
         conflict_stage(|| observe(&other, policy, &right_keys, Some(&right))).await?;
     require_same_schema(&schemas, &right_schemas)?;
-    let redundant = redundant_migrations(&left, &right, &stage, &other).await?;
+    let mut redundant = redundant_migrations(&left, &right, &stage, &other).await?;
     drop(other);
 
     conflict_stage(|| history::apply_sync_state_batch_for(&stage, right.to_vec())).await?;
@@ -268,6 +269,14 @@ async fn reconcile(
     for (key, claim) in &merged {
         verify_claim(claim, left_claims.get(key), right_claims.get(key))?;
     }
+    redundant.retain(|row| {
+        merged
+            .get(&SyncKey::Row {
+                table: MIGRATIONS.into(),
+                row: *row,
+            })
+            .is_some_and(|claim| claim.envelope.is_some())
+    });
     if !redundant.is_empty() {
         suppress_migrations(&stage, redundant).await?;
     }
@@ -309,9 +318,15 @@ async fn redundant_migrations(
         return Err(INCOMPATIBLE_MIGRATIONS);
     }
     let mut redundant = Vec::new();
-    for (version, (definition, first)) in left {
-        let (other_definition, second) = &right[&version];
-        if &definition != other_definition || (first.key == second.key && first != *second) {
+    for (version, (definition, first, left_rows)) in left {
+        let (other_definition, second, right_rows) = &right[&version];
+        if &definition != other_definition
+            || left_rows.iter().any(|(key, unit)| {
+                right_rows
+                    .get(key)
+                    .is_some_and(|other| unit.state != other.state)
+            })
+        {
             return Err(INCOMPATIBLE_MIGRATIONS);
         }
         if first.key != second.key {
@@ -322,7 +337,9 @@ async fn redundant_migrations(
     Ok(redundant)
 }
 
-type MigrationDefinitions<'a> = BTreeMap<u32, ((String, Vec<u8>), &'a SyncStateUnit)>;
+type MigrationRows<'a> = BTreeMap<SyncKey, &'a SyncStateUnit>;
+type MigrationDefinitions<'a> =
+    BTreeMap<u32, ((String, Vec<u8>), &'a SyncStateUnit, MigrationRows<'a>)>;
 
 async fn migration_definitions<'a>(
     stage: &Stage,
@@ -367,21 +384,36 @@ async fn migration_definitions<'a>(
             return Err(INCOMPATIBLE_MIGRATIONS);
         };
         let version = u32::try_from(*version).map_err(|_error| INCOMPATIBLE_MIGRATIONS)?;
-        if row.deleted
-            || !row.conflicts.is_empty()
-            || !unit.metadata.is_empty()
+        if !row.conflicts.is_empty()
+            || (!row.deleted && !unit.metadata.is_empty())
             || !AutomergeRowCodec::is_unedited_insert(&unit.state, &view.columns)?
             || version == 0
             || fingerprint.len() != 32
             || *elapsed < 0
-            || definitions
-                .insert(version, ((description.clone(), fingerprint.clone()), unit))
-                .is_some()
         {
             return Err(INCOMPATIBLE_MIGRATIONS);
         }
+        let definition = (description.clone(), fingerprint.clone());
+        let (existing, live, rows) = definitions
+            .entry(version)
+            .or_insert_with(|| (definition.clone(), None, MigrationRows::new()));
+        if *existing != definition || (!row.deleted && live.replace(unit).is_some()) {
+            return Err(INCOMPATIBLE_MIGRATIONS);
+        }
+        rows.insert(unit.key.clone(), unit);
     }
-    Ok(definitions)
+    // A previous stage can leave redundant untouched inserts as tombstones. The same
+    // canonical minimum must still be the sole live copy on that side.
+    definitions
+        .into_iter()
+        .map(|(version, (definition, live, rows))| {
+            let live = live.ok_or(INCOMPATIBLE_MIGRATIONS)?;
+            if rows.first_key_value().map(|(key, _)| key) != Some(&live.key) {
+                return Err(INCOMPATIBLE_MIGRATIONS);
+            }
+            Ok((version, (definition, live, rows)))
+        })
+        .collect()
 }
 
 async fn suppress_migrations(stage: &Stage, redundant: Vec<Uuid>) -> Result<(), EngineError> {
@@ -562,7 +594,7 @@ fn collect_claims(
                     .any(|(column, _)| record.envelope.contains(&column.as_str()))
             {
                 return Err(EngineError::InvalidQuery(
-                    "Split history envelope has a column conflict",
+                    "Incompatible split history envelope: column conflict",
                 ));
             }
             Some(

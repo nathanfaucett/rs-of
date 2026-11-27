@@ -29,7 +29,7 @@ export interface AttachOptions {
   identity: StoreIdentity;
   direction: SyncDirection;
   signal?: AbortSignal;
-  /** Synchronous caller fence, checked after token acquisition and before handshake sends. */
+  /** Synchronous caller fence for credential acquisition and every WebSocket send. */
   checkActive?: () => boolean;
 }
 export interface AttachResult {
@@ -147,7 +147,8 @@ export class SyncClient {
       let usedBytes = 0n;
       const requireActive = () => {
         try {
-          if (options.checkActive === undefined || options.checkActive() === true) return;
+          if (!options.signal?.aborted && (!options.checkActive || options.checkActive() === true))
+            return;
         } catch {
           // An unreadable fence cannot authorize attach.
         }
@@ -220,6 +221,7 @@ export class SyncClient {
           if (usedBytes > result.maxSessionBytes)
             throw new Error("Sync session exceeds negotiated byte limit");
           if (!socket) throw new Error("Missing attached socket");
+          requireActive();
           cleanup();
           settled = true;
           resolve(
@@ -229,7 +231,8 @@ export class SyncClient {
               options.signal,
               usedBytes,
               intent,
-              publication
+              publication,
+              requireActive
             )
           );
         } catch (error) {
@@ -253,9 +256,17 @@ export class SyncClient {
       void (async () => {
         let token: string;
         try {
-          token = await this.options.tokenProvider(options.signal);
-        } catch {
-          stop(new SyncError("auth", "Could not obtain sync access token"));
+          requireActive();
+          try {
+            token = await this.options.tokenProvider(options.signal);
+          } catch {
+            requireActive();
+            throw new SyncError("auth", "Could not obtain sync access token");
+          }
+          requireActive();
+        } catch (error) {
+          if (error instanceof SyncError) stop(error);
+          else failed();
           return;
         }
         if (settled) return;

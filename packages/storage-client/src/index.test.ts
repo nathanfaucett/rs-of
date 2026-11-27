@@ -358,6 +358,8 @@ function databaseOperation(client: StorageClient, operation: string, signal?: Ab
       return client.createDatabase("Label", signal);
     case "list":
       return client.listDatabases(signal);
+    case "lookup":
+      return client.findSqlDatabaseByCreationKey("key", signal);
     case "get":
       return client.getDatabase("db", signal);
     case "delete":
@@ -371,7 +373,7 @@ function databaseOperation(client: StorageClient, operation: string, signal?: Ab
       );
   }
 }
-it.each(["ensure", "create", "list", "get", "delete", "sql"])(
+it.each(["ensure", "create", "list", "lookup", "get", "delete", "sql"])(
   "database %s cancellation while obtaining bearer cannot send exchange or operation",
   async (operation) => {
     let release!: (token: string) => void;
@@ -379,15 +381,17 @@ it.each(["ensure", "create", "list", "get", "delete", "sql"])(
       release = resolve;
     });
     const fetch = vi.fn();
+    const bearerToken = vi.fn(() => held);
     const client = new StorageClient({
       idpBaseUrl: "https://idp.test/idp",
       storageBaseUrl: "https://storage.test/storage",
       clientId: "web",
-      bearerToken: () => held,
+      bearerToken,
       fetch,
     });
     const controller = new AbortController();
     const pending = databaseOperation(client, operation, controller.signal);
+    expect(bearerToken).toHaveBeenCalledWith(controller.signal);
     controller.abort();
     release("old-token");
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });

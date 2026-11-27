@@ -16,6 +16,8 @@ export type PendingMerge = MergeDestination & {
   operation: string;
   candidate: string;
   committed: boolean;
+  // Missing on older pending operations: treat those as possibly sent.
+  attempted?: boolean;
 };
 
 export function readPendingMerge(): PendingMerge | undefined {
@@ -31,7 +33,9 @@ export function readPendingMerge(): PendingMerge | undefined {
     ![value.namespace, value.clientId, value.loginState].every(
       (text) => typeof text === "string" && text.length > 0
     ) ||
-    typeof value.committed !== "boolean"
+    typeof value.committed !== "boolean" ||
+    (value.attempted !== undefined && typeof value.attempted !== "boolean") ||
+    (value.committed && value.attempted === false)
   )
     throw new Error("Invalid pending merge. Your vaults are still local.");
   return value;
@@ -81,6 +85,7 @@ export async function pullMergeSnapshot<T>(
       const pinned = encodeRevision(await session.waitForSnapshotRevision());
       if (encodeRevision(await snapshot.historyRevision()) !== pinned)
         throw new Error("The remote snapshot did not match its history revision.");
+      if (!attach.checkActive() || attach.signal?.aborted) throw new Error("Sync cancelled");
       return await useSnapshot(snapshot, pinned);
     } finally {
       session.close();
@@ -125,6 +130,7 @@ export async function retainCandidate(
         new TextEncoder().encode(merge.operation),
         checkActive
       );
+      if (!checkActive()) throw new Error("Sign-in session ended");
       const pending = { ...merge, candidate: encodeRevision(before) };
       retainMerge(pending);
       retained = true;
@@ -167,4 +173,10 @@ export function clearMerge(merge: PendingMerge) {
     return;
   }
   indexedDB.deleteDatabase(candidateName(merge.operation));
+}
+
+export function archiveMerge(merge: PendingMerge) {
+  // Keep the operation tuple and its private candidate. Only free the active slot.
+  localStorage.setItem(candidateName(merge.operation), JSON.stringify(merge));
+  localStorage.removeItem(mergeKey);
 }

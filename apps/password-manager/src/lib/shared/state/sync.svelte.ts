@@ -9,6 +9,7 @@ import {
 } from "@ofsdk/sync-sdk/browser";
 import { authState } from "$lib/auth/auth.svelte";
 import {
+  archiveMerge,
   clearMerge,
   decodeRevision,
   encodeRevision,
@@ -60,15 +61,27 @@ function resourceIdentity(id: string) {
   };
 }
 
-function storageAccess(session = authState.session) {
+function storageAccess(session = authState.session, checkActive?: () => boolean) {
   if (!session || session !== authState.session) throw new Error("Sign in to sync first");
-  const getToken = () => authState.getAccessToken(session);
+  const requireActive = () => {
+    if (session !== authState.session || (checkActive && !checkActive()))
+      throw new Error("Sign-in session ended");
+  };
+  const getToken = async (signal?: AbortSignal) => {
+    requireActive();
+    const token = await authState.getAccessToken(session, signal);
+    requireActive();
+    return token;
+  };
   const client = new StorageClient({
     idpBaseUrl: session.idp,
     storageBaseUrl: session.storage,
     clientId: session.clientId,
     bearerToken: getToken,
-    fetch: (input, init) => fetch(input, { ...init, credentials: "omit", redirect: "error" }),
+    fetch: (input, init) => {
+      requireActive();
+      return fetch(input, { ...init, credentials: "omit", redirect: "error" });
+    },
   });
   return { session, client, getToken };
 }
@@ -162,12 +175,16 @@ async function getBinding(expected: Session) {
   }
 }
 
-async function findRestoreResource(expected: Session, signal?: AbortSignal) {
-  const resource = await storageAccess(expected).client.findSqlDatabaseByCreationKey(
+async function findRestoreResource(
+  expected: Session,
+  signal: AbortSignal,
+  checkActive: () => boolean
+) {
+  const resource = await storageAccess(expected, checkActive).client.findSqlDatabaseByCreationKey(
     creationKey,
     signal
   );
-  if (authState.session !== expected) throw new Error("Sign-in session ended");
+  if (!checkActive()) throw new Error("Sign-in session ended");
   return resource?.id;
 }
 
@@ -183,10 +200,13 @@ async function inspectRestore(expected: Session): Promise<RestoreInspection | un
   return withExchange(expected, async (database, signal, checkActive) => {
     requireUnbound(await readBinding(database));
     if (readPendingMerge()) throw new Error("A merge is already pending.");
-    const id = await findRestoreResource(expected, signal);
+    const id = await findRestoreResource(expected, signal, checkActive);
     if (!id) return;
-    if (await hasLegacyLocalVaults()) return { id, mode: "legacy" };
-    if (await database.initialRestoreIsEligible()) return { id, mode: "restore" };
+    const legacy = await hasLegacyLocalVaults();
+    const pristine = await database.initialRestoreIsEligible();
+    if (!checkActive()) throw new Error("Sign-in session ended");
+    if (legacy) return { id, mode: "legacy" };
+    if (pristine) return { id, mode: "restore" };
     const local = encodeRevision(await database.historyRevision());
     const { client, attach } = mergeConnection(expected, id, signal, checkActive, false);
     const remote = await pullMergeSnapshot(client, attach, (_snapshot, pinned) => pinned);
@@ -214,7 +234,7 @@ function mergeConnection(
   checkActive: () => boolean,
   write: boolean
 ) {
-  const { client } = storageAccess(expected);
+  const { client } = storageAccess(expected, checkActive);
   return {
     client: new SyncClient({
       storageApiUrl: expected.storage,
@@ -229,6 +249,66 @@ function mergeConnection(
   };
 }
 
+function publicationFor(merge: PendingMerge) {
+  return {
+    operation: merge.operation,
+    expected: decodeRevision(merge.remote),
+    candidate: decodeRevision(merge.candidate),
+  };
+}
+
+async function checkMergeReceipt(
+  merge: PendingMerge,
+  client: SyncClient,
+  attach: ReturnType<typeof mergeConnection>["attach"]
+) {
+  if (merge.attempted === false) return false;
+  const committed = await client.checkPublication({
+    ...attach,
+    publication: publicationFor(merge),
+  });
+  if (!attach.checkActive() || attach.signal.aborted) throw new Error("Sync cancelled");
+  if (merge.committed && !committed)
+    throw new Error("The prior Storage receipt is no longer available. No history was sent.");
+  if (committed && !merge.committed) retainMerge({ ...merge, committed });
+  return committed;
+}
+
+async function reviewPendingMerge(expected: Session) {
+  await withExchange(expected, async (database, signal, checkActive) => {
+    requireUnbound(await readBinding(database));
+    const merge = readPendingMerge();
+    if (!merge || !ownsMerge(expected, merge))
+      throw new Error("This session cannot review the pending merge.");
+    const localMatches = await matchesLocalRevision(database, merge.local);
+    const write = mergeConnection(expected, merge.id, signal, checkActive, true);
+    let committed = await checkMergeReceipt(merge, write.client, write.attach);
+    if (!committed) {
+      const pull = mergeConnection(expected, merge.id, signal, checkActive, false);
+      const remote = await pullMergeSnapshot(
+        pull.client,
+        pull.attach,
+        (_snapshot, pinned) => pinned
+      );
+      if (remote === merge.remote) {
+        if (localMatches)
+          throw new Error("The histories still match. Retry the exact pending merge.");
+        if (merge.attempted !== false)
+          throw new Error(
+            "Local history changed, but Storage may still commit the pending operation. No history was sent. Check again later."
+          );
+      } else {
+        // The old compare cannot start from this newer history. Check for a receipt after Pull.
+        committed = await checkMergeReceipt(merge, write.client, write.attach);
+      }
+    }
+    if (committed && localMatches)
+      throw new Error("Storage confirmed publication. Retry the pending merge to save it locally.");
+    if (!checkActive()) throw new Error("Sign-in session ended");
+    archiveMerge({ ...merge, committed });
+  });
+}
+
 async function mergeDatabases(expected: Session, destination?: MergeDestination) {
   await withExchange(expected, async (database, signal, checkActive) => {
     requireUnbound(await readBinding(database));
@@ -236,7 +316,7 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
     const id = destination?.id ?? merge?.id;
     if (!destination && (!merge || !ownsMerge(expected, merge)))
       throw new Error("The sign-in session changed. This session cannot resume the merge.");
-    if (!id || (await findRestoreResource(expected, signal)) !== id)
+    if (!id || (await findRestoreResource(expected, signal, checkActive)) !== id)
       throw new Error("The remote Resource changed. No merge was applied.");
     if (!checkActive()) throw new Error("Sign-in session ended");
     if (destination) {
@@ -254,6 +334,7 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
             version: 1,
             operation: crypto.randomUUID(),
             committed: false,
+            attempted: false,
             namespace: namespace(expected),
             loginState: expected.loginState,
             clientId: expected.clientId,
@@ -264,37 +345,32 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
     }
     if (!merge || !ownsMerge(expected, merge))
       throw new Error("The sign-in session changed. This session cannot resume the merge.");
-    const publication = {
-      operation: merge.operation,
-      expected: decodeRevision(merge.remote),
-      candidate: decodeRevision(merge.candidate),
-    };
+    const publication = publicationFor(merge);
     const { client, attach } = mergeConnection(expected, id, signal, checkActive, true);
-    let committed = !destination && (await client.checkPublication({ ...attach, publication }));
-    if (merge.committed && !committed)
-      throw new Error("The prior Storage receipt is no longer available. No history was sent.");
-    if (committed && !merge.committed) retainMerge({ ...merge, committed });
+    let committed = !destination && (await checkMergeReceipt(merge, client, attach));
     await requireLocalRevision(database, merge.local, committed);
     if (!committed && !destination) {
-      const remote = merge.remote;
+      const pendingMerge = merge;
       const pull = mergeConnection(expected, id, signal, checkActive, false);
       await pullMergeSnapshot(pull.client, pull.attach, async (_snapshot, revision) => {
-        if (revision !== remote) {
+        if (revision !== pendingMerge.remote) {
           // A prior compare can commit between the first receipt check and this Pull.
-          if (!(await client.checkPublication({ ...attach, publication })))
+          if (!(await checkMergeReceipt(pendingMerge, client, attach)))
             throw new Error(
-              "Remote history changed. This pending merge cannot send or replace it."
+              "Remote history changed. Review the pending merge before giving fresh consent."
             );
           committed = true;
         }
       });
-      if (committed) retainMerge({ ...merge, committed });
     }
     const stage = await reopenCandidate(merge);
     try {
       if (!committed) {
         try {
           await requireLocalRevision(database, merge.local, false);
+          if (!checkActive()) throw new Error("Sign-in session ended");
+          merge = { ...merge, attempted: true };
+          retainMerge(merge);
           const session = await client.attachComparePublish({ ...attach, publication });
           try {
             await requireLocalRevision(database, merge.local, false);
@@ -309,7 +385,7 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
           // A lost receipt or an overlapping attempt can still have committed this operation.
           if (cause instanceof SyncError && cause.code === "destination-changed")
             throw new Error(
-              "Remote history changed. Storage refused the merge. No local history was replaced.",
+              "Remote history changed. Storage refused the merge. Review the pending merge before giving fresh consent.",
               { cause }
             );
           throw cause;
@@ -339,12 +415,16 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
   });
 }
 
+async function matchesLocalRevision(database: Database, expected: string) {
+  return (
+    !(await database.initialRestoreTag()) &&
+    !(await hasLegacyLocalVaults()) &&
+    encodeRevision(await database.historyRevision()) === expected
+  );
+}
+
 async function requireLocalRevision(database: Database, expected: string, committed: boolean) {
-  if (
-    (await database.initialRestoreTag()) ||
-    (await hasLegacyLocalVaults()) ||
-    encodeRevision(await database.historyRevision()) !== expected
-  )
+  if (!(await matchesLocalRevision(database, expected)))
     throw new Error(
       committed
         ? "Storage committed the merge, but this browser changed. Your current local data was kept."
@@ -474,6 +554,7 @@ async function withExchange<T>(
       if (!checkActive()) throw new Error("Sign-in session ended");
       const database = await openSharedDatabase();
       try {
+        if (!checkActive()) throw new Error("Sign-in session ended");
         return await run(database, signal, checkActive, pending);
       } finally {
         await pending.sync?.close();
@@ -490,7 +571,7 @@ async function exchange(expected: Session, intent: Intent) {
     function requireSession() {
       if (!checkActive()) throw new Error("Sign-in session ended");
     }
-    const { client } = storageAccess(expected);
+    const { client } = storageAccess(expected, checkActive);
     const record = await readBinding(database);
     const owner = namespace(expected);
     const confirmationId = crypto.randomUUID();
@@ -501,7 +582,7 @@ async function exchange(expected: Session, intent: Intent) {
       if (!(await isPristineForRestore(database)))
         throw new Error("Merge required: this browser has local history. No data was changed.");
       requireSession();
-      if ((await findRestoreResource(expected, signal)) !== intent.id)
+      if ((await findRestoreResource(expected, signal, checkActive)) !== intent.id)
         throw new Error("The remote Resource changed. Find it again before restoring.");
       id = intent.id;
     } else {
@@ -626,7 +707,11 @@ async function setDetached(expected: Session, id: string, detached: boolean) {
         if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session changed.");
         if (!record || record.id !== id || record.namespace !== namespace(expected))
           throw new Error("The Storage binding changed. Check the destination before reattaching.");
-        const { client } = storageAccess(expected);
+        const checkActive = (): boolean =>
+          attachment?.sync === sync &&
+          authState.hasVerifiedToken(expected) &&
+          isAttached(record, expected);
+        const { client } = storageAccess(expected, checkActive);
         // Saved permission alone is never authority to start in a new runtime.
         attach(expected, record.revision);
         const sync = startSqlResourceSync(database, resourceIdentity(record.id), {
@@ -643,10 +728,7 @@ async function setDetached(expected: Session, id: string, detached: boolean) {
               await run();
             });
           },
-          checkActive: () =>
-            attachment?.sync === sync &&
-            authState.hasVerifiedToken(expected) &&
-            isAttached(record, expected),
+          checkActive,
           tokenProvider: (attempt) =>
             client.getStorageToken("storage:sync", ["read", "write"], attempt),
           onStatus(status) {
@@ -695,6 +777,7 @@ export const syncStateModule = {
   closeSync,
   inspectRestore,
   mergeDatabases,
+  reviewPendingMerge,
   getBinding,
   retryBindingSave,
   clearPendingConfirmation,

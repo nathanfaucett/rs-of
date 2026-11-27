@@ -167,6 +167,61 @@ async fn reconciles_equivalent_independent_migrations_without_dropping_history()
 }
 
 #[tokio::test]
+async fn restages_after_remote_publication_and_a_local_edit() {
+    let left = Database::in_memory();
+    let right = Database::in_memory();
+    for source in [&left, &right] {
+        source
+            .client()
+            .migrate(&item_migration())
+            .await
+            .expect("apply migrations");
+    }
+    execute(&left, "INSERT INTO items VALUES ('local', 'original')").await;
+    execute(&right, "INSERT INTO items VALUES ('remote', 'original')").await;
+    let first = left
+        .stage_history(&right, MIGRATED)
+        .await
+        .expect("initial stage");
+    let published = reopen(&first).await;
+    // Exercise both sides of the canonical ledger choice, including the original loser.
+    execute(&left, "UPDATE items SET envelope = 'local edit'").await;
+    execute(&right, "UPDATE items SET envelope = 'remote edit'").await;
+    for (source, edit) in [(&left, "local edit"), (&right, "remote edit")] {
+        let staged = source
+            .stage_history(&published, MIGRATED)
+            .await
+            .expect("fresh stage");
+        assert_eq!(first.units().len(), staged.units().len());
+        let reopened = reopen(&staged).await;
+        assert_eq!(
+            execute(&reopened, "SELECT id FROM _ofdb_migrations")
+                .await
+                .len(),
+            1
+        );
+        assert_eq!(execute(&reopened, "SELECT id FROM items").await.len(), 2);
+        assert_eq!(
+            execute(
+                &reopened,
+                "SELECT id FROM items WHERE envelope = 'original'"
+            )
+            .await
+            .len(),
+            1
+        );
+        assert_eq!(
+            execute(
+                &reopened,
+                "SELECT envelope FROM items WHERE envelope != 'original'"
+            )
+            .await,
+            [Row::new(vec![Value::from(edit)])]
+        );
+    }
+}
+
+#[tokio::test]
 async fn rejects_divergent_migration_history_under_the_same_id() {
     let plan = item_migration();
     let left = Database::in_memory();
@@ -333,6 +388,10 @@ async fn a_single_envelope_has_the_same_conflict_winner_in_either_import_order()
 
     let projection = "SELECT envelope FROM items WHERE id = 'stable'";
     let winner = execute(&merge_left, projection).await;
+    let canonical = Database::in_memory();
+    stage(&left, &canonical).await;
+    stage(&right, &canonical).await;
+    assert_eq!(winner, execute(&canonical, projection).await);
     assert_eq!(winner, execute(&merge_right, projection).await);
     assert_eq!(winner.len(), 1);
     assert!(matches!(

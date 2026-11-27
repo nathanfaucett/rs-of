@@ -35,7 +35,8 @@ export function createSession(
   signal: AbortSignal | undefined,
   usedBytes: bigint,
   intent: AttachTag,
-  publication?: Uint8Array
+  publication: Uint8Array | undefined,
+  requireActive: () => void
 ) {
   let ended: SyncError | undefined;
   let failure: SyncError | undefined;
@@ -66,6 +67,7 @@ export function createSession(
   const send = (payload: Uint8Array) => {
     if (ended) throw ended;
     try {
+      requireActive();
       if (payload.length > result.maxFrameBytes)
         throw new SyncError("protocol", "Sync frame exceeds negotiated limit");
       const bytes = frame(payload);
@@ -82,6 +84,7 @@ export function createSession(
   };
   const received = (event: MessageEvent) => {
     try {
+      requireActive();
       const payload = unframe(event.data, result.maxFrameBytes);
       count(event.data.byteLength);
       const message = response(payload);
@@ -110,8 +113,12 @@ export function createSession(
       else queue.push(data);
       if (!(data instanceof Uint8Array))
         stop(new SyncError("protocol", "Sync control response already received"), true);
-    } catch {
-      stop(new SyncError("protocol", "Invalid sync session message or byte limit exceeded"));
+    } catch (error) {
+      stop(
+        error instanceof SyncError
+          ? error
+          : new SyncError("protocol", "Invalid sync session message or byte limit exceeded")
+      );
     }
   };
   const failed = () => stop(new SyncError("transport", "Sync WebSocket failed"));
@@ -124,7 +131,13 @@ export function createSession(
   if (signal?.aborted) cancelled();
   if (usedBytes > result.maxSessionBytes)
     stop(new SyncError("protocol", "Sync session exceeds negotiated byte limit"));
-  const next = (): Promise<Incoming> => {
+  const next = async (): Promise<Incoming> => {
+    try {
+      requireActive();
+    } catch (error) {
+      cancelled();
+      throw error;
+    }
     const data = queue.shift();
     if (data) return Promise.resolve(data);
     if (ended) return Promise.reject(ended);

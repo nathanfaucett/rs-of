@@ -330,6 +330,32 @@ test("answers the server Ping using its actual Pong tag", async () => {
   (await pending).close();
 });
 
+test("does not acquire credentials when the attach fence is closed", async () => {
+  const tokenProvider = vi.fn();
+  const socket = vi.fn();
+  vi.stubGlobal("WebSocket", socket);
+  const sync = new SyncClient({ storageApiUrl: "https://node.test/storage", tokenProvider });
+  await expect(
+    sync.attach({ identity, direction: "Pull", checkActive: () => false })
+  ).rejects.toMatchObject({ code: "cancelled" });
+  expect(tokenProvider).not.toHaveBeenCalled();
+  expect(socket).not.toHaveBeenCalled();
+});
+
+test.each(["owner", "pong"])("fences %s sends after attach", async (kind) => {
+  let active = true;
+  const session = await client().attach({ identity, direction: "Push", checkActive: () => active });
+  active = false;
+  if (kind === "owner") expect(() => session.send(Uint8Array.of(7))).toThrow(/cancelled/);
+  else {
+    TestSocket.latest.receive(fixtures.ping);
+    await Promise.resolve();
+  }
+  expect(TestSocket.latest.sent).toHaveLength(2);
+  expect(session.failure?.code).toBe("cancelled");
+  expect(TestSocket.latest.readyState).toBe(3);
+});
+
 test("rejects negotiated session limits already exceeded by the handshake", async () => {
   TestSocket.reply = fixtures.tinySession;
   await expect(client().attach({ identity, direction: "Push" })).rejects.toMatchObject({

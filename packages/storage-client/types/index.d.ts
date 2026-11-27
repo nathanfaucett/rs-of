@@ -112,7 +112,7 @@ export type StorageClientOptions = {
     idpBaseUrl: URL | string;
     storageBaseUrl: URL | string;
     clientId: string;
-    bearerToken: () => string | Promise<string>;
+    bearerToken: (signal?: AbortSignal) => string | Promise<string>;
     fetch?: FetchFunction | undefined;
 };
 export type StorageConnection = Readonly<{
