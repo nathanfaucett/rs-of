@@ -30,7 +30,14 @@ function watchSession(listener: (ended: boolean) => void) {
 function checkStoredSession(event: StorageEvent) {
   const expected = session;
   const oidc = client;
-  if (!expected || !oidc || event.storageArea !== window.localStorage) return;
+  if (!oidc?.isStoredTokenEvent(event)) return;
+  // A later sign-in can replace storage before this removal event is delivered.
+  if (event.newValue === null) {
+    client = undefined;
+    if (expected) endSession();
+    return;
+  }
+  if (!expected) return;
   const current = oidc.getStoredTokenResponse()?.access_token;
   if (current === verifiedToken) return;
   // A token replacement may be a renewal or a different User. Stop transport before checking.
@@ -93,6 +100,7 @@ async function establishSession(
   { idp, storage, applicationUri }: OidcAuthConfig
 ) {
   const { issuer, userInfo, accessToken } = await oidc.getVerifiedIdentity();
+  if (client !== oidc) return;
   verifiedToken = accessToken;
   const clientId = oidc.registeredClientId;
   if (!clientId) throw new Error("No verified OAuth Client ID");
@@ -130,6 +138,14 @@ async function logout(): Promise<void> {
   await goto(resolve("/"));
 }
 
+function hasVerifiedToken(expected: NonNullable<typeof session>): boolean {
+  return (
+    session === expected &&
+    verifiedToken !== undefined &&
+    client?.getStoredTokenResponse()?.access_token === verifiedToken
+  );
+}
+
 async function getAccessToken(expected: NonNullable<typeof session>): Promise<string> {
   const oidc = client;
   if (!oidc || session !== expected) throw new Error("Sign in to sync first");
@@ -165,6 +181,7 @@ export const authState = {
   login,
   logout,
   getAccessToken,
+  hasVerifiedToken,
   checkStoredSession,
   watchSession,
 };

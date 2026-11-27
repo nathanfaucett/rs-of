@@ -114,6 +114,22 @@ async function findRestoreResource(expected: Session, signal?: AbortSignal) {
   return resource?.id;
 }
 
+export class BindingSaveError extends Error {}
+
+async function savePublishedBinding(database: Database, tag: Uint8Array) {
+  try {
+    if (await database.replaceInitialRestoreTag(undefined, tag)) return;
+  } catch (cause) {
+    throw new BindingSaveError(
+      "Storage confirmed publication, but the local binding could not be saved. Your vaults stay local.",
+      { cause }
+    );
+  }
+  throw new BindingSaveError(
+    "Storage confirmed publication, but a competing local binding was kept."
+  );
+}
+
 type Intent =
   | { mode: "first-upload"; onResource: (id: string) => void }
   | { mode: "first-restore"; id: string }
@@ -194,12 +210,9 @@ async function exchange(expected: Session, intent: Intent) {
           }
         );
         await pending.sync.sync();
+        // Once the receipt is verified, finish the local CAS. Sign-out detaches under this same lock.
+        if (intent.mode === "first-upload") await savePublishedBinding(database, tag);
         requireSession();
-        if (
-          intent.mode === "first-upload" &&
-          !(await database.replaceInitialRestoreTag(undefined, tag))
-        )
-          throw new Error("Storage confirmed publication, but the local binding changed.");
       } finally {
         await pending.sync?.close();
         database.close();
@@ -221,31 +234,49 @@ function watchDetach() {
   return () => channel.close();
 }
 
-async function setDetached(expected: Session, detached: boolean) {
-  if (detached) {
-    // Stop a running exchange in this or another tab before taking the database lock.
-    void cancelExchange();
-    const channel = new BroadcastChannel(bindingLock);
-    channel.postMessage("detach");
-    channel.close();
-  }
-  await navigator.locks.request(bindingLock, async () => {
-    if (authState.session !== expected) throw new Error("Sign-in session ended");
-    const database = await openSharedDatabase();
-    try {
-      const record = await readBinding(database);
-      if (!record || record.binding.namespace !== namespace(expected))
-        throw new Error("There is no Storage binding for this account.");
-      if (
-        !(await database.replaceInitialRestoreTag(
-          record.tag,
-          encodeBinding({ ...record.binding, detached })
-        ))
-      )
-        throw new Error("The local Storage binding changed. Try again.");
-    } finally {
-      database.close();
+function stopAcrossTabs() {
+  void cancelExchange();
+  const channel = new BroadcastChannel(bindingLock);
+  channel.postMessage("detach");
+  channel.close();
+}
+
+async function writeDetached(expected: Session, detached: boolean, allowMissing = false) {
+  const database = await openSharedDatabase();
+  try {
+    const record = await readBinding(database);
+    if (!record || record.binding.namespace !== namespace(expected)) {
+      if (allowMissing) return;
+      throw new Error("There is no Storage binding for this account.");
     }
+    if (record.binding.detached === detached) return;
+    if (
+      !(await database.replaceInitialRestoreTag(
+        record.tag,
+        encodeBinding({ ...record.binding, detached })
+      ))
+    )
+      throw new Error("The local Storage binding changed. Try again.");
+  } finally {
+    database.close();
+  }
+}
+
+async function setDetached(expected: Session, detached: boolean) {
+  if (detached) stopAcrossTabs();
+  await navigator.locks.request(bindingLock, async () => {
+    if (authState.session !== expected || (!detached && !authState.hasVerifiedToken(expected)))
+      throw new Error("Sign-in session changed. Try again after sign-in.");
+    await writeDetached(expected, detached);
+  });
+}
+
+async function signOut(expected: Session) {
+  stopAcrossTabs();
+  await navigator.locks.request(bindingLock, async () => {
+    if (authState.session !== expected) return;
+    await writeDetached(expected, true, true);
+    if (authState.session === expected) await authState.logout();
   });
 }
 
@@ -273,6 +304,7 @@ export const syncStateModule = {
   getBinding,
   watchDetach,
   setDetached,
+  signOut,
   syncBoundDatabase: (session: Session) => exchange(session, { mode: "established" }),
   restoreRemoteDatabase: (session: Session, id: string) =>
     exchange(session, { mode: "first-restore", id }),

@@ -222,3 +222,44 @@ test("restore refuses retained history from another IndexedDB handle during exch
   expect(result.eligible).toBe(false);
   expect(result.tag).toBeNull();
 });
+
+for (const competing of ["vault write", "destination", "detach"]) {
+  test(`local replica tag CAS preserves a competing ${competing}`, async ({ page }) => {
+    const result = await page.evaluate(async (competing) => {
+      const { Database } = window.sql;
+      const db = await Database.open("tag-race");
+      const other = await Database.open("tag-race");
+      const writer = other.client();
+      try {
+        await writer.executeRaw("CREATE TABLE vaults (id INTEGER PRIMARY KEY)");
+        const expected = competing === "detach" ? Uint8Array.of(1) : undefined;
+        if (expected) await other.replaceInitialRestoreTag(undefined, expected);
+        const hold = window.faults.holdNextCompletion("readonly");
+        const pending = db.replaceInitialRestoreTag(expected, Uint8Array.of(2)).then(
+          (saved) => saved,
+          (error: unknown) => String(error)
+        );
+        try {
+          await hold.completed;
+          if (competing === "vault write") await writer.executeRaw("INSERT INTO vaults VALUES (1)");
+          else await other.replaceInitialRestoreTag(expected, Uint8Array.of(3));
+        } finally {
+          hold.release();
+        }
+        const saved = await pending;
+        const tag = Array.from((await db.initialRestoreTag()) ?? []);
+        const { rows } = (await writer.executeRaw("SELECT id FROM vaults"))[0];
+        return { saved, tag, rows };
+      } finally {
+        writer.close();
+        other.close();
+        db.close();
+      }
+    }, competing);
+    expect(result).toEqual(
+      competing === "vault write"
+        ? { saved: true, tag: [2], rows: [[{ type: "integer", value: "1" }]] }
+        : { saved: false, tag: [3], rows: [] }
+    );
+  });
+}

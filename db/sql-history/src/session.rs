@@ -1018,7 +1018,7 @@ where
 /// Replaces the local-only replica tag if its current bytes match `expected`.
 ///
 /// # Errors
-/// Returns an error if the storage transaction fails or conflicts.
+/// Returns an error if storage fails or transaction conflicts exhaust the retry limit.
 pub async fn replace_initial_restore_tag_for<K, R>(
     engine: &Engine<K, R>,
     expected: Option<Vec<u8>>,
@@ -1028,25 +1028,35 @@ where
     K: Kernel,
     R: SyncRowCodec<K::Transaction>,
 {
-    engine
-        .mutate_tables(&[], move |_, transaction| {
-            Box::pin(async move {
-                let current = transaction
-                    .get_bytes(ENGINE_INITIAL_RESTORE_STORAGE, &[])
-                    .await?;
-                if current != expected {
-                    return Ok((false, MutationSummary::default()));
-                }
-                transaction
-                    .ensure_table(ENGINE_INITIAL_RESTORE_STORAGE)
-                    .await?;
-                transaction
-                    .put_bytes(ENGINE_INITIAL_RESTORE_STORAGE, Vec::new(), tag)
-                    .await?;
-                Ok((true, MutationSummary::default()))
+    let mut retries = 7;
+    loop {
+        let expected = expected.clone();
+        let tag = tag.clone();
+        let result = engine
+            .mutate_tables(&[], move |_, transaction| {
+                Box::pin(async move {
+                    let current = transaction
+                        .get_bytes(ENGINE_INITIAL_RESTORE_STORAGE, &[])
+                        .await?;
+                    if current != expected {
+                        return Ok((false, MutationSummary::default()));
+                    }
+                    transaction
+                        .ensure_table(ENGINE_INITIAL_RESTORE_STORAGE)
+                        .await?;
+                    transaction
+                        .put_bytes(ENGINE_INITIAL_RESTORE_STORAGE, Vec::new(), tag)
+                        .await?;
+                    Ok((true, MutationSummary::default()))
+                })
             })
-        })
-        .await
+            .await;
+        // The rejected commit wrote nothing. Retry against a fresh snapshot with the same expected tag.
+        if !matches!(result, Err(EngineError::TransactionConflict)) || retries == 0 {
+            return result;
+        }
+        retries -= 1;
+    }
 }
 
 /// Restores a private stage using the destination's optimistic revision check to fence writes.

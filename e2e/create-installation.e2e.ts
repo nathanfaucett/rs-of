@@ -752,6 +752,48 @@ nodeTest(
     await expect(
       unlocked.getByRole("button", { name: "Edited restored vault offline" })
     ).toBeVisible();
+    // Delay the native removal notification until the replacement token is already visible.
+    const tokenKey = await restoredPage.evaluate((token) => {
+      const key = Object.keys(localStorage).find((entry) =>
+        localStorage.getItem(entry)?.includes(token)
+      );
+      if (!key) throw new Error("Missing signed-in session");
+      return key;
+    }, restoredSession.accessToken);
+    await unlocked.evaluate((key) => {
+      const captured = new Promise<StorageEvent>((resolve) => {
+        function hold(event: StorageEvent) {
+          if (event.key !== key || event.newValue !== null) return;
+          event.stopImmediatePropagation();
+          window.removeEventListener("storage", hold, true);
+          resolve(event);
+        }
+        window.addEventListener("storage", hold, true);
+      });
+      window.addEventListener(
+        "release-token-removal",
+        () => {
+          void captured.then((event) => window.dispatchEvent(event));
+        },
+        { once: true }
+      );
+    }, tokenKey);
+    await restoredPage.evaluate((key) => {
+      const stored = localStorage.getItem(key);
+      if (!stored) throw new Error("Missing signed-in session");
+      localStorage.removeItem(key);
+      localStorage.setItem(key, stored);
+    }, tokenKey);
+    await unlocked.evaluate(() => window.dispatchEvent(new Event("release-token-removal")));
+    await expect(unlocked).toHaveURL(`${pm}/`);
+    await expect(unlocked.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+    await unlocked.reload();
+    await unlocked.getByRole("button", { name: new RegExp(localVault) }).click();
+    await unlocked.getByLabel("Master password", { exact: true }).fill(masterPassword);
+    await unlocked.getByRole("button", { name: "Unlock", exact: true }).click();
+    await expect(
+      unlocked.getByRole("button", { name: "Edited restored vault offline" })
+    ).toBeVisible();
     const signedOutExchange = holdNextExchange();
     await sync.click();
     await expect.poll(() => signedOutExchange.started).toBe(true);
@@ -761,6 +803,18 @@ nodeTest(
     await expect(unlocked).toHaveURL(`${pm}/`);
     await expect(unlocked.getByRole("button", { name: new RegExp(localVault) })).toBeVisible();
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
+
+    await restoredPage.getByRole("link", { name: "Sign in to sync" }).click();
+    await restoredPage.getByRole("button", { name: "Sign in with IdP" }).click();
+    await expect(restoredPage).toHaveURL(`${pm}/`);
+    await expect(binding).toBeVisible();
+    await expect(restoredPage.getByRole("button", { name: "Reattach sync" })).toBeVisible();
+    await expect(sync).toHaveCount(0);
+    await restoredPage.getByRole("button", { name: "Reattach sync" }).click();
+    await sync.click();
+    await expect(restoredPage.getByText("Sync complete.", { exact: true })).toBeVisible();
+    await restoredPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(restoredPage.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
 
     const secondUser = "second@setup.test";
     const idpAdmin = await owner.exchange(operator, idp);

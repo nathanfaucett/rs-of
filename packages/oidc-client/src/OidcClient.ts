@@ -226,6 +226,16 @@ export class OidcClient<
     return `${this.tokenStoragePrefix}:response`;
   }
 
+  /** Detect a cross-tab change to this client's stored tokens, including storage.clear(). */
+  isStoredTokenEvent(event: StorageEvent): boolean {
+    const storage = this.getStorage();
+    return (
+      storage !== null &&
+      event.storageArea === storage &&
+      (event.key === null || event.key === this.getTokenStorageKey())
+    );
+  }
+
   private rememberTokenResponse(tokenResponse: OidcTokenResponse): void {
     this.sessionGeneration += 1;
     if (this.memoryOnly) {

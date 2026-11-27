@@ -45,7 +45,7 @@ Use the vault selector to connect a populated local database or restore into a b
 
 After a verified upload or restore, **Sync now** exchanges history with the saved Resource. The app retains the verified Installation, User/Application namespace, and exact Resource ID in local database metadata, not in SQL history or vault backups. A browser with a restore record from an earlier version reuses that record. A previously uploaded database without a verified local record remains unlinked; existing remote history does not prove the earlier upload came from this database.
 
-Each exchange still requires current Storage authorization and Selection. Edits stay local if sync fails. **Detach sync** stops the exchange and keeps both copies. **Reattach sync** enables explicit sync to the same Resource. Signing out cancels sync and locks opened vaults. Signing back in does not upload anything until you select **Sync now**. A different account or Installation cannot use or replace the saved binding. There is no automatic sync on edit in this workflow.
+Each exchange still requires current Storage authorization and Selection. Edits stay local if sync fails. **Detach sync** stops the exchange and keeps both copies. **Reattach sync** enables explicit sync to the same Resource. Signing out cancels sync and locks opened vaults. Signing out also detaches the saved binding. After signing back in, choose **Reattach sync** before you can use **Sync now**. A different account or Installation cannot use or replace the saved binding. There is no automatic sync on edit in this workflow.
 
 ## Local development
 

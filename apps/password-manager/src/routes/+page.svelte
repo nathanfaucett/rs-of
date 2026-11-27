@@ -5,7 +5,7 @@ import { isRedirect } from "@sveltejs/kit";
 import { onMount } from "svelte";
 import { resolve } from "$app/paths";
 import { authState } from "$lib/auth/auth.svelte";
-import { syncStateModule } from "$lib/shared/state/sync.svelte";
+import { BindingSaveError, syncStateModule } from "$lib/shared/state/sync.svelte";
 import { vaultStateModule } from "$lib/shared/state/vault.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
@@ -28,19 +28,20 @@ let restoreCandidate = $state.raw<{ session: Session; id: string }>();
 let binding = $state.raw<{ session: Session; value: Awaited<ReturnType<typeof syncStateModule.getBinding>> }>();
 const currentBinding = $derived(binding?.session === authState.session ? binding?.value : undefined);
 let syncing = $state(false);
+let signingOut = $state(false);
 
-let destinationHasHistory = $state(false);
+let uploadBlocked = $state(false);
 
 function showDestination() {
     confirmedSession = authState.session;
     resourceId = "";
     uploadError = "";
-    destinationHasHistory = false;
+    uploadBlocked = false;
 }
 
 async function upload() {
     const session = confirmedSession;
-    if (!session || session !== authState.session || busy || destinationHasHistory) return;
+    if (!session || session !== authState.session || busy || uploadBlocked) return;
     uploadError = "";
     resourceId = "";
     busy = true;
@@ -50,10 +51,13 @@ async function upload() {
         notice = "First upload complete. Your vaults stay on this browser.";
     } catch (cause) {
         if (cause instanceof SyncError && cause.code === "destination-has-history") {
-            destinationHasHistory = true;
+            uploadBlocked = true;
             uploadError = "This Resource already has history. The app cannot verify an earlier upload. No merge was attempted. Keep using your local vaults.";
         } else if (cause instanceof SyncError && cause.code === "auth" && resourceId) {
             uploadError = "Storage did not authorize the upload. Check Selection with the serving Device owner. Only that owner can set Selection, with read access to this Resource and the devices.select permission for this Application. Once authorized, retry the first upload. It stops if the Resource has history.";
+        } else if (cause instanceof BindingSaveError) {
+            uploadError = cause.message;
+            uploadBlocked = true;
         } else if (resourceId) {
             uploadError = "Storage did not confirm publication. It may have saved the upload. You can keep using your local vaults. A retry uses the same Resource and stops if it has history.";
         } else {
@@ -95,6 +99,20 @@ async function syncNow() {
         }
     } finally {
         syncing = false;
+    }
+}
+
+async function signOut() {
+    const session = authState.session;
+    if (!session || signingOut) return;
+    signingOut = true;
+    error = "";
+    try {
+        await syncStateModule.signOut(session);
+    } catch (cause) {
+        error = cause instanceof Error ? cause.message : "Could not detach Storage and sign out.";
+    } finally {
+        signingOut = false;
     }
 }
 
@@ -281,7 +299,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                                         {/if}
                                     </dl>
                                     {#if uploadError}<Alert tone="danger">{uploadError}</Alert>{/if}
-                                    {#if !destinationHasHistory}
+                                    {#if !uploadBlocked}
                                         <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={upload}>
                                             {busy ? "Uploading…" : uploadError ? "Retry first upload" : "Confirm and upload"}
                                         </button>
@@ -321,7 +339,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                         {#if syncStateModule.supportsReplication()}
                             <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={showSyncedVaults}>Show synced vaults</button>
                         {/if}
-                        <button class="btn btn-secondary btn-md" type="button" onclick={authState.logout}>Sign out</button>
+                        <button class="btn btn-secondary btn-md" type="button" disabled={signingOut} onclick={signOut}>Sign out</button>
                     {/if}
                     <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => { notice = ""; vaultStateModule.state = { status: "restore-vault" }; }}>Restore encrypted backup</button>
                     {#if vaultStateModule.state.vaults.length > 0}
