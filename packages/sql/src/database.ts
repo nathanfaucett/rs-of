@@ -15,6 +15,16 @@ import { Handle } from "./handle.js";
 import type { WasmSqlDatabase } from "./wasm.js";
 import { loadWasm } from "./wasm.js";
 
+/** Record policy for a private initial-history stage. */
+export interface HistoryRecord {
+  readonly table: string;
+  readonly identity: string;
+  /** Additional non-null fields that never change, such as the Vault ID on an item. */
+  readonly stable?: readonly string[];
+  /** Fields that must come from one live source together. */
+  readonly envelope: readonly string[];
+}
+
 /** Embedded SQL database handle. Opens the store and creates query handles. */
 export class Database {
   private readonly handle: Handle<WasmSqlDatabase>;
@@ -86,6 +96,25 @@ export class Database {
   ): Promise<SqlHistoryResult> {
     try {
       return await this.handle.run((wasm) => wasm.synchronize_history(transport, role, canApply));
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
+
+  /** Reconcile two snapshots in a disposable in-memory database. Does not write either source. */
+  async stageHistory(other: Database, records: readonly HistoryRecord[]): Promise<Database> {
+    try {
+      const policy = JSON.stringify(
+        records.map(({ table, identity, stable, envelope }) => [
+          table,
+          identity,
+          stable ?? [],
+          envelope,
+        ])
+      );
+      return await this.handle.run((left) =>
+        other.handle.run(async (right) => new Database(await left.stage_history(right, policy)))
+      );
     } catch (error) {
       throw wrapError(error, SqlError);
     }

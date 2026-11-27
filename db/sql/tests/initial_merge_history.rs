@@ -7,11 +7,13 @@ use ofdb_sql::{
 const ATOMIC: &[HistoryRecord<'_>] = &[HistoryRecord {
     table: "items",
     identity: "id",
+    stable: &[],
     envelope: &["envelope"],
 }];
 const SPLIT: &[HistoryRecord<'_>] = &[HistoryRecord {
     table: "items",
     identity: "id",
+    stable: &[],
     envelope: &["ciphertext", "nonce"],
 }];
 
@@ -20,6 +22,7 @@ const MIGRATED: &[HistoryRecord<'_>] = &[
     HistoryRecord {
         table: "_ofdb_migrations",
         identity: "id",
+        stable: &[],
         envelope: &["version", "description", "fingerprint", "execution_time"],
     },
 ];
@@ -65,13 +68,15 @@ async fn encrypted_rows() -> Database {
     db
 }
 
+const ITEM_MIGRATION_SQL: &str = "CREATE TABLE items (id TEXT PRIMARY KEY, envelope TEXT)";
+
+fn item_migration() -> [Migration; 1] {
+    [Migration::new(1, "create items", ITEM_MIGRATION_SQL)]
+}
+
 #[tokio::test]
-async fn rejects_independently_applied_migration_history() {
-    let plan = [Migration::new(
-        1,
-        "create items",
-        "CREATE TABLE items (id TEXT PRIMARY KEY, envelope TEXT)",
-    )];
+async fn reconciles_equivalent_independent_migrations_without_dropping_history() {
+    let plan = item_migration();
     let left = Database::in_memory();
     let right = Database::in_memory();
     for db in [&left, &right] {
@@ -95,16 +100,60 @@ async fn rejects_independently_applied_migration_history() {
         execute(&right, definition).await
     );
 
+    execute(&left, "INSERT INTO items VALUES ('left', 'left envelope')").await;
+    execute(
+        &right,
+        "INSERT INTO items VALUES ('right', 'right envelope')",
+    )
+    .await;
     let left_before = left.history_manifest().await.expect("left baseline");
     let right_before = right.history_manifest().await.expect("right baseline");
+    let mut winner = None;
     for (first, second) in [(&left, &right), (&right, &left)] {
-        let error = first.stage_history(second, MIGRATED).await.expect_err(
-            "a repeated migration version under separate row identities is incompatible",
+        let candidate = first
+            .stage_history(second, MIGRATED)
+            .await
+            .expect("stage independently applied equivalent migrations");
+        let reopened = reopen(&candidate).await;
+        // A stale source cannot bring back the suppressed copy of a migration row.
+        stage(&left, &reopened).await;
+        stage(&right, &reopened).await;
+        let rows = execute(&reopened, identity).await;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            execute(&reopened, definition).await,
+            execute(&left, definition).await
         );
-        assert_eq!(error.kind, ErrorKind::Rejected);
-        assert!(
-            error.message.contains("Incompatible migration history"),
-            "{error}"
+        if let Some(winner) = &winner {
+            assert_eq!(winner, &rows);
+        } else {
+            winner = Some(rows);
+        }
+        assert_eq!(
+            reopened
+                .client()
+                .migrate(&plan)
+                .await
+                .expect("reopen with migration runner")
+                .applied_versions,
+            [] as [u32; 0]
+        );
+        assert_eq!(
+            execute(&reopened, "SELECT id FROM items ORDER BY id").await,
+            [
+                Row::new(vec![Value::from("left")]),
+                Row::new(vec![Value::from("right")])
+            ]
+        );
+        assert_eq!(
+            candidate
+                .units()
+                .iter()
+                .filter(|unit| {
+                    matches!(&unit.key, SyncKey::Row { table, .. } if table == "_ofdb_migrations")
+                })
+                .count(),
+            2
         );
     }
     assert_eq!(
@@ -115,7 +164,15 @@ async fn rejects_independently_applied_migration_history() {
         right.history_manifest().await.expect("right unchanged"),
         right_before
     );
+}
 
+#[tokio::test]
+async fn rejects_divergent_migration_history_under_the_same_id() {
+    let plan = item_migration();
+    let left = Database::in_memory();
+    left.client().migrate(&plan).await.expect("apply plan");
+    let left_before = left.history_manifest().await.expect("left baseline");
+    let identity = "SELECT id FROM _ofdb_migrations";
     let shared = Database::in_memory();
     stage(&left, &shared).await;
     let candidate = left
@@ -162,6 +219,83 @@ async fn rejects_independently_applied_migration_history() {
     assert_eq!(
         left.history_manifest().await.expect("left unchanged"),
         left_before
+    );
+}
+
+#[tokio::test]
+async fn rejects_an_equivalent_looking_ledger_with_reverted_edits() {
+    let plan = item_migration();
+    let left = Database::in_memory();
+    let right = Database::in_memory();
+    for source in [&left, &right] {
+        source.client().migrate(&plan).await.expect("apply plan");
+    }
+    execute(
+        &right,
+        "UPDATE _ofdb_migrations SET description = 'temporary'",
+    )
+    .await;
+    execute(
+        &right,
+        "UPDATE _ofdb_migrations SET description = 'create items'",
+    )
+    .await;
+    let before = right.history_manifest().await.expect("edited history");
+    let error = left
+        .stage_history(&right, MIGRATED)
+        .await
+        .expect_err("reject edited ledger");
+    assert!(
+        error.message.contains("Incompatible migration history"),
+        "{error}"
+    );
+    assert_eq!(
+        right
+            .history_manifest()
+            .await
+            .expect("edited history unchanged"),
+        before
+    );
+}
+
+#[tokio::test]
+async fn rejects_reassigned_encrypted_record_even_after_owner_is_restored() {
+    let records = [HistoryRecord {
+        table: "items",
+        identity: "id",
+        stable: &["vault_id"],
+        envelope: &["ciphertext", "nonce"],
+    }];
+    let left = Database::in_memory();
+    execute(
+        &left,
+        "CREATE TABLE items (id TEXT PRIMARY KEY, vault_id TEXT, ciphertext TEXT, nonce TEXT)",
+    )
+    .await;
+    execute(
+        &left,
+        "INSERT INTO items VALUES ('item', 'vault-a', 'cipher', 'nonce')",
+    )
+    .await;
+    let right = Database::in_memory();
+    stage(&left, &right).await;
+    execute(&right, "UPDATE items SET vault_id = 'vault-b'").await;
+    execute(&right, "UPDATE items SET vault_id = 'vault-a'").await;
+    execute(&right, "DELETE FROM items").await;
+    let before = right
+        .history_manifest()
+        .await
+        .expect("capture reassigned record");
+    assert_eq!(
+        left.stage_history(&right, &records)
+            .await
+            .expect_err("reject reassigned tombstone")
+            .kind,
+        ErrorKind::Rejected
+    );
+    assert_eq!(
+        right.history_manifest().await.expect("source unchanged"),
+        before
     );
 }
 
@@ -465,6 +599,7 @@ async fn includes_the_authentication_proof_context_in_envelope_provenance() {
     let records = [HistoryRecord {
         table: "vaults",
         identity: "id",
+        stable: &[],
         envelope: &["authentication", "salt", "iv", "created_at"],
     }];
     let before = left.history_manifest().await.expect("local baseline");

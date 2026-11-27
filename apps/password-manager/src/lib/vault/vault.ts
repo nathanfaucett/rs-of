@@ -14,7 +14,7 @@ import {
 import { dbParams, localEncryptedRows, parseVaultRow } from "./storage/schema";
 import { createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
 
-function localDatabase(client: Client): VaultDatabase {
+export function localDatabase(client: Client): VaultDatabase {
   return {
     read: (sql, parse, params) => client.execute(sql, parse, dbParams(...params)),
     async write(sql, params) {

@@ -170,7 +170,7 @@ impl Database {
                 .map_err(|error| SyncError::PreApply(error.to_string()))?,
         }
     }
-    /// Serves SQL v7 history without applying any frames to this database.
+    /// Serves one SQL v7 history snapshot without applying any frames to this database.
     /// The transport must authorize every read and send.
     /// # Errors
     /// Returns an error for transport, protocol, storage, or native admission failure.
@@ -195,8 +195,18 @@ impl Database {
                     .read()
                     .await
                     .map_err(|error| SyncError::PreApply(error.to_string()))?;
+                let units = sync_stage(|| {
+                    history::export_sync_state_bounded_for(&*engine, config.max_session_bytes)
+                })
+                .await?;
+                drop(engine);
+                let snapshot = engine::Engine::new(
+                    engine::InMemoryKernel::new(),
+                    engine_automerge::AutomergeRowCodec::new(),
+                );
+                sync_stage(|| history::apply_sync_state_batch_for(&snapshot, units)).await?;
                 history::synchronize_pull_with_stage_factory(
-                    &*engine,
+                    &snapshot,
                     transport,
                     config,
                     SyncRole::Responder,

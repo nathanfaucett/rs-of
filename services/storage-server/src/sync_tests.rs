@@ -853,6 +853,82 @@ async fn ws_pull_needs_read_and_never_accepts_incoming_sql_history() {
     assert_eq!(fixture.owner_calls.tokens.load(Ordering::Relaxed), 1);
 }
 
+struct WriteAfterPullManifest {
+    transport: ClientTransport,
+    writer: Option<Arc<ofdb_sql::Database>>,
+}
+
+impl SyncTransport for WriteAfterPullManifest {
+    type Error = io::Error;
+
+    async fn send(&mut self, frame: Vec<u8>) -> io::Result<()> {
+        self.transport.send(frame).await
+    }
+
+    async fn receive(&mut self) -> io::Result<Vec<u8>> {
+        let frame = self.transport.receive().await?;
+        if matches!(
+            postcard::from_bytes(&frame),
+            Ok(SqlSyncMessage::Manifest(_))
+        ) && let Some(writer) = self.writer.take()
+        {
+            sql(
+                &writer,
+                "UPDATE documents SET value = 'later'; INSERT INTO documents VALUES (2, 'new')",
+            )
+            .await;
+        }
+        Ok(frame)
+    }
+}
+
+#[tokio::test]
+async fn ws_pull_serves_one_snapshot_even_if_a_write_commits_during_exchange() {
+    let fixture = Fixture::with_storage(true).await;
+    *fixture.authorization_details.lock().expect("capability") =
+        Some(json!([{ "type": "storage", "actions": ["read"] }]));
+    let remote = fixture
+        .databases
+        .open_selected(&fixture.namespace, fixture.identity.store_id)
+        .expect("open resource")
+        .expect("selected resource");
+    sql(&remote, "CREATE TABLE documents (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO documents VALUES (1, 'snapshot')").await;
+    let snapshot = remote.history_manifest().await.expect("snapshot history");
+    let (socket, response) = request_pull_or_push(&fixture, AttachDirection::Pull).await;
+    assert!(
+        matches!(response, SyncMessage::AttachResponse(response) if response.granted_direction == AttachDirection::Pull)
+    );
+    let staged = ofdb_sql::Database::in_memory();
+    staged
+        .restore_resource_history_memory(
+            &mut WriteAfterPullManifest {
+                transport: ClientTransport(socket),
+                writer: Some(remote.clone()),
+            },
+            &SessionConfig::default(),
+            Vec::new(),
+            || Ok(()),
+        )
+        .await
+        .expect("read a coherent snapshot");
+    assert_eq!(
+        values(&staged).await,
+        [ofdb_sql::Value::Text("snapshot".into())]
+    );
+    assert_eq!(
+        staged.history_manifest().await.expect("stage history"),
+        snapshot
+    );
+    assert_ne!(
+        remote
+            .history_manifest()
+            .await
+            .expect("updated remote history"),
+        snapshot
+    );
+    assert_eq!(values(&remote).await.len(), 2);
+}
+
 #[tokio::test]
 async fn ws_first_upload_rejects_even_dropped_remote_schema_without_changing_history() {
     let fixture = Fixture::new().await;

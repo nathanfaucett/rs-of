@@ -52,6 +52,10 @@ type Row = Readonly<Record<string, DbValue>>
 // RowParser<T> accepts Row and returns a synchronous T, not a PromiseLike.
 ```
 
+`database.stageHistory(other, records)` returns a disposable in-memory database
+for checking a candidate against application rules. It does not write either
+source, bind a Resource, or authorize publication. Close it after inspection.
+
 `executeSql` is an alias. Use `$1` positional or `:name` named parameters.
 Deadline milliseconds must be a positive `bigint` within `u64`; `1000n` means one
 second. No default deadline or automatic retry is applied. The wrapper imports

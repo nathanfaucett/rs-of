@@ -491,6 +491,47 @@ impl AutomergeRowCodec {
         Ok(false)
     }
 
+    /// Checks for one original SQL insert and its catalog identity stamp, with no later edits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the document cannot be decoded.
+    pub fn is_unedited_insert(state: &[u8], columns: &[String]) -> EngineResult<bool> {
+        let mut document = AutoCommit::load(state).map_err(EngineError::custom)?;
+        let changes = document.get_changes(&[]);
+        let [insert, stamp] = changes.as_slice() else {
+            return Ok(false);
+        };
+        if !document.get_missing_deps(&[]).is_empty()
+            || !insert.deps().is_empty()
+            || stamp.deps() != [insert.hash()]
+        {
+            return Ok(false);
+        }
+        fn initial_puts(change: &Change) -> Option<BTreeSet<String>> {
+            let mut keys = BTreeSet::new();
+            for op in change.decode().operations {
+                let Key::Map(key) = op.key else {
+                    return None;
+                };
+                if op.obj != ObjectId::Root
+                    || op.insert
+                    || !matches!(op.action, OpType::Put(ScalarValue::Bytes(_)))
+                    || !keys.insert(key.to_string())
+                {
+                    return None;
+                }
+            }
+            Some(keys)
+        }
+        Ok(initial_puts(insert).is_some_and(|keys| {
+            keys.len() == columns.len() + 1
+                && keys.contains(DOCUMENT_COLUMNS)
+                && columns.iter().all(|column| keys.contains(column))
+        }) && initial_puts(stamp)
+            .is_some_and(|keys| keys.len() == 1 && keys.contains(DOCUMENT_SCHEMA)))
+    }
+
     fn encode_row(&self, row: &Row, columns: &[Column]) -> EngineResult<AutoCommit> {
         let mut document = AutoCommit::new().with_actor(self.actor.clone());
         Self::update_document(&mut document, row, columns)?;

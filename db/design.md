@@ -43,9 +43,11 @@ A catalog change transfers its affected table/index dependency set across the fo
 
 ### Independent history staging
 
-The SQL facade can capture two independent database histories and reconcile them in private memory without writing either source. Each capture reads catalog and rows in one transaction; the two captures are not a shared revision. Staging requires matching active table schemas and a record policy for each table. It rejects duplicate application keys across Logical Rows, including deleted claims, and checks that each visible protected field group came together from a live source row. A split field group with unresolved protected column conflicts is rejected. Tombstones are retained in the staged history. The migration ledger must have identical retained row keys, state, and metadata in both snapshots. Independently running the same migration creates different row UUIDs for the same version. Staging rejects those histories rather than dropping either row or returning a ledger with a repeated version.
+The SQL facade captures each source in one read transaction and reconciles the two histories in private memory. Staging requires matching active table and index schemas and a record policy for each table. It checks the exact primary key and caller-specified stable fields through retained history, including deleted rows. It rejects duplicate keys across Logical Rows and requires each visible encrypted field group to match one live source row. It rejects unresolved conflicts in split field groups. Tombstones remain in the candidate.
 
-The stage checks field provenance, not cryptographic authenticity or application ownership. It cannot publish or authorize merge. Publication would have to compare both captured histories under their respective write fences. Staging changes neither the stored format nor SQL sync v7.
+The migration ledger accepts identical history or unedited, independently applied copies of the same versions, descriptions, and fingerprints. It retains both Logical Rows and tombstones the redundant copy in the candidate. The application must still check its migration plan. Histories that need broader ledger reconciliation are rejected.
+
+A candidate reopened for inspection has no binding. Staging proves field provenance, not authentication, parent-child integrity, or source freshness. It cannot approve publication. Publication would have to verify both snapshots under their respective write fences. The stored format and SQL sync v7 do not change.
 
 ## KV store and sync
 
