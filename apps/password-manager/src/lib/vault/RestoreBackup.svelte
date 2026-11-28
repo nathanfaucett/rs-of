@@ -52,7 +52,7 @@ async function restore() {
 <Card>
     <div class="flex flex-col gap-4">
         <h2 class="text-lg font-semibold">Restore encrypted backup</h2>
-        <p>Restore creates a complete local vault and never overwrites an existing vault ID. Use the master password used when the backup was made. Keep the file until you verify the restored data.</p>
+        <p>Restore creates a complete local vault and never overwrites a vault in the shared database or changes a retained recovery copy. Use the master password used when the backup was made. Keep the file until you verify the restored data.</p>
         {#if error}<Alert tone="danger">{error}</Alert>{/if}
         {#if prepared}
             <p role="status">Validated backup: {prepared.name}. ID: {prepared.id}. {prepared.recordCount} encrypted records.</p>

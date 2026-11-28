@@ -17,7 +17,7 @@ The initial single-database layout could retain the database at `node-admission/
 
 There is no in-place migration from the previous split-database layout, other earlier setup formats, or seeded roots. The server rejects them without modification. Preserve the old root and use `just unified --data-dir <fresh-private-path>` for a new Node.
 
-The [Node setup contract](../../openapi/node.json) publishes IdP and Storage bases only after the Node verifies Create or verifies the selected Installation’s owner evidence and records verified Device approval. The local Node permits Password Manager to read the descriptor. After Join, the existing Installation must permit the exact Password Manager origin on its IdP and Storage APIs. Separate IdP and Storage bases can be used for sign-in; the reference app does not offer legacy vault replication with those bases.
+The [Node setup contract](../../openapi/node.json) publishes IdP and Storage bases only after the Node verifies Create or verifies the selected Installation’s owner evidence and records verified Device approval. The local Node permits Password Manager to read the descriptor. After Join, the existing Installation must permit the exact Password Manager origin on its IdP and Storage APIs. Password Manager uses the published IdP and Storage bases independently. See [Password Manager synchronization and recovery](../../apps/password-manager/README.md#qualified-single-node-synchronization) for the application workflow and limits.
 
 ## Explicit seeded fixture
 
