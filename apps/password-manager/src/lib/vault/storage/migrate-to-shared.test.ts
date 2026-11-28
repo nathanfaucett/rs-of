@@ -5,7 +5,13 @@ import { clearStorage, getStorageClient } from "../../../test/utils";
 import { prepareBackupRestore } from "../backup";
 import { listVaults, unlockVault } from "../vault";
 import { decrypt, deriveKey, fromBase64 } from "./crypto";
-import { hasLegacyLocalVaults, openSharedDatabase, unlockLocalRecovery } from "./migrate-to-shared";
+import {
+  hasLegacyLocalVaults,
+  listLegacyLocalVaults,
+  migrateLocalVault,
+  openSharedDatabase,
+  unlockLocalRecovery,
+} from "./migrate-to-shared";
 import { openLegacyReplicaFence, retiredRevision } from "./retire-legacy-replica";
 import { dbParams, parseText } from "./schema";
 
@@ -36,7 +42,7 @@ it.each(["new", "batch", "transition"] as const)(
     const { id, name, databaseName, original, meta, authentication, record, folderRecord } = source;
     const before = await revision(databaseName);
     const previous = await revision(original);
-    expect(await listVaults()).toEqual([expect.objectContaining({ id, name })]);
+    expect(await listLegacyLocalVaults()).toEqual([expect.objectContaining({ id, name })]);
     const items = {
       items: [expect.objectContaining(source.item)],
       folders: folderRecord ? [source.folder] : [],
@@ -71,6 +77,7 @@ it.each(["new", "batch", "transition"] as const)(
     expect(await revision(databaseName)).toBe(before);
     expect(await hasLegacyLocalVaults()).toBe(true);
 
+    await migrateLocalVault(id, legacyPassword);
     const vault = await unlockVault(legacyPassword, id);
     try {
       expect(await vault.readItems()).toEqual(items);
@@ -149,7 +156,7 @@ async function expectRefused(
   const { id, databaseName } = source;
   const before = await revision(databaseName);
   await expect(unlockLocalRecovery(id, password)).rejects.toThrow(message);
-  await expect(unlockVault(password, id)).rejects.toThrow(message);
+  await expect(migrateLocalVault(id, password)).rejects.toThrow(message);
   expect(await revision(databaseName)).toBe(before);
   expect(await hasLegacyLocalVaults()).toBe(true);
   const shared = await openSharedDatabase();

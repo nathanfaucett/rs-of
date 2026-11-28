@@ -1,7 +1,12 @@
 // @vitest-environment playwright
 import { afterEach, assert, expect, it } from "vitest";
 import { clearStorage, getStorageClient } from "../../test/utils";
-import { hasLegacyLocalVaults, unlockLocalRecovery } from "./storage/migrate-to-shared";
+import {
+  hasLegacyLocalVaults,
+  listLegacyLocalVaults,
+  migrateLocalVault,
+  unlockLocalRecovery,
+} from "./storage/migrate-to-shared";
 import { dbParam, dbParams, parseOptionalText } from "./storage/schema";
 import { createVault, listVaults, unlockVault } from "./vault";
 
@@ -87,7 +92,7 @@ it("does not unlock storage whose metadata identity differs from the vaults tabl
   }
 }, 15000);
 
-it("migrates legacy vault on first unlock and verifies password", async () => {
+it("migrates legacy vault and verifies password", async () => {
   // Create a legacy per-vault database
   const id = crypto.randomUUID();
   const name = `legacy-${crypto.randomUUID()}`;
@@ -176,7 +181,7 @@ it("migrates legacy vault on first unlock and verifies password", async () => {
 
   const local = await createVault("already-local-password", "Already local");
   await local.close();
-  expect(await listVaults()).toContainEqual(expect.objectContaining({ id, name }));
+  expect(await listLegacyLocalVaults()).toContainEqual(expect.objectContaining({ id, name }));
 
   const { openLegacyReplicaFence } = await import("./storage/retire-legacy-replica");
   const readRevision = async () => {
@@ -185,7 +190,7 @@ it("migrates legacy vault on first unlock and verifies password", async () => {
     return fence?.revision;
   };
   const revision = await readRevision();
-  await expect(unlockVault("wrong-password", id)).rejects.toThrow("Wrong password");
+  await expect(migrateLocalVault(id, "wrong-password")).rejects.toThrow("Wrong password");
   expect(await readRevision()).toBe(revision);
   expect(await hasLegacyLocalVaults()).toBe(true);
 
@@ -196,7 +201,7 @@ it("migrates legacy vault on first unlock and verifies password", async () => {
       "INSERT INTO vaults (id, name, salt, iv, created_at) VALUES (?, ?, ?, ?, ?)",
       dbParams(id, name, encode(salt), encode(iv), "2026-01-01T00:00:00.000Z")
     );
-    await expect(unlockVault("legacy-password", id)).rejects.toThrow("does not match");
+    await expect(migrateLocalVault(id, "legacy-password")).rejects.toThrow("does not match");
     expect(await readRevision()).toBe(revision);
     expect(await hasLegacyLocalVaults()).toBe(true);
     const recovery = await unlockLocalRecovery(id, "legacy-password");
@@ -215,6 +220,7 @@ it("migrates legacy vault on first unlock and verifies password", async () => {
   }
 
   // Correct password: unlock succeeds
+  await migrateLocalVault(id, "legacy-password");
   const upgraded = await unlockVault("legacy-password", id);
   try {
     const [record] = await upgraded.loadSecrets();
@@ -288,7 +294,9 @@ it("keeps a legacy empty vault unchanged without setting any attempted password"
 
   // An empty legacy vault has no proof of the original password.
   for (const password of ["wrong-password", "legacy-password"]) {
-    await expect(unlockVault(password, id)).rejects.toThrow("original password cannot be verified");
+    await expect(migrateLocalVault(id, password)).rejects.toThrow(
+      "original password cannot be verified"
+    );
   }
   const { client, close } = await getStorageClient();
   try {
@@ -466,7 +474,7 @@ it("does not upgrade a legacy vault if any encrypted record is damaged", async (
   });
 
   // A damaged record prevents verification and publication.
-  await expect(unlockVault("fixture-password", id)).rejects.toThrow(
+  await expect(migrateLocalVault(id, "fixture-password")).rejects.toThrow(
     "Wrong password or damaged legacy records"
   );
   // A damaged vault must not cause removal of the original.

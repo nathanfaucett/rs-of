@@ -2,6 +2,7 @@
 import { afterEach, assert, expect, it, vi } from "vitest";
 import { clearStorage, getStorageClient } from "../../test/utils";
 import { fixturePassword, fixturePlaintext } from "./authentication-fixtures";
+import { migrateLocalVault } from "./storage/migrate-to-shared";
 import { dbParam, parseOptionalText } from "./storage/schema";
 import { createVault, unlockVault } from "./vault";
 
@@ -135,7 +136,7 @@ it("publishes a legacy vault only after the password and contents are verified",
   expect(beforeSecrets.length).toBe(0);
 
   // A wrong password does not publish a copy.
-  await expect(unlockVault("wrong-password", id)).rejects.toThrow("Wrong password");
+  await expect(migrateLocalVault(id, "wrong-password")).rejects.toThrow("Wrong password");
 
   // No rows were published.
   const afterFailedVaults = await client.execute(`SELECT id FROM vaults WHERE id = ?`, () => 1, [
@@ -150,6 +151,7 @@ it("publishes a legacy vault only after the password and contents are verified",
   expect(afterFailedSecrets.length).toBe(0);
 
   // Correct password: unlock succeeds
+  await migrateLocalVault(id, fixturePassword);
   const upgraded = await unlockVault(fixturePassword, id);
   try {
     const [record] = await upgraded.loadSecrets();
@@ -230,7 +232,9 @@ it("keeps a legacy empty vault unchanged without setting any attempted password"
 
   // An empty legacy vault has no proof of the original password.
   for (const password of ["wrong-password", fixturePassword]) {
-    await expect(unlockVault(password, id)).rejects.toThrow("original password cannot be verified");
+    await expect(migrateLocalVault(id, password)).rejects.toThrow(
+      "original password cannot be verified"
+    );
   }
   const { client, close } = await getStorageClient();
   try {
@@ -392,7 +396,7 @@ it("does not upgrade a legacy vault if any encrypted record is damaged", async (
   });
 
   // A damaged record prevents verification and publication.
-  await expect(unlockVault(fixturePassword, id)).rejects.toThrow(
+  await expect(migrateLocalVault(id, fixturePassword)).rejects.toThrow(
     "Wrong password or damaged legacy records"
   );
   // A damaged vault must not cause removal of the original.

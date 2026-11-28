@@ -5,12 +5,7 @@ import {
   type VaultDatabase,
   type VaultHandle,
 } from "./encrypted-vault";
-import {
-  getSharedClient,
-  listLegacyLocalVaults,
-  migrateLocalVault,
-  openSharedDatabase,
-} from "./storage/migrate-to-shared";
+import { getSharedClient, openSharedDatabase } from "./storage/migrate-to-shared";
 import { dbParams, parseVaultRow, sharedEncryptedRows } from "./storage/schema";
 import { createVaultRegistry, type VaultIdentity } from "./storage/VaultRegistry";
 
@@ -55,7 +50,6 @@ export async function createVault(password: string, name: string): Promise<Vault
 }
 
 export async function unlockVault(password: string, id: string): Promise<VaultHandle> {
-  await migrateLocalVault(id, password);
   const database = localDatabase(await getSharedClient(), true);
   try {
     const vault = await unlockEncryptedVault(database, password, id);
@@ -70,19 +64,16 @@ export async function unlockVault(password: string, id: string): Promise<VaultHa
 export async function listVaults(): Promise<
   { id: string; name: string; status: "ready"; migrated: boolean }[]
 > {
-  const legacy = await listLegacyLocalVaults();
   const database = await openSharedDatabase();
   try {
     // Merely opening the selector must not create independent catalog history.
-    if (await database.initialRestoreIsEligible()) return legacy;
+    if (await database.initialRestoreIsEligible()) return [];
   } finally {
     database.close();
   }
   const client = await getSharedClient();
   try {
-    const shared = await createVaultRegistry(client).listVaultIdentities();
-    const ids = new Set(shared.map(({ id }) => id));
-    return [...shared, ...legacy.filter(({ id }) => !ids.has(id))];
+    return await createVaultRegistry(client).listVaultIdentities();
   } finally {
     client.close();
   }

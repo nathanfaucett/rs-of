@@ -6,10 +6,9 @@ import { onMount } from "svelte";
 import { resolve } from "$app/paths";
 import { authState } from "$lib/auth/auth.svelte";
 import { BindingSaveError, syncStateModule } from "$lib/shared/state/sync.svelte";
-import { vaultStateModule } from "$lib/shared/state/vault.svelte";
+import { type VaultChoice, vaultStateModule } from "$lib/shared/state/vault.svelte";
 import { Alert, Card, Field, Page, PageHeader } from "$lib/ui";
 import RestoreBackup from "$lib/vault/RestoreBackup.svelte";
-import type { VaultIdentity } from "$lib/vault/vault";
 
 const minimumPasswordLength = 8;
 
@@ -288,7 +287,7 @@ async function unlockVault() {
     }
 }
 
-function selectVault(identity: VaultIdentity & { recoveryResource?: string; localRecovery?: true }) {
+function selectVault(identity: VaultChoice) {
     showPassword = false;
     notice = "";
     error = "";
@@ -352,7 +351,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                     {:else if !authState.isAuthenticated}
                         <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
                     {:else}
-                        {#if currentBinding?.status === "unbound" && !currentCandidate && vaultStateModule.state.vaults.some((vault) => !vault.recoveryResource && !vault.localRecovery)}
+                        {#if currentBinding?.status === "unbound" && !currentCandidate && vaultStateModule.state.vaults.some((vault) => !vault.recoveryResource && !vault.localSource)}
                             {#if confirmedSession && confirmedSession === authState.session}
                                 <section class="flex flex-col gap-2" aria-labelledby="sync-destination">
                                     <h2 id="sync-destination" class="font-medium">Confirm sync destination</h2>
@@ -466,14 +465,14 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                     {#if vaultStateModule.state.vaults.length > 0}
                         <div class="flex flex-col gap-2">
                             <p class="text-sm font-medium text-muted-foreground">Existing vaults</p>
-                            {#each vaultStateModule.state.vaults as identity (`${identity.recoveryResource ?? (identity.localRecovery ? "local-recovery" : "local")}:${identity.id}`)}
+                            {#each vaultStateModule.state.vaults as identity (`${identity.recoveryResource ?? identity.localSource ?? "local"}:${identity.id}`)}
                                 <button
                                     class="btn btn-secondary btn-md text-left"
                                     type="button"
                                     disabled={busy}
                                     onclick={() => selectVault(identity)}
                                 >
-                                    <span class="vault-name">{identity.name}{(identity.recoveryResource || identity.localRecovery) ? " (recovery copy)" : ""}</span>
+                                    <span class="vault-name">{identity.name}{identity.localSource === "upgrade" ? " (upgrade older vault)" : (identity.recoveryResource || identity.localSource === "recovery") ? " (recovery copy)" : ""}</span>
                                     <span class="block break-all text-xs">ID: {identity.id}</span>
                                 </button>
                             {/each}
