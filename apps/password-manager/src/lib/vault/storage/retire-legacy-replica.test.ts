@@ -1,21 +1,74 @@
 import { Database } from "@ofsdk/sql";
-import { expect, it } from "vitest";
-import { retireLegacyReplica } from "./retire-legacy-replica";
+import { assert, expect, it } from "vitest";
+import { openLegacyReplicaFence, retiredRevision } from "./retire-legacy-replica";
 
-it("reserves a missing legacy namespace so reopened SQL writers cannot initialize it", async () => {
+it("does not create a missing legacy namespace", async () => {
   const name = crypto.randomUUID();
-  await retireLegacyReplica(name, true);
+  await expect(openLegacyReplicaFence(name)).resolves.toBeUndefined();
+  expect(await indexedDB.databases()).not.toContainEqual(
+    expect.objectContaining({ name: `ofdb:sql:${name}` })
+  );
+});
+
+it("checks the validated revision in the same transaction as retirement", async () => {
+  const name = crypto.randomUUID();
   const database = await Database.open(name);
   const writer = database.client();
   try {
-    await expect(database.initialRestoreIsEligible()).resolves.toBe(true);
-    await expect(writer.executeRaw("CREATE TABLE legacy (id TEXT PRIMARY KEY)")).rejects.toThrow(
-      "revision exhausted"
-    );
-    await expect(database.initialRestoreIsEligible()).resolves.toBe(true);
+    await writer.executeRaw("CREATE TABLE legacy (id TEXT PRIMARY KEY)");
+    const old = await openLegacyReplicaFence(name);
+    assert(old);
+    try {
+      await writer.executeRaw("INSERT INTO legacy (id) VALUES ('before retirement')");
+      await expect(old.retire()).rejects.toThrow("validated older browser revision");
+      await writer.executeRaw("INSERT INTO legacy (id) VALUES ('still writable')");
+    } finally {
+      old.close();
+    }
+    const current = await openLegacyReplicaFence(name);
+    assert(current);
+    try {
+      await current.retire();
+    } finally {
+      current.close();
+    }
+    const retired = await openLegacyReplicaFence(name);
+    retired?.close();
+    expect(retired?.revision).toBe(retiredRevision);
+    await expect(writer.executeRaw("DELETE FROM legacy")).rejects.toThrow("revision exhausted");
   } finally {
     writer.close();
     database.close();
+    indexedDB.deleteDatabase(`ofdb:sql:${name}`);
+  }
+});
+
+it("does not retire a replacement database at the same revision", async () => {
+  const name = crypto.randomUUID();
+  const database = await Database.open(name);
+  database.close();
+  const validated = await openLegacyReplicaFence(name);
+  assert(validated);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(`ofdb:sql:${name}`);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+    const replacement = await Database.open(name);
+    const writer = replacement.client();
+    try {
+      const current = await openLegacyReplicaFence(name);
+      current?.close();
+      expect(current?.revision).toBe(validated.revision);
+      await expect(validated.retire()).rejects.toThrow("validated older browser revision");
+      await writer.executeRaw("CREATE TABLE unrelated (id TEXT PRIMARY KEY)");
+    } finally {
+      writer.close();
+      replacement.close();
+    }
+  } finally {
+    validated.close();
     indexedDB.deleteDatabase(`ofdb:sql:${name}`);
   }
 });
@@ -30,7 +83,7 @@ it("does not retire an unknown physical schema", async () => {
     request.onupgradeneeded = () => request.result.createObjectStore("unknown");
   });
   try {
-    await expect(retireLegacyReplica(name, true)).rejects.toThrow("Cannot retire");
+    await expect(openLegacyReplicaFence(name)).rejects.toThrow("validated older browser revision");
     expect(db.objectStoreNames.contains("unknown")).toBe(true);
   } finally {
     db.close();

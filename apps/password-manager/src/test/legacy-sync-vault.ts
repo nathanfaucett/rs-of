@@ -6,12 +6,8 @@ import {
   type VaultDatabase,
   type VaultHandle,
 } from "$lib/vault/encrypted-vault";
-import {
-  MIGRATIONS,
-  parseOptionalText,
-  parseText,
-  syncedEncryptedRows,
-} from "$lib/vault/storage/schema";
+import { parseOptionalText, parseText, syncedEncryptedRows } from "$lib/vault/storage/schema";
+import { legacySyncDDL } from "./legacy-sync-ddl";
 
 function syncedDatabase(handle: DatabaseHandle): VaultDatabase {
   return {
@@ -60,7 +56,7 @@ export async function createSyncVault(
   name: string,
   handle: DatabaseHandle
 ): Promise<VaultHandle> {
-  for (const { sql } of MIGRATIONS) await handle.execute(sql);
+  for (const sql of legacySyncDDL) await handle.execute(sql);
   return createEncryptedVault(syncedDatabase(handle), password, name);
 }
 

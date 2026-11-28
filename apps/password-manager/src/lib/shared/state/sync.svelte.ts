@@ -7,7 +7,11 @@ import {
 } from "@ofsdk/sync-sdk/browser";
 import { authState } from "$lib/auth/auth.svelte";
 import type { VaultHandle } from "$lib/vault/encrypted-vault";
-import { legacyCreationKey, openLegacyReplica, resourceIdPattern } from "$lib/vault/legacy-history";
+import {
+  captureLegacyReplica,
+  legacyCreationKey,
+  resourceIdPattern,
+} from "$lib/vault/legacy-history";
 import {
   archiveMerge,
   clearMerge,
@@ -23,7 +27,7 @@ import {
   retainMerge,
 } from "$lib/vault/merge-history";
 import { hasLegacyLocalVaults, openSharedDatabase } from "$lib/vault/storage/migrate-to-shared";
-import { retireLegacyReplica } from "$lib/vault/storage/retire-legacy-replica";
+import { retiredRevision } from "$lib/vault/storage/retire-legacy-replica";
 import { StorageClient } from "../../../../../../packages/storage-client/src/index";
 
 type Session = NonNullable<typeof authState.session>;
@@ -230,14 +234,14 @@ async function verifyRecoveryResource(expected: Session, id: string, signal?: Ab
   if (!authState.hasVerifiedToken(expected)) throw new Error("Sign-in session ended");
 }
 
-async function legacyBrowserRevision(id: string) {
-  const database = await openLegacyReplica(id);
+async function legacyBrowserRevision(id: string, requireRetired = false) {
+  const replica = await captureLegacyReplica(id);
   try {
-    return database && !(await database.initialRestoreIsEligible())
-      ? encodeRevision(await database.historyRevision())
-      : null;
+    if (requireRetired && replica && replica.revision !== retiredRevision)
+      throw new Error("The validated browser copy is no longer retired. Find the Resource again.");
+    return replica ? encodeRevision(await replica.database.historyRevision()) : null;
   } finally {
-    database?.close();
+    replica?.close();
   }
 }
 
@@ -338,6 +342,11 @@ async function resolvePendingMerge(expected: Session) {
     const merge = readPendingMerge();
     if (!merge || merge.namespace !== namespace(expected))
       throw new Error("This account cannot resolve the pending merge.");
+    if (merge.legacy && merge.validatedLegacy !== true) {
+      // Previously staged upgrades did not establish that this ID belongs to a vault.
+      archiveMerge(merge);
+      return;
+    }
     // Use only the retained Resource ID. Storage checks its namespace and current Selection.
     const { client, attach } = mergeConnection(expected, merge.id, signal, checkActive, true);
     const committed = await client.resolvePublication({
@@ -374,18 +383,16 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
     if (!checkActive()) throw new Error("Sign-in session ended");
     if (destination) {
       if (merge || readReceipt(expected)) throw new Error("Resolve the pending operation first.");
-      await requireLocalRevision(database, destination, false);
+      await requireLocalRevision(database, destination, false, true);
       const { client, attach } = mergeConnection(expected, id, signal, checkActive, false);
       await pullMergeSnapshot(client, attach, async (snapshot, revision) => {
         if (revision !== destination.remote)
           throw new Error("Remote history changed. Find the remote database again before merging.");
-        if (legacy) await retireLegacyReplica(id, true);
-        const browser = legacy ? await openLegacyReplica(id) : undefined;
+        const browser = legacy ? await captureLegacyReplica(id) : undefined;
         try {
-          const captured =
-            browser && !(await browser.initialRestoreIsEligible())
-              ? encodeRevision(await browser.historyRevision())
-              : null;
+          const captured = browser
+            ? encodeRevision(await browser.database.historyRevision())
+            : null;
           if (legacy && legacy.browser !== captured)
             throw new Error(
               "The older browser copy changed. Find the Resource again before upgrading."
@@ -416,7 +423,10 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
     }
     if (!merge || !ownsMerge(expected, merge))
       throw new Error("The sign-in session changed. This session cannot resume the merge.");
-    if (merge.legacy && !destination) await retireLegacyReplica(id, true);
+    if (merge.legacy && merge.validatedLegacy !== true)
+      throw new Error(
+        "This older upgrade was staged without source validation. Archive it and find the Resource again."
+      );
     const publication = publicationFor(merge);
     const { client, attach } = mergeConnection(expected, id, signal, checkActive, true);
     let committed = !destination && (await checkMergeReceipt(merge, client, attach));
@@ -495,21 +505,27 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
   });
 }
 
-async function matchesLocalRevision(database: Database, expected: MergeDestination) {
+async function matchesLocalRevision(
+  database: Database,
+  expected: MergeDestination,
+  beforeRetirement: boolean
+) {
   return (
     !(await database.initialRestoreTag()) &&
     !(await hasLegacyLocalVaults()) &&
     encodeRevision(await database.historyRevision()) === expected.local &&
-    (!expected.legacy || (await legacyBrowserRevision(expected.id)) === expected.legacy.browser)
+    (!expected.legacy ||
+      (await legacyBrowserRevision(expected.id, !beforeRetirement)) === expected.legacy.browser)
   );
 }
 
 async function requireLocalRevision(
   database: Database,
   expected: MergeDestination,
-  committed: boolean
+  committed: boolean,
+  beforeRetirement = false
 ) {
-  if (!(await matchesLocalRevision(database, expected)))
+  if (!(await matchesLocalRevision(database, expected, beforeRetirement)))
     throw new Error(
       committed
         ? "Storage committed the merge, but this browser changed. Your current local data was kept."

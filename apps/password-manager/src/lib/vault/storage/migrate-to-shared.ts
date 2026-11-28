@@ -1,7 +1,8 @@
 import { type Client, type Row, Database as SqlDatabase, type Transaction } from "@ofsdk/sql";
 import * as v from "valibot";
 import { unlockEncryptedVault, type VaultDatabase } from "../encrypted-vault";
-import { retireLegacyReplica } from "./retire-legacy-replica";
+import { vaultMigrations } from "../migrations";
+import { openLegacyReplicaFence } from "./retire-legacy-replica";
 import {
   dbParams,
   MIGRATIONS,
@@ -13,6 +14,7 @@ import {
   VaultRowSchema,
 } from "./schema";
 import type { VaultIdentity } from "./VaultRegistry";
+import { requireVaultLayout, validateVaultRows } from "./validate-vault-database";
 
 const REGISTRY_DB_NAME = "password-manager-vault-registry-v2";
 const LEGACY_DB_PREFIX = "password-manager-local-";
@@ -80,22 +82,36 @@ const parseItem = (row: Row) => ({
   updatedAt: parseText(row, "updated_at"),
 });
 
-async function readSource({ id, name }: LegacyVaultIdentity, retire: boolean) {
+async function readSource({ id, name }: LegacyVaultIdentity) {
   const logicalName = `${LEGACY_DB_PREFIX}${id}`;
-  if (!(await indexedDB.databases()).some(({ name }) => name === `ofdb:sql:${logicalName}`))
-    throw new Error(`Legacy local source not found: ${id}. Do not clear browser data.`);
-  if (retire) await retireLegacyReplica(logicalName);
+  const fence = await openLegacyReplicaFence(logicalName);
+  if (!fence) throw new Error(`Legacy local source not found: ${id}. Do not clear browser data.`);
+  try {
+    return { fence, copy: await readLocalCopy(logicalName, id, name) };
+  } catch (error) {
+    fence.close();
+    throw error;
+  }
+}
+
+async function readLocalCopy(logicalName: string, id: string, name: string) {
   const db = await SqlDatabase.open(logicalName);
   const client = db.client();
   try {
     const tx = await client.transaction();
     try {
+      await requireVaultLayout(tx, vaultMigrations);
       const [row, extra] = await tx.execute(
-        `SELECT id, vault_id, salt, iv, created_at, authentication, lock_settings FROM vault_meta`,
+        `SELECT id, vault_id, salt, iv, created_at, authentication, lock_settings, item_format, transition_backup FROM vault_meta`,
         (row) => row
       );
       if (!row || extra || parseInteger(row, "id") !== 1 || parseText(row, "vault_id") !== id)
         throw new Error(`Invalid legacy vault metadata: ${id}`);
+      if (
+        parseInteger(row, "item_format") !== 1 ||
+        parseOptionalText(row, "transition_backup") !== null
+      )
+        throw new Error("The older vault has an unsupported item transition. Keep browser data.");
       const vault = v.parse(VaultRowSchema, {
         id,
         name,
@@ -122,7 +138,7 @@ async function readSource({ id, name }: LegacyVaultIdentity, retire: boolean) {
   }
 }
 
-type Copy = Awaited<ReturnType<typeof readSource>>;
+type Copy = Awaited<ReturnType<typeof readLocalCopy>>;
 
 async function insertCopy(tx: Transaction, { vault, secrets, folders, lock }: Copy) {
   await tx.executeRaw(`INSERT INTO vaults (${vaultFields}) VALUES (?, ?, ?, ?, ?, ?, 'ready', 1)`, [
@@ -202,45 +218,43 @@ export async function migrateLocalVault(id: string, password: string): Promise<v
   await navigator.locks.request(`${SHARED_DB_NAME}:legacy-local`, async () => {
     const entry = (await pendingLocals()).find((entry) => entry.id === id);
     if (!entry) return;
-    const original = await readSource(entry, true);
-    const client = await getSharedClient();
+    const { fence, copy: original } = await readSource(entry);
     try {
-      const tx = await client.transaction();
+      const verification = await openRecoveryCopy(original, password, true);
+      await verification.close();
+      const db = await openSharedDatabase();
+      const client = db.client();
       try {
-        const exists = await tx.execute(
-          "SELECT id FROM vaults WHERE id = ?",
-          (row) => row,
-          dbParams(id)
-        );
-        if (!exists.length) await insertCopy(tx, original);
-        await checkCopy(tx, original);
-        const vault = await unlockEncryptedVault(
-          readOnlyDatabase(tx, () => {}),
-          password,
-          id
-        );
-        if (!vault) throw new Error("Copied vault not found.");
+        if (await db.initialRestoreIsEligible()) await client.migrate(MIGRATIONS);
+        const tx = await client.transaction();
         try {
-          await vault.loadSecrets();
-          await vault.loadFolders();
-          await vault.loadLockSettings();
+          await requireVaultLayout(tx, MIGRATIONS);
+          const exists = await tx.execute(
+            "SELECT id FROM vaults WHERE id = ?",
+            (row) => row,
+            dbParams(id)
+          );
+          if (!exists.length) await insertCopy(tx, original);
+          await checkCopy(tx, original);
+          await fence.retire();
+          await tx.commit();
         } finally {
-          await vault.close();
+          tx.close();
         }
-        await tx.commit();
+        // Compare the persisted ciphertext to the copy that just decrypted successfully.
+        const saved = await client.transaction();
+        try {
+          await checkCopy(saved, original);
+        } finally {
+          saved.close();
+        }
+        await markVerified(entry);
       } finally {
-        tx.close();
+        client.close();
+        db.close();
       }
-      // Compare the persisted ciphertext to the copy that just decrypted successfully.
-      const saved = await client.transaction();
-      try {
-        await checkCopy(saved, original);
-      } finally {
-        saved.close();
-      }
-      await markVerified(entry);
     } finally {
-      client.close();
+      fence.close();
     }
   });
 }
@@ -248,7 +262,12 @@ export async function migrateLocalVault(id: string, password: string): Promise<v
 export async function unlockLocalRecovery(id: string, password: string) {
   const entry = (await pendingLocals()).find((entry) => entry.id === id);
   if (!entry) throw new Error("This older vault is no longer pending verification.");
-  const source = await readSource(entry, false);
+  const { fence, copy } = await readSource(entry);
+  fence.close();
+  return openRecoveryCopy(copy, password);
+}
+
+async function openRecoveryCopy(source: Copy, password: string, verify = false) {
   const db = await SqlDatabase.inMemory();
   const client = db.client();
   const reader = readOnlyDatabase(client, () => client.close());
@@ -261,8 +280,14 @@ export async function unlockLocalRecovery(id: string, password: string) {
     } finally {
       tx.close();
     }
-    const vault = await unlockEncryptedVault(reader, password, id);
+    const vault = await unlockEncryptedVault(reader, password, source.vault.id);
     if (!vault) throw new Error("Older vault not found.");
+    if (verify) {
+      await vault.loadSecrets();
+      await vault.loadFolders();
+      await vault.loadLockSettings();
+      await validateVaultRows(db, true);
+    }
     return vault;
   } catch (error) {
     await reader.close();

@@ -124,7 +124,9 @@ export async function passwordManagerSignin(
     await expect(show).toBeVisible();
     const [exchange, list] = await Promise.all([
       tokenResponse("urn:ietf:params:oauth:grant-type:token-exchange"),
-      page.waitForResponse((res) => res.url().startsWith(`${storage}/databases/by-creation-key`), { timeout: 20_000 }),
+      page.waitForResponse((res) => res.url().startsWith(`${storage}/databases/by-creation-key`), {
+        timeout: 20_000,
+      }),
       show.click(),
     ]);
     expect(exchange.ok()).toBe(true);
@@ -150,7 +152,42 @@ export async function passwordManagerSignin(
   return { clientId: clientId as string, accessToken };
 }
 
-export async function passwordManagerOpensLegacyVault(page: Page, origin: string, resourceId: string) {
+export async function passwordManagerRejectsWrongLegacySource(page: Page, id: string) {
+  await page.evaluate(async (id) => {
+    const fixture = "/src/test/legacy-browser-fixture.ts";
+    const { createWrongLegacySource } = await import(fixture);
+    await createWrongLegacySource(id);
+  }, id);
+  const state = (write = false) =>
+    page.evaluate(
+      async ({ id, write }) => {
+        const fixture = "/src/test/legacy-browser-fixture.ts";
+        const { wrongLegacySourceState } = await import(fixture);
+        return wrongLegacySourceState(id, write);
+      },
+      { id, write }
+    );
+  const before = await state();
+  const recovery = page.getByText("Recover older data by Resource ID", { exact: true });
+  await recovery.click();
+  await page.getByLabel("Older Storage Resource ID").fill(id);
+  await page.getByRole("button", { name: "Find exact Resource" }).click();
+  await page
+    .getByRole("region", { name: "Confirm older database upgrade" })
+    .getByRole("button", { name: "Approve and upgrade" })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("Incompatible history table schemas");
+  await expect(page.getByText(`Linked Storage Resource ID: ${id}`)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry pending merge" })).toHaveCount(0);
+  expect(await state()).toEqual(before);
+  expect(await state(true)).not.toEqual(before);
+}
+
+export async function passwordManagerOpensLegacyVault(
+  page: Page,
+  origin: string,
+  resourceId: string
+) {
   const name = "Legacy synced vault";
   const password = "older-vault-master-password";
   const fixtureIds = await page.evaluate(
@@ -187,7 +224,9 @@ export async function passwordManagerOpensLegacyVault(page: Page, origin: string
   await prompt.getByRole("button", { name: "Approve and upgrade" }).click();
   const retry = page.getByRole("button", { name: "Retry pending merge" });
   await expect(retry).toBeVisible();
-  await expect(page.getByText("Storage confirmed the merge. Local publication is not complete.")).toBeVisible();
+  await expect(
+    page.getByText("Storage confirmed the merge. Local publication is not complete.")
+  ).toBeVisible();
   const retiredWrites = await page.evaluate(async (id) => {
     const fixture = "/src/test/legacy-browser-fixture.ts";
     const { probeRetiredLegacyWrites } = await import(fixture);

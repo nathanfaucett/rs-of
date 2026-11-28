@@ -178,19 +178,16 @@ it("migrates legacy vault on first unlock and verifies password", async () => {
   await local.close();
   expect(await listVaults()).toContainEqual(expect.objectContaining({ id, name }));
 
-  const cached = await Database.open(oldDbName);
-  const writer = cached.client();
-  const stale = await writer.transaction();
-  await stale.executeRaw("DELETE FROM secrets");
-  try {
-    await expect(unlockVault("wrong-password", id)).rejects.toThrow("Wrong password");
-    await expect(stale.commit()).rejects.toThrow();
-    expect(await hasLegacyLocalVaults()).toBe(true);
-  } finally {
-    stale.close();
-    writer.close();
-    cached.close();
-  }
+  const { openLegacyReplicaFence } = await import("./storage/retire-legacy-replica");
+  const readRevision = async () => {
+    const fence = await openLegacyReplicaFence(oldDbName);
+    fence?.close();
+    return fence?.revision;
+  };
+  const revision = await readRevision();
+  await expect(unlockVault("wrong-password", id)).rejects.toThrow("Wrong password");
+  expect(await readRevision()).toBe(revision);
+  expect(await hasLegacyLocalVaults()).toBe(true);
 
   // A partial destination from the earlier copy path has matching metadata but no records.
   const { client, close } = await getStorageClient();
@@ -200,6 +197,7 @@ it("migrates legacy vault on first unlock and verifies password", async () => {
       dbParams(id, name, encode(salt), encode(iv), "2026-01-01T00:00:00.000Z")
     );
     await expect(unlockVault("legacy-password", id)).rejects.toThrow("does not match");
+    expect(await readRevision()).toBe(revision);
     expect(await hasLegacyLocalVaults()).toBe(true);
     const recovery = await unlockLocalRecovery(id, "legacy-password");
     try {

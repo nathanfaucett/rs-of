@@ -1,8 +1,9 @@
 import { Database, JsSqlSyncTransport } from "@ofsdk/sql";
 import type { AttachOptions, SyncClient, SyncSession } from "@ofsdk/storage-sync-client";
 import { vaultHistoryRecords } from "./history-records";
-import { resourceIdPattern, stageLegacyUpgrade } from "./legacy-history";
+import { type captureLegacyReplica, resourceIdPattern, stageLegacyUpgrade } from "./legacy-history";
 import { MIGRATIONS } from "./storage/schema";
+import { validateVaultDatabase } from "./storage/validate-vault-database";
 
 const mergeKey = "password-manager-v1:storage-binding:merge";
 
@@ -22,6 +23,7 @@ export type PendingMerge = MergeDestination & {
   operation: string;
   candidate: string;
   legacyVaults?: string[];
+  validatedLegacy?: true;
   committed: boolean;
   // Missing on older pending operations: treat those as possibly sent.
   attempted?: boolean;
@@ -122,12 +124,13 @@ export async function retainCandidate(
   remote: Database,
   merge: Omit<PendingMerge, "candidate">,
   checkActive: () => boolean,
-  browser?: Database
+  browser?: NonNullable<Awaited<ReturnType<typeof captureLegacyReplica>>>
 ) {
   const { stage, vaults } = merge.legacy
-    ? await stageLegacyUpgrade(local, remote, browser)
+    ? await stageLegacyUpgrade(local, remote, merge.legacy.explicit, browser?.database)
     : { stage: await local.stageHistory(remote, vaultHistoryRecords), vaults: undefined };
   try {
+    if (merge.legacy) await validateVaultDatabase(stage, true, false);
     const before = await stage.historyRevision();
     const client = stage.client();
     try {
@@ -140,6 +143,8 @@ export async function retainCandidate(
     }
     if (encodeRevision(await local.historyRevision()) !== merge.local)
       throw new Error("Local history changed. Find the remote database again before merging.");
+    if (!checkActive()) throw new Error("Sign-in session ended");
+    await browser?.retire(checkActive);
     const name = candidateName(merge.operation);
     const saved = await Database.open(name);
     let retained = false;
@@ -155,7 +160,7 @@ export async function retainCandidate(
       const pending = {
         ...merge,
         candidate: encodeRevision(before),
-        ...(vaults && { legacyVaults: vaults }),
+        ...(vaults && { legacyVaults: vaults, validatedLegacy: true as const }),
       };
       retainMerge(pending);
       retained = true;
@@ -180,6 +185,7 @@ export async function reopenCandidate(merge: PendingMerge) {
     try {
       if (encodeRevision(await stage.historyRevision()) !== merge.candidate)
         throw new Error("The saved merge candidate changed. No new history was sent.");
+      if (merge.legacy) await validateVaultDatabase(stage, true, false);
       return stage;
     } catch (error) {
       stage.close();

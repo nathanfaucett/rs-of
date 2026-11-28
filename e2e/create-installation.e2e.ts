@@ -16,6 +16,7 @@ import {
   localVault,
   masterPassword,
   passwordManagerOpensLegacyVault,
+  passwordManagerRejectsWrongLegacySource,
   passwordManagerSignin,
   passwordManagerWhileWaiting,
 } from "./password-manager-setup";
@@ -2034,12 +2035,9 @@ nodeTest(
     await pmPage.getByRole("button", { name: "Lock vault" }).click();
     const owner = installationOwner(new URL(remote.storage).origin, node.ca);
     const write = await owner.exchange(pmSession, "storage:databases", "write");
-    const legacy = await owner.json<{ id: string }>(
-      `${remote.storage}/databases`,
-      write,
-      "POST",
-      { name: "Renamed older database" }
-    );
+    const legacy = await owner.json<{ id: string }>(`${remote.storage}/databases`, write, "POST", {
+      name: "Renamed older database",
+    });
     const read = await owner.exchange(pmSession, "storage:databases", "read");
     const catalog = () => owner.json<{ id: string }[]>(`${remote.storage}/databases`, read);
     const keylessOnly = await catalog();
@@ -2047,20 +2045,52 @@ nodeTest(
     await pmPage.getByRole("button", { name: "Confirm and upload" }).click();
     await expect(pmPage.getByRole("alert")).toContainText("First upload was not started");
     expect(await catalog()).toEqual(keylessOnly);
-    const decoy = await owner.json<{ id: string }>(`${remote.storage}/databases/ensure`, write, "POST", {
-      creationKey: "legacy-name-decoy",
-      name: "password-manager-main",
-    });
+    const decoy = await owner.json<{ id: string }>(
+      `${remote.storage}/databases/ensure`,
+      write,
+      "POST",
+      {
+        creationKey: "legacy-name-decoy",
+        name: "password-manager-main",
+      }
+    );
     expect(decoy.id).not.toBe(legacy.id);
+    const wrong = await owner.json<{ id: string }>(`${remote.storage}/databases`, write, "POST", {
+      name: "Same-namespace SQL Resource",
+    });
+    const wrongSql = `${remote.storage}/databases/${wrong.id}/sql`;
+    await passwordManagerRejectsWrongLegacySource(pmPage, wrong.id);
+    const untouched = await owner.call(wrongSql, read, "POST", {
+      statements: [{ sql: "SELECT migrated FROM vaults" }],
+    });
+    expect(untouched.status, untouched.body).toBe(200);
+    expect(JSON.parse(untouched.body).results[0].rows).toEqual([[{ type: "integer", value: "1" }]]);
+    const remoteWrite = await owner.call(wrongSql, write, "POST", {
+      statements: [{ sql: "UPDATE vaults SET migrated = 0" }],
+    });
+    expect(remoteWrite.status, remoteWrite.body).toBe(200);
     const before = await catalog();
-    const { itemId, deletedId, vaultId } = await passwordManagerOpensLegacyVault(pmPage, pm, legacy.id);
+    const { itemId, deletedId, vaultId } = await passwordManagerOpensLegacyVault(
+      pmPage,
+      pm,
+      legacy.id
+    );
     expect(await catalog()).toEqual(before);
     const saved = await owner.call(`${remote.storage}/databases/${legacy.id}/sql`, read, "POST", {
-      statements: [{ sql: "SELECT id, ciphertext, nonce FROM secrets WHERE vault_id = ?", params: [{ type: "text", value: vaultId }] }],
+      statements: [
+        {
+          sql: "SELECT id, ciphertext, nonce FROM secrets WHERE vault_id = ?",
+          params: [{ type: "text", value: vaultId }],
+        },
+      ],
     });
     expect(saved.status, saved.body).toBe(200);
     expect(JSON.parse(saved.body).results[0].rows).toEqual([
-      [{ type: "text", value: itemId }, { type: "text", value: expect.any(String) }, { type: "text", value: expect.any(String) }],
+      [
+        { type: "text", value: itemId },
+        { type: "text", value: expect.any(String) },
+        { type: "text", value: expect.any(String) },
+      ],
     ]);
     expect(saved.body).not.toContain(deletedId);
     expect(saved.body).not.toContain("Kept encrypted across upgrade");

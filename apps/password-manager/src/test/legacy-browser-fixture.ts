@@ -2,10 +2,8 @@ import { BrowserSyncSDK } from "@ofsdk/sync-sdk/browser";
 import { authState } from "$lib/auth/auth.svelte";
 import { createSyncVault } from "./legacy-sync-vault";
 
-export async function createLegacyVault(resourceId: string, password: string, name: string) {
-  const session = authState.session;
-  if (!session) throw new Error("Sign in before creating the older replica fixture.");
-  const sdk = new BrowserSyncSDK({
+function legacySDK(session: NonNullable<typeof authState.session>) {
+  return new BrowserSyncSDK({
     apiUrl: session.storage,
     appId: session.clientId,
     userId: session.user.sub,
@@ -14,6 +12,12 @@ export async function createLegacyVault(resourceId: string, password: string, na
       throw new Error("The SDK replaces this provider.");
     },
   });
+}
+
+export async function createLegacyVault(resourceId: string, password: string, name: string) {
+  const session = authState.session;
+  if (!session) throw new Error("Sign in before creating the older replica fixture.");
+  const sdk = legacySDK(session);
   try {
     const handle = await sdk.sql.open(resourceId);
     const vault = await createSyncVault(password, name, handle);
@@ -76,5 +80,54 @@ export async function probeRetiredLegacyWrites(id: string) {
     staleWrite.close();
     cachedWriter.close();
     fresh.close();
+  }
+}
+
+export async function createWrongLegacySource(id: string) {
+  const { legacySyncDDL } = await import("./legacy-sync-ddl");
+  const session = authState.session;
+  if (!session) throw new Error("Sign in before creating the unrelated Resource fixture.");
+  const sdk = legacySDK(session);
+  try {
+    const handle = await sdk.sql.open(id);
+    for (const sql of legacySyncDDL) {
+      await handle.execute(sql.replace(/^ {2}name TEXT NOT NULL,\n/m, ""));
+    }
+    const { createAuthentication, deriveKey, fromBase64 } = await import(
+      "$lib/vault/storage/crypto"
+    );
+    const meta = {
+      id: crypto.randomUUID(),
+      salt: btoa("0".repeat(16)),
+      iv: btoa("0".repeat(12)),
+      createdAt: "2026-11-26T12:00:00Z",
+    };
+    const key = await deriveKey("unrelated fixture password", fromBase64(meta.salt));
+    await handle.execute(
+      "INSERT INTO vaults (id, salt, iv, created_at, authentication) VALUES (?, ?, ?, ?, ?)",
+      [meta.id, meta.salt, meta.iv, meta.createdAt, await createAuthentication(key, meta)]
+    );
+    await handle.sync({ direction: "bidirectional" });
+  } finally {
+    await sdk.close();
+  }
+}
+
+export async function wrongLegacySourceState(id: string, write = false) {
+  const { Database } = await import("@ofsdk/sql");
+  const { openLegacyReplicaFence } = await import("$lib/vault/storage/retire-legacy-replica");
+  const db = await Database.open(id);
+  const client = db.client();
+  try {
+    if (write) await client.executeRaw("UPDATE vaults SET migrated = 0");
+    const fence = await openLegacyReplicaFence(id);
+    fence?.close();
+    return {
+      revision: fence?.revision,
+      history: Array.from(await db.historyRevision()),
+    };
+  } finally {
+    client.close();
+    db.close();
   }
 }

@@ -220,7 +220,10 @@ async function resolvePendingMerge() {
     try {
         const committed = await syncStateModule.resolvePendingMerge(session);
         if (session === authState.session) {
-            notice = `${committed ? "Storage already committed the old merge." : "Storage cancelled the old merge."} Your local data and the old candidate were kept. Find the remote database and approve a new merge if you want to continue.`;
+            const outcome = committed === undefined
+                ? "The unverified upgrade was archived locally. Storage was not contacted."
+                : committed ? "Storage already committed the old merge." : "Storage cancelled the old merge.";
+            notice = `${outcome} Your local data and the old candidate were kept. Find the remote database and approve a new merge if you want to continue.`;
         }
     } catch (cause) {
         if (session === authState.session) error = cause instanceof Error ? cause.message : "Could not check the pending merge.";
