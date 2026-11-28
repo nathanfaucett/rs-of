@@ -87,7 +87,8 @@ export async function validateVaultRows(
 // Check its active catalog and migration allowlist in the same SQL snapshot as the rows.
 export async function requireVaultLayout(
   reader: Pick<Client, "execute">,
-  migrations: readonly Migration[]
+  migrations: readonly Migration[],
+  legacyTextLedger = false
 ) {
   const reference = await Database.inMemory();
   const client = reference.client();
@@ -107,19 +108,43 @@ export async function requireVaultLayout(
         primary_key,
       ]
     );
-    const ledger = await reader.execute(
-      "SELECT version, description, fingerprint, execution_time FROM _ofdb_migrations ORDER BY version",
-      (row) => {
-        if (parseInteger(row, "execution_time") < 0)
-          throw new Error("Invalid migration execution time.");
-        const { version, description, fingerprint } = row;
-        return [version, description, fingerprint];
-      }
-    );
+    const ledger = legacyTextLedger
+      ? await reader.execute(
+          "SELECT version, fingerprint FROM _ofdb_migrations ORDER BY version",
+          ({ version, fingerprint }) => [version, fingerprint]
+        )
+      : await reader.execute(
+          "SELECT version, description, fingerprint, execution_time FROM _ofdb_migrations ORDER BY version",
+          (row) => {
+            if (parseInteger(row, "execution_time") < 0)
+              throw new Error("Invalid migration execution time.");
+            const { version, description, fingerprint } = row;
+            return [version, description, fingerprint];
+          }
+        );
     return JSON.stringify([tables, fields, ledger]);
   }
   try {
-    await client.migrate(migrations);
+    if (legacyTextLedger) {
+      // The pre-unification runner recorded lowercase SHA-256 of the exact SQL bytes.
+      await client.executeRaw(
+        "CREATE TABLE _ofdb_migrations (version INTEGER PRIMARY KEY, fingerprint TEXT)"
+      );
+      for (const { version, sql } of migrations) {
+        const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sql));
+        const fingerprint = Array.from(new Uint8Array(hash), (byte) =>
+          byte.toString(16).padStart(2, "0")
+        ).join("");
+        await client.executeRaw(
+          "INSERT INTO _ofdb_migrations (version, fingerprint) VALUES (?, ?)",
+          [
+            { type: "integer", value: String(version) },
+            { type: "text", value: fingerprint },
+          ]
+        );
+        await client.executeRaw(sql);
+      }
+    } else await client.migrate(migrations);
     if ((await layout(reader)) !== (await layout(client)))
       throw new Error("Unsupported Password Manager schema or migration history.");
   } finally {

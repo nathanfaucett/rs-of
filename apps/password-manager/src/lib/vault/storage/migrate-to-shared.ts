@@ -16,16 +16,20 @@ import {
 import type { VaultIdentity } from "./VaultRegistry";
 import { requireVaultLayout, validateVaultRows } from "./validate-vault-database";
 
-const REGISTRY_DB_NAME = "password-manager-vault-registry-v2";
+const REGISTRY_V1 = "password-manager-vault-registry-v1";
+const REGISTRY_V2 = "password-manager-vault-registry-v2";
 const LEGACY_DB_PREFIX = "password-manager-local-";
 
 interface LegacyVaultIdentity {
   id: string;
   name: string;
   status: "pending" | "ready";
-  migrated: boolean;
-  verifiedInShared?: boolean;
+  migrated?: boolean;
+  databaseName?: string;
+  verifiedInShared?: boolean | string;
 }
+
+type LegacySource = LegacyVaultIdentity & { registry: string; logicalName: string };
 
 const SHARED_DB_NAME = "password-manager-v1";
 
@@ -50,18 +54,33 @@ export async function getSharedClient(): Promise<Client> {
 }
 
 async function pendingLocals() {
-  if (!(await indexedDB.databases()).some(({ name }) => name === REGISTRY_DB_NAME)) return [];
-  // The earlier copiedToShared marker did not verify the contents or retire writers.
-  return (await readRegistryIndexedDB()).filter((entry) => !entry.verifiedInShared);
+  const databases = await indexedDB.databases();
+  const pending: LegacySource[] = [];
+  for (const registry of [REGISTRY_V1, REGISTRY_V2]) {
+    if (!databases.some(({ name }) => name === registry)) continue;
+    for (const entry of await readRegistryIndexedDB(registry)) {
+      const logicalName =
+        registry === REGISTRY_V1 ? entry.databaseName : `${LEGACY_DB_PREFIX}${entry.id}`;
+      if (
+        !logicalName ||
+        !/^password-manager-(local|vault|batch|transition|restore)-.+$/.test(logicalName)
+      )
+        throw new Error("Invalid older vault database name. Do not clear browser data.");
+      // An old app can publish a new database by copying the registry entry after cutover.
+      // The earlier copiedToShared marker is not proof of verification either.
+      if (entry.verifiedInShared === (registry === REGISTRY_V1 ? logicalName : true)) continue;
+      pending.push({ ...entry, registry, logicalName });
+    }
+  }
+  return pending;
 }
 
 export async function listLegacyLocalVaults(): Promise<VaultIdentity[]> {
-  return (await pendingLocals()).map(({ id, name, migrated }) => ({
-    id,
-    name,
-    migrated,
-    status: "ready",
-  }));
+  const entries = new Map<string, VaultIdentity>();
+  for (const { id, name, migrated } of await pendingLocals()) {
+    entries.set(id, { id, name, migrated: migrated ?? false, status: "ready" });
+  }
+  return [...entries.values()];
 }
 
 export async function hasLegacyLocalVaults(): Promise<boolean> {
@@ -82,8 +101,14 @@ const parseItem = (row: Row) => ({
   updatedAt: parseText(row, "updated_at"),
 });
 
-async function readSource({ id, name }: LegacyVaultIdentity) {
-  const logicalName = `${LEGACY_DB_PREFIX}${id}`;
+async function findSource(id: string) {
+  const [entry, other] = (await pendingLocals()).filter((entry) => entry.id === id);
+  if (other)
+    throw new Error("The older vault has conflicting registry entries. Keep browser data.");
+  return entry;
+}
+
+async function readSource({ id, name, logicalName }: LegacySource) {
   const fence = await openLegacyReplicaFence(logicalName);
   if (!fence) throw new Error(`Legacy local source not found: ${id}. Do not clear browser data.`);
   try {
@@ -100,31 +125,49 @@ async function readLocalCopy(logicalName: string, id: string, name: string) {
   try {
     const tx = await client.transaction();
     try {
-      await requireVaultLayout(tx, vaultMigrations);
+      const [description] = await tx.execute(
+        "SELECT name FROM table_fields WHERE table = '_ofdb_migrations' AND name = 'description'",
+        (row) => row
+      );
+      if (description) await requireVaultLayout(tx, vaultMigrations);
+      else {
+        // 2cf67c5b used four spaces in migration 1 and the original text fingerprint ledger.
+        const historical = vaultMigrations.map((migration) => ({
+          ...migration,
+          sql: migration.sql.replace(/^\t/gm, "    "),
+        }));
+        await requireVaultLayout(tx, historical, true);
+      }
       const [row, extra] = await tx.execute(
         `SELECT id, vault_id, salt, iv, created_at, authentication, lock_settings, item_format, transition_backup FROM vault_meta`,
         (row) => row
       );
       if (!row || extra || parseInteger(row, "id") !== 1 || parseText(row, "vault_id") !== id)
         throw new Error(`Invalid legacy vault metadata: ${id}`);
+      const itemFormat = parseInteger(row, "item_format");
+      const transitionBackup = parseOptionalText(row, "transition_backup");
+      const authentication = parseOptionalText(row, "authentication");
       if (
-        parseInteger(row, "item_format") !== 1 ||
-        parseOptionalText(row, "transition_backup") !== null
+        (itemFormat !== 1 && itemFormat !== 2) ||
+        (itemFormat === 1 && transitionBackup !== null) ||
+        (itemFormat === 2 && !authentication)
       )
-        throw new Error("The older vault has an unsupported item transition. Keep browser data.");
+        throw new Error("Invalid older vault item format or authentication. Keep browser data.");
       const vault = v.parse(VaultRowSchema, {
         id,
         name,
         salt: parseText(row, "salt"),
         iv: parseText(row, "iv"),
         createdAt: parseText(row, "created_at"),
-        authentication: parseOptionalText(row, "authentication"),
+        authentication,
         status: "ready",
         migrated: true,
       });
       const saved = parseOptionalText(row, "lock_settings");
       return {
         vault,
+        itemFormat,
+        transitionBackup,
         secrets: await tx.execute(`SELECT ${fields} FROM secrets ORDER BY id`, parseItem),
         folders: await tx.execute(`SELECT ${fields} FROM folders ORDER BY id`, parseItem),
         lock: saved === null ? [] : [v.parse(envelope, JSON.parse(saved))],
@@ -192,7 +235,11 @@ async function checkCopy(tx: Transaction, original: Copy) {
       params
     ),
   };
-  if (extra || JSON.stringify(copy) !== JSON.stringify(original))
+  const { vault: expectedVault, secrets, folders, lock } = original;
+  if (
+    extra ||
+    JSON.stringify(copy) !== JSON.stringify({ vault: expectedVault, secrets, folders, lock })
+  )
     throw new Error(
       "The shared vault does not match the older source. Both copies were kept. Open the recovery copy to export a backup."
     );
@@ -215,62 +262,69 @@ function readOnlyDatabase(reader: Pick<Client, "execute">, close: () => void): V
 }
 
 export async function migrateLocalVault(id: string, password: string): Promise<void> {
-  await navigator.locks.request(`${SHARED_DB_NAME}:legacy-local`, async () => {
-    const entry = (await pendingLocals()).find((entry) => entry.id === id);
-    if (!entry) return;
-    const { fence, copy: original } = await readSource(entry);
-    try {
-      const verification = await openRecoveryCopy(original, password, true);
-      await verification.close();
-      const db = await openSharedDatabase();
-      const client = db.client();
+  // Older item writes can replace the registry pointer without changing the old SQL revision.
+  await navigator.locks.request(`password-manager-items-${id}`, () =>
+    navigator.locks.request(`${SHARED_DB_NAME}:legacy-local`, async () => {
+      const entry = await findSource(id);
+      if (!entry) return;
+      const { fence, copy: original } = await readSource(entry);
       try {
-        if (await db.initialRestoreIsEligible()) await client.migrate(MIGRATIONS);
-        const tx = await client.transaction();
+        const verification = await openRecoveryCopy(original, password);
+        await verification.close();
+        const db = await openSharedDatabase();
+        const client = db.client();
         try {
-          await requireVaultLayout(tx, MIGRATIONS);
-          const exists = await tx.execute(
-            "SELECT id FROM vaults WHERE id = ?",
-            (row) => row,
-            dbParams(id)
-          );
-          if (!exists.length) await insertCopy(tx, original);
-          await checkCopy(tx, original);
-          await fence.retire();
-          await tx.commit();
+          if (await db.initialRestoreIsEligible()) await client.migrate(MIGRATIONS);
+          const tx = await client.transaction();
+          try {
+            await requireVaultLayout(tx, MIGRATIONS);
+            const exists = await tx.execute(
+              "SELECT id FROM vaults WHERE id = ?",
+              (row) => row,
+              dbParams(id)
+            );
+            if (!exists.length) await insertCopy(tx, original);
+            await checkCopy(tx, original);
+            await fence.retire();
+            await tx.commit();
+          } finally {
+            tx.close();
+          }
+          // Compare the persisted ciphertext to the copy that just decrypted successfully.
+          const saved = await client.transaction();
+          try {
+            await checkCopy(saved, original);
+          } finally {
+            saved.close();
+          }
+          await markVerified(entry);
         } finally {
-          tx.close();
+          client.close();
+          db.close();
         }
-        // Compare the persisted ciphertext to the copy that just decrypted successfully.
-        const saved = await client.transaction();
-        try {
-          await checkCopy(saved, original);
-        } finally {
-          saved.close();
-        }
-        await markVerified(entry);
       } finally {
-        client.close();
-        db.close();
+        fence.close();
       }
-    } finally {
-      fence.close();
-    }
-  });
+    })
+  );
 }
 
 export async function unlockLocalRecovery(id: string, password: string) {
-  const entry = (await pendingLocals()).find((entry) => entry.id === id);
-  if (!entry) throw new Error("This older vault is no longer pending verification.");
-  const { fence, copy } = await readSource(entry);
-  fence.close();
+  const copy = await navigator.locks.request(`password-manager-items-${id}`, async () => {
+    const entry = await findSource(id);
+    if (!entry) throw new Error("This older vault is no longer pending verification.");
+    const { fence, copy } = await readSource(entry);
+    fence.close();
+    return copy;
+  });
   return openRecoveryCopy(copy, password);
 }
 
-async function openRecoveryCopy(source: Copy, password: string, verify = false) {
+async function openRecoveryCopy(source: Copy, password: string) {
   const db = await SqlDatabase.inMemory();
   const client = db.client();
   const reader = readOnlyDatabase(client, () => client.close());
+  let vault: Awaited<ReturnType<typeof unlockEncryptedVault>> | undefined;
   try {
     await client.migrate(MIGRATIONS);
     const tx = await client.transaction();
@@ -280,26 +334,28 @@ async function openRecoveryCopy(source: Copy, password: string, verify = false) 
     } finally {
       tx.close();
     }
-    const vault = await unlockEncryptedVault(reader, password, source.vault.id);
+    vault = await unlockEncryptedVault(reader, password, source.vault.id);
     if (!vault) throw new Error("Older vault not found.");
-    if (verify) {
+    if (source.itemFormat === 2) {
+      await vault.verifyFormat2(source.vault.authentication ?? "", source.transitionBackup);
+    } else {
       await vault.loadSecrets();
       await vault.loadFolders();
-      await vault.loadLockSettings();
-      await validateVaultRows(db, true);
     }
+    await vault.loadLockSettings();
+    await validateVaultRows(db, true);
     return vault;
   } catch (error) {
-    await reader.close();
+    await (vault ?? reader).close();
     throw error;
   } finally {
     db.close();
   }
 }
 
-async function readRegistryIndexedDB(): Promise<LegacyVaultIdentity[]> {
+async function readRegistryIndexedDB(registry: string): Promise<LegacyVaultIdentity[]> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(REGISTRY_DB_NAME, 1);
+    const request = indexedDB.open(registry, 1);
     request.onupgradeneeded = () => {};
     request.onsuccess = () => {
       const db = request.result;
@@ -324,9 +380,9 @@ async function readRegistryIndexedDB(): Promise<LegacyVaultIdentity[]> {
   });
 }
 
-async function markVerified(entry: LegacyVaultIdentity): Promise<void> {
+async function markVerified(entry: LegacySource): Promise<void> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(REGISTRY_DB_NAME, 1);
+    const request = indexedDB.open(entry.registry, 1);
     request.onerror = () => reject(request.error);
     request.onblocked = () => reject(new Error("Legacy registry write blocked"));
     request.onsuccess = () => {
@@ -337,8 +393,17 @@ async function markVerified(entry: LegacyVaultIdentity): Promise<void> {
         const request = store.get(entry.id);
         request.onsuccess = () => {
           const current = request.result as LegacyVaultIdentity | undefined;
-          if (!current || current.name !== entry.name) transaction.abort();
-          else store.put({ ...current, verifiedInShared: true });
+          if (
+            !current ||
+            current.name !== entry.name ||
+            current.databaseName !== entry.databaseName
+          )
+            transaction.abort();
+          else
+            store.put({
+              ...current,
+              verifiedInShared: entry.registry === REGISTRY_V1 ? entry.logicalName : true,
+            });
         };
         transaction.oncomplete = () => {
           db.close();
