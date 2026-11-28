@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsString,
     fmt,
     fs::File,
     io::{self, Read, Write},
@@ -34,6 +35,8 @@ pub struct SetupAdmission {
 }
 
 struct LocalState {
+    parent: File,
+    name: OsString,
     directory: File,
     lock: File,
     failed: bool,
@@ -113,10 +116,24 @@ impl SetupAdmission {
         root: &Path,
         history: Option<Arc<dyn SetupAdmissionHistory>>,
     ) -> Result<Option<String>> {
-        let directory = open_directory(root).map_err(unavailable)?;
+        if let Some(history) = &history {
+            let (_, retired) = read_history(history).map_err(unavailable)?;
+            if retired {
+                return Ok(None);
+            }
+        }
+        let (parent, name) = open_parent(root).map_err(unavailable)?;
+        private(&parent, true).map_err(unavailable)?;
+        let directory: File = openat(&parent, &name, directory_flags(), Mode::empty())
+            .map_err(io::Error::from)
+            .map_err(unavailable)?
+            .into();
         private(&directory, true).map_err(unavailable)?;
-        let lock = local_file(&directory, "lock", false).map_err(unavailable)?;
+        let lock_name = if history.is_some() { "state" } else { "lock" };
+        let lock = local_file(&directory, lock_name, false).map_err(unavailable)?;
         LocalState {
+            parent,
+            name,
             directory,
             lock,
             failed: false,
@@ -149,11 +166,14 @@ impl SetupAdmission {
         root: &Path,
         history: Option<Arc<dyn SetupAdmissionHistory>>,
     ) -> io::Result<Self> {
-        let name = root.file_name().ok_or_else(invalid_state)?;
-        let parent_path = root.parent().ok_or_else(invalid_state)?;
-        let parent = open_directory(parent_path)?;
+        let (parent, name) = open_parent(root)?;
         private(&parent, true)?;
-        let fresh = match mkdirat(&parent, name, Mode::from_raw_mode(0o700)) {
+        let retired = history
+            .as_ref()
+            .map(read_history)
+            .transpose()?
+            .is_some_and(|(_, retired)| retired);
+        let fresh = match mkdirat(&parent, &name, Mode::from_raw_mode(0o700)) {
             Ok(()) => {
                 parent.sync_all()?;
                 true
@@ -161,9 +181,16 @@ impl SetupAdmission {
             Err(rustix::io::Errno::EXIST) => false,
             Err(error) => return Err(error.into()),
         };
-        let directory: File = openat(&parent, name, directory_flags(), Mode::empty())?.into();
+        let directory: File = openat(&parent, &name, directory_flags(), Mode::empty())?.into();
         private(&directory, true)?;
-        let lock = local_file(&directory, "lock", fresh)?;
+        let history_backed = history.is_some();
+        let lock_name = if history_backed { "state" } else { "lock" };
+        let missing_retired_state = retired
+            && matches!(
+                statat(&directory, "state", AtFlags::SYMLINK_NOFOLLOW),
+                Err(rustix::io::Errno::NOENT)
+            );
+        let lock = local_file(&directory, lock_name, fresh || missing_retired_state)?;
         lock.try_lock().map_err(|error| match error {
             std::fs::TryLockError::WouldBlock => io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -172,21 +199,22 @@ impl SetupAdmission {
             std::fs::TryLockError::Error(error) => error,
         })?;
         let mut local = LocalState {
+            parent,
+            name,
             directory,
             lock,
             failed: false,
             history,
         };
-        if fresh {
+        if fresh && !retired {
             local.lock.sync_all()?;
             local.directory.sync_all()?;
             let mut bytes = [0u8; 32];
             getrandom::fill(&mut bytes).map_err(|error| io::Error::other(error.to_string()))?;
             let code: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-            if local.history.is_some() {
-                let mut file = local_file(&local.directory, "state", true)?;
-                file.write_all(code.as_bytes())?;
-                file.sync_all()?;
+            if history_backed {
+                local.lock.write_all(code.as_bytes())?;
+                local.lock.sync_all()?;
                 local.directory.sync_all()?;
             } else {
                 local
@@ -198,6 +226,9 @@ impl SetupAdmission {
             }
         }
         local.read()?;
+        if history_backed && retired {
+            local.cleanup_history();
+        }
         Ok(Self {
             inner: Mutex::new(local),
         })
@@ -321,12 +352,26 @@ impl SetupAdmission {
     pub fn retire(&self, headers: &HeaderMap, intent: &str) -> Result<()> {
         valid_intent(intent)?;
         self.authorized(headers, |local, retained| {
-            if retained.intent != intent {
-                return Err(SetupAdmissionError::Conflict);
-            }
-            retained.code = None;
-            local.persist(retained)
+            retire_retained(local, retained, intent)
         })
+    }
+
+    /// Retire an already bound operation after the host verifies completion.
+    /// This is host lifecycle authority, not an HTTP authorization substitute.
+    pub fn retire_host(&self, intent: &str) -> Result<()> {
+        valid_intent(intent)?;
+        let mut local = self.inner.lock().map_err(unavailable)?;
+        if local.failed {
+            return Err(SetupAdmissionError::Unavailable);
+        }
+        let result = (|| {
+            let mut retained = local.read().map_err(unavailable)?;
+            retire_retained(&mut local, &mut retained, intent)
+        })();
+        if result == Err(SetupAdmissionError::Unavailable) {
+            local.failed = true;
+        }
+        result
     }
 
     fn authorized(
@@ -373,28 +418,27 @@ pub async fn setup_admission_middleware(
 impl LocalState {
     fn read(&self) -> io::Result<Retained> {
         private(&self.directory, true)?;
-        let lock = local_file(&self.directory, "lock", false)?;
-        let held = self.lock.metadata()?;
-        let current = lock.metadata()?;
-        if held.ino() != current.ino() || held.dev() != current.dev() {
-            return Err(invalid_state());
-        }
         match statat(&self.directory, "pending", AtFlags::SYMLINK_NOFOLLOW) {
             Err(rustix::io::Errno::NOENT) => (),
             Ok(_) => return Err(invalid_state()),
             Err(error) => return Err(error.into()),
         }
+        let history_backed = self.history.is_some();
         if let Some(history) = &self.history {
-            let (intent, retired) = history.read()?;
-            if !intent.is_empty() && valid_intent(&intent).is_err() {
-                return Err(invalid_state());
-            }
+            let (intent, retired) = read_history(history)?;
             if retired {
-                if intent.is_empty() {
-                    return Err(invalid_state());
-                }
                 return Ok(Retained { code: None, intent });
             }
+        }
+        let lock_name = if history_backed { "state" } else { "lock" };
+        let lock = local_file(&self.directory, lock_name, false)?;
+        let held = self.lock.metadata()?;
+        let current = lock.metadata()?;
+        if held.ino() != current.ino() || held.dev() != current.dev() {
+            return Err(invalid_state());
+        }
+        if history_backed {
+            let intent = read_history(self.history.as_ref().expect("history-backed state"))?.0;
             let file = local_file(&self.directory, "state", false)?;
             let mut text = String::new();
             file.take(1200).read_to_string(&mut text)?;
@@ -441,8 +485,7 @@ impl LocalState {
             result.map_err(unavailable)?;
             if retained.code.is_none() {
                 // Durable retirement wins even if temporary-code cleanup fails.
-                let _ = rustix::fs::unlinkat(&self.directory, "state", AtFlags::empty());
-                let _ = self.directory.sync_all();
+                self.cleanup_history();
             }
             return Ok(());
         }
@@ -464,6 +507,32 @@ impl LocalState {
         }
         result
     }
+
+    fn cleanup_history(&self) {
+        let _ = rustix::fs::unlinkat(&self.directory, "state", AtFlags::empty());
+        let _ = self.directory.sync_all();
+        let _ = rustix::fs::unlinkat(&self.parent, &self.name, AtFlags::REMOVEDIR);
+        let _ = self.parent.sync_all();
+    }
+}
+
+fn retire_retained(local: &mut LocalState, retained: &mut Retained, intent: &str) -> Result<()> {
+    if retained.intent != intent {
+        return Err(SetupAdmissionError::Conflict);
+    }
+    if retained.code.is_none() {
+        return Ok(());
+    }
+    retained.code = None;
+    local.persist(retained)
+}
+
+fn read_history(history: &Arc<dyn SetupAdmissionHistory>) -> io::Result<(String, bool)> {
+    let (intent, retired) = history.read()?;
+    if (!intent.is_empty() && valid_intent(&intent).is_err()) || (retired && intent.is_empty()) {
+        return Err(invalid_state());
+    }
+    Ok((intent, retired))
 }
 
 fn header_code(headers: &HeaderMap) -> Result<&str> {
@@ -528,6 +597,12 @@ fn local_file(directory: &File, name: &str, fresh: bool) -> io::Result<File> {
 
 fn directory_flags() -> OFlags {
     OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+}
+
+fn open_parent(root: &Path) -> io::Result<(File, OsString)> {
+    let name = root.file_name().ok_or_else(invalid_state)?.to_os_string();
+    let parent = open_directory(root.parent().ok_or_else(invalid_state)?)?;
+    Ok((parent, name))
 }
 
 fn open_directory(path: &Path) -> io::Result<File> {

@@ -468,12 +468,7 @@ nodeTest(
     await expect(page).toHaveURL(`${app}/signin`, { timeout: 60_000 });
     expect(streams).toBe(1);
     expect(snapshots).toBeLessThanOrEqual(2);
-    expect((await readdir(data)).sort()).toEqual([
-      "node-admission",
-      "unified-setup.lock",
-      "unified.redb",
-    ]);
-    expect(await code(resolve(data, "node-admission/state"), true)).toBe(nodeCode);
+    expect((await readdir(data)).sort()).toEqual(["unified.redb"]);
     expect(await descriptor(page, base)).toEqual({
       state: "ready",
       idp,
@@ -2005,6 +2000,7 @@ nodeTest(
       idp: remote.idp,
       storage: remote.storage,
     });
+    expect((await readdir(data)).sort()).toEqual(["unified.redb"]);
     const approved = (await remote.devices()).filter((device) => device.name === name);
     expect(approved).toHaveLength(1);
     expect(approved[0]).toMatchObject({

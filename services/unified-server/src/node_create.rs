@@ -16,7 +16,7 @@ use utoipa::ToSchema;
 
 use crate::{
     node_runtime::{CreateRecord, NodeRuntime},
-    node_setup::{Descriptor, LoginClient, NodeSetup},
+    node_setup::{Choice, Descriptor, LoginClient, NodeSetup},
     setup_store::SetupStore,
 };
 
@@ -171,6 +171,7 @@ impl NodeCreate {
         if password.is_some() {
             self.store.write(RECORD, &record).await?;
         }
+        self.node.retire(Choice::Create)?;
         let client_id = record.login.to_string();
         state.router = Some(router);
         state.active = None;

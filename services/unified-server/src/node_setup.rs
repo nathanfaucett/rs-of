@@ -135,6 +135,12 @@ impl NodeSetup {
         Arc::clone(&self.admission)
     }
 
+    pub fn retire(&self, choice: Choice) -> io::Result<()> {
+        self.admission
+            .retire_host(&choice_intent(choice, &self.binding))
+            .map_err(io::Error::other)
+    }
+
     pub fn publish(&self, status: Descriptor) {
         self.status.send_if_modified(|current| {
             if *current == status {
@@ -333,13 +339,13 @@ mod tests {
 
     use axum::{
         body::{Body, HttpBody},
-        http::Request,
+        http::{HeaderMap, Request},
     };
     use db::EmbeddedDatabase;
     use tokio::time::timeout;
     use tower::ServiceExt;
 
-    use super::{Descriptor, NodeSetup, Router, SetupStore};
+    use super::{Choice, Descriptor, NodeSetup, Router, SetupStore, choice_intent};
     use tokio_util::sync::CancellationToken;
 
     async fn next_event(body: &mut Body) -> Option<String> {
@@ -406,5 +412,64 @@ mod tests {
         );
         stop.cancel();
         assert!(next_event(&mut body).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn retirement_removes_admission_and_reopens_the_retained_choice() {
+        let root = tempfile::Builder::new()
+            .permissions(Permissions::from_mode(0o700))
+            .tempdir()
+            .expect("private Node root");
+        let database = EmbeddedDatabase::open(root.path())
+            .await
+            .expect("Node database");
+        let store = SetupStore::open(&database).await.expect("setup store");
+        let stop = CancellationToken::new();
+        let node = NodeSetup::open(
+            root.path(),
+            "https://app.test",
+            "https://pm.test",
+            "https://node.test",
+            store.clone(),
+            stop.clone(),
+        )
+        .expect("Node setup");
+        let admission = root.path().join("node-admission");
+        let code = std::fs::read_to_string(admission.join("state")).expect("Node setup code");
+        assert!(!admission.join("lock").exists());
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            format!("Setup {code}").parse().expect("setup header"),
+        );
+        node.admission
+            .bind(
+                &headers,
+                &choice_intent(
+                    Choice::Create,
+                    "https://node.test https://app.test https://pm.test",
+                ),
+            )
+            .expect("bind Create choice");
+        node.retire(Choice::Create).expect("retire Create");
+        assert!(!admission.exists());
+        drop(node);
+
+        let node = NodeSetup::open(
+            root.path(),
+            "https://app.test",
+            "https://pm.test",
+            "https://node.test",
+            store,
+            stop,
+        )
+        .expect("reopen retired Node setup");
+        assert!(node.admission.is_retired().expect("retired admission"));
+        assert!(
+            node.choice()
+                .borrow()
+                .is_some_and(|choice| choice == Choice::Create)
+        );
+        assert!(!admission.exists());
     }
 }

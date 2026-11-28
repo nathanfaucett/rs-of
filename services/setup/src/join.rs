@@ -169,8 +169,9 @@ impl JoinHost {
     }
 
     /// Open Join on a caller-owned, verified HTTPS route without Join files or a
-    /// Join code. POST checks the Node admission; Join does not bind or retire it.
-    /// The caller must retain the exact public and browser origins and ensure only
+    /// Join code. POST checks Node admission; Join does not bind it. Verified
+    /// completion retires an existing host binding. The caller must retain the
+    /// exact public and browser origins and ensure only
     /// one live Join host owns this journal, including across processes.
     ///
     /// # Errors
@@ -283,6 +284,10 @@ impl JoinHost {
                 .save(&journal)
                 .map_err(|_| io::Error::other("cannot save Join Installation evidence"))?;
         }
+        self.state
+            .store
+            .retire_host()
+            .map_err(|_error| io::Error::other("cannot retire Node admission"))?;
         Ok(Some((journal.intent.issuer, journal.intent.storage)))
     }
 }
@@ -366,7 +371,6 @@ impl Store {
         }
     }
 
-    // For a DB journal, the prepared commit binds the intent and the approved commit retires it.
     fn bind(&self, headers: &HeaderMap, journal: &Journal) -> Result<()> {
         if let Self::File { admission, .. } = self {
             admission.bind(headers, &journal.binding()?)?;
@@ -375,8 +379,20 @@ impl Store {
     }
 
     fn retire(&self, headers: &HeaderMap, journal: &Journal) -> Result<()> {
-        if let Self::File { admission, .. } = self {
-            admission.retire(headers, &journal.binding()?)?;
+        match self {
+            Self::File { admission, .. } => {
+                admission.retire(headers, &journal.binding()?)?;
+                Ok(())
+            }
+            Self::Journal { .. } => self.retire_host(),
+        }
+    }
+
+    fn retire_host(&self) -> Result<()> {
+        if let Self::Journal { node_admission, .. } = self
+            && let Some(intent) = node_admission.host_intent()?
+        {
+            node_admission.retire_host(&intent)?;
         }
         Ok(())
     }

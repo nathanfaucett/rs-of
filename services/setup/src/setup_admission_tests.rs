@@ -1,4 +1,8 @@
-use std::{fs, os::unix::fs::PermissionsExt, sync::Arc};
+use std::{
+    fs,
+    os::unix::fs::PermissionsExt,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
     Router,
@@ -11,6 +15,7 @@ use tower::ServiceExt;
 
 use crate::setup_admission::SetupAdmission;
 use crate::setup_admission::SetupAdmissionError;
+use crate::setup_admission::SetupAdmissionHistory;
 use crate::setup_admission::setup_admission_middleware;
 
 fn fixture() -> (
@@ -37,6 +42,76 @@ fn fixture() -> (
         format!("Setup {code}").parse().expect("header"),
     );
     (parent, root, admission, headers, code)
+}
+
+#[derive(Default)]
+struct History(Mutex<(String, bool)>);
+
+impl SetupAdmissionHistory for History {
+    fn read(&self) -> std::io::Result<(String, bool)> {
+        Ok(self.0.lock().expect("history lock").clone())
+    }
+
+    fn bind(&self, intent: &str) -> std::io::Result<()> {
+        self.0.lock().expect("history lock").0 = intent.into();
+        Ok(())
+    }
+
+    fn retire(&self, intent: &str) -> std::io::Result<()> {
+        let mut retained = self.0.lock().expect("history lock");
+        assert_eq!(retained.0, intent);
+        retained.1 = true;
+        Ok(())
+    }
+}
+
+#[test]
+fn history_state_locks_setup_and_retirement_removes_its_directory() {
+    let parent = tempfile::tempdir().expect("test parent");
+    fs::set_permissions(parent.path(), fs::Permissions::from_mode(0o700)).expect("private parent");
+    let root = parent.path().join("admission");
+    let history = Arc::new(History::default());
+    let admission = SetupAdmission::open_with_history(&root, history.clone()).expect("fresh state");
+    let code = fs::read_to_string(root.join("state")).expect("raw setup code");
+    assert_eq!(code.len(), 64);
+    assert!(!root.join("lock").exists());
+    assert_eq!(
+        SetupAdmission::open_with_history(&root, history.clone())
+            .expect_err("state file must exclude a second owner")
+            .kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    drop(admission);
+
+    let admission =
+        SetupAdmission::open_with_history(&root, history.clone()).expect("state reopen");
+    assert_eq!(
+        fs::read_to_string(root.join("state")).expect("retained setup code"),
+        code
+    );
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        "authorization",
+        format!("Setup {code}").parse().expect("setup header"),
+    );
+    admission
+        .bind(&headers, "node-v2:create test")
+        .expect("bind Node setup");
+    admission
+        .retire_host("node-v2:create test")
+        .expect("host retirement");
+    assert!(admission.is_retired().expect("retired state"));
+    assert!(!root.exists());
+    assert_eq!(
+        SetupAdmission::protected_code_with_history(&root, history.clone()),
+        Ok(None)
+    );
+    drop(admission);
+
+    let reopened = SetupAdmission::open_with_history(&root, history).expect("retired reopen");
+    assert!(reopened.is_retired().expect("retired reopen state"));
+    assert!(!root.exists());
+    assert_eq!(reopened.check(&headers), Err(SetupAdmissionError::Denied));
 }
 
 #[test]

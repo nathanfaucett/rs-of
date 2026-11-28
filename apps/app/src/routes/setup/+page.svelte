@@ -94,23 +94,59 @@
 <Page width="narrow">
     <PageHeader title="Set up this Node" />
     <Card>
-        {#if error}<Alert tone="danger">{error}</Alert>{/if}
-        {#if setupState === "starting"}
-            <p>Your choice was saved. Starting the selected setup.</p>
-        {:else if setupState === "unavailable" || setupState === "blocked"}
-            <Alert tone="danger">Cannot verify Node setup. Check the server terminal and HTTPS trust.</Alert>
-        {:else}
-            <p>Use the protected Node setup code from the file shown in the server terminal.</p>
-            <Field label="Node setup code">
-                {#snippet children({ id })}
-                    <input {id} type="password" bind:value={code} autocomplete="off" disabled={busy} class="input" />
-                {/snippet}
-            </Field>
-            <div class="flex flex-wrap gap-4">
-                <button type="button" class="btn btn-primary btn-md" disabled={busy} onclick={() => choose("create")}>Start a new Installation</button>
-                <button type="button" class="btn btn-secondary btn-md" disabled={busy} onclick={() => choose("join")}>Join an existing Installation</button>
-            </div>
-        {/if}
-        <button type="button" class="btn btn-secondary btn-md" disabled={busy} onclick={checkStatus}>Check Node status</button>
+        <div class="flex flex-col gap-4">
+            {#if error}<Alert tone="danger">{error}</Alert>{/if}
+            {#if setupState === "starting"}
+                <p>Your choice was saved. Starting the selected setup.</p>
+            {:else if setupState === "unavailable" || setupState === "blocked"}
+                <Alert tone="danger">
+                    Cannot verify Node setup. Check the server terminal and
+                    HTTPS trust.
+                </Alert>
+            {:else}
+                <p>
+                    Use the protected Node setup code from the file shown in the
+                    server terminal.
+                </p>
+                <Field label="Node setup code">
+                    {#snippet children({ id })}
+                        <input
+                            {id}
+                            type="password"
+                            bind:value={code}
+                            autocomplete="off"
+                            disabled={busy}
+                            class="input"
+                        />
+                    {/snippet}
+                </Field>
+                <div class="flex flex-wrap gap-4">
+                    <button
+                        type="button"
+                        class="btn btn-primary btn-md"
+                        disabled={busy}
+                        onclick={() => choose("create")}
+                    >
+                        Start a new Installation
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-secondary btn-md"
+                        disabled={busy}
+                        onclick={() => choose("join")}
+                    >
+                        Join an existing Installation
+                    </button>
+                </div>
+            {/if}
+            <button
+                type="button"
+                class="btn btn-secondary btn-md"
+                disabled={busy}
+                onclick={checkStatus}
+            >
+                Check Node status
+            </button>
+        </div>
     </Card>
 </Page>

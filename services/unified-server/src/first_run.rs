@@ -1,5 +1,5 @@
 use std::{
-    fs::{File, read_dir, rename},
+    fs::read_dir,
     io,
     net::Ipv4Addr,
     path::{Path, PathBuf},
@@ -33,7 +33,6 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
-const ROOT_MARKER: &str = "unified-setup.lock";
 const DATABASE: &str = "unified.redb";
 const PROBE_PATH: &str = "/.well-known/unified-setup-probe";
 
@@ -107,7 +106,7 @@ pub async fn serve(
     };
     let result = async {
         verified?;
-        let _root_lock = open_root(&root)?;
+        prepare_root(&root)?;
         let result = async {
             let database = open_database(&root).await?;
             let store = SetupStore::open(&database).await?;
@@ -170,24 +169,7 @@ async fn verify_proxy(client: &Client, origin: &str, proof: &str) -> io::Result<
 }
 
 async fn open_database(root: &Path) -> io::Result<EmbeddedDatabase> {
-    let path = root.join(DATABASE);
-    let previous = root.join(ADMISSION).join(DATABASE);
-    match (
-        setup_files::present(&path)?,
-        setup_files::present(&previous)?,
-    ) {
-        (true, true) => {
-            return Err(io::Error::other("multiple retained Node databases"));
-        }
-        (false, true) => {
-            setup_files::require_private(&previous, false)?;
-            rename(&previous, &path)?;
-            File::open(previous.parent().expect("nested database parent"))?.sync_all()?;
-            setup_files::sync_ancestry(root)?;
-        }
-        _ => (),
-    }
-    EmbeddedDatabase::open_file(path)
+    EmbeddedDatabase::open_file(root.join(DATABASE))
         .await
         .map_err(io::Error::other)
 }
@@ -196,98 +178,51 @@ fn validate_root(root: &Path) -> io::Result<()> {
     if !setup_files::present(root)? {
         return Ok(());
     }
-    let retained = setup_files::present(&root.join(ROOT_MARKER))?;
     for entry in read_dir(root)? {
         let name = entry?.file_name();
-        if !retained
-            || ![ROOT_MARKER, ADMISSION, DATABASE, "sync-staging"]
-                .iter()
-                .any(|allowed| name == *allowed)
+        if ![ADMISSION, DATABASE, "sync-staging"]
+            .iter()
+            .any(|allowed| name == *allowed)
         {
             return Err(io::Error::other(
                 "unsupported retained state; preserve it and choose a fresh setup data root",
             ));
         }
     }
-    let database = setup_files::present(&root.join(DATABASE))?;
-    let previous = setup_files::present(&root.join(ADMISSION).join(DATABASE))?;
-    if database && previous {
-        return Err(io::Error::other("multiple retained Node databases"));
-    }
-    if setup_files::present(&root.join(ADMISSION))? && !database && !previous {
+    if setup_files::present(&root.join(ADMISSION))? && !setup_files::present(&root.join(DATABASE))?
+    {
         return Err(io::Error::other("retained Node database is missing"));
     }
     Ok(())
 }
 
-fn open_root(root: &Path) -> io::Result<File> {
+fn prepare_root(root: &Path) -> io::Result<()> {
     setup_files::create_private_directory(root, true)?;
     setup_files::require_private(root, true)?;
-    let marker = root.join(ROOT_MARKER);
-    let retained = setup_files::present(&marker)?;
-    if retained {
-        setup_files::require_private(&marker, false)?;
-    }
-    let lock = match setup_files::private_options(true).open(&marker) {
-        Ok(lock) => lock,
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            setup_files::require_private(&marker, false)?;
-            setup_files::private_options(false).open(&marker)?
-        }
-        Err(error) => return Err(error),
-    };
-    lock.try_lock().map_err(io::Error::other)?;
-    validate_root(root)?;
-    if !retained {
-        lock.sync_all()?;
-        setup_files::sync_ancestry(root)?;
-    }
-    Ok(lock)
+    validate_root(root)
 }
 
 #[cfg(test)]
 mod tests {
     use std::{fs::Permissions, os::unix::fs::PermissionsExt};
 
-    use db::EmbeddedDatabase;
-    use server_common::setup_files;
-
-    use super::{DATABASE, open_database, open_root, validate_root};
-    use crate::{node_setup::ADMISSION, setup_store::SetupStore};
+    use super::{open_database, prepare_root};
 
     #[tokio::test]
-    async fn retained_nested_database_moves_to_the_root() {
+    async fn database_excludes_a_second_writer_without_a_root_lock() {
         let root = tempfile::Builder::new()
             .permissions(Permissions::from_mode(0o700))
             .tempdir()
             .expect("private data directory");
-        drop(open_root(root.path()).expect("fresh root lock"));
-        let admission = root.path().join(ADMISSION);
-        setup_files::create_private_directory(&admission, false).expect("admission directory");
-        let nested = EmbeddedDatabase::open(&admission)
+        prepare_root(root.path()).expect("fresh root");
+        let database = open_database(root.path()).await.expect("first database");
+        open_database(root.path())
             .await
-            .expect("nested database");
-        let store = SetupStore::open(&nested).await.expect("setup store");
-        store
-            .write("retained", &"database contents")
+            .expect_err("second live database writer");
+        drop(database);
+        open_database(root.path())
             .await
-            .expect("retained record");
-        drop(store);
-        drop(nested);
-
-        validate_root(root.path()).expect("nested database layout");
-        let _lock = open_root(root.path()).expect("retained root lock");
-        let database = open_database(root.path()).await.expect("root database");
-        let store = SetupStore::open(&database).await.expect("reopened store");
-        assert_eq!(
-            store
-                .read::<String>("retained")
-                .await
-                .expect("retained record"),
-            Some("database contents".into())
-        );
-        assert!(root.path().join(DATABASE).is_file());
-        assert!(!admission.join(DATABASE).exists());
+            .expect("database reopen after close");
     }
 }
 

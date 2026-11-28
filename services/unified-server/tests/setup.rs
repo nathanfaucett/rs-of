@@ -3,10 +3,10 @@
 use std::{fs, process::Command};
 
 #[test]
-fn setup_rejects_old_local_data_without_touching_it() {
+fn setup_rejects_unknown_local_data_without_touching_it() {
     let root = tempfile::tempdir().expect("private data directory");
-    let database = root.path().join("unified.redb");
-    fs::write(&database, b"retained local data").expect("retained fixture");
+    let retained = root.path().join("previous-local-data");
+    fs::write(&retained, b"retained local data").expect("retained fixture");
     let output = Command::new(env!("CARGO_BIN_EXE_unified-server"))
         .args(["setup", "--data-dir"])
         .arg(root.path())
@@ -18,7 +18,7 @@ fn setup_rejects_old_local_data_without_touching_it() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("choose a fresh setup data root"));
     assert_eq!(
-        fs::read(database).expect("retained data"),
+        fs::read(retained).expect("retained data"),
         b"retained local data"
     );
     assert_eq!(fs::read_dir(root.path()).expect("root entries").count(), 1);
@@ -70,6 +70,7 @@ fn setup_defaults_to_the_previous_local_root_and_rejects_seeded_state() {
     let data = cwd.path().join(".data");
     fs::create_dir(&data).expect("old data root");
     fs::write(data.join("unified.redb"), b"old fixture").expect("old data");
+    fs::write(data.join("seeded-state"), b"seeded fixture").expect("seeded state");
     let output = Command::new(env!("CARGO_BIN_EXE_unified-server"))
         .current_dir(cwd.path())
         .arg("setup")
@@ -84,5 +85,5 @@ fn setup_defaults_to_the_previous_local_root_and_rejects_seeded_state() {
         fs::read(data.join("unified.redb")).expect("old data"),
         b"old fixture"
     );
-    assert_eq!(fs::read_dir(data).expect("root entries").count(), 1);
+    assert_eq!(fs::read_dir(data).expect("root entries").count(), 2);
 }

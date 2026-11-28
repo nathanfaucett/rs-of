@@ -19,7 +19,7 @@ use iroh_base::{EndpointId, SecretKey};
 use reqwest::{Certificate, Client, StatusCode, redirect::Policy};
 use serde_json::{Value, json};
 use setup::{
-    SetupAdmission,
+    SetupAdmission, SetupAdmissionError,
     join::{JoinHost, JoinJournalStore},
 };
 use tempfile::{TempDir, tempdir};
@@ -399,6 +399,12 @@ async fn journal_proxy_uses_only_node_admission_and_retries_the_exact_intent() {
 #[tokio::test]
 async fn journal_proxy_requires_verified_approval_and_never_reopens_it_for_writes() {
     let proxy = JournalProxy::new();
+    let mut node_headers = HeaderMap::new();
+    node_headers.insert(header::AUTHORIZATION, proxy.auth.clone());
+    proxy
+        .node
+        .bind(&node_headers, "node-v2:join test")
+        .expect("bind Node choice");
     let host = proxy.open().expect("open journal proxy");
     let prepare = json!({"action": "prepare", "intent": join_intent()});
     assert_eq!(proxy.post(&host, &prepare).await.status(), StatusCode::OK);
@@ -471,10 +477,8 @@ async fn journal_proxy_requires_verified_approval_and_never_reopens_it_for_write
         );
     }
     assert_eq!(proxy.journal.load().expect("read journal"), Some(approved));
-    let mut headers = HeaderMap::new();
-    headers.insert(header::AUTHORIZATION, proxy.auth);
-    proxy
-        .node
-        .check(&headers)
-        .expect("Node code remains active");
+    assert_eq!(
+        proxy.node.check(&node_headers),
+        Err(SetupAdmissionError::Denied)
+    );
 }
