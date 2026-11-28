@@ -5,6 +5,25 @@ export interface StoreIdentity {
   creationEpoch: bigint;
   schemaFingerprint: Uint8Array;
 }
+export interface HistoryPublication {
+  operation: string;
+  expected: Uint8Array;
+  candidate: Uint8Array;
+}
+export type AttachTag = 1 | 7 | 9 | 11 | 13 | 15;
+
+export function publicationBytes(publication: HistoryPublication): Uint8Array {
+  for (const revision of [publication.expected, publication.candidate]) {
+    if (!(revision instanceof Uint8Array) || revision.length !== 32)
+      throw new Error("Expected a 32-byte history revision");
+  }
+  return Uint8Array.from([
+    ...uuid(publication.operation),
+    ...publication.expected,
+    ...publication.candidate,
+  ]);
+}
+
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 export const MAX_SESSION_BYTES = 1024n * 1024n * 1024n;
 const directions: SyncDirection[] = ["Push", "Pull", "Bidirectional"];
@@ -50,18 +69,29 @@ export function attach(
   identity: StoreIdentity,
   token: string,
   direction: SyncDirection,
-  firstUpload: boolean
+  intent: AttachTag,
+  publication?: Uint8Array
 ): Uint8Array {
   const tag = directions.indexOf(direction);
   if (tag < 0) throw new Error("Invalid sync direction");
   const identityBytes = store(identity);
   const tokenBytes = new TextEncoder().encode(token);
   if (
-    2 + identityBytes.length + uint(BigInt(tokenBytes.length)).length + tokenBytes.length >
+    2 +
+      identityBytes.length +
+      uint(BigInt(tokenBytes.length)).length +
+      tokenBytes.length +
+      (publication?.length ?? 0) >
     MAX_FRAME_BYTES
   )
     throw new Error("Sync attach exceeds frame limit");
-  return Uint8Array.from([firstUpload ? 7 : 1, ...identityBytes, ...vector(tokenBytes), tag]);
+  return Uint8Array.from([
+    intent,
+    ...identityBytes,
+    ...vector(tokenBytes),
+    tag,
+    ...(publication ?? []),
+  ]);
 }
 export function owner(payload: Uint8Array): Uint8Array {
   if (payload.length + uint(BigInt(payload.length)).length + 2 > MAX_FRAME_BYTES)
@@ -178,7 +208,7 @@ export function response(payload: Uint8Array) {
     return { type: "owner" as const, data };
   }
   if (tag === 4) {
-    const reason = Number(reader.uint(4n));
+    const reason = Number(reader.uint(6n));
     if (reason === 3) reader.vector();
     reader.done();
     return { type: "abort" as const, reason };
@@ -190,6 +220,19 @@ export function response(payload: Uint8Array) {
   if (tag === 8) {
     reader.done();
     return { type: "published" as const };
+  }
+  if (tag === 10 && payload.length === 33)
+    return { type: "snapshot" as const, revision: payload.slice(1) };
+  if (tag === 12 && payload.length === 82)
+    return { type: "compare-published" as const, publication: payload.slice(1) };
+  if (tag === 14 || tag === 16) {
+    const published = reader.byte();
+    reader.done();
+    if (published > 1) throw new Error("Invalid publication status");
+    return {
+      type: tag === 14 ? ("publication-status" as const) : ("publication-resolved" as const),
+      published: published === 1,
+    };
   }
   throw new Error("Unexpected sync message");
 }

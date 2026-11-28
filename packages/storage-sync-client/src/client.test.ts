@@ -330,6 +330,32 @@ test("answers the server Ping using its actual Pong tag", async () => {
   (await pending).close();
 });
 
+test("does not acquire credentials when the attach fence is closed", async () => {
+  const tokenProvider = vi.fn();
+  const socket = vi.fn();
+  vi.stubGlobal("WebSocket", socket);
+  const sync = new SyncClient({ storageApiUrl: "https://node.test/storage", tokenProvider });
+  await expect(
+    sync.attach({ identity, direction: "Pull", checkActive: () => false })
+  ).rejects.toMatchObject({ code: "cancelled" });
+  expect(tokenProvider).not.toHaveBeenCalled();
+  expect(socket).not.toHaveBeenCalled();
+});
+
+test.each(["owner", "pong"])("fences %s sends after attach", async (kind) => {
+  let active = true;
+  const session = await client().attach({ identity, direction: "Push", checkActive: () => active });
+  active = false;
+  if (kind === "owner") expect(() => session.send(Uint8Array.of(7))).toThrow(/cancelled/);
+  else {
+    TestSocket.latest.receive(fixtures.ping);
+    await Promise.resolve();
+  }
+  expect(TestSocket.latest.sent).toHaveLength(2);
+  expect(session.failure?.code).toBe("cancelled");
+  expect(TestSocket.latest.readyState).toBe(3);
+});
+
 test("rejects negotiated session limits already exceeded by the handshake", async () => {
   TestSocket.reply = fixtures.tinySession;
   await expect(client().attach({ identity, direction: "Push" })).rejects.toMatchObject({
@@ -507,4 +533,80 @@ test("rejects a publish receipt delivered in place of an SQL message", async () 
   await expect(session.waitForPublish()).rejects.toMatchObject({
     code: "protocol",
   });
+});
+
+const publication = {
+  operation: "66666666-6666-6666-6666-666666666666",
+  expected: new Uint8Array(32).fill(0x77),
+  candidate: new Uint8Array(32).fill(0x88),
+};
+
+test("revisioned Pull requires Pull and reports the revision after opaque SQL bytes", async () => {
+  await expect(client().attachRevisionedPull({ identity })).rejects.toMatchObject({
+    code: "protocol",
+  });
+  TestSocket.reply = fixtures.acceptPull;
+  const session = await client().attachRevisionedPull({ identity });
+  expect(TestSocket.latest.sent).toEqual([bytes(fixtures.hello), bytes(fixtures.revisionedPull)]);
+  TestSocket.latest.receive(fixtures.owner);
+  TestSocket.latest.receive(fixtures.snapshotRevision);
+  await expect(session.receive()).resolves.toEqual(Uint8Array.of(7, 8, 9));
+  await expect(session.waitForSnapshotRevision()).resolves.toEqual(publication.expected);
+});
+
+test("compare publish only accepts a receipt for the exact operation and revisions", async () => {
+  const session = await client().attachComparePublish({ identity, publication });
+  expect(TestSocket.latest.sent).toEqual([bytes(fixtures.hello), bytes(fixtures.comparePublish)]);
+  TestSocket.latest.receive(fixtures.comparePublished);
+  await expect(session.waitForPublish()).resolves.toBeUndefined();
+  const mismatched = await client().attachComparePublish({
+    identity,
+    publication: { ...publication, candidate: new Uint8Array(32) },
+  });
+  TestSocket.latest.receive(fixtures.comparePublished);
+  await expect(mismatched.waitForPublish()).rejects.toMatchObject({ code: "protocol" });
+  const stale = await client().attachComparePublish({ identity, publication });
+  TestSocket.latest.receive(fixtures.destinationChanged);
+  await expect(stale.waitForPublish()).rejects.toMatchObject({ code: "destination-changed" });
+});
+
+test.each([true, false])(
+  "explicit receipt check returns %s without owner frames",
+  async (published) => {
+    const pending = client().checkPublication({ identity, publication });
+    const previous = TestSocket.latest;
+    await vi.waitFor(() => {
+      expect(TestSocket.latest).not.toBe(previous);
+      expect(TestSocket.latest.sent).toHaveLength(2);
+    });
+    expect(TestSocket.latest.sent).toEqual([
+      bytes(fixtures.hello),
+      bytes(fixtures.checkPublication),
+    ]);
+    TestSocket.latest.receive(published ? fixtures.publicationFound : fixtures.publicationNotFound);
+    await expect(pending).resolves.toBe(published);
+  }
+);
+
+test.each([
+  ["resolutionPublished", true],
+  ["resolutionCancelled", false],
+  ["publicationNotFound", undefined],
+  ["owner", undefined],
+] as const)("checks the terminal response %s without sending history", async (reply, result) => {
+  const previous = TestSocket.latest;
+  const pending = client().resolvePublication({ identity, publication });
+  const settled =
+    result === undefined
+      ? expect(pending).rejects.toMatchObject({ code: "protocol" })
+      : expect(pending).resolves.toBe(result);
+  await vi.waitFor(() => {
+    expect(TestSocket.latest).not.toBe(previous);
+    expect(TestSocket.latest.sent).toEqual([
+      bytes(fixtures.hello),
+      bytes(fixtures.resolvePublication),
+    ]);
+  });
+  TestSocket.latest.receive(fixtures[reply]);
+  await settled;
 });

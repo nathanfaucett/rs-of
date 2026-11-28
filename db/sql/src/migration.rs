@@ -271,7 +271,8 @@ async fn read_history(
     if tables.rows.is_empty() {
         return Ok((false, 0));
     }
-    let fields = tx.execute_sql("SELECT name, type, default, primary_key FROM table_fields WHERE table = '_ofdb_migrations' ORDER BY position", None).await.map_err(context)?;
+    // Equivalent catalog definitions can keep separate Logical Rows after reconciliation.
+    let fields = tx.execute_sql("SELECT DISTINCT name, type, default, primary_key, position FROM table_fields WHERE table = '_ofdb_migrations' ORDER BY position", None).await.map_err(context)?;
     let expected = expected_history_fields();
     let fields = fields.first().ok_or_else(|| {
         context(Error::new(
@@ -334,30 +335,35 @@ fn expected_history_fields() -> Vec<Row> {
             Value::Type(ValueType::Uuid),
             Value::Null,
             Value::Bool(true),
+            Value::Integer(0),
         ]),
         Row::new(vec![
             Value::from("version"),
             Value::Type(ValueType::Integer),
             Value::Null,
             Value::Bool(false),
+            Value::Integer(1),
         ]),
         Row::new(vec![
             Value::from("description"),
             Value::Type(ValueType::Text),
             Value::Null,
             Value::Bool(false),
+            Value::Integer(2),
         ]),
         Row::new(vec![
             Value::from("fingerprint"),
             Value::Type(ValueType::Blob),
             Value::Null,
             Value::Bool(false),
+            Value::Integer(3),
         ]),
         Row::new(vec![
             Value::from("execution_time"),
             Value::Type(ValueType::Integer),
             Value::Null,
             Value::Bool(false),
+            Value::Integer(4),
         ]),
     ]
 }

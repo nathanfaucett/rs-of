@@ -153,6 +153,9 @@ importers:
       '@ofsdk/sql':
         specifier: workspace:*
         version: link:../../packages/sql
+      '@ofsdk/storage-sync-client':
+        specifier: workspace:*
+        version: link:../../packages/storage-sync-client
       '@ofsdk/svelte-headless':
         specifier: workspace:*
         version: link:../../packages/svelte-headless

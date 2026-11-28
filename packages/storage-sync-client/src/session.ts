@@ -1,6 +1,6 @@
 import type { AttachResult } from "./client.js";
 import { SyncError, serverAbort } from "./error.js";
-import { frame, owner, response, unframe } from "./protocol.js";
+import { type AttachTag, frame, owner, response, unframe } from "./protocol.js";
 
 export interface SyncSession {
   readonly result: Readonly<AttachResult>;
@@ -15,15 +15,36 @@ export interface FirstUploadSession extends SyncSession {
   waitForPublish(): Promise<void>;
 }
 
-type Incoming = Uint8Array | "published";
+export interface RevisionedPullSession extends SyncSession {
+  waitForSnapshotRevision(): Promise<Uint8Array>;
+}
+export interface ComparePublishSession extends SyncSession {
+  /** Resolves only for the exact committed operation, not on SQL completion. */
+  waitForPublish(): Promise<void>;
+}
+
+type Control = Extract<
+  ReturnType<typeof response>,
+  {
+    type:
+      | "published"
+      | "snapshot"
+      | "compare-published"
+      | "publication-status"
+      | "publication-resolved";
+  }
+>;
+type Incoming = Uint8Array | Control;
 
 export function createSession(
   socket: WebSocket,
   result: Readonly<AttachResult>,
   signal: AbortSignal | undefined,
   usedBytes: bigint,
-  firstUpload: boolean
-): FirstUploadSession {
+  intent: AttachTag,
+  publication: Uint8Array | undefined,
+  requireActive: () => void
+) {
   let ended: SyncError | undefined;
   let failure: SyncError | undefined;
   const queue: Incoming[] = [];
@@ -53,6 +74,7 @@ export function createSession(
   const send = (payload: Uint8Array) => {
     if (ended) throw ended;
     try {
+      requireActive();
       if (payload.length > result.maxFrameBytes)
         throw new SyncError("protocol", "Sync frame exceeds negotiated limit");
       const bytes = frame(payload);
@@ -69,6 +91,7 @@ export function createSession(
   };
   const received = (event: MessageEvent) => {
     try {
+      requireActive();
       const payload = unframe(event.data, result.maxFrameBytes);
       count(event.data.byteLength);
       const message = response(payload);
@@ -81,19 +104,29 @@ export function createSession(
         return;
       }
       const data =
-        message.type === "owner"
+        message.type === "owner" && intent !== 13 && intent !== 15
           ? message.data
-          : firstUpload && message.type === "published"
-            ? "published"
+          : (intent === 7 && message.type === "published") ||
+              (intent === 9 && message.type === "snapshot") ||
+              (intent === 11 &&
+                message.type === "compare-published" &&
+                publication?.every((b, i) => b === message.publication[i])) ||
+              (intent === 13 && message.type === "publication-status") ||
+              (intent === 15 && message.type === "publication-resolved")
+            ? message
             : undefined;
       if (data === undefined) throw new Error("Unexpected sync session message");
       const pending = waiting.shift();
       if (pending) pending.resolve(data);
       else queue.push(data);
-      if (data === "published")
-        stop(new SyncError("protocol", "First upload receipt already received"), true);
-    } catch {
-      stop(new SyncError("protocol", "Invalid sync session message or byte limit exceeded"));
+      if (!(data instanceof Uint8Array))
+        stop(new SyncError("protocol", "Sync control response already received"), true);
+    } catch (error) {
+      stop(
+        error instanceof SyncError
+          ? error
+          : new SyncError("protocol", "Invalid sync session message or byte limit exceeded")
+      );
     }
   };
   const failed = () => stop(new SyncError("transport", "Sync WebSocket failed"));
@@ -106,7 +139,13 @@ export function createSession(
   if (signal?.aborted) cancelled();
   if (usedBytes > result.maxSessionBytes)
     stop(new SyncError("protocol", "Sync session exceeds negotiated byte limit"));
-  const next = (): Promise<Incoming> => {
+  const next = async (): Promise<Incoming> => {
+    try {
+      requireActive();
+    } catch (error) {
+      cancelled();
+      throw error;
+    }
     const data = queue.shift();
     if (data) return Promise.resolve(data);
     if (ended) return Promise.reject(ended);
@@ -122,7 +161,7 @@ export function createSession(
     get failure() {
       return failure;
     },
-    send(payload) {
+    send(payload: Uint8Array) {
       if (ended) throw ended;
       let message: Uint8Array;
       try {
@@ -136,12 +175,34 @@ export function createSession(
     },
     async receive() {
       const data = await next();
-      if (data === "published") return unexpected("Expected an ofdb SQL owner message");
+      if (!(data instanceof Uint8Array)) return unexpected("Expected an ofdb SQL owner message");
       return data;
     },
     async waitForPublish() {
-      if (!firstUpload) return unexpected("Not a first upload session");
-      if ((await next()) !== "published") return unexpected("Expected first upload receipt");
+      if (intent !== 7 && intent !== 11) return unexpected("Not a publication session");
+      const data = await next();
+      if (
+        data instanceof Uint8Array ||
+        (data.type !== "published" && data.type !== "compare-published")
+      )
+        return unexpected("Expected a publish receipt");
+    },
+    async waitForSnapshotRevision() {
+      if (intent !== 9) return unexpected("Not a revisioned Pull session");
+      const data = await next();
+      if (data instanceof Uint8Array || data.type !== "snapshot")
+        return unexpected("Expected a snapshot revision");
+      return data.revision;
+    },
+    async publicationStatus() {
+      if (intent !== 13 && intent !== 15) return unexpected("Not a publication outcome session");
+      const data = await next();
+      if (
+        data instanceof Uint8Array ||
+        data.type !== (intent === 13 ? "publication-status" : "publication-resolved")
+      )
+        return unexpected("Expected a publication status");
+      return data.published;
     },
     close() {
       queue.length = 0;

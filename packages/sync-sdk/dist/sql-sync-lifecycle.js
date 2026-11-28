@@ -18,7 +18,8 @@ export function startSqlResourceSync(database, identity, options) {
         ...options,
         mode: "established",
     });
-    const report = options.onStatus;
+    const { onStatus: report, runExclusive } = options;
+    const controller = new AbortController();
     let closed = false;
     let pending = false;
     let running;
@@ -30,7 +31,13 @@ export function startSqlResourceSync(database, identity, options) {
                 if (closed)
                     break;
                 try {
-                    await exchange.sync();
+                    if (runExclusive)
+                        await runExclusive(() => {
+                            controller.signal.throwIfAborted();
+                            return exchange.sync();
+                        }, controller.signal);
+                    else
+                        await exchange.sync();
                     if (!closed && !pending)
                         report?.({ status: "synced" });
                 }
@@ -71,6 +78,7 @@ export function startSqlResourceSync(database, identity, options) {
         async close() {
             if (!closed) {
                 closed = true;
+                controller.abort();
                 unsubscribe();
                 globalThis.removeEventListener?.("online", wake);
             }

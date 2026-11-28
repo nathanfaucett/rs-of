@@ -179,7 +179,7 @@ export type StorageClientOptions = {
   idpBaseUrl: URL | string;
   storageBaseUrl: URL | string;
   clientId: string;
-  bearerToken: () => string | Promise<string>;
+  bearerToken: (signal?: AbortSignal) => string | Promise<string>;
   fetch?: FetchFunction | undefined;
 };
 
@@ -451,7 +451,7 @@ export class StorageClient {
     resource = "storage:filesystems"
   ): Promise<string> {
     signal?.throwIfAborted();
-    const subjectToken = await this.options.bearerToken();
+    const subjectToken = await this.options.bearerToken(signal);
     signal?.throwIfAborted();
     if (!subjectToken) {
       throw new Error("Missing OIDC access token");
@@ -480,6 +480,7 @@ export class StorageClient {
         if (error instanceof IdpFetchError) throw storageUnavailable(error);
         throw error;
       });
+    signal?.throwIfAborted();
     if (!result.accessToken) {
       throw new Error("Storage token exchange returned no access token");
     }

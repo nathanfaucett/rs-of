@@ -100,6 +100,84 @@ impl SqlDatabase {
             .map_err(crate::sql_history::JsSqlHistoryError::from)
             .map(crate::sql_history::SqlHistoryResult::from)
     }
+    /// Reconcile two snapshots into a disposable in-memory database without writing either source.
+    #[cfg(feature = "sync")]
+    pub async fn stage_history(
+        &self,
+        other: &SqlDatabase,
+        policy: String,
+    ) -> Result<SqlDatabase, JsError> {
+        type Policy = Vec<(String, String, Vec<String>, Vec<String>, Vec<String>)>;
+        let policy: Policy = serde_json::from_str(&policy)
+            .map_err(|_error| JsError::new("Invalid history record policy"))?;
+        let columns = policy
+            .iter()
+            .map(|(_, _, stable, envelope, resolve_by)| {
+                (
+                    stable.iter().map(String::as_str).collect::<Vec<_>>(),
+                    envelope.iter().map(String::as_str).collect::<Vec<_>>(),
+                    resolve_by.iter().map(String::as_str).collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let records = policy
+            .iter()
+            .zip(&columns)
+            .map(|((table, identity, ..), (stable, envelope, resolve_by))| {
+                ofdb_sql::HistoryRecord {
+                    table,
+                    identity,
+                    stable,
+                    envelope,
+                    resolve_by,
+                }
+            })
+            .collect::<Vec<_>>();
+        let staged = self
+            .database
+            .stage_history(&other.database, &records)
+            .await?;
+        Ok(Self {
+            database: staged.into_memory_database().await?,
+        })
+    }
+
+    /// Opens a disposable database for a read-only Pull or candidate validation.
+    #[cfg(feature = "sync")]
+    pub fn in_memory() -> Self {
+        Self {
+            database: Database::in_memory(),
+        }
+    }
+
+    #[cfg(feature = "sync")]
+    pub async fn history_revision(&self) -> Result<Vec<u8>, JsError> {
+        Ok(self.database.history_revision().await?.to_vec())
+    }
+
+    /// Changes local history and saves the first replica tag together, after remote receipt confirmation.
+    #[cfg(feature = "sync")]
+    pub async fn publish_local_history(
+        &self,
+        staged: &Self,
+        expected: Vec<u8>,
+        candidate: Vec<u8>,
+        tag: Vec<u8>,
+        can_apply: Option<js_sys::Function>,
+    ) -> Result<(), JsError> {
+        let invalid_revision = |_| JsError::new("Expected a 32-byte history revision");
+        self.database
+            .publish_local_history(
+                &staged.database,
+                expected.try_into().map_err(invalid_revision)?,
+                candidate.try_into().map_err(invalid_revision)?,
+                tag,
+                || check_history_apply(can_apply.as_ref()),
+            )
+            .await
+            .map_err(|error| JsError::new(&error.to_string()))
+    }
+
     /// Preflight only. The restore transaction checks the catalog again.
     #[cfg(feature = "sync")]
     pub async fn initial_restore_is_eligible(&self) -> Result<bool, JsError> {

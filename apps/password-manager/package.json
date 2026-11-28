@@ -56,6 +56,7 @@
     "@ofsdk/management-client": "workspace:*",
     "@ofsdk/oidc-client": "workspace:*",
     "@ofsdk/sql": "workspace:*",
+    "@ofsdk/storage-sync-client": "workspace:*",
     "@ofsdk/svelte-headless": "workspace:*",
     "@ofsdk/sync-sdk": "workspace:*",
     "@tanstack/db": "~0.15.2",

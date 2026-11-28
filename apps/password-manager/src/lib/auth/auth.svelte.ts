@@ -174,11 +174,16 @@ function hasVerifiedToken(expected: NonNullable<typeof session>): boolean {
   );
 }
 
-async function getAccessToken(expected: NonNullable<typeof session>): Promise<string> {
+async function getAccessToken(
+  expected: NonNullable<typeof session>,
+  signal?: AbortSignal
+): Promise<string> {
+  signal?.throwIfAborted();
   const oidc = client;
   if (!oidc || session !== expected) throw new Error("Sign in to sync first");
   // Another tab can replace a stored token without changing this tab's session.
-  const identity = await oidc.getVerifiedIdentity();
+  const identity = await oidc.getVerifiedIdentity(signal);
+  signal?.throwIfAborted();
   if (client !== oidc || session !== expected) throw new Error("Sign-in session ended");
   if (
     identity.issuer !== expected.issuer ||

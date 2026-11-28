@@ -491,6 +491,135 @@ impl AutomergeRowCodec {
         Ok(false)
     }
 
+    /// Requires the current values of a protected group to come from one native change.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for missing, independently written, or conflicted fields.
+    pub fn verify_history_group(state: &[u8], columns: &[&str]) -> EngineResult<()> {
+        let incomplete = EngineError::InvalidQuery("Incomplete source history envelope");
+        let mut document = AutoCommit::load(state).map_err(EngineError::custom)?;
+        let mut operations = Vec::with_capacity(columns.len());
+        for column in columns {
+            let values = document
+                .get_all(ROOT, *column)
+                .map_err(EngineError::custom)?;
+            let [(_, automerge::ObjId::Id(op, actor, _))] = values.as_slice() else {
+                return Err(incomplete);
+            };
+            operations.push((*op, actor.clone()));
+        }
+        let Some((first, author)) = operations.first() else {
+            return Err(incomplete);
+        };
+        if !document.get_changes(&[]).iter().any(|change| {
+            let range = change.start_op().get()..=change.max_op();
+            change.actor_id() == author
+                && range.contains(first)
+                && operations
+                    .iter()
+                    .all(|(op, actor)| actor == author && range.contains(op))
+        }) {
+            return Err(incomplete);
+        }
+        Ok(())
+    }
+
+    /// Adds a deterministic resolution to a live row snapshot without replacing its history.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the live row or its complete history is unavailable, or encoding fails.
+    pub async fn resolve_history_group<T: KernelTransaction + MaybeSend>(
+        &self,
+        tx: &T,
+        table: &str,
+        row: &Uuid,
+        assignments: &[(String, Value)],
+    ) -> EngineResult<Vec<u8>> {
+        let mut document = Self::document(tx, table, &Self::document_id(row))
+            .await?
+            .ok_or(EngineError::InvalidQuery("Missing history envelope row"))?;
+        if Self::metadata_deleted(tx, table, row).await?
+            || !document.get_missing_deps(&[]).is_empty()
+        {
+            return Err(EngineError::InvalidQuery(
+                "Unavailable history envelope row",
+            ));
+        }
+        let heads = hash_heads(document.get_heads());
+        let writes = postcard::to_allocvec(assignments).map_err(EngineError::custom)?;
+        let actor = ActorId::from(DocumentDigest::from_parts(&heads, &writes).0.to_vec());
+        if document
+            .get_changes(&[])
+            .iter()
+            .any(|change| change.actor_id() == &actor)
+        {
+            return Err(EngineError::InvalidQuery(
+                "History envelope resolution actor collision",
+            ));
+        }
+        document.set_actor(actor);
+        for (column, value) in assignments {
+            let bytes = postcard::to_allocvec(value).map_err(EngineError::custom)?;
+            document
+                .put(ROOT, column, ScalarValue::Bytes(bytes))
+                .map_err(EngineError::custom)?;
+        }
+        // Snapshot bytes depend on change order, even when the native heads agree.
+        let mut changes = document.get_changes(&[]);
+        changes.sort_unstable_by_key(Change::hash);
+        let mut ordered = AutoCommit::new();
+        ordered
+            .apply_changes(changes)
+            .map_err(EngineError::custom)?;
+        if ordered.get_heads() != document.get_heads() {
+            return Err(EngineError::SyncDependencyUnavailable);
+        }
+        Ok(ordered.save())
+    }
+
+    /// Checks for one original SQL insert and its catalog identity stamp, with no later edits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the document cannot be decoded.
+    pub fn is_unedited_insert(state: &[u8], columns: &[String]) -> EngineResult<bool> {
+        let mut document = AutoCommit::load(state).map_err(EngineError::custom)?;
+        let changes = document.get_changes(&[]);
+        let [insert, stamp] = changes.as_slice() else {
+            return Ok(false);
+        };
+        if !document.get_missing_deps(&[]).is_empty()
+            || !insert.deps().is_empty()
+            || stamp.deps() != [insert.hash()]
+        {
+            return Ok(false);
+        }
+        fn initial_puts(change: &Change) -> Option<BTreeSet<String>> {
+            let mut keys = BTreeSet::new();
+            for op in change.decode().operations {
+                let Key::Map(key) = op.key else {
+                    return None;
+                };
+                if op.obj != ObjectId::Root
+                    || op.insert
+                    || !matches!(op.action, OpType::Put(ScalarValue::Bytes(_)))
+                    || !keys.insert(key.to_string())
+                {
+                    return None;
+                }
+            }
+            Some(keys)
+        }
+        Ok(initial_puts(insert).is_some_and(|keys| {
+            keys.len() == columns.len() + 1
+                && keys.contains(DOCUMENT_COLUMNS)
+                && columns.iter().all(|column| keys.contains(column))
+        }) && initial_puts(stamp)
+            .is_some_and(|keys| keys.len() == 1 && keys.contains(DOCUMENT_SCHEMA)))
+    }
+
     fn encode_row(&self, row: &Row, columns: &[Column]) -> EngineResult<AutoCommit> {
         let mut document = AutoCommit::new().with_actor(self.actor.clone());
         Self::update_document(&mut document, row, columns)?;
@@ -1493,16 +1622,24 @@ where
             return Err(EngineError::SyncDependencyUnavailable);
         }
         let id = Self::document_id(&row);
-        let mut existing = Self::document(transaction, table, &id).await?;
-        let previous_heads = existing
-            .as_mut()
-            .map(|document| hash_heads(document.get_heads()));
-        let mut document = existing.clone().unwrap_or_else(AutoCommit::new);
-        if existing.is_some() {
-            document.merge(&mut incoming).map_err(EngineError::custom)?;
+        let existing = Self::document(transaction, table, &id).await?;
+        let (mut document, previous_heads) = if let Some(mut existing) = existing {
+            let heads = existing.get_heads();
+            let previous = Some(hash_heads(heads.iter().copied()));
+            if existing.get_missing_deps(&[]).is_empty()
+                && heads
+                    .iter()
+                    .all(|head| incoming.get_change_by_hash(head).is_some())
+            {
+                // A fast-forward retains the complete incoming snapshot for exact publication.
+                (incoming, previous)
+            } else {
+                existing.merge(&mut incoming).map_err(EngineError::custom)?;
+                (existing, previous)
+            }
         } else {
-            document = incoming;
-        }
+            (incoming, None)
+        };
         let stale_definition = self
             .document_is_stale(transaction, table, &document)
             .await?;

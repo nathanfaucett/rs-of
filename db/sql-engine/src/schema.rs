@@ -26,11 +26,15 @@ pub const ENGINE_TABLES_STORAGE: &str = "tables";
 pub const ENGINE_TABLE_FIELDS_STORAGE: &str = "table_fields";
 pub const ENGINE_INDICES_STORAGE: &str = "indices";
 pub const ENGINE_INDEX_FIELDS_STORAGE: &str = "index_fields";
+pub const ENGINE_PUBLISH_RECEIPTS_STORAGE: &str = "ofdb:local:publish-receipts";
 pub const ENGINE_INITIAL_RESTORE_STORAGE: &str = "ofdb:local:initial-restore";
 
 #[must_use]
 pub fn is_reserved_storage(name: &str) -> bool {
-    name == ENGINE_INITIAL_RESTORE_STORAGE || catalog_table_for_storage(name).is_some()
+    matches!(
+        name,
+        ENGINE_INITIAL_RESTORE_STORAGE | ENGINE_PUBLISH_RECEIPTS_STORAGE
+    ) || catalog_table_for_storage(name).is_some()
 }
 
 /// Validates RFC `UUIDv7` Logical Row identities.
@@ -1192,6 +1196,11 @@ async fn index_schema_for<T: KernelTransaction, R: RowCodec<T>>(
     })
 }
 
+/// Lists the active table names in the supplied transaction.
+///
+/// # Errors
+///
+/// Returns an error if the catalog cannot be read or decoded.
 pub async fn active_table_names<T: KernelTransaction, R: RowCodec<T>>(
     transaction: &T,
     codec: &R,

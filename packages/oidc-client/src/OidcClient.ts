@@ -448,8 +448,9 @@ export class OidcClient<
     return this.requestUserInfo(accessToken);
   }
 
-  private async requestUserInfo(accessToken: string): Promise<UserInfo> {
+  private async requestUserInfo(accessToken: string, signal?: AbortSignal): Promise<UserInfo> {
     const config = await this.getOidcConfiguration();
+    signal?.throwIfAborted();
     if (!config.userinfo_endpoint) {
       throw new OidcClientError(
         "NO_USERINFO_ENDPOINT",
@@ -464,7 +465,10 @@ export class OidcClient<
         Authorization: `Bearer ${accessToken}`,
       });
       this.requireOwnerEndpoint(userInfoUrl, (await api.userinfoRequestOpts()).path);
-      const userInfo: unknown = UserInfoToJSON(await api.userinfo({ redirect: "error" }));
+      signal?.throwIfAborted();
+      const userInfo: unknown = UserInfoToJSON(
+        await api.userinfo({ redirect: "error", signal: signal ?? null })
+      );
       if (
         !userInfo ||
         typeof userInfo !== "object" ||
@@ -483,6 +487,7 @@ export class OidcClient<
       if (isNative) {
         userInfoResponse = await this.nativeFetch(userInfoUrl, {
           method: "GET",
+          signal: signal ?? null,
           headers: {
             "Content-Type": "application/json;charset=UTF-8",
             Authorization: `Bearer ${accessToken}`,
@@ -495,6 +500,7 @@ export class OidcClient<
       } else {
         userInfoResponse = await this.fetch(userInfoUrl, {
           method: "GET",
+          signal: signal ?? null,
           headers: {
             "Content-Type": "application/json;charset=UTF-8",
             Authorization: `Bearer ${accessToken}`,
@@ -553,7 +559,11 @@ export class OidcClient<
     return userInfo as UserInfo;
   }
 
-  private async verifyProjectClient(clientId: string, accessToken?: string): Promise<void> {
+  private async verifyProjectClient(
+    clientId: string,
+    accessToken?: string,
+    signal?: AbortSignal
+  ): Promise<void> {
     if (!this.projectOwned) return;
     if (!accessToken)
       throw new OidcClientError("NO_ACCESS_TOKEN", "Token exchange returned no access token");
@@ -566,7 +576,8 @@ export class OidcClient<
       `${this.config.authority}/oauth2/client/${encodeURIComponent(clientId)}`,
       (await api.getClientRequestOpts(parameters)).path
     );
-    const client = await api.getClient(parameters, { redirect: "error" });
+    signal?.throwIfAborted();
+    const client = await api.getClient(parameters, { redirect: "error", signal: signal ?? null });
     if (client?.clientId !== clientId || client?.application?.uri !== application.uri)
       throw new OidcClientError(
         "INVALID_CLIENT_METADATA",
@@ -574,7 +585,7 @@ export class OidcClient<
       );
   }
 
-  async getVerifiedIdentity(): Promise<{
+  async getVerifiedIdentity(signal?: AbortSignal): Promise<{
     issuer: string;
     subject: string;
     userInfo: UserInfo;
@@ -583,6 +594,7 @@ export class OidcClient<
   }> {
     const context = this.identityContext;
     const active = () => {
+      signal?.throwIfAborted();
       if (context !== this.identityContext)
         throw new OidcClientError(
           "NO_ACCESS_TOKEN",
@@ -607,7 +619,7 @@ export class OidcClient<
       try {
         const config = await this.getOidcConfiguration();
         active();
-        const userInfo = await this.requestUserInfo(token);
+        const userInfo = await this.requestUserInfo(token, signal);
         if (stale()) continue;
         if (!userInfo.sub)
           throw new OidcClientError(
@@ -616,7 +628,8 @@ export class OidcClient<
           );
         if (this.projectOwned) {
           const clientId = await this.getClientId(config);
-          await this.verifyProjectClient(clientId, token);
+          active();
+          await this.verifyProjectClient(clientId, token, signal);
           if (stale()) continue;
         }
         return {

@@ -11,7 +11,12 @@ import {
   unframe,
 } from "../../storage-sync-client/src/protocol";
 import fixtures from "../../storage-sync-client/src/wire-fixtures.json";
-import { BrowserSyncSDK, createEstablishedSqlHandle, createSqlResourceSync } from "../src/browser";
+import {
+  BrowserSyncSDK,
+  createEstablishedSqlHandle,
+  createSqlResourceSync,
+  startSqlResourceSync,
+} from "../src/browser";
 import type { SyncConfig, SyncSDK } from "../src/core";
 import { NodeSyncSDK } from "../src/node";
 
@@ -153,6 +158,52 @@ it("keeps the original destination and token provider when caller inputs change"
       await handle.close();
     }
   } finally {
+    database.close();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("cancels a scheduled exchange waiting for the owner's lock without requesting a token", async () => {
+  vi.stubGlobal("indexedDB", indexedDB);
+  const database = await Database.open("scheduled-exchange-lock");
+  const tokenProvider = vi.fn(() => "must not be used");
+  let entered: () => void = () => {};
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let cancelled = false;
+  const sync = startSqlResourceSync(
+    database,
+    {
+      storeId: "11111111-1111-1111-1111-111111111111",
+      replicaId: "22222222-2222-2222-2222-222222222222",
+      creationEpoch: 0n,
+      schemaFingerprint: new Uint8Array(32),
+    },
+    {
+      storageApiUrl: "https://node.test/storage",
+      tokenProvider,
+      async runExclusive(run, signal) {
+        entered();
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true })
+        );
+        // Even if a scheduler dispatches as cancellation arrives, the exchange must not start.
+        try {
+          await run();
+        } finally {
+          cancelled = true;
+        }
+      },
+    }
+  );
+  try {
+    await waiting;
+    await sync.close();
+    expect(cancelled).toBe(true);
+    expect(tokenProvider).not.toHaveBeenCalled();
+  } finally {
+    await sync.close();
     database.close();
     vi.unstubAllGlobals();
   }

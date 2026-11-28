@@ -59,3 +59,9 @@ pnpm --filter @ofsdk/storage-sync-client fixtures:check
 Wire fixtures come from the Rust server types and `FrameCodec`. The fixture
 script uses offline Cargo resolution. Use `--server-source` to validate against
 another checkout of the server source while the slices are integrated separately.
+
+## Compare and publish
+
+Use `attachRevisionedPull({ identity, signal })` to pull into a disposable database. After the SQL exchange, `waitForSnapshotRevision()` returns the exact remote history revision. Build and validate a private candidate before calling `attachComparePublish({ identity, publication, signal })`. `publication` contains the operation UUID, expected remote revision, and candidate revision. The SQL exchange must use the candidate, never a live database. `waitForPublish()` verifies the exact receipt after SQL completion.
+
+If the receipt is lost, call `checkPublication({ identity, publication, signal })` with the same tuple. A `false` result is point-in-time absence, not proof that an in-flight publish cannot commit. To stop the operation, call `resolvePublication` with the same arguments. A `true` result confirms publication; a `false` result confirms durable cancellation. Neither call sends SQL history or retries publication. New intents do not fall back to normal sync. See the [Storage wire contract](../../services/storage-service/docs/sync-architecture.md#websocket-sql-synchronization).

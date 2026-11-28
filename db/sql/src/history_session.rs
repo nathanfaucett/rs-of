@@ -1,3 +1,5 @@
+#[cfg(feature = "redb")]
+use core::convert::Infallible;
 use core::{fmt::Display, pin::Pin};
 use std::path::Path;
 
@@ -12,7 +14,10 @@ use super::{Database, DatabaseBackend};
 #[cfg(feature = "redb")]
 use crate::database::native_error;
 use crate::error::from_engine;
-use history::{SessionConfig, SyncError, SyncResult, SyncRole, SyncTransport};
+use history::{
+    HistoryPublication, HistoryRevision, SessionConfig, SyncError, SyncResult, SyncRole,
+    SyncTransport,
+};
 use value::Value;
 #[cfg(feature = "redb")]
 type NativeStageFactory = history::NativeSyncStageFactory;
@@ -170,7 +175,7 @@ impl Database {
                 .map_err(|error| SyncError::PreApply(error.to_string()))?,
         }
     }
-    /// Serves SQL v7 history without applying any frames to this database.
+    /// Serves one SQL v7 history snapshot without applying any frames to this database.
     /// The transport must authorize every read and send.
     /// # Errors
     /// Returns an error for transport, protocol, storage, or native admission failure.
@@ -185,6 +190,26 @@ impl Database {
         T: SyncTransport + platform::MaybeSend,
         T::Error: Display + platform::MaybeSend,
     {
+        self.serve_revisioned_resource_history(transport, config, directory)
+            .await
+            .map(|(result, _)| result)
+    }
+
+    /// Serves one SQL v7 history snapshot and returns the revision of the history delivered.
+    /// The transport must authorize every read and send.
+    /// # Errors
+    /// Returns an error for transport, protocol, storage, or native admission failure.
+    #[cfg(feature = "redb")]
+    pub async fn serve_revisioned_resource_history<T>(
+        &self,
+        transport: &mut T,
+        config: &SessionConfig,
+        directory: impl AsRef<Path>,
+    ) -> Result<(SyncResult, HistoryRevision), SyncError<T::Error>>
+    where
+        T: SyncTransport + platform::MaybeSend,
+        T::Error: Display + platform::MaybeSend,
+    {
         let DatabaseBackend::File(resource) = &self.backend else {
             return Err(engine::EngineError::Unsupported("native history serving").into());
         };
@@ -195,14 +220,26 @@ impl Database {
                     .read()
                     .await
                     .map_err(|error| SyncError::PreApply(error.to_string()))?;
-                history::synchronize_pull_with_stage_factory(
-                    &*engine,
+                let units = sync_stage(|| {
+                    history::export_sync_state_bounded_for(&*engine, config.max_session_bytes)
+                })
+                .await?;
+                drop(engine);
+                let revision = history::history_revision(&units);
+                let snapshot = engine::Engine::new(
+                    engine::InMemoryKernel::new(),
+                    engine_automerge::AutomergeRowCodec::new(),
+                );
+                sync_stage(|| history::apply_sync_state_batch_for(&snapshot, units)).await?;
+                let result = history::synchronize_pull_with_stage_factory(
+                    &snapshot,
                     transport,
                     config,
                     SyncRole::Responder,
                     &factory,
                 )
-                .await
+                .await?;
+                Ok((result, revision))
             }))
             .await
             .map_err(|error| SyncError::PreApply(error.to_string()))?
@@ -239,8 +276,105 @@ impl Database {
         transport: &mut T,
         config: &SessionConfig,
         directory: impl AsRef<Path>,
+        check: Q,
+        publish: P,
+    ) -> Result<(), SyncError<T::Error>>
+    where
+        T: SyncTransport + platform::MaybeSend,
+        T::Error: Display + platform::MaybeSend,
+        Q: FnMut() -> U + platform::MaybeSend,
+        U: Future<Output = Result<(), String>> + platform::MaybeSend,
+        P: FnOnce() -> V + platform::MaybeSend,
+        V: Future<Output = Result<(), String>> + platform::MaybeSend,
+    {
+        self.receive_private_publication(transport, config, directory, check, publish, None)
+            .await
+    }
+
+    /// Checks for an exact durable receipt without a write or an owner exchange.
+    /// # Errors
+    /// Returns an error on storage failure or reuse with different revisions.
+    #[cfg(feature = "redb")]
+    pub async fn check_history_publication(
+        &self,
+        publication: HistoryPublication,
+    ) -> Result<bool, SyncError<Infallible>> {
+        let DatabaseBackend::File(resource) = &self.backend else {
+            return Err(engine::EngineError::Unsupported("native history publication").into());
+        };
+        let engine = resource
+            .read()
+            .await
+            .map_err(|error| SyncError::PreApply(error.to_string()))?;
+        history::check_history_publication_for(&*engine, publication).await
+    }
+
+    /// Resolves the exact publication without sending history. A false result permanently
+    /// prevents this operation from publishing on this database.
+    /// # Errors
+    /// Returns an error for storage failure, conflicting use, or failed authorization.
+    #[cfg(feature = "redb")]
+    pub async fn resolve_history_publication<Q, U>(
+        &self,
+        publication: HistoryPublication,
+        check: Q,
+    ) -> Result<bool, SyncError<Infallible>>
+    where
+        Q: FnOnce() -> U + platform::MaybeSend,
+        U: Future<Output = Result<(), String>> + platform::MaybeSend,
+    {
+        let DatabaseBackend::File(resource) = &self.backend else {
+            return Err(engine::EngineError::Unsupported("native history publication").into());
+        };
+        let engine = resource
+            .read()
+            .await
+            .map_err(|error| SyncError::PreApply(error.to_string()))?;
+        sync_stage(|| history::resolve_history_publication_for(&*engine, publication, check)).await
+    }
+
+    /// Receives a complete candidate into a private stage and compares, publishes and records
+    /// its receipt in the same guarded native transaction as first upload.
+    /// # Errors
+    /// Returns an error for stale revisions, duplicate operations or failed exchange or publish.
+    #[cfg(feature = "redb")]
+    pub async fn receive_history_publication<T, Q, U, P, V>(
+        &self,
+        transport: &mut T,
+        config: &SessionConfig,
+        directory: impl AsRef<Path>,
+        publication: HistoryPublication,
+        check: Q,
+        publish: P,
+    ) -> Result<(), SyncError<T::Error>>
+    where
+        T: SyncTransport + platform::MaybeSend,
+        T::Error: Display + platform::MaybeSend,
+        Q: FnMut() -> U + platform::MaybeSend,
+        U: Future<Output = Result<(), String>> + platform::MaybeSend,
+        P: FnOnce() -> V + platform::MaybeSend,
+        V: Future<Output = Result<(), String>> + platform::MaybeSend,
+    {
+        self.receive_private_publication(
+            transport,
+            config,
+            directory,
+            check,
+            publish,
+            Some(publication),
+        )
+        .await
+    }
+
+    #[cfg(feature = "redb")]
+    async fn receive_private_publication<T, Q, U, P, V>(
+        &self,
+        transport: &mut T,
+        config: &SessionConfig,
+        directory: impl AsRef<Path>,
         mut check: Q,
         publish: P,
+        publication: Option<HistoryPublication>,
     ) -> Result<(), SyncError<T::Error>>
     where
         T: SyncTransport + platform::MaybeSend,
@@ -276,15 +410,28 @@ impl Database {
                     .read()
                     .await
                     .map_err(|error| SyncError::PreApply(error.to_string()))?;
-                sync_stage(|| {
-                    history::publish_initial_history_for(
-                        &*engine,
-                        &staged,
-                        config.max_session_bytes,
-                        publish,
-                    )
-                })
-                .await
+                if let Some(publication) = publication {
+                    sync_stage(|| {
+                        history::compare_publish_history_for(
+                            &*engine,
+                            &staged,
+                            config.max_session_bytes,
+                            publication,
+                            publish,
+                        )
+                    })
+                    .await
+                } else {
+                    sync_stage(|| {
+                        history::publish_initial_history_for(
+                            &*engine,
+                            &staged,
+                            config.max_session_bytes,
+                            publish,
+                        )
+                    })
+                    .await
+                }
             }))
             .await
             .map_err(|error| SyncError::PreApply(error.to_string()))?

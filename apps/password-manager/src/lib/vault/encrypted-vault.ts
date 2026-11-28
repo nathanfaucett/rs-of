@@ -131,7 +131,14 @@ export class VaultHandle implements VaultHandleLike {
 
   private async itemSnapshot(): Promise<ItemSnapshot> {
     const [items, folders] = await Promise.all([this.loadSecrets(), this.loadFolders()]);
-    return { items, folders };
+    const folderIds = new Set(folders.map(({ id }) => id));
+    // Folder deletion wins over encrypted references, without rewriting their history.
+    return {
+      items: items.map((item) =>
+        item.folderId != null && !folderIds.has(item.folderId) ? { ...item, folderId: null } : item
+      ),
+      folders,
+    };
   }
 
   async readItems(): Promise<ItemSnapshot> {
@@ -262,9 +269,8 @@ export class VaultHandle implements VaultHandleLike {
 
   async exportBackup(): Promise<string> {
     await this.database.verifyExists?.(this.id);
-    const [items, folders, lockSettings, metaResult] = await Promise.all([
-      this.loadSecrets(),
-      this.loadFolders(),
+    const [{ items, folders }, lockSettings, metaResult] = await Promise.all([
+      this.itemSnapshot(),
       this.loadLockSettings(),
       this.database.read(
         `SELECT name, authentication FROM vaults WHERE id = ?`,

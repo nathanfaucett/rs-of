@@ -4,7 +4,9 @@ type SyncErrorCode =
   | "transport"
   | "unavailable"
   | "cancelled"
-  | "destination-has-history";
+  | "destination-has-history"
+  | "destination-changed"
+  | "publication-already-used";
 
 export class SyncError extends Error {
   readonly code: SyncErrorCode;
@@ -17,6 +19,10 @@ export class SyncError extends Error {
 export function serverAbort(reason: number): SyncError {
   if (reason === 4)
     return new SyncError("destination-has-history", "Sync destination already has history");
+  if (reason === 5)
+    return new SyncError("destination-changed", "Sync destination revision changed");
+  if (reason === 6)
+    return new SyncError("publication-already-used", "Check the original publication receipt");
   return new SyncError(
     reason === 0 ? "auth" : reason === 1 ? "unavailable" : "protocol",
     reason === 0

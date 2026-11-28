@@ -24,7 +24,9 @@ let confirmedSession = $state.raw<typeof authState.session>(null);
 let resourceId = $state("");
 let uploadError = $state("");
 type Session = NonNullable<typeof authState.session>;
-let restoreCandidate = $state.raw<{ session: Session; id: string; canRestore: boolean }>();
+type RestoreInspection = NonNullable<Awaited<ReturnType<typeof syncStateModule.inspectRestore>>>;
+let restoreCandidate = $state.raw<RestoreInspection & { session: Session }>();
+const currentCandidate = $derived(restoreCandidate?.session === authState.session ? restoreCandidate : undefined);
 let binding = $state.raw<{ session: Session; value: Awaited<ReturnType<typeof syncStateModule.getBinding>> }>();
 const currentBinding = $derived(binding?.session === authState.session ? binding?.value : undefined);
 const syncStatus = $derived(syncStateModule.getSyncStatus(
@@ -166,7 +168,7 @@ async function findRestore() {
 
 async function restore() {
     const candidate = restoreCandidate;
-    if (busy || !candidate?.canRestore || candidate.session !== authState.session) return;
+    if (busy || candidate?.mode !== "restore" || candidate.session !== authState.session) return;
     busy = true;
     error = "";
     try {
@@ -178,6 +180,46 @@ async function restore() {
     } catch (cause) {
         error = cause instanceof Error ? cause.message : "Remote restore failed. Try again.";
     } finally {
+        busy = false;
+    }
+}
+
+async function merge(retry = false) {
+    const session = authState.session;
+    const candidate = currentCandidate;
+    if (!session || busy || (retry ? currentBinding?.status !== "pending-merge" || !currentBinding.canRetry : candidate?.mode !== "merge")) return;
+    busy = true;
+    error = "";
+    notice = "";
+    restoreCandidate = undefined;
+    confirmedSession = null;
+    try {
+        await syncStateModule.mergeDatabases(session, retry || candidate?.mode !== "merge" ? undefined : candidate);
+        await vaultStateModule.showVaultSelector();
+        if (session === authState.session) notice = "Databases merged. Unlock each vault with its existing password. Sync is detached.";
+    } catch (cause) {
+        if (session === authState.session) error = cause instanceof Error ? cause.message : "Merge did not complete.";
+    } finally {
+        await readBinding(session);
+        busy = false;
+    }
+}
+
+async function resolvePendingMerge() {
+    const session = authState.session;
+    if (!session || busy || currentBinding?.status !== "pending-merge") return;
+    busy = true;
+    error = "";
+    notice = "";
+    try {
+        const committed = await syncStateModule.resolvePendingMerge(session);
+        if (session === authState.session) {
+            notice = `${committed ? "Storage already committed the old merge." : "Storage cancelled the old merge."} Your local data and the old candidate were kept. Find the remote database and approve a new merge if you want to continue.`;
+        }
+    } catch (cause) {
+        if (session === authState.session) error = cause instanceof Error ? cause.message : "Could not check the pending merge.";
+    } finally {
+        await readBinding(session);
         busy = false;
     }
 }
@@ -300,7 +342,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                     {:else if !authState.isAuthenticated}
                         <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
                     {:else}
-                        {#if currentBinding?.status === "unbound" && vaultStateModule.state.vaults.some((vault) => !vault.synced)}
+                        {#if currentBinding?.status === "unbound" && !currentCandidate && vaultStateModule.state.vaults.some((vault) => !vault.synced)}
                             {#if confirmedSession && confirmedSession === authState.session}
                                 <section class="flex flex-col gap-2" aria-labelledby="sync-destination">
                                     <h2 id="sync-destination" class="font-medium">Confirm sync destination</h2>
@@ -346,19 +388,42 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                         {:else if currentBinding?.status === "pending-save"}
                             <p class="break-all">Storage confirmed upload to Resource ID: {currentBinding.id}</p>
                             <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={retryLocalSave}>Retry local save</button>
+                        {:else if currentBinding?.status === "pending-merge"}
+                            <p class="break-all">Storage Resource ID: {currentBinding.id}</p>
+                            <p>{currentBinding.committed ? "Storage confirmed the merge. Local publication is not complete." : "Storage has not confirmed the merge. Check its receipt before retrying."}</p>
+                            {#if currentBinding.canRetry}
+                                <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={() => merge(true)}>Retry pending merge</button>
+                            {:else}
+                                <p>This sign-in cannot retry the old merge. You can check its outcome and archive it.</p>
+                            {/if}
+                            <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={resolvePendingMerge}>Cancel or archive pending merge</button>
+                        {:else if currentBinding?.status === "merge-different-account"}
+                            <p>A merge is pending for a different account or Installation. Your local vaults are still available.</p>
                         {:else if currentBinding?.status === "different-account"}
                             <p>This database is linked to another account or Installation. Sign in to that account to sync. You can still use your local vaults.</p>
-                        {:else if currentBinding?.status === "unbound" && restoreCandidate && restoreCandidate.session === authState.session}
+                        {:else if currentBinding?.status === "unbound" && currentCandidate}
                             <section class="flex flex-col gap-2" aria-labelledby="restore-source">
-                                <h2 id="restore-source" class="font-medium">{restoreCandidate.canRestore ? "Confirm remote database restore" : "Remote database cannot be restored here"}</h2>
-                                <p class="break-all">Storage: {restoreCandidate.session.storage}. Storage Resource ID: {restoreCandidate.id}</p>
-                                {#if restoreCandidate.canRestore}
-                                    <p>The restore only downloads. It stops if this browser has local history.</p>
-                                    <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={restore}>Restore database</button>
+                                <h2 id="restore-source" class="font-medium">{currentCandidate.mode === "merge" ? "Confirm database merge" : currentCandidate.mode === "restore" ? "Confirm remote database restore" : "Remote database cannot be restored here"}</h2>
+                                {#if currentCandidate.mode === "merge"}
+                                    <p>Merge the entire local and remote databases, including all vaults and deletion history. Secret records are encrypted. Vault names and other metadata are not. Approval sends the merged history to this destination.</p>
+                                    <dl class="break-all">
+                                        <dt class="font-medium">Installation (issuer)</dt><dd>{currentCandidate.session.issuer}</dd>
+                                        <dt class="font-medium">User</dt><dd>{currentCandidate.session.user.sub}</dd>
+                                        <dt class="font-medium">Application</dt><dd>{currentCandidate.session.applicationUri}</dd>
+                                        <dt class="font-medium">Storage</dt><dd>{currentCandidate.session.storage}</dd>
+                                        <dt class="font-medium">Storage Resource ID</dt><dd>{currentCandidate.id}</dd>
+                                    </dl>
+                                    <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={() => merge()}>Approve and merge</button>
                                 {:else}
-                                    <p>This browser has local vault history. Merge is not available. Both databases stay unchanged.</p>
+                                    <p class="break-all">Storage: {currentCandidate.session.storage}. Storage Resource ID: {currentCandidate.id}</p>
+                                    {#if currentCandidate.mode === "restore"}
+                                        <p>The restore only downloads. It stops if this browser has local history.</p>
+                                        <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={restore}>Restore database</button>
+                                    {:else}
+                                        <p>This browser has legacy local vaults. Both databases stay unchanged.</p>
+                                    {/if}
                                 {/if}
-                                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => restoreCandidate = undefined}>Cancel restore</button>
+                                <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={() => restoreCandidate = undefined}>{currentCandidate.mode === "merge" ? "Decline merge" : "Cancel restore"}</button>
                             </section>
                         {:else if currentBinding?.status === "unbound"}
                             <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={findRestore}>Find remote database</button>

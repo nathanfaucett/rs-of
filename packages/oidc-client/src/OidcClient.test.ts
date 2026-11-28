@@ -182,6 +182,35 @@ test("refresh recalculates access-token expiry instead of retaining the expired 
   expect(fetch.mock.calls.filter(([url]) => String(url).endsWith("/oauth/token"))).toHaveLength(1);
 });
 
+test("cancels identity verification during UserInfo", async () => {
+  const userinfo = "https://issuer.example/oauth/userinfo";
+  const controller = new AbortController();
+  const fetch = vi.fn(async (url: URL | RequestInfo, init?: RequestInit) => {
+    if (String(url) !== userinfo)
+      return Response.json(createOidcConfiguration({ userinfo_endpoint: userinfo }));
+    expect(init?.signal).toBe(controller.signal);
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    });
+  });
+  const client = new OidcClient({
+    storage: "memory",
+    fetch,
+    clientConfig: {
+      authority: "https://issuer.example",
+      clientId: "app",
+      redirectUri: "https://app.example/callback",
+      registration: { redirectUris: ["https://app.example/callback"] },
+    },
+  });
+  client.setToken({ access_token: "access", access_token_expires_at: Date.now() + 60_000 });
+  const pending = client.getVerifiedIdentity(controller.signal);
+  const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  await vi.waitFor(() => expect(fetch.mock.calls.map(([url]) => String(url))).toContain(userinfo));
+  controller.abort();
+  await rejected;
+});
+
 test("getUserInfo throws NO_ACCESS_TOKEN when token is missing", async () => {
   const client = createClient();
 

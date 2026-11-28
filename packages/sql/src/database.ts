@@ -15,6 +15,18 @@ import { Handle } from "./handle.js";
 import type { WasmSqlDatabase } from "./wasm.js";
 import { loadWasm } from "./wasm.js";
 
+/** Record policy for a private initial-history stage. */
+export interface HistoryRecord {
+  readonly table: string;
+  readonly identity: string;
+  /** Additional non-null fields that never change, such as the Vault ID on an item. */
+  readonly stable?: readonly string[];
+  /** Fields that must come from one live source together. */
+  readonly envelope: readonly string[];
+  /** Co-written fields. The first selects the unique source with the canonical value. */
+  readonly resolveBy?: readonly string[];
+}
+
 /** Embedded SQL database handle. Opens the store and creates query handles. */
 export class Database {
   private readonly handle: Handle<WasmSqlDatabase>;
@@ -32,6 +44,12 @@ export class Database {
     } catch (error) {
       throw wrapError(error, SqlError);
     }
+  }
+
+  /** Open a disposable database with no persistent replica identity. */
+  static async inMemory(): Promise<Database> {
+    const { SqlDatabase: WasmSqlDatabase } = await loadWasm();
+    return new Database(WasmSqlDatabase.in_memory());
   }
 
   /** Release this handle. Independently owned clients remain usable. */
@@ -86,6 +104,54 @@ export class Database {
   ): Promise<SqlHistoryResult> {
     try {
       return await this.handle.run((wasm) => wasm.synchronize_history(transport, role, canApply));
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
+
+  /** Reconcile two snapshots in a disposable in-memory database. Does not write either source. */
+  async stageHistory(other: Database, records: readonly HistoryRecord[]): Promise<Database> {
+    try {
+      const policy = JSON.stringify(
+        records.map(({ table, identity, stable, envelope, resolveBy }) => [
+          table,
+          identity,
+          stable ?? [],
+          envelope,
+          resolveBy ?? [],
+        ])
+      );
+      return await this.handle.run((left) =>
+        other.handle.run(async (right) => new Database(await left.stage_history(right, policy)))
+      );
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
+
+  /** Capture one bounded history revision, including retained tombstones. */
+  async historyRevision(): Promise<Uint8Array> {
+    try {
+      return await this.handle.run((wasm) => wasm.history_revision());
+    } catch (error) {
+      throw wrapError(error, SqlError);
+    }
+  }
+
+  /** Apply the exact private candidate and save the first replica tag in one local commit. */
+  async publishLocalHistory(
+    staged: Database,
+    expected: Uint8Array,
+    candidate: Uint8Array,
+    tag: Uint8Array,
+    canApply?: () => boolean
+  ): Promise<void> {
+    try {
+      return await this.handle.run((wasm) =>
+        staged.handle.run((stage) =>
+          wasm.publish_local_history(stage, expected, candidate, tag, canApply)
+        )
+      );
     } catch (error) {
       throw wrapError(error, SqlError);
     }

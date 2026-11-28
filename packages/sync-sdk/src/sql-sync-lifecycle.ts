@@ -61,13 +61,18 @@ export type SqlResourceSyncStatus =
 export function startSqlResourceSync(
   database: Database,
   identity: StoreIdentity,
-  options: SqlSyncOptions & { onStatus?(state: SqlResourceSyncStatus): void }
+  options: SqlSyncOptions & {
+    onStatus?(state: SqlResourceSyncStatus): void;
+    /** Let the owner serialize each exchange with other operations on the same replica. */
+    runExclusive?(run: () => Promise<void>, signal: AbortSignal): Promise<void>;
+  }
 ): SqlResourceSync {
   const exchange = createSqlResourceSync(database, identity, {
     ...options,
     mode: "established",
   });
-  const report = options.onStatus;
+  const { onStatus: report, runExclusive } = options;
+  const controller = new AbortController();
   let closed = false;
   let pending = false;
   let running: Promise<void> | undefined;
@@ -79,7 +84,12 @@ export function startSqlResourceSync(
         report?.({ status: "syncing" });
         if (closed) break;
         try {
-          await exchange.sync();
+          if (runExclusive)
+            await runExclusive(() => {
+              controller.signal.throwIfAborted();
+              return exchange.sync();
+            }, controller.signal);
+          else await exchange.sync();
           if (!closed && !pending) report?.({ status: "synced" });
         } catch (cause) {
           if (!closed) {
@@ -116,6 +126,7 @@ export function startSqlResourceSync(
     async close() {
       if (!closed) {
         closed = true;
+        controller.abort();
         unsubscribe();
         globalThis.removeEventListener?.("online", wake);
       }

@@ -1,5 +1,5 @@
 export { Client } from "./client.js";
-export { Database } from "./database.js";
+export { Database, type HistoryRecord } from "./database.js";
 export type { DbErrorKind } from "./error.js";
 export { CommitError, DbError, Error } from "./error.js";
 export type {
