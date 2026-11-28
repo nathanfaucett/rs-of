@@ -10,7 +10,7 @@ export interface HistoryPublication {
   expected: Uint8Array;
   candidate: Uint8Array;
 }
-export type AttachTag = 1 | 7 | 9 | 11 | 13;
+export type AttachTag = 1 | 7 | 9 | 11 | 13 | 15;
 
 export function publicationBytes(publication: HistoryPublication): Uint8Array {
   for (const revision of [publication.expected, publication.candidate]) {
@@ -225,11 +225,14 @@ export function response(payload: Uint8Array) {
     return { type: "snapshot" as const, revision: payload.slice(1) };
   if (tag === 12 && payload.length === 82)
     return { type: "compare-published" as const, publication: payload.slice(1) };
-  if (tag === 14) {
+  if (tag === 14 || tag === 16) {
     const published = reader.byte();
     reader.done();
     if (published > 1) throw new Error("Invalid publication status");
-    return { type: "publication-status" as const, published: published === 1 };
+    return {
+      type: tag === 14 ? ("publication-status" as const) : ("publication-resolved" as const),
+      published: published === 1,
+    };
   }
   throw new Error("Unexpected sync message");
 }

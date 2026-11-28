@@ -128,6 +128,8 @@ pub enum SyncMessage {
     ComparePublished(HistoryPublication),
     CheckPublication(AttachRequest, HistoryPublication),
     PublicationStatus(bool),
+    ResolvePublication(AttachRequest, HistoryPublication),
+    PublicationResolved(bool),
 }
 
 impl SyncMessage {
@@ -618,6 +620,7 @@ enum Intent {
     RevisionedPull,
     Compare(HistoryPublication),
     Check(HistoryPublication),
+    Resolve(HistoryPublication),
 }
 
 impl Intent {
@@ -658,6 +661,9 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
         Ok(SyncMessage::CheckPublication(request, publication)) => {
             (request, Intent::Check(publication))
         }
+        Ok(SyncMessage::ResolvePublication(request, publication)) => {
+            (request, Intent::Resolve(publication))
+        }
         _ => return Err(AbortReason::MalformedMessage),
     };
     if request.store_identity != hello.store_identity
@@ -690,7 +696,10 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
         &state.router_state.endpoint_id,
         request.direction,
         if request.direction == AttachDirection::Pull
-            || matches!(intent, Intent::Compare(_) | Intent::Check(_))
+            || matches!(
+                intent,
+                Intent::Compare(_) | Intent::Check(_) | Intent::Resolve(_)
+            )
         {
             AuthorityCheck::Snapshot { renew: true }
         } else {
@@ -718,7 +727,7 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
             .map_err(|_| AbortReason::Unauthorized)?,
     };
     let database = match intent {
-        Intent::Check(_) => state
+        Intent::Check(_) | Intent::Resolve(_) => state
             .databases
             .open_existing_for_receipt(&namespace, auth.store_id.into()),
         Intent::RevisionedPull | Intent::Compare(_) => state
@@ -741,7 +750,10 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
     } else {
         true
     };
-    if matches!(intent, Intent::Compare(_) | Intent::Check(_)) {
+    if matches!(
+        intent,
+        Intent::Compare(_) | Intent::Check(_) | Intent::Resolve(_)
+    ) {
         authorization.check_publish().await
     } else {
         authorization.check().await
@@ -760,18 +772,30 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
     }))
     .await
     .map_err(|_| AbortReason::BackendUnavailable)?;
-    if let Intent::Check(publication) = intent {
-        let status = database.check_history_publication(publication).await;
-        authorization
-            .check_publish()
+    if let Intent::Check(publication) | Intent::Resolve(publication) = intent {
+        let result = if matches!(intent, Intent::Resolve(_)) {
+            timeout(
+                COMPARE_SESSION_TIMEOUT,
+                database.resolve_history_publication(publication, || check_publish(&authorization)),
+            )
             .await
-            .map_err(|_| AbortReason::Unauthorized)?;
-        let published = status.map_err(|error| match error {
+            .map_err(|_elapsed| AbortReason::BackendUnavailable)?
+            .map(SyncMessage::PublicationResolved)
+        } else {
+            let status = database.check_history_publication(publication).await;
+            authorization
+                .check_publish()
+                .await
+                .map_err(|_| AbortReason::Unauthorized)?;
+            status.map(SyncMessage::PublicationStatus)
+        };
+        let response = result.map_err(|error| match error {
             SyncError::PublicationAlreadyUsed => AbortReason::PublicationAlreadyUsed,
+            SyncError::PreApply(_) => AbortReason::Unauthorized,
             _ => AbortReason::BackendUnavailable,
         })?;
         return wire
-            .send(SyncMessage::PublicationStatus(published))
+            .send(response)
             .await
             .map_err(|_| AbortReason::BackendUnavailable);
     }
@@ -794,6 +818,13 @@ async fn attach_and_sync(wire: &mut WireSocket, state: &SyncState) -> Result<(),
     }
 }
 
+async fn check_publish(authorization: &SessionAuthorization<'_>) -> Result<(), String> {
+    timeout(PUBLISH_AUTH_TIMEOUT, authorization.check_publish())
+        .await
+        .map_err(|_elapsed| "publish authorization timed out".to_owned())?
+        .map_err(|error| error.to_string())
+}
+
 async fn exchange_attached_history(
     mut transport: WebSocketTransport<'_>,
     database: &Database,
@@ -810,12 +841,6 @@ async fn exchange_attached_history(
         .map_err(|error| error.to_string())
     };
     let config = SessionConfig::default();
-    let check_publish = || async {
-        timeout(PUBLISH_AUTH_TIMEOUT, authorization.check_publish())
-            .await
-            .map_err(|_elapsed| "publish authorization timed out".to_owned())?
-            .map_err(|error| error.to_string())
-    };
     if let Intent::Compare(publication) = intent {
         database
             .receive_history_publication(
@@ -824,7 +849,7 @@ async fn exchange_attached_history(
                 staging_dir,
                 publication,
                 check,
-                check_publish,
+                || check_publish(authorization),
             )
             .await
             .map_err(exchange_abort)?;
@@ -835,7 +860,9 @@ async fn exchange_attached_history(
             .map_err(|_| AbortReason::BackendUnavailable)?;
     } else if matches!(intent, Intent::FirstUpload) {
         database
-            .receive_first_upload(&mut transport, &config, staging_dir, check, check_publish)
+            .receive_first_upload(&mut transport, &config, staging_dir, check, || {
+                check_publish(authorization)
+            })
             .await
             .map_err(exchange_abort)?;
         transport

@@ -1095,15 +1095,24 @@ impl Fixture {
     }
 
     async fn receipt(&self, publication: HistoryPublication) -> SyncMessage {
+        self.publication_outcome(SyncMessage::CheckPublication(
+            self.publication_request(AttachDirection::Bidirectional),
+            publication,
+        ))
+        .await
+    }
+
+    async fn resolve(&self, publication: HistoryPublication) -> SyncMessage {
+        self.publication_outcome(SyncMessage::ResolvePublication(
+            self.publication_request(AttachDirection::Bidirectional),
+            publication,
+        ))
+        .await
+    }
+
+    async fn publication_outcome(&self, request: SyncMessage) -> SyncMessage {
         let mut socket = self.hello().await;
-        send(
-            &mut socket,
-            SyncMessage::CheckPublication(
-                self.publication_request(AttachDirection::Bidirectional),
-                publication,
-            ),
-        )
-        .await;
+        send(&mut socket, request).await;
         match receive(&mut socket).await {
             SyncMessage::AttachResponse(response) if response.accepted => {
                 receive(&mut socket).await
@@ -1167,6 +1176,35 @@ async fn ws_compare_publish_rejects_stale_revision_and_checks_lost_receipt() {
             SyncMessage::PublicationStatus(false)
         );
 
+        let cancelled = HistoryPublication {
+            operation: uuid::Uuid::now_v7(),
+            ..publication
+        };
+        let in_flight = fixture.compare(cancelled).await;
+        assert_eq!(
+            fixture.resolve(cancelled).await,
+            SyncMessage::PublicationResolved(false)
+        );
+        assert_eq!(
+            fixture.resolve(cancelled).await,
+            SyncMessage::PublicationResolved(false)
+        );
+        assert_eq!(
+            fixture
+                .resolve(HistoryPublication {
+                    candidate: [0; 32],
+                    ..cancelled
+                })
+                .await,
+            SyncMessage::Abort(AbortReason::PublicationAlreadyUsed)
+        );
+        let mut delayed = stage_upload(&fixture, &source, in_flight).await;
+        assert_eq!(
+            receive(&mut delayed).await,
+            SyncMessage::Abort(AbortReason::PublicationAlreadyUsed)
+        );
+        assert_eq!(revision_of(&target).await, expected);
+
         let socket = fixture.compare(publication).await;
         sql(&target, "INSERT INTO documents (value) VALUES ('concurrent'); DELETE FROM documents WHERE value = 'concurrent'").await;
         let changed = revision_of(&target).await;
@@ -1194,6 +1232,7 @@ async fn ws_compare_publish_rejects_stale_revision_and_checks_lost_receipt() {
                     identity: "id",
                     stable: &[],
                     envelope: &["value"],
+                    resolve_by: &[],
                 }],
             )
             .await
@@ -1236,11 +1275,28 @@ async fn ws_compare_publish_rejects_stale_revision_and_checks_lost_receipt() {
                 .await,
             SyncMessage::Abort(AbortReason::PublicationAlreadyUsed)
         );
+        assert_eq!(
+            fixture.resolve(publication).await,
+            SyncMessage::PublicationResolved(true)
+        );
         let mut replay = stage_upload(&fixture, &source, fixture.compare(publication).await).await;
         assert_eq!(
             receive(&mut replay).await,
             SyncMessage::Abort(AbortReason::PublicationAlreadyUsed)
         );
+        // A new consent can confirm the same history, without replaying the old operation.
+        let same_history = HistoryPublication {
+            operation: uuid::Uuid::now_v7(),
+            expected: publication.candidate,
+            candidate: publication.candidate,
+        };
+        let mut confirmed =
+            stage_upload(&fixture, &source, fixture.compare(same_history).await).await;
+        assert_eq!(
+            receive(&mut confirmed).await,
+            SyncMessage::ComparePublished(same_history)
+        );
+        assert_eq!(revision_of(&target).await, publication.candidate);
         sql(&target, "INSERT INTO documents (value) VALUES ('later')").await;
         assert_eq!(
             fixture.receipt(publication).await,
@@ -1249,6 +1305,10 @@ async fn ws_compare_publish_rejects_stale_revision_and_checks_lost_receipt() {
         fixture.policy.lock().expect("policy lock")["resources"] = json!([]);
         assert_eq!(
             fixture.receipt(publication).await,
+            SyncMessage::Abort(AbortReason::Unauthorized)
+        );
+        assert_eq!(
+            fixture.resolve(cancelled).await,
             SyncMessage::Abort(AbortReason::Unauthorized)
         );
     }

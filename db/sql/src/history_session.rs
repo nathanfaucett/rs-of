@@ -1,3 +1,5 @@
+#[cfg(feature = "redb")]
+use core::convert::Infallible;
 use core::{fmt::Display, pin::Pin};
 use std::path::Path;
 
@@ -296,7 +298,7 @@ impl Database {
     pub async fn check_history_publication(
         &self,
         publication: HistoryPublication,
-    ) -> Result<bool, SyncError<core::convert::Infallible>> {
+    ) -> Result<bool, SyncError<Infallible>> {
         let DatabaseBackend::File(resource) = &self.backend else {
             return Err(engine::EngineError::Unsupported("native history publication").into());
         };
@@ -305,6 +307,30 @@ impl Database {
             .await
             .map_err(|error| SyncError::PreApply(error.to_string()))?;
         history::check_history_publication_for(&*engine, publication).await
+    }
+
+    /// Resolves the exact publication without sending history. A false result permanently
+    /// prevents this operation from publishing on this database.
+    /// # Errors
+    /// Returns an error for storage failure, conflicting use, or failed authorization.
+    #[cfg(feature = "redb")]
+    pub async fn resolve_history_publication<Q, U>(
+        &self,
+        publication: HistoryPublication,
+        check: Q,
+    ) -> Result<bool, SyncError<Infallible>>
+    where
+        Q: FnOnce() -> U + platform::MaybeSend,
+        U: Future<Output = Result<(), String>> + platform::MaybeSend,
+    {
+        let DatabaseBackend::File(resource) = &self.backend else {
+            return Err(engine::EngineError::Unsupported("native history publication").into());
+        };
+        let engine = resource
+            .read()
+            .await
+            .map_err(|error| SyncError::PreApply(error.to_string()))?;
+        sync_stage(|| history::resolve_history_publication_for(&*engine, publication, check)).await
     }
 
     /// Receives a complete candidate into a private stage and compares, publishes and records

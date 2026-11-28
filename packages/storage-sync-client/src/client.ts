@@ -104,9 +104,23 @@ export class SyncClient {
   async checkPublication(
     options: Omit<AttachOptions, "direction"> & { publication: HistoryPublication }
   ): Promise<boolean> {
+    return this.publicationOutcome(options, 13);
+  }
+
+  /** Returns true if published, or false after permanently cancelling this operation. */
+  async resolvePublication(
+    options: Omit<AttachOptions, "direction"> & { publication: HistoryPublication }
+  ): Promise<boolean> {
+    return this.publicationOutcome(options, 15);
+  }
+
+  private async publicationOutcome(
+    options: Omit<AttachOptions, "direction"> & { publication: HistoryPublication },
+    intent: 13 | 15
+  ): Promise<boolean> {
     const session = await this.connect(
       { ...options, direction: "Bidirectional" },
-      13,
+      intent,
       publicationBytes(options.publication)
     );
     try {

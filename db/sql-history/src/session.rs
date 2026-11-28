@@ -1175,6 +1175,22 @@ fn receipt_bytes(publication: HistoryPublication) -> Vec<u8> {
     [publication.expected, publication.candidate].concat()
 }
 
+fn cancelled_receipt_bytes(publication: HistoryPublication) -> Vec<u8> {
+    let mut bytes = receipt_bytes(publication);
+    bytes.push(0);
+    bytes
+}
+
+fn publication_status(bytes: &[u8], publication: HistoryPublication) -> Option<bool> {
+    if bytes == receipt_bytes(publication) {
+        Some(true)
+    } else if bytes == cancelled_receipt_bytes(publication) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 /// Looks up the exact publication without making any writes.
 ///
 /// # Errors
@@ -1199,11 +1215,68 @@ where
             })
         })
         .await?;
-    match receipt {
-        None => Ok(false),
-        Some(bytes) if bytes == receipt_bytes(publication) => Ok(true),
-        Some(_) => Err(SyncError::PublicationAlreadyUsed),
-    }
+    receipt.map_or(Ok(false), |bytes| {
+        publication_status(&bytes, publication).ok_or(SyncError::PublicationAlreadyUsed)
+    })
+}
+
+/// Returns an existing receipt or records a permanent cancellation for the exact operation.
+/// Compare publish uses the same key, so only one outcome can commit.
+///
+/// # Errors
+/// Returns an error on conflicting use, authorization failure, or storage failure.
+pub async fn resolve_history_publication_for<K, R, Q, U, E>(
+    engine: &Engine<K, R>,
+    publication: HistoryPublication,
+    check: Q,
+) -> Result<bool, SyncError<E>>
+where
+    K: Kernel,
+    R: SyncRowCodec<K::Transaction>,
+    Q: FnOnce() -> U + MaybeSend,
+    U: Future<Output = Result<(), String>> + MaybeSend,
+    E: MaybeSend,
+{
+    engine
+        .mutate_tables_with_commit(
+            &[],
+            move |_, transaction| {
+                Box::pin(async move {
+                    let key = publication.operation.as_bytes();
+                    let (published, bytes) = match transaction
+                        .get_bytes(ENGINE_PUBLISH_RECEIPTS_STORAGE, key)
+                        .await?
+                    {
+                        Some(bytes) => (
+                            publication_status(&bytes, publication).ok_or(
+                                EngineError::InvalidQuery("publication operation already used"),
+                            )?,
+                            bytes,
+                        ),
+                        None => (false, cancelled_receipt_bytes(publication)),
+                    };
+                    // Keep even an existing result on the checked writer path in shared Redb.
+                    transaction
+                        .ensure_table(ENGINE_PUBLISH_RECEIPTS_STORAGE)
+                        .await?;
+                    transaction
+                        .put_bytes(ENGINE_PUBLISH_RECEIPTS_STORAGE, key.to_vec(), bytes)
+                        .await?;
+                    Ok((published, MutationSummary::default()))
+                })
+            },
+            |_| Ok(()),
+            |transaction| {
+                transaction.commit_checked(|| async { check().await.map_err(SyncError::PreApply) })
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            SyncError::Engine(EngineError::InvalidQuery("publication operation already used")) => {
+                SyncError::PublicationAlreadyUsed
+            }
+            error => error,
+        })
 }
 
 /// Publishes only the exact candidate extending the expected destination history.
@@ -1262,9 +1335,8 @@ where
         return Err(EngineError::InvalidQuery("empty initial history").into());
     }
     let revisions = publication.revisions();
-    if let Some((expected, candidate)) = revisions
-        && (history_revision(&units) != candidate
-            || (expected == candidate && matches!(publication, Publication::Compare(_))))
+    if let Some((_, candidate)) = revisions
+        && history_revision(&units) != candidate
     {
         return Err(EngineError::InvalidQuery("invalid publication candidate revision").into());
     }

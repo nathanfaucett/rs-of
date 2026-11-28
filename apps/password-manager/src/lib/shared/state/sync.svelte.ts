@@ -160,9 +160,14 @@ async function getBinding(expected: Session) {
     if (!record) {
       const merge = readPendingMerge();
       if (merge)
-        return ownsMerge(expected, merge)
-          ? ({ status: "pending-merge", id: merge.id, committed: merge.committed } as const)
-          : ({ status: "merge-session-changed" } as const);
+        return merge.namespace === owner
+          ? ({
+              status: "pending-merge",
+              id: merge.id,
+              committed: merge.committed,
+              canRetry: ownsMerge(expected, merge),
+            } as const)
+          : ({ status: "merge-different-account" } as const);
       const receipt = readReceipt(expected);
       return receipt
         ? ({ status: "pending-save", id: receipt.id } as const)
@@ -274,38 +279,23 @@ async function checkMergeReceipt(
   return committed;
 }
 
-async function reviewPendingMerge(expected: Session) {
-  await withExchange(expected, async (database, signal, checkActive) => {
+async function resolvePendingMerge(expected: Session) {
+  return withExchange(expected, async (database, signal, checkActive) => {
     requireUnbound(await readBinding(database));
     const merge = readPendingMerge();
-    if (!merge || !ownsMerge(expected, merge))
-      throw new Error("This session cannot review the pending merge.");
-    const localMatches = await matchesLocalRevision(database, merge.local);
-    const write = mergeConnection(expected, merge.id, signal, checkActive, true);
-    let committed = await checkMergeReceipt(merge, write.client, write.attach);
-    if (!committed) {
-      const pull = mergeConnection(expected, merge.id, signal, checkActive, false);
-      const remote = await pullMergeSnapshot(
-        pull.client,
-        pull.attach,
-        (_snapshot, pinned) => pinned
-      );
-      if (remote === merge.remote) {
-        if (localMatches)
-          throw new Error("The histories still match. Retry the exact pending merge.");
-        if (merge.attempted !== false)
-          throw new Error(
-            "Local history changed, but Storage may still commit the pending operation. No history was sent. Check again later."
-          );
-      } else {
-        // The old compare cannot start from this newer history. Check for a receipt after Pull.
-        committed = await checkMergeReceipt(merge, write.client, write.attach);
-      }
-    }
-    if (committed && localMatches)
-      throw new Error("Storage confirmed publication. Retry the pending merge to save it locally.");
-    if (!checkActive()) throw new Error("Sign-in session ended");
+    if (!merge || merge.namespace !== namespace(expected))
+      throw new Error("This account cannot resolve the pending merge.");
+    // Use only the retained Resource ID. Storage checks its namespace and current Selection.
+    const { client, attach } = mergeConnection(expected, merge.id, signal, checkActive, true);
+    const committed = await client.resolvePublication({
+      ...attach,
+      publication: publicationFor(merge),
+    });
+    if (!checkActive() || attach.signal.aborted) throw new Error("Sync cancelled");
+    if (merge.committed && !committed)
+      throw new Error("The prior Storage receipt is no longer available. No history was sent.");
     archiveMerge({ ...merge, committed });
+    return committed;
   });
 }
 
@@ -777,7 +767,7 @@ export const syncStateModule = {
   closeSync,
   inspectRestore,
   mergeDatabases,
-  reviewPendingMerge,
+  resolvePendingMerge,
   getBinding,
   retryBindingSave,
   clearPendingConfirmation,

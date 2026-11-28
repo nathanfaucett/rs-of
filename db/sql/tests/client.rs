@@ -845,7 +845,7 @@ async fn publication_receipt_persists_across_reopen_without_entering_sql_history
     use core::future::ready;
 
     use history_transport::{Channel, unbounded_channel};
-    use ofdb_sql::history::{HistoryPublication, SessionConfig, SyncRole};
+    use ofdb_sql::history::{HistoryPublication, SessionConfig, SyncError, SyncRole};
 
     let directory = tempfile::tempdir().expect("publication directory");
     let path = directory.path().join("publication.redb");
@@ -873,6 +873,44 @@ async fn publication_receipt_persists_across_reopen_without_entering_sql_history
         expected: target.history_revision().await.expect("previous revision"),
         candidate: source.history_revision().await.expect("candidate revision"),
     };
+    let cancelled = HistoryPublication {
+        operation: uuid::Uuid::now_v7(),
+        ..publication
+    };
+    assert!(matches!(
+        target
+            .resolve_history_publication(cancelled, || ready(Err("revoked".into())))
+            .await,
+        Err(SyncError::PreApply(_))
+    ));
+    let mismatched = HistoryPublication {
+        candidate: [0; 32],
+        ..cancelled
+    };
+    assert!(matches!(
+        target.check_history_publication(mismatched).await,
+        Ok(false)
+    ));
+    assert!(
+        !target
+            .resolve_history_publication(cancelled, || ready(Ok(())))
+            .await
+            .expect("cancel publication")
+    );
+    assert_eq!(
+        target
+            .history_revision()
+            .await
+            .expect("history after cancellation"),
+        publication.expected
+    );
+    drop(target);
+    let target = Database::open_existing(&path).expect("reopen after cancellation");
+    // A different tuple with the same UUID proves this is a durable record, not a missing receipt.
+    assert!(matches!(
+        target.check_history_publication(mismatched).await,
+        Err(SyncError::PublicationAlreadyUsed)
+    ));
     let config = SessionConfig::default();
     let (send_source, receive_target) = unbounded_channel();
     let (send_target, receive_source) = unbounded_channel();

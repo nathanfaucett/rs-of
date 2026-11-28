@@ -25,7 +25,14 @@ export interface ComparePublishSession extends SyncSession {
 
 type Control = Extract<
   ReturnType<typeof response>,
-  { type: "published" | "snapshot" | "compare-published" | "publication-status" }
+  {
+    type:
+      | "published"
+      | "snapshot"
+      | "compare-published"
+      | "publication-status"
+      | "publication-resolved";
+  }
 >;
 type Incoming = Uint8Array | Control;
 
@@ -97,14 +104,15 @@ export function createSession(
         return;
       }
       const data =
-        message.type === "owner" && intent !== 13
+        message.type === "owner" && intent !== 13 && intent !== 15
           ? message.data
           : (intent === 7 && message.type === "published") ||
               (intent === 9 && message.type === "snapshot") ||
               (intent === 11 &&
                 message.type === "compare-published" &&
                 publication?.every((b, i) => b === message.publication[i])) ||
-              (intent === 13 && message.type === "publication-status")
+              (intent === 13 && message.type === "publication-status") ||
+              (intent === 15 && message.type === "publication-resolved")
             ? message
             : undefined;
       if (data === undefined) throw new Error("Unexpected sync session message");
@@ -187,9 +195,12 @@ export function createSession(
       return data.revision;
     },
     async publicationStatus() {
-      if (intent !== 13) return unexpected("Not a receipt lookup session");
+      if (intent !== 13 && intent !== 15) return unexpected("Not a publication outcome session");
       const data = await next();
-      if (data instanceof Uint8Array || data.type !== "publication-status")
+      if (
+        data instanceof Uint8Array ||
+        data.type !== (intent === 13 ? "publication-status" : "publication-resolved")
+      )
         return unexpected("Expected a publication status");
       return data.published;
     },
