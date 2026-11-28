@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-Work status: in progress
+Work status: resolved
 
 Milestone: M2 — Single-Node encrypted synchronization
 
@@ -19,21 +19,15 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 ## Acceptance checks
 
-- [ ] The merge prompt appears before either side changes and identifies the destination and scope of the merge.
-- [ ] Declining or cancelling the prompt leaves local and remote data unchanged and does not create a binding.
-- [ ] An approved merge retains non-conflicting vaults, folders, and items from both sides and preserves deletion history.
-- [ ] Conflicting edits converge to `ofdb`'s deterministic result without consulting entry timestamps.
-- [ ] Complete encrypted records remain decryptable after merge and reopen, including ciphertext and nonce.
-- [ ] Incompatible identity or history fails closed without discarding either source.
-- [ ] The merged database retains one Resource binding and does not prompt again during ordinary reconnection.
-- [ ] Public `ofdb` history tests isolate conflict and deletion cases, and the complete consent flow passes through the browser against real Storage.
+- [x] The merge prompt appears before either side changes and identifies the destination and scope of the merge.
+- [x] Declining or cancelling the prompt leaves local and remote data unchanged and does not create a binding.
+- [x] An approved merge retains non-conflicting vaults, folders, and items from both sides and preserves deletion history.
+- [x] Conflicting edits converge to `ofdb`'s deterministic result without consulting entry timestamps.
+- [x] Complete encrypted records remain decryptable after merge and reopen, including ciphertext and nonce.
+- [x] Incompatible identity or history fails closed without discarding either source.
+- [x] The merged database retains one Resource binding and does not prompt again during ordinary reconnection.
+- [x] Public `ofdb` history tests isolate conflict and deletion cases, and the complete consent flow passes through the browser against real Storage.
 
 ## Current evidence and qualification limits
 
-The integration branch detects independent local history before restore. The real non-seeded browser test verified cancellation leaves both sources unchanged and does not create a binding. Approved merge remains disabled.
-
-## Comments
-
-The unmerged staging prototype (`2eeabb28`) tests duplicate application IDs, deleted claims, and protected ciphertext groups. It also confirms that two databases initialized by the same migration runner can record equivalent migrations under different Logical Row IDs. Staging currently rejects that case. Do not enable merge until staging can reconcile equivalent ledgers without losing divergent history and verify that encrypted records reopen correctly.
-
-Publication must compare each source with the exact staged snapshot. The Storage transaction must reject concurrent remote writes and save a receipt with the merge. The guarded browser transaction must preserve concurrent local edits and establish the binding only after a verified receipt. Redb and IndexedDB cannot commit atomically together: if Storage commits but local state changes, report that partial outcome and preserve local edits. A lost reply requires verification of the exact operation, not inference from remote history or fallback to ordinary sync.
+Merged in `ba3ca601`. The fresh non-seeded Chromium flow covered decline, approval, a concurrent local edit, lost receipts, durable cancellation, and reattachment. Focused SQL and Chromium tests covered deterministic selection of complete encrypted records in both merge orders and retention of tombstones. Incompatible or ambiguous histories are rejected. Storage and IndexedDB cannot commit atomically together: guarded local completion preserves newer local edits and reports if Storage has already committed. The focused CRAP report flagged `attach_and_sync`; the full workspace suite and browser matrix were not run.

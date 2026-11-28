@@ -6,6 +6,8 @@
 
 **Status:** ready-for-agent
 
+Work status: resolved
+
 Milestone: M2 — Single-Node encrypted synchronization
 
 ## Scope and non-goals
@@ -17,13 +19,13 @@ Milestone: M2 — Single-Node encrypted synchronization
 
 ## Acceptance checks
 
-- [ ] Fixtures from both old creation paths open in the unified selector with their existing IDs and passwords.
-- [ ] Existing synced data retains its Resource binding and resumes authorized sync without creating a duplicate Resource.
-- [ ] Interrupted migration can be retried without data loss, duplicate vaults, or an unrecoverable partial state.
-- [ ] Original data remains recoverable until the unified copy and decryption are verified.
-- [ ] The UI exposes one Create vault path and no separate synced-vault discovery or unlock workflow.
-- [ ] Obsolete dual-path implementation and tests are removed, current documentation matches the behavior, and the real-backend Password Manager suite passes.
+- [x] Fixtures from both old creation paths open in the unified selector with their existing IDs and passwords.
+- [x] Existing synced data retains its Resource binding and resumes authorized sync without creating a duplicate Resource.
+- [x] Interrupted migration can be retried without data loss, duplicate vaults, or an unrecoverable partial state.
+- [x] Original data remains recoverable until the unified copy and decryption are verified.
+- [x] The UI exposes one Create vault path and no separate synced-vault discovery or unlock workflow.
+- [x] Obsolete dual-path implementation and tests are removed, current documentation matches the behavior, and the real-backend Password Manager suite passes.
 
 ## Current evidence and qualification limits
 
-The legacy split remains necessary until existing users have a verified path into the unified database and sync lifecycle. Completion of this ticket establishes one active Password Manager database per browser profile, not a two-Device or sharing qualification.
+Merged in `1942a064`, with the backup recovery fix in `e6936354`. Historical local and synced fixtures reopen through the unified selector with their original passwords. The real-backend tests covered exact Resource reuse, interrupted upgrade and retry, retained source recovery, and rejection of an incompatible source before retirement. The seeded Password Manager project and focused Create and Join flows passed; the final backup fix passed focused recovery tests. The source is retained read-only in supported upgrades. Historical per-vault local data copies live records; untranslated history remains in the original source. The full browser matrix and two-Device convergence were not qualified.
