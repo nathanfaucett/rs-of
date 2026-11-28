@@ -1,6 +1,7 @@
 import { goto } from "$app/navigation";
 import { listLegacyRecovery, unlockLegacyRecovery } from "$lib/vault/legacy-history";
 import { createInactivityLock, type LockSettings } from "$lib/vault/lock";
+import { listLegacyLocalVaults, unlockLocalRecovery } from "$lib/vault/storage/migrate-to-shared";
 import type { VaultHandleLike } from "$lib/vault/types";
 import {
   createVault as createVaultHandle,
@@ -10,7 +11,7 @@ import {
 } from "$lib/vault/vault";
 import { syncStateModule } from "./sync.svelte";
 
-type VaultChoice = VaultIdentity & { recoveryResource?: string };
+type VaultChoice = VaultIdentity & { recoveryResource?: string; localRecovery?: true };
 
 type VaultState =
   | { status: "loading" }
@@ -82,18 +83,23 @@ async function createVault(password: string, name: string) {
   await goto("/vault");
 }
 
-async function unlockExistingVault(password: string, { id, recoveryResource }: VaultChoice) {
+async function unlockExistingVault(
+  password: string,
+  { id, recoveryResource, localRecovery }: VaultChoice
+) {
   const request = session;
   const vault = recoveryResource
     ? await unlockLegacyRecovery(recoveryResource, id, password)
-    : await unlockVault(password, id);
+    : localRecovery
+      ? await unlockLocalRecovery(id, password)
+      : await unlockVault(password, id);
   let activated = false;
   try {
     if (request !== session) return;
     const settings = await vault.loadLockSettings();
-    if (!recoveryResource) await syncStateModule.verifyUpgradedVault(vault);
+    if (!recoveryResource && !localRecovery) await syncStateModule.verifyUpgradedVault(vault);
     if (request !== session) return;
-    activateVault(vault, settings, !!recoveryResource);
+    activateVault(vault, settings, !!recoveryResource || !!localRecovery);
     activated = true;
     await goto("/vault");
   } finally {
@@ -134,7 +140,10 @@ async function showVaultSelector() {
   selector = (async () => {
     try {
       await retireVault("loading");
-      const vaults = await listVaults();
+      const vaults: VaultChoice[] = await listVaults();
+      for (const source of await listLegacyLocalVaults()) {
+        vaults.push({ ...source, localRecovery: true });
+      }
       vaultState = { status: "select-vault", vaults };
     } catch (cause) {
       vaultState = {

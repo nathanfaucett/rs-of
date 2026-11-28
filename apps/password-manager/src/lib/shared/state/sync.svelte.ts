@@ -23,6 +23,7 @@ import {
   retainMerge,
 } from "$lib/vault/merge-history";
 import { hasLegacyLocalVaults, openSharedDatabase } from "$lib/vault/storage/migrate-to-shared";
+import { retireLegacyReplica } from "$lib/vault/storage/retire-legacy-replica";
 import { StorageClient } from "../../../../../../packages/storage-client/src/index";
 
 type Session = NonNullable<typeof authState.session>;
@@ -173,9 +174,14 @@ async function getBinding(expected: Session) {
     if (!record) {
       const merge = readPendingMerge();
       if (merge)
-        return ownsMerge(expected, merge)
-          ? ({ status: "pending-merge", id: merge.id, committed: merge.committed } as const)
-          : ({ status: "merge-session-changed" } as const);
+        return merge.namespace === owner
+          ? ({
+              status: "pending-merge",
+              id: merge.id,
+              committed: merge.committed,
+              canRetry: ownsMerge(expected, merge),
+            } as const)
+          : ({ status: "merge-different-account" } as const);
       const receipt = readReceipt(expected);
       return receipt
         ? ({ status: "pending-save", id: receipt.id } as const)
@@ -227,7 +233,9 @@ async function verifyRecoveryResource(expected: Session, id: string, signal?: Ab
 async function legacyBrowserRevision(id: string) {
   const database = await openLegacyReplica(id);
   try {
-    return database ? encodeRevision(await database.historyRevision()) : null;
+    return database && !(await database.initialRestoreIsEligible())
+      ? encodeRevision(await database.historyRevision())
+      : null;
   } finally {
     database?.close();
   }
@@ -324,38 +332,23 @@ async function checkMergeReceipt(
   return committed;
 }
 
-async function reviewPendingMerge(expected: Session) {
-  await withExchange(expected, async (database, signal, checkActive) => {
+async function resolvePendingMerge(expected: Session) {
+  return withExchange(expected, async (database, signal, checkActive) => {
     requireUnbound(await readBinding(database));
     const merge = readPendingMerge();
-    if (!merge || !ownsMerge(expected, merge))
-      throw new Error("This session cannot review the pending merge.");
-    const localMatches = await matchesLocalRevision(database, merge);
-    const write = mergeConnection(expected, merge.id, signal, checkActive, true);
-    let committed = await checkMergeReceipt(merge, write.client, write.attach);
-    if (!committed) {
-      const pull = mergeConnection(expected, merge.id, signal, checkActive, false);
-      const remote = await pullMergeSnapshot(
-        pull.client,
-        pull.attach,
-        (_snapshot, pinned) => pinned
-      );
-      if (remote === merge.remote) {
-        if (localMatches)
-          throw new Error("The histories still match. Retry the exact pending merge.");
-        if (merge.attempted !== false)
-          throw new Error(
-            "Local history changed, but Storage may still commit the pending operation. No history was sent. Check again later."
-          );
-      } else {
-        // The old compare cannot start from this newer history. Check for a receipt after Pull.
-        committed = await checkMergeReceipt(merge, write.client, write.attach);
-      }
-    }
-    if (committed && localMatches)
-      throw new Error("Storage confirmed publication. Retry the pending merge to save it locally.");
-    if (!checkActive()) throw new Error("Sign-in session ended");
+    if (!merge || merge.namespace !== namespace(expected))
+      throw new Error("This account cannot resolve the pending merge.");
+    // Use only the retained Resource ID. Storage checks its namespace and current Selection.
+    const { client, attach } = mergeConnection(expected, merge.id, signal, checkActive, true);
+    const committed = await client.resolvePublication({
+      ...attach,
+      publication: publicationFor(merge),
+    });
+    if (!checkActive() || attach.signal.aborted) throw new Error("Sync cancelled");
+    if (merge.committed && !committed)
+      throw new Error("The prior Storage receipt is no longer available. No history was sent.");
     archiveMerge({ ...merge, committed });
+    return committed;
   });
 }
 
@@ -386,9 +379,13 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
       await pullMergeSnapshot(client, attach, async (snapshot, revision) => {
         if (revision !== destination.remote)
           throw new Error("Remote history changed. Find the remote database again before merging.");
+        if (legacy) await retireLegacyReplica(id, true);
         const browser = legacy ? await openLegacyReplica(id) : undefined;
         try {
-          const captured = browser ? encodeRevision(await browser.historyRevision()) : null;
+          const captured =
+            browser && !(await browser.initialRestoreIsEligible())
+              ? encodeRevision(await browser.historyRevision())
+              : null;
           if (legacy && legacy.browser !== captured)
             throw new Error(
               "The older browser copy changed. Find the Resource again before upgrading."
@@ -419,6 +416,7 @@ async function mergeDatabases(expected: Session, destination?: MergeDestination)
     }
     if (!merge || !ownsMerge(expected, merge))
       throw new Error("The sign-in session changed. This session cannot resume the merge.");
+    if (merge.legacy && !destination) await retireLegacyReplica(id, true);
     const publication = publicationFor(merge);
     const { client, attach } = mergeConnection(expected, id, signal, checkActive, true);
     let committed = !destination && (await checkMergeReceipt(merge, client, attach));
@@ -680,11 +678,16 @@ async function exchange(expected: Session, intent: Intent) {
       requireSession();
       if (readReceipt(expected))
         throw new BindingSaveError("Storage confirmed publication. Retry the local save.");
-      if (await findRestoreResource(expected, signal, checkActive, legacyCreationKey))
+      const current = await findRestoreResource(expected, signal, checkActive);
+      const databases = await client.listSqlDatabases(signal);
+      if (databases.some((entry) => entry.id !== current))
         throw new Error(
-          "This account has an older database. Find the remote database and review the upgrade first."
+          "This account has another SQL Resource. First upload was not started. Find the remote database or enter its exact Resource ID to review the upgrade."
         );
-      const resource = await client.ensureDatabase({ creationKey, name: resourceName }, signal);
+      requireSession();
+      const resource = current
+        ? { id: current }
+        : await client.ensureDatabase({ creationKey, name: resourceName }, signal);
       requireSession();
       id = resource.id;
       intent.onResource(id);
@@ -861,7 +864,7 @@ export const syncStateModule = {
   inspectRestore,
   verifyUpgradedVault,
   mergeDatabases,
-  reviewPendingMerge,
+  resolvePendingMerge,
   getBinding,
   retryBindingSave,
   clearPendingConfirmation,

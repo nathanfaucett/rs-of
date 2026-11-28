@@ -40,3 +40,41 @@ export async function createLegacyVault(resourceId: string, password: string, na
     await sdk.close();
   }
 }
+
+let cachedWriter: Awaited<ReturnType<typeof openCachedWriter>> | undefined;
+
+async function openCachedWriter(id: string) {
+  const { Database } = await import("@ofsdk/sql");
+  const db = await Database.open(id);
+  const client = db.client();
+  db.close();
+  return client;
+}
+
+let staleWrite: Awaited<ReturnType<NonNullable<typeof cachedWriter>["transaction"]>> | undefined;
+
+export async function stageCachedLegacyWrite(id: string) {
+  cachedWriter = await openCachedWriter(id);
+  staleWrite = await cachedWriter.transaction();
+  await staleWrite.executeRaw("DELETE FROM secrets");
+}
+
+export async function probeRetiredLegacyWrites(id: string) {
+  if (!staleWrite || !cachedWriter) throw new Error("Missing staged legacy writer.");
+  const refused = async (write: Promise<unknown>) =>
+    write.then(
+      () => false,
+      () => true
+    );
+  const fresh = await openCachedWriter(id);
+  try {
+    return {
+      stale: await refused(staleWrite.commit()),
+      reopened: await refused(fresh.executeRaw("DELETE FROM secrets")),
+    };
+  } finally {
+    staleWrite.close();
+    cachedWriter.close();
+    fresh.close();
+  }
+}

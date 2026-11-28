@@ -393,7 +393,8 @@ async function rejectStorageChanges(page: Page, keys: string[] | "all") {
 
 nodeTest(
   "default Create retains the Installation and supports guarded vault upload, restore, and commit-driven sync",
-  async ({ node }) => {
+  async ({ node }, testInfo) => {
+    testInfo.setTimeout(480_000);
     const { app, base, browser, ca, data, pm } = node;
     const idp = `${base}/idp`;
     const storage = `${base}/storage`;
@@ -1272,7 +1273,7 @@ nodeTest(
     expect(await databases()).toEqual(catalogWithDuplicateName);
     expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
 
-    await test.step("decline and approve an independent database merge, recovering a lost receipt", async () => {
+    await test.step("resolve interrupted independent database merges before giving fresh consent", async () => {
       const independentContext = await browser.newContext();
       try {
         const independent = await independentContext.newPage();
@@ -1325,27 +1326,28 @@ nodeTest(
         await independent.getByRole("button", { name: "Connect local database" }).click();
         await independent.getByRole("button", { name: "Confirm and upload" }).click();
         await expect(independent.getByRole("alert")).toContainText(
-          "This Resource already has history"
+          "First upload was not started"
         );
 
         const compareAttempts: string[] = [];
         const receiptChecks: string[] = [];
+        const resolutions: string[] = [];
         const attachIntents: number[] = [];
         let droppedReceipt = false;
         await independent.routeWebSocket("**/storage/sync/ws", (socket) => {
           const server = socket.connectToServer();
           socket.onMessage((message) => {
             const tag = typeof message === "string" ? -1 : message[6];
-            if (tag === 9 || tag === 11 || tag === 13) attachIntents.push(tag);
-            if (typeof message !== "string" && (tag === 11 || tag === 13)) {
-              // The operation UUID and both revisions follow the attach body, before the CRC.
-              (tag === 11 ? compareAttempts : receiptChecks).push(
-                message.subarray(-85, -4).toString("hex")
+            if (tag === 9 || tag === 11 || tag === 13 || tag === 15) attachIntents.push(tag);
+            if (typeof message !== "string" && (tag === 11 || tag === 13 || tag === 15)) {
+              // The exact Resource UUID and publication tuple, without the bearer token.
+              const store = message.subarray(8, 24).toString("hex");
+              const tuple = message.subarray(-85, -4).toString("hex");
+              (tag === 11 ? compareAttempts : tag === 13 ? receiptChecks : resolutions).push(
+                `${store}:${tuple}`
               );
-            }
-            if (tag === 11) {
-              if (compareAttempts.length === 1) {
-                // Lose the connection before Storage receives the first compare request.
+              if (tag === 11 && compareAttempts.length <= 2) {
+                // Lose the connection before Storage receives either compare request.
                 socket.close();
                 return;
               }
@@ -1362,7 +1364,9 @@ nodeTest(
         const prompt = independent.getByRole("region", { name: "Confirm database merge" });
         const approve = prompt.getByRole("button", { name: "Approve and merge" });
         const retryMerge = independent.getByRole("button", { name: "Retry pending merge" });
-        const reviewMerge = independent.getByRole("button", { name: "Review changed histories" });
+        const reviewMerge = independent.getByRole("button", {
+          name: "Cancel or archive pending merge",
+        });
         const pendingKey = "password-manager-v1:storage-binding:merge";
         const remoteVault = independent.getByRole("button", { name: new RegExp(localVault) });
         await findRemote(independent).click();
@@ -1411,16 +1415,132 @@ nodeTest(
         expect(await localData()).toEqual(edited);
         expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
 
-        await findRemote(independent).click();
-        await approve.click();
+        const pending = (key = pendingKey) =>
+          independent.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null"), key);
+        const expectArchived = async (operation: Awaited<ReturnType<typeof pending>>) => {
+          expect(await pending()).toBeNull();
+          expect(await pending(`${pendingKey}:${operation.operation}`)).toEqual(operation);
+          expect(
+            await independent.evaluate(async (operation) => {
+              const path = "/src/lib/vault/merge-history.ts";
+              const { reopenCandidate, encodeRevision } = await import(path);
+              const stage = await reopenCandidate(operation);
+              try {
+                return encodeRevision(await stage.historyRevision());
+              } finally {
+                stage.close();
+              }
+            }, operation)
+          ).toBe(operation.candidate);
+        };
+        const approveNew = async () => {
+          await findRemote(independent).click();
+          await approve.click();
+        };
+        const renameVault = (from: string, to: string) =>
+          independent.evaluate(
+            async ({ name, renamed }) => {
+              const module = "/src/lib/vault/storage/migrate-to-shared.ts";
+              const db = await (await import(module)).openSharedDatabase();
+              const client = db.client();
+              try {
+                await client.executeRaw("UPDATE vaults SET name = ? WHERE name = ?", [
+                  { type: "text", value: renamed },
+                  { type: "text", value: name },
+                ]);
+              } finally {
+                client.close();
+                db.close();
+              }
+            },
+            { name: from, renamed: to }
+          );
+
+        await approveNew();
         await expect(retryMerge).toBeVisible();
+        const first = await pending();
+        expect(first).toMatchObject({ attempted: true, committed: false });
+        const afterCancel = `${name} after cancellation`;
+        await renameVault(name, afterCancel);
+        await independent.reload();
+        await retryMerge.click();
+        await expect(independent.getByRole("alert")).toContainText("Local history changed");
+        expect(compareAttempts).toHaveLength(1);
+        await reviewMerge.click();
+        await expect(independent.getByText(/Storage cancelled the old merge/)).toBeVisible();
+        await expect(findRemote(independent)).toBeVisible();
+        await expectArchived(first);
+        await expect(
+          independent.getByRole("button", { name: new RegExp(afterCancel) })
+        ).toBeVisible();
         expect(await localData()).toEqual(edited);
         expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
+        expect(resolutions).toEqual([compareAttempts[0]]);
+
+        await approveNew();
+        await expect(retryMerge).toBeVisible();
+        const second = await pending();
+        expect(second.operation).not.toBe(first.operation);
+        const signOut = async () => {
+          await independent.getByRole("button", { name: "Sign out", exact: true }).click();
+          await expect(independent.getByRole("link", { name: "Sign in to sync" })).toBeVisible();
+        };
+        const originalClient = await independent.evaluate(
+          (key) => localStorage.getItem(key),
+          clientKey
+        );
+        if (!originalClient) throw new Error("Missing independent profile client registration");
+        await signOut();
+        // Reuse the verified second User login from this Installation, not a seeded session.
+        await independent.evaluate(
+          (entries) => {
+            for (const [key, value] of entries) localStorage.setItem(key, value);
+          },
+          [
+            [clientKey, clientRegistration],
+            [tokenKey, secondLogin],
+          ] as const
+        );
         await independent.reload();
+        await expect(
+          independent.getByText(/A merge is pending for a different account/)
+        ).toBeVisible();
+        await expect(reviewMerge).toHaveCount(0);
+        await expect(retryMerge).toHaveCount(0);
+        expect(await pending()).toEqual(second);
+        await signOut();
+        await independent.evaluate(([key, value]) => localStorage.setItem(key, value), [
+          clientKey,
+          originalClient,
+        ] as const);
+        await independent.reload();
+        await independent.getByRole("link", { name: "Sign in to sync" }).click();
+        const [newLogin] = await Promise.all([
+          independent.waitForResponse(
+            (response) =>
+              response.url() === `${idp}/oauth2/token` &&
+              new URLSearchParams(response.request().postData() ?? "").get("grant_type") ===
+                "authorization_code"
+          ),
+          independent.getByRole("button", { name: "Sign in with IdP" }).click(),
+        ]);
+        expect(newLogin.ok()).toBe(true);
+        await expect(reviewMerge).toBeVisible();
+        await expect(retryMerge).toHaveCount(0);
+        await expect(findRemote(independent)).toHaveCount(0);
+        expect(compareAttempts).toHaveLength(2);
         await reviewMerge.click();
-        await expect(independent.getByRole("alert")).toContainText("Retry the exact pending merge");
-        expect(compareAttempts).toHaveLength(1);
-        await retryMerge.click();
+        await expect(independent.getByText(/Storage cancelled the old merge/)).toBeVisible();
+        await expect(findRemote(independent)).toBeVisible();
+        await expectArchived(second);
+        expect(resolutions).toEqual(compareAttempts);
+        expect(await localData()).toEqual(edited);
+        expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(changedRemote.body));
+
+        await findRemote(independent).click();
+        await expect(approve).toBeVisible();
+        expect(compareAttempts).toHaveLength(2);
+        await approve.click();
         await expect(retryMerge).toBeEnabled();
         await expect.poll(() => droppedReceipt).toBe(true);
         expect(await localData()).toEqual(edited);
@@ -1437,23 +1557,7 @@ nodeTest(
 
         // An edit after remote publication must survive even though the reply was lost.
         const renamed = `${name} after publication`;
-        await independent.evaluate(
-          async ({ name, renamed }) => {
-            const module = "/src/lib/vault/storage/migrate-to-shared.ts";
-            const db = await (await import(module)).openSharedDatabase();
-            const client = db.client();
-            try {
-              await client.executeRaw("UPDATE vaults SET name = ? WHERE name = ?", [
-                { type: "text", value: renamed },
-                { type: "text", value: name },
-              ]);
-            } finally {
-              client.close();
-              db.close();
-            }
-          },
-          { name, renamed }
-        );
+        await renameVault(afterCancel, renamed);
         await independent.reload();
         await retryMerge.click();
         await expect(independent.getByRole("alert")).toContainText(
@@ -1468,26 +1572,26 @@ nodeTest(
         expect(oldOperation.committed).toBe(true);
         await reviewMerge.click();
         await expect(findRemote(independent)).toBeVisible();
-        expect(
-          await independent.evaluate(
-            (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
-            `${pendingKey}:${oldOperation.operation}`
-          )
-        ).toEqual(oldOperation);
+        await expect(
+          independent.getByText(/Storage already committed the old merge/)
+        ).toBeVisible();
+        await expectArchived(oldOperation);
         expect(await localData()).toEqual(edited);
         await findRemote(independent).click();
         await expect(approve).toBeVisible();
-        expect(compareAttempts).toHaveLength(2);
-        expect(compareAttempts[0]).toBe(compareAttempts[1]);
-        expect(receiptChecks.every((receipt) => receipt === compareAttempts[0])).toBe(true);
-        expect(receiptChecks.length).toBeGreaterThan(1);
+        expect(compareAttempts).toHaveLength(3);
+        expect(receiptChecks).toEqual([compareAttempts[0], compareAttempts[2]]);
+        expect(resolutions).toEqual(compareAttempts);
+        expect(
+          compareAttempts.every((tuple) => tuple.startsWith(`${resourceId.replaceAll("-", "")}:`))
+        ).toBe(true);
         await approve.click();
         const linked = independent.getByText(`Linked Storage Resource ID: ${resourceId}`, {
           exact: true,
         });
         await expect(linked).toHaveCount(1);
-        expect(compareAttempts).toHaveLength(3);
-        expect(compareAttempts[2]).not.toBe(compareAttempts[0]);
+        expect(compareAttempts).toHaveLength(4);
+        expect(new Set(compareAttempts).size).toBe(4);
         expect(await databases()).toEqual(catalogWithDuplicateName);
         expect(JSON.parse((await remote()).body)).toEqual(JSON.parse(merged.body));
         expect(
@@ -1525,7 +1629,7 @@ nodeTest(
         await expect(complete(independent)).toBeVisible();
         await expect(linked).toHaveCount(1);
         await expect(prompt).toHaveCount(0);
-        expect(compareAttempts).toHaveLength(3);
+        expect(compareAttempts).toHaveLength(4);
         expect(await databases()).toEqual(catalogWithDuplicateName);
       } finally {
         await independentContext.close();
@@ -1931,21 +2035,23 @@ nodeTest(
     const owner = installationOwner(new URL(remote.storage).origin, node.ca);
     const write = await owner.exchange(pmSession, "storage:databases", "write");
     const legacy = await owner.json<{ id: string }>(
-      `${remote.storage}/databases/ensure`,
+      `${remote.storage}/databases`,
       write,
       "POST",
-      {
-        creationKey: "password-manager-main",
-        name: "password-manager-main",
-      }
+      { name: "Renamed older database" }
     );
+    const read = await owner.exchange(pmSession, "storage:databases", "read");
+    const catalog = () => owner.json<{ id: string }[]>(`${remote.storage}/databases`, read);
+    const keylessOnly = await catalog();
+    await pmPage.getByRole("button", { name: "Connect local database" }).click();
+    await pmPage.getByRole("button", { name: "Confirm and upload" }).click();
+    await expect(pmPage.getByRole("alert")).toContainText("First upload was not started");
+    expect(await catalog()).toEqual(keylessOnly);
     const decoy = await owner.json<{ id: string }>(`${remote.storage}/databases/ensure`, write, "POST", {
       creationKey: "legacy-name-decoy",
       name: "password-manager-main",
     });
     expect(decoy.id).not.toBe(legacy.id);
-    const read = await owner.exchange(pmSession, "storage:databases", "read");
-    const catalog = () => owner.json<{ id: string }[]>(`${remote.storage}/databases`, read);
     const before = await catalog();
     const { itemId, deletedId, vaultId } = await passwordManagerOpensLegacyVault(pmPage, pm, legacy.id);
     expect(await catalog()).toEqual(before);

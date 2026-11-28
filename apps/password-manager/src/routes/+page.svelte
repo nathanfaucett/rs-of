@@ -189,7 +189,7 @@ async function merge(retry = false) {
     const session = authState.session;
     const candidate = currentCandidate;
     const destination = candidate?.mode === "merge" || candidate?.mode === "upgrade" ? candidate : undefined;
-    if (!session || busy || (retry ? currentBinding?.status !== "pending-merge" : !destination)) return;
+    if (!session || busy || (retry ? currentBinding?.status !== "pending-merge" || !currentBinding.canRetry : !destination)) return;
     busy = true;
     error = "";
     notice = "";
@@ -211,15 +211,17 @@ async function merge(retry = false) {
     }
 }
 
-async function reviewPendingMerge() {
+async function resolvePendingMerge() {
     const session = authState.session;
     if (!session || busy || currentBinding?.status !== "pending-merge") return;
     busy = true;
     error = "";
     notice = "";
     try {
-        await syncStateModule.reviewPendingMerge(session);
-        if (session === authState.session) notice = "The old merge was kept for recovery. Find the remote database and review a new merge before approving it.";
+        const committed = await syncStateModule.resolvePendingMerge(session);
+        if (session === authState.session) {
+            notice = `${committed ? "Storage already committed the old merge." : "Storage cancelled the old merge."} Your local data and the old candidate were kept. Find the remote database and approve a new merge if you want to continue.`;
+        }
     } catch (cause) {
         if (session === authState.session) error = cause instanceof Error ? cause.message : "Could not check the pending merge.";
     } finally {
@@ -283,7 +285,7 @@ async function unlockVault() {
     }
 }
 
-function selectVault(identity: VaultIdentity & { recoveryResource?: string }) {
+function selectVault(identity: VaultIdentity & { recoveryResource?: string; localRecovery?: true }) {
     showPassword = false;
     notice = "";
     error = "";
@@ -347,7 +349,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                     {:else if !authState.isAuthenticated}
                         <a class="btn btn-secondary btn-md" href={resolve("/login")}>Sign in to sync</a>
                     {:else}
-                        {#if currentBinding?.status === "unbound" && !currentCandidate && vaultStateModule.state.vaults.some((vault) => !vault.recoveryResource)}
+                        {#if currentBinding?.status === "unbound" && !currentCandidate && vaultStateModule.state.vaults.some((vault) => !vault.recoveryResource && !vault.localRecovery)}
                             {#if confirmedSession && confirmedSession === authState.session}
                                 <section class="flex flex-col gap-2" aria-labelledby="sync-destination">
                                     <h2 id="sync-destination" class="font-medium">Confirm sync destination</h2>
@@ -399,10 +401,14 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                         {:else if currentBinding?.status === "pending-merge"}
                             <p class="break-all">Storage Resource ID: {currentBinding.id}</p>
                             <p>{currentBinding.committed ? "Storage confirmed the merge. Local publication is not complete." : "Storage has not confirmed the merge. Check its receipt before retrying."}</p>
-                            <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={() => merge(true)}>Retry pending merge</button>
-                            <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={reviewPendingMerge}>Review changed histories</button>
-                        {:else if currentBinding?.status === "merge-session-changed"}
-                            <p>A merge is pending for a different sign-in session. This session cannot retry it. Your local vaults are still available.</p>
+                            {#if currentBinding.canRetry}
+                                <button class="btn btn-primary btn-md" type="button" disabled={busy} onclick={() => merge(true)}>Retry pending merge</button>
+                            {:else}
+                                <p>This sign-in cannot retry the old merge. You can check its outcome and archive it.</p>
+                            {/if}
+                            <button class="btn btn-secondary btn-md" type="button" disabled={busy} onclick={resolvePendingMerge}>Cancel or archive pending merge</button>
+                        {:else if currentBinding?.status === "merge-different-account"}
+                            <p>A merge is pending for a different account or Installation. Your local vaults are still available.</p>
                         {:else if currentBinding?.status === "different-account"}
                             <p>This database is linked to another account or Installation. Sign in to that account to sync. You can still use your local vaults.</p>
                         {:else if currentBinding?.status === "unbound" && currentCandidate}
@@ -410,7 +416,7 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                                 <h2 id="restore-source" class="font-medium">{currentCandidate.mode === "upgrade" ? "Confirm older database upgrade" : currentCandidate.mode === "merge" ? "Confirm database merge" : currentCandidate.mode === "restore" ? "Confirm remote database restore" : "Remote database cannot be restored here"}</h2>
                                 {#if currentCandidate.mode === "merge" || currentCandidate.mode === "upgrade"}
                                     {#if currentCandidate.mode === "upgrade"}
-                                        <p>Close any older Password Manager tabs first. This upgrade combines the retained browser copy, this browser’s local vaults, and the exact Storage Resource, including saved deletions. Approval can send this combined history to that Resource. The original browser copy is kept.</p>
+                                        <p>Approval makes the older browser database read-only. This upgrade combines the retained browser copy, this browser’s local vaults, and the exact Storage Resource, including saved deletions. Approval can send this combined history to that Resource. The original browser copy is kept.</p>
                                     {:else}
                                         <p>Merge the entire local and remote databases, including all vaults and deletion history. Secret records are encrypted. Vault names and other metadata are not. Approval sends the merged history to this destination.</p>
                                     {/if}
@@ -457,14 +463,14 @@ const title = $derived(vaultStateModule.state.status === "create-vault" ? "Creat
                     {#if vaultStateModule.state.vaults.length > 0}
                         <div class="flex flex-col gap-2">
                             <p class="text-sm font-medium text-muted-foreground">Existing vaults</p>
-                            {#each vaultStateModule.state.vaults as identity (`${identity.recoveryResource ?? "local"}:${identity.id}`)}
+                            {#each vaultStateModule.state.vaults as identity (`${identity.recoveryResource ?? (identity.localRecovery ? "local-recovery" : "local")}:${identity.id}`)}
                                 <button
                                     class="btn btn-secondary btn-md text-left"
                                     type="button"
                                     disabled={busy}
                                     onclick={() => selectVault(identity)}
                                 >
-                                    <span class="vault-name">{identity.name}{identity.recoveryResource ? " (recovery copy)" : ""}</span>
+                                    <span class="vault-name">{identity.name}{(identity.recoveryResource || identity.localRecovery) ? " (recovery copy)" : ""}</span>
                                     <span class="block break-all text-xs">ID: {identity.id}</span>
                                 </button>
                             {/each}

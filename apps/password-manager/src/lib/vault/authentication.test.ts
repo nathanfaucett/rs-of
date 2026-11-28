@@ -2,7 +2,7 @@
 import { afterEach, assert, expect, it, vi } from "vitest";
 import { clearStorage, getStorageClient } from "../../test/utils";
 import { fixturePassword, fixturePlaintext } from "./authentication-fixtures";
-import { dbParam, parseOptionalText, parseText } from "./storage/schema";
+import { dbParam, parseOptionalText } from "./storage/schema";
 import { createVault, unlockVault } from "./vault";
 
 afterEach(async () => {
@@ -47,7 +47,7 @@ it("rejects wrong passwords without changing populated or last-item-removed vaul
   }
 }, 15000);
 
-it("migrates legacy vault on first unlock attempt, then verifies password", async () => {
+it("publishes a legacy vault only after the password and contents are verified", async () => {
   const name = `test-legacy-${crypto.randomUUID()}`;
   const id = crypto.randomUUID();
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -134,10 +134,10 @@ it("migrates legacy vault on first unlock attempt, then verifies password", asyn
   expect(beforeVaults.length).toBe(0);
   expect(beforeSecrets.length).toBe(0);
 
-  // First unlock with wrong password: migration happens, then password verification fails
+  // A wrong password does not publish a copy.
   await expect(unlockVault("wrong-password", id)).rejects.toThrow("Wrong password");
 
-  // After failed unlock: data has been migrated to shared DB
+  // No rows were published.
   const afterFailedVaults = await client.execute(`SELECT id FROM vaults WHERE id = ?`, () => 1, [
     { type: "text", value: id },
   ]);
@@ -146,8 +146,8 @@ it("migrates legacy vault on first unlock attempt, then verifies password", asyn
     () => 1,
     [{ type: "text", value: id }]
   );
-  expect(afterFailedVaults.length).toBe(1);
-  expect(afterFailedSecrets.length).toBe(1);
+  expect(afterFailedVaults.length).toBe(0);
+  expect(afterFailedSecrets.length).toBe(0);
 
   // Correct password: unlock succeeds
   const upgraded = await unlockVault(fixturePassword, id);
@@ -163,8 +163,8 @@ it("migrates legacy vault on first unlock attempt, then verifies password", asyn
       () => 1,
       [{ type: "text", value: id }]
     );
-    expect(afterSuccessVaults.length).toBe(afterFailedVaults.length);
-    expect(afterSuccessSecrets.length).toBe(afterFailedSecrets.length);
+    expect(afterSuccessVaults.length).toBe(1);
+    expect(afterSuccessSecrets.length).toBe(1);
   } finally {
     await upgraded.close();
   }
@@ -228,39 +228,18 @@ it("keeps a legacy empty vault unchanged without setting any attempted password"
     request.onerror = () => reject(request.error);
   });
 
-  // First unlock attempt (any password): migration happens, then legacy empty vault check fails
+  // An empty legacy vault has no proof of the original password.
   for (const password of ["wrong-password", fixturePassword]) {
     await expect(unlockVault(password, id)).rejects.toThrow("original password cannot be verified");
   }
-
-  // After failed unlocks: data has been migrated to shared DB (meta only, no secrets)
-  const { client } = await getStorageClient();
-  const vaultMeta = await client.execute(
-    `SELECT id, name, salt, iv, authentication FROM vaults WHERE id = ?`,
-    (row) => ({
-      id: parseText(row, "id"),
-      name: parseText(row, "name"),
-      salt: parseText(row, "salt"),
-      iv: parseText(row, "iv"),
-      authentication: parseOptionalText(row, "authentication"),
-    }),
-    [{ type: "text", value: id }]
-  );
-  expect(vaultMeta.length).toBe(1);
-  const secrets = await client.execute(`SELECT id FROM secrets WHERE vault_id = ?`, () => 1, [
-    { type: "text", value: id },
-  ]);
-  expect(secrets.length).toBe(0);
-
-  // Vault metadata should match original
-  const metadata = vaultMeta[0];
-  assert(metadata);
-  expect(metadata.id).toBe(id);
-  expect(metadata.name).toBe(name);
-  expect(metadata.salt).toBe(encode(salt));
-  expect(metadata.iv).toBe(encode(iv));
-  // authentication column should be null (not upgraded)
-  expect(metadata.authentication).toBeNull();
+  const { client, close } = await getStorageClient();
+  try {
+    await expect(
+      client.execute("SELECT id FROM vaults WHERE id = ?", () => 1, [dbParam(id)])
+    ).resolves.toEqual([]);
+  } finally {
+    close();
+  }
 }, 15000);
 
 it("fails closed on malformed, unsupported, truncated, tampered, and mismatched authentication", async () => {
@@ -412,7 +391,7 @@ it("does not upgrade a legacy vault if any encrypted record is damaged", async (
     request.onerror = () => reject(request.error);
   });
 
-  // Migration succeeds (row counts match), but password verification fails on damaged record
+  // A damaged record prevents verification and publication.
   await expect(unlockVault(fixturePassword, id)).rejects.toThrow(
     "Wrong password or damaged legacy records"
   );

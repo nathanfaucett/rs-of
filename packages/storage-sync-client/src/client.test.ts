@@ -587,3 +587,26 @@ test.each([true, false])(
     await expect(pending).resolves.toBe(published);
   }
 );
+
+test.each([
+  ["resolutionPublished", true],
+  ["resolutionCancelled", false],
+  ["publicationNotFound", undefined],
+  ["owner", undefined],
+] as const)("checks the terminal response %s without sending history", async (reply, result) => {
+  const previous = TestSocket.latest;
+  const pending = client().resolvePublication({ identity, publication });
+  const settled =
+    result === undefined
+      ? expect(pending).rejects.toMatchObject({ code: "protocol" })
+      : expect(pending).resolves.toBe(result);
+  await vi.waitFor(() => {
+    expect(TestSocket.latest).not.toBe(previous);
+    expect(TestSocket.latest.sent).toEqual([
+      bytes(fixtures.hello),
+      bytes(fixtures.resolvePublication),
+    ]);
+  });
+  TestSocket.latest.receive(fixtures[reply]);
+  await settled;
+});

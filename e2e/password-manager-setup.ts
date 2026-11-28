@@ -162,7 +162,9 @@ export async function passwordManagerOpensLegacyVault(page: Page, origin: string
     { name, password, resourceId }
   );
   await page.reload();
-  const find = page.getByRole("button", { name: "Find remote database" });
+  await page.getByText("Recover older data by Resource ID", { exact: true }).click();
+  await page.getByLabel("Older Storage Resource ID").fill(resourceId);
+  const find = page.getByRole("button", { name: "Find exact Resource" });
   const prompt = page.getByRole("region", { name: "Confirm older database upgrade" });
   const linked = page.getByText(`Linked Storage Resource ID: ${resourceId}`);
   await find.click();
@@ -170,7 +172,10 @@ export async function passwordManagerOpensLegacyVault(page: Page, origin: string
   await prompt.getByRole("button", { name: "Cancel upgrade" }).click();
   await expect(linked).toHaveCount(0);
   await find.click();
-  await page.evaluate(() => {
+  await page.evaluate(async (id) => {
+    const fixture = "/src/test/legacy-browser-fixture.ts";
+    const { stageCachedLegacyWrite } = await import(fixture);
+    await stageCachedLegacyWrite(id);
     const transaction = IDBDatabase.prototype.transaction;
     IDBDatabase.prototype.transaction = function (...args) {
       // Storage and the private stage can commit; fail only the live local publication.
@@ -178,13 +183,17 @@ export async function passwordManagerOpensLegacyVault(page: Page, origin: string
         throw new DOMException("Fixture: local publication failed", "QuotaExceededError");
       return transaction.apply(this, args);
     };
-  });
+  }, resourceId);
   await prompt.getByRole("button", { name: "Approve and upgrade" }).click();
   const retry = page.getByRole("button", { name: "Retry pending merge" });
   await expect(retry).toBeVisible();
   await expect(page.getByText("Storage confirmed the merge. Local publication is not complete.")).toBeVisible();
-  await page.getByText("Recover older data by Resource ID", { exact: true }).click();
-  await page.getByLabel("Older Storage Resource ID").fill(resourceId);
+  const retiredWrites = await page.evaluate(async (id) => {
+    const fixture = "/src/test/legacy-browser-fixture.ts";
+    const { probeRetiredLegacyWrites } = await import(fixture);
+    return probeRetiredLegacyWrites(id);
+  }, resourceId);
+  expect(retiredWrites).toEqual({ stale: true, reopened: true });
   await page.getByRole("button", { name: "Open retained copy" }).click();
   await page.getByRole("button", { name: /Legacy synced vault.*recovery copy/ }).click();
   await page.getByLabel("Master password", { exact: true }).fill(password);

@@ -59,6 +59,9 @@ fn main() {
     emit("checkPublication", SyncMessage::CheckPublication(request(AttachDirection::Bidirectional), publication));
     emit("publicationFound", SyncMessage::PublicationStatus(true));
     emit("publicationNotFound", SyncMessage::PublicationStatus(false));
+    emit("resolvePublication", SyncMessage::ResolvePublication(request(AttachDirection::Bidirectional), publication));
+    emit("resolutionPublished", SyncMessage::PublicationResolved(true));
+    emit("resolutionCancelled", SyncMessage::PublicationResolved(false));
     emit("destinationChanged", SyncMessage::Abort(AbortReason::DestinationChanged));
     emit("destinationHasHistory", SyncMessage::Abort(AbortReason::DestinationHasHistory));
     emit("rejected", SyncMessage::AttachResponse(AttachResponse {accepted: false, backend_replica_id: Uuid::nil(), session_id: Uuid::nil(), granted_direction: AttachDirection::Push, max_frame_bytes: MAX_FRAME_PAYLOAD, max_session_bytes: MAX_SESSION_BYTES}));

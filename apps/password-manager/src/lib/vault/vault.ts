@@ -55,7 +55,7 @@ export async function createVault(password: string, name: string): Promise<Vault
 }
 
 export async function unlockVault(password: string, id: string): Promise<VaultHandle> {
-  await migrateLocalVault(id);
+  await migrateLocalVault(id, password);
   const database = localDatabase(await getSharedClient(), true);
   try {
     const vault = await unlockEncryptedVault(database, password, id);

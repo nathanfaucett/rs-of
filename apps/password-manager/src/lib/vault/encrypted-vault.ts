@@ -89,7 +89,7 @@ export class VaultHandle implements VaultHandleLike {
               id: secret.id,
               kind: "secureNote",
               type: 0,
-              name: "",
+              name: "Legacy secure note",
               notes: plaintext,
               favorite: false,
               fields: [],
@@ -305,7 +305,8 @@ export class VaultHandle implements VaultHandleLike {
 
     return encodeBackup(this.key, {
       meta: this.meta,
-      authentication: metaResult[0]?.authentication ?? "",
+      authentication:
+        metaResult[0]?.authentication ?? (await createAuthentication(this.key, this.meta)),
       name: metaResult[0]?.name ?? "vault",
       secrets: secretsPayload,
       folders: foldersPayload,
