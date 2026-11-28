@@ -65,7 +65,7 @@ export async function passwordManagerSignin(
     password,
   }: Record<"origin" | "idp" | "storage" | "username" | "password", string>,
   withLocalVault = false,
-  checkLegacySelector = true,
+  checkStorageDiscovery = true,
   registeredClientId?: string
 ) {
   await page.goto(origin);
@@ -119,19 +119,21 @@ export async function passwordManagerSignin(
   expect(new URLSearchParams(grant.request().postData() ?? "").get("client_id")).toBe(clientId);
   await expect(page).toHaveURL(`${origin}/`);
   await page.reload();
-  if (checkLegacySelector) {
-    const show = page.getByRole("button", { name: "Show synced vaults" });
+  if (checkStorageDiscovery) {
+    const show = page.getByRole("button", { name: "Find remote database" });
     await expect(show).toBeVisible();
     const [exchange, list] = await Promise.all([
       tokenResponse("urn:ietf:params:oauth:grant-type:token-exchange"),
-      page.waitForResponse((res) => res.url() === `${storage}/databases`, { timeout: 20_000 }),
+      page.waitForResponse((res) => res.url().startsWith(`${storage}/databases/by-creation-key`), {
+        timeout: 20_000,
+      }),
       show.click(),
     ]);
     expect(exchange.ok()).toBe(true);
     expect(new URLSearchParams(exchange.request().postData() ?? "").get("client_id")).toBe(
       clientId
     );
-    expect(list.ok()).toBe(true);
+    expect([200, 404]).toContain(list.status());
   }
 
   if (withLocalVault) {
@@ -150,25 +152,118 @@ export async function passwordManagerSignin(
   return { clientId: clientId as string, accessToken };
 }
 
+export async function passwordManagerRejectsWrongLegacySource(page: Page, id: string) {
+  await page.evaluate(async (id) => {
+    const fixture = "/src/test/legacy-browser-fixture.ts";
+    const { createWrongLegacySource } = await import(fixture);
+    await createWrongLegacySource(id);
+  }, id);
+  const state = (write = false) =>
+    page.evaluate(
+      async ({ id, write }) => {
+        const fixture = "/src/test/legacy-browser-fixture.ts";
+        const { wrongLegacySourceState } = await import(fixture);
+        return wrongLegacySourceState(id, write);
+      },
+      { id, write }
+    );
+  const before = await state();
+  const recovery = page.getByText("Recover older data by Resource ID", { exact: true });
+  await recovery.click();
+  await page.getByLabel("Older Storage Resource ID").fill(id);
+  await page.getByRole("button", { name: "Find exact Resource" }).click();
+  await page
+    .getByRole("region", { name: "Confirm older database upgrade" })
+    .getByRole("button", { name: "Approve and upgrade" })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("Incompatible history table schemas");
+  await expect(page.getByText(`Linked Storage Resource ID: ${id}`)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Retry pending merge" })).toHaveCount(0);
+  expect(await state()).toEqual(before);
+  expect(await state(true)).not.toEqual(before);
+}
+
 export async function passwordManagerOpensLegacyVault(
   page: Page,
   origin: string,
   resourceId: string
 ) {
   const name = "Legacy synced vault";
-  await page.evaluate(
-    async ({ name, masterPassword, resourceId }) => {
+  const password = "older-vault-master-password";
+  const fixtureIds = await page.evaluate(
+    async ({ name, password, resourceId }) => {
       const fixture = "/src/test/legacy-browser-fixture.ts";
       const { createLegacyVault } = await import(fixture);
-      await createLegacyVault(resourceId, masterPassword, name);
+      return createLegacyVault(resourceId, password, name);
     },
-    { name, masterPassword, resourceId }
+    { name, password, resourceId }
   );
   await page.reload();
-  await page.getByRole("button", { name: "Show synced vaults" }).click();
-  await page.getByRole("button", { name: new RegExp(name) }).click();
-  await expect(page.getByLabel("Master password", { exact: true })).toBeFocused();
-  await page.getByLabel("Master password", { exact: true }).fill(masterPassword);
+  await page.getByText("Recover older data by Resource ID", { exact: true }).click();
+  await page.getByLabel("Older Storage Resource ID").fill(resourceId);
+  const find = page.getByRole("button", { name: "Find exact Resource" });
+  const prompt = page.getByRole("region", { name: "Confirm older database upgrade" });
+  const linked = page.getByText(`Linked Storage Resource ID: ${resourceId}`);
+  await find.click();
+  await expect(prompt).toContainText(resourceId);
+  await prompt.getByRole("button", { name: "Cancel upgrade" }).click();
+  await expect(linked).toHaveCount(0);
+  await find.click();
+  await page.evaluate(async (id) => {
+    const fixture = "/src/test/legacy-browser-fixture.ts";
+    const { stageCachedLegacyWrite } = await import(fixture);
+    await stageCachedLegacyWrite(id);
+    const transaction = IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction = function (...args) {
+      // Storage and the private stage can commit; fail only the live local publication.
+      if (this.name === "ofdb:sql:password-manager-v1" && args[1] === "readwrite")
+        throw new DOMException("Fixture: local publication failed", "QuotaExceededError");
+      return transaction.apply(this, args);
+    };
+  }, resourceId);
+  await prompt.getByRole("button", { name: "Approve and upgrade" }).click();
+  const retry = page.getByRole("button", { name: "Retry pending merge" });
+  await expect(retry).toBeVisible();
+  await expect(
+    page.getByText("Storage confirmed the merge. Local publication is not complete.")
+  ).toBeVisible();
+  const retiredWrites = await page.evaluate(async (id) => {
+    const fixture = "/src/test/legacy-browser-fixture.ts";
+    const { probeRetiredLegacyWrites } = await import(fixture);
+    return probeRetiredLegacyWrites(id);
+  }, resourceId);
+  expect(retiredWrites).toEqual({ stale: true, reopened: true });
+  await page.getByRole("button", { name: "Open retained copy" }).click();
+  await page.getByRole("button", { name: /Legacy synced vault.*recovery copy/ }).click();
+  await page.getByLabel("Master password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(page.getByText("This recovery copy is read-only", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Browser-only edit", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Lock vault" }).click();
+  await page.reload();
+  await retry.click();
+  await expect(linked).toBeVisible();
+  const reattach = page.getByRole("button", { name: "Reattach sync" });
+  await expect(reattach).toBeDisabled();
+  await page.reload();
+  const vault = page.getByRole("button", { name: new RegExp(name) });
+  await expect(vault).toContainText(fixtureIds.vaultId);
+  await expect(vault).toHaveCount(1);
+  await vault.click();
+  const input = page.getByLabel("Master password", { exact: true });
+  const unlock = page.getByRole("button", { name: "Unlock", exact: true });
+  await input.fill(masterPassword);
+  await unlock.click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await input.fill(password);
+  await unlock.click();
   await expect(page).toHaveURL(`${origin}/vault`);
+  await expect(page.getByRole("button", { name: "Browser-only edit", exact: true })).toBeVisible();
+  await expect(page.getByText("Legacy note removed in this browser")).toHaveCount(0);
+  await page.getByRole("button", { name: "Lock vault" }).click();
+  await expect(page.getByRole("button", { name: "Show synced vaults" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: new RegExp(localVault) })).toBeVisible();
+  await reattach.click();
+  await expect(page.getByText("Sync complete.")).toBeVisible();
+  return fixtureIds;
 }

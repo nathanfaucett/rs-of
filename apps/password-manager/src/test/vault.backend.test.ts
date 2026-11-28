@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { backendURL, json, session } from "../../../../e2e/browser-session";
 import { StorageClient } from "../../../../packages/storage-client/src/index";
 import { MIGRATIONS } from "../lib/vault/storage/schema";
-import { createSyncVault, unlockSyncVault } from "../lib/vault/sync-vault";
+import { createSyncVault, unlockSyncVault } from "./legacy-sync-vault";
 
 test("encrypted vault CRUD reaches real Storage and reopens legacy SQL timestamps", async () => {
   const login = await session();

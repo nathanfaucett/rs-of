@@ -16,6 +16,7 @@ import {
   localVault,
   masterPassword,
   passwordManagerOpensLegacyVault,
+  passwordManagerRejectsWrongLegacySource,
   passwordManagerSignin,
   passwordManagerWhileWaiting,
 } from "./password-manager-setup";
@@ -1326,7 +1327,7 @@ nodeTest(
         await independent.getByRole("button", { name: "Connect local database" }).click();
         await independent.getByRole("button", { name: "Confirm and upload" }).click();
         await expect(independent.getByRole("alert")).toContainText(
-          "This Resource already has history"
+          "First upload was not started"
         );
 
         const compareAttempts: string[] = [];
@@ -1754,6 +1755,7 @@ async function remoteInstallation(node: Awaited<ReturnType<typeof launchNode>>) 
   const application = `${app}/join-fixture`;
   const username = "admin@local.test";
   const password = "password";
+  const { E2E_BACKEND_BIN: binary } = process.env;
   node.launch(
     "pnpm",
     [
@@ -1762,12 +1764,7 @@ async function remoteInstallation(node: Awaited<ReturnType<typeof launchNode>>) 
       "run",
       "--name",
       "remote",
-      "cargo",
-      "run",
-      "--locked",
-      "-p",
-      "unified-server",
-      "--",
+      ...(binary ? [binary] : ["cargo", "run", "--locked", "-p", "unified-server", "--"]),
       "seeded",
       "--data-dir",
       resolve(data, "../remote"),
@@ -2038,15 +2035,64 @@ nodeTest(
     await pmPage.getByRole("button", { name: "Lock vault" }).click();
     const owner = installationOwner(new URL(remote.storage).origin, node.ca);
     const write = await owner.exchange(pmSession, "storage:databases", "write");
-    const legacy = await owner.json<{ id: string }>(
+    const legacy = await owner.json<{ id: string }>(`${remote.storage}/databases`, write, "POST", {
+      name: "Renamed older database",
+    });
+    const read = await owner.exchange(pmSession, "storage:databases", "read");
+    const catalog = () => owner.json<{ id: string }[]>(`${remote.storage}/databases`, read);
+    const keylessOnly = await catalog();
+    await pmPage.getByRole("button", { name: "Connect local database" }).click();
+    await pmPage.getByRole("button", { name: "Confirm and upload" }).click();
+    await expect(pmPage.getByRole("alert")).toContainText("First upload was not started");
+    expect(await catalog()).toEqual(keylessOnly);
+    const decoy = await owner.json<{ id: string }>(
       `${remote.storage}/databases/ensure`,
       write,
       "POST",
       {
-        creationKey: "password-manager-main",
+        creationKey: "legacy-name-decoy",
         name: "password-manager-main",
       }
     );
-    await passwordManagerOpensLegacyVault(pmPage, pm, legacy.id);
+    expect(decoy.id).not.toBe(legacy.id);
+    const wrong = await owner.json<{ id: string }>(`${remote.storage}/databases`, write, "POST", {
+      name: "Same-namespace SQL Resource",
+    });
+    const wrongSql = `${remote.storage}/databases/${wrong.id}/sql`;
+    await passwordManagerRejectsWrongLegacySource(pmPage, wrong.id);
+    const untouched = await owner.call(wrongSql, read, "POST", {
+      statements: [{ sql: "SELECT migrated FROM vaults" }],
+    });
+    expect(untouched.status, untouched.body).toBe(200);
+    expect(JSON.parse(untouched.body).results[0].rows).toEqual([[{ type: "integer", value: "1" }]]);
+    const remoteWrite = await owner.call(wrongSql, write, "POST", {
+      statements: [{ sql: "UPDATE vaults SET migrated = 0" }],
+    });
+    expect(remoteWrite.status, remoteWrite.body).toBe(200);
+    const before = await catalog();
+    const { itemId, deletedId, vaultId } = await passwordManagerOpensLegacyVault(
+      pmPage,
+      pm,
+      legacy.id
+    );
+    expect(await catalog()).toEqual(before);
+    const saved = await owner.call(`${remote.storage}/databases/${legacy.id}/sql`, read, "POST", {
+      statements: [
+        {
+          sql: "SELECT id, ciphertext, nonce FROM secrets WHERE vault_id = ?",
+          params: [{ type: "text", value: vaultId }],
+        },
+      ],
+    });
+    expect(saved.status, saved.body).toBe(200);
+    expect(JSON.parse(saved.body).results[0].rows).toEqual([
+      [
+        { type: "text", value: itemId },
+        { type: "text", value: expect.any(String) },
+        { type: "text", value: expect.any(String) },
+      ],
+    ]);
+    expect(saved.body).not.toContain(deletedId);
+    expect(saved.body).not.toContain("Kept encrypted across upgrade");
   }
 );

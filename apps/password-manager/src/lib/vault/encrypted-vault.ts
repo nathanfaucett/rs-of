@@ -37,21 +37,19 @@ export interface VaultDatabase {
   encryptedRows: EncryptedRowParsers;
   verifyExists?(id: string): Promise<void>;
   withItemLock?<T>(id: string, action: () => Promise<T>): Promise<T>;
-  sync?: VaultHandleLike["sync"];
   close(): Promise<void>;
 }
 
 export class VaultHandle implements VaultHandleLike {
-  readonly sync?: NonNullable<VaultHandleLike["sync"]>;
   private readonly database: VaultDatabase;
   private unlockedKey: CryptoKey | undefined;
   private readonly meta: VaultMeta;
+  private transitionBackup: string | null = null;
 
   constructor(database: VaultDatabase, key: CryptoKey, meta: VaultMeta) {
     this.database = database;
     this.unlockedKey = key;
     this.meta = meta;
-    if (database.sync) this.sync = database.sync;
   }
 
   get id(): string {
@@ -67,7 +65,11 @@ export class VaultHandle implements VaultHandleLike {
     return this.database.withItemLock ? this.database.withItemLock(this.id, action) : action();
   }
 
-  async loadSecrets(): Promise<Secret[]> {
+  loadSecrets(): Promise<Secret[]> {
+    return this.readSecrets(false);
+  }
+
+  private async readSecrets(strict: boolean): Promise<Secret[]> {
     return this.withItemLock(async () => {
       await this.database.verifyExists?.(this.id);
       const rows = await this.database.read(
@@ -87,12 +89,13 @@ export class VaultHandle implements VaultHandleLike {
             }
             return parsed;
           } catch (e) {
-            if (e instanceof Error && e.message.includes("Malformed vault snapshot")) throw e;
+            if (strict || (e instanceof Error && e.message.includes("Malformed vault snapshot")))
+              throw e;
             return {
               id: secret.id,
               kind: "secureNote",
               type: 0,
-              name: "",
+              name: "Legacy secure note",
               notes: plaintext,
               favorite: false,
               fields: [],
@@ -127,6 +130,24 @@ export class VaultHandle implements VaultHandleLike {
         })
       );
     });
+  }
+
+  async verifyFormat2(authentication: string, transitionBackup: string | null): Promise<void> {
+    try {
+      const [items, folders] = await Promise.all([this.readSecrets(true), this.loadFolders()]);
+      validateItemSnapshot({ items, folders });
+    } catch {
+      throw new Error("Malformed older vault snapshot. No records were copied. Keep browser data.");
+    }
+    if (transitionBackup !== null) {
+      const { validateTransitionBackup } = await import("./backup");
+      await validateTransitionBackup(
+        this.key,
+        { meta: this.meta, authentication },
+        transitionBackup
+      );
+      this.transitionBackup = transitionBackup;
+    }
   }
 
   private async itemSnapshot(): Promise<ItemSnapshot> {
@@ -308,12 +329,13 @@ export class VaultHandle implements VaultHandleLike {
 
     return encodeBackup(this.key, {
       meta: this.meta,
-      authentication: metaResult[0]?.authentication ?? "",
+      authentication:
+        metaResult[0]?.authentication ?? (await createAuthentication(this.key, this.meta)),
       name: metaResult[0]?.name ?? "vault",
       secrets: secretsPayload,
       folders: foldersPayload,
       itemFormat: 2,
-      transitionBackup: null,
+      transitionBackup: this.transitionBackup,
       lockSettings: await encryptLockSettings(this.key, this.id, lockSettings),
     });
   }

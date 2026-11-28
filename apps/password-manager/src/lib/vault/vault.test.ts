@@ -145,28 +145,36 @@ it("persists encrypted logins across lock/unlock and permanently removes a delet
   }
 }, 15000);
 
-it("rejects non-ISO SQL timestamps in local vault records", async () => {
+it("accepts older SQL timestamps without accepting malformed local metadata", async () => {
   const password = "test-only-master-password";
   const vault = await createVault(password, "Local timestamps");
-  await vault.createFolder("Local folder");
-  await vault.encryptAndStore("Local note");
+  const folder = await vault.createFolder("Local folder");
+  const item = await vault.encryptAndStore("Local note");
   await vault.saveLockSettings({ timeoutMinutes: 1 });
   await vault.close();
 
-  const { client, close } = await getStorageClient();
-  try {
-    for (const table of ["secrets", "folders", "lock_settings"]) {
-      await client.executeRaw(`UPDATE ${table} SET updated_at = ? WHERE vault_id = ?`, [
-        { type: "text", value: "2026-11-26 12:00:00" },
-        { type: "text", value: vault.id },
-      ]);
+  async function setTimestamp(value: string) {
+    const { client, close } = await getStorageClient();
+    try {
+      for (const table of ["secrets", "folders", "lock_settings"]) {
+        await client.executeRaw(`UPDATE ${table} SET updated_at = ? WHERE vault_id = ?`, [
+          { type: "text", value },
+          { type: "text", value: vault.id },
+        ]);
+      }
+    } finally {
+      close();
     }
-  } finally {
-    close();
   }
 
+  await setTimestamp("2026-11-26 12:00:00");
   const reopened = await unlockVault(password, vault.id);
   try {
+    expect(await reopened.loadSecrets()).toEqual([expect.objectContaining({ id: item.id })]);
+    expect(await reopened.loadFolders()).toEqual([folder]);
+    expect(await reopened.loadLockSettings()).toEqual({ timeoutMinutes: 1 });
+
+    await setTimestamp("not a timestamp");
     await expect(reopened.loadSecrets()).rejects.toThrow("SQL row parser failed");
     await expect(reopened.loadFolders()).rejects.toThrow("SQL row parser failed");
     await expect(reopened.loadLockSettings()).rejects.toThrow("SQL row parser failed");

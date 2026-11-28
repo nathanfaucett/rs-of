@@ -54,15 +54,7 @@ export interface VaultHandleLike {
   /** Save lock settings */
   saveLockSettings(settings: LockSettings): Promise<LockSettings>;
 
-  /** Sync vault with remote (if available) */
-  sync?(options?: {
-    direction?: "bidirectional" | "push" | "pull";
-    conflictStrategy?: "local-wins" | "remote-wins" | "merge" | "manual";
-  }): Promise<void>;
-
-  /** Sync vault to another device (if available) */
-
-  /** Close the vault and wait for pending sync teardown */
+  /** Close the vault and discard its unlocked key */
   close(): Promise<void>;
 }
 

@@ -1,6 +1,7 @@
 import { goto } from "$app/navigation";
+import { listLegacyRecovery, unlockLegacyRecovery } from "$lib/vault/legacy-history";
 import { createInactivityLock, type LockSettings } from "$lib/vault/lock";
-import { listSyncVaults, unlockSyncVault } from "$lib/vault/sync-vault";
+import { listLegacyLocalVaults, unlockLocalRecovery } from "$lib/vault/storage/migrate-to-shared";
 import type { VaultHandleLike } from "$lib/vault/types";
 import {
   createVault as createVaultHandle,
@@ -10,7 +11,7 @@ import {
 } from "$lib/vault/vault";
 import { syncStateModule } from "./sync.svelte";
 
-type VaultChoice = VaultIdentity & { synced?: boolean };
+type VaultChoice = VaultIdentity & { recoveryResource?: string; localRecovery?: true };
 
 type VaultState =
   | { status: "loading" }
@@ -25,7 +26,7 @@ type VaultState =
       vault: VaultHandleLike;
       lockSettings: LockSettings;
       inactivity: ReturnType<typeof createInactivityLock>;
-      isSynced: boolean;
+      recovery: boolean;
     };
 
 let vaultState = $state<VaultState>({ status: "loading" });
@@ -38,36 +39,35 @@ function getVaultData() {
       vault: vaultState.vault,
       lockSettings: vaultState.lockSettings,
       inactivity: vaultState.inactivity,
-      isSynced: vaultState.isSynced,
+      recovery: vaultState.recovery,
     };
   }
   return null;
 }
 
-async function showSyncedVaults() {
+async function showRecoveryVaults(id: string) {
   const previous = vaultState;
   if (previous.status !== "select-vault") return;
-  const handle = await syncStateModule.openLegacyDatabase();
-  const synced = handle ? await listSyncVaults(handle).finally(() => handle.close()) : [];
+  const source = await listLegacyRecovery(id);
   if (vaultState === previous) {
     vaultState = {
       ...previous,
       vaults: [
-        ...previous.vaults.filter((entry) => !entry.synced),
-        ...synced.map((entry) => ({ ...entry, synced: true })),
+        ...previous.vaults.filter((entry) => !entry.recoveryResource),
+        ...source.map((entry) => ({ ...entry, recoveryResource: id })),
       ],
     };
   }
-  return synced.length;
+  return source.length;
 }
 
-function activateVault(vault: VaultHandleLike, lockSettings: LockSettings, isSynced: boolean) {
+function activateVault(vault: VaultHandleLike, lockSettings: LockSettings, recovery: boolean) {
   if (vaultState.status === "unlocked") vaultState.inactivity.stop();
   const owner = ++session;
   const inactivity = createInactivityLock(() => {
     if (session === owner && vaultState.status === "unlocked") void lockVault();
   });
-  vaultState = { status: "unlocked", vault, lockSettings, inactivity, isSynced };
+  vaultState = { status: "unlocked", vault, lockSettings, inactivity, recovery };
   inactivity.start(lockSettings);
 }
 
@@ -83,28 +83,27 @@ async function createVault(password: string, name: string) {
   await goto("/vault");
 }
 
-async function unlockExistingVault(password: string, { id, synced }: VaultChoice) {
+async function unlockExistingVault(
+  password: string,
+  { id, recoveryResource, localRecovery }: VaultChoice
+) {
   const request = session;
-  const handle = synced ? await syncStateModule.openLegacyDatabase() : null;
-  if (synced && !handle) throw new Error("Failed to open sync database");
-  let vault: VaultHandleLike | null = null;
+  const vault = recoveryResource
+    ? await unlockLegacyRecovery(recoveryResource, id, password)
+    : localRecovery
+      ? await unlockLocalRecovery(id, password)
+      : await unlockVault(password, id);
   let activated = false;
   try {
-    vault = handle ? await unlockSyncVault(password, id, handle) : await unlockVault(password, id);
-    if (!vault) throw new Error("Wrong password or synced vault unavailable.");
     if (request !== session) return;
     const settings = await vault.loadLockSettings();
+    if (!recoveryResource && !localRecovery) await syncStateModule.verifyUpgradedVault(vault);
     if (request !== session) return;
-    await handle?.sync({ direction: "bidirectional" });
-    if (request !== session) return;
-    activateVault(vault, settings, Boolean(handle));
+    activateVault(vault, settings, !!recoveryResource || !!localRecovery);
     activated = true;
     await goto("/vault");
   } finally {
-    if (!activated) {
-      if (vault) await vault.close();
-      else await handle?.close();
-    }
+    if (!activated) await vault.close();
   }
 }
 
@@ -141,7 +140,10 @@ async function showVaultSelector() {
   selector = (async () => {
     try {
       await retireVault("loading");
-      const vaults = await listVaults();
+      const vaults: VaultChoice[] = await listVaults();
+      for (const source of await listLegacyLocalVaults()) {
+        vaults.push({ ...source, localRecovery: true });
+      }
       vaultState = { status: "select-vault", vaults };
     } catch (cause) {
       vaultState = {
@@ -174,6 +176,6 @@ export const vaultStateModule = {
   saveLockSettings,
   lockVault,
   showVaultSelector,
-  showSyncedVaults,
+  showRecoveryVaults,
   init,
 };
